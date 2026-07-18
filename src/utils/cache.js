@@ -81,7 +81,13 @@ function scheduleRetry() {
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
+// DISABLE_CACHE=1 (env): bypass all app caching — every request hits the DB
+// fresh. Dev/iteration mode only; unset once the product stabilizes.
+const CACHE_DISABLED = process.env.DISABLE_CACHE === '1' || process.env.DISABLE_CACHE === 'true';
+if (CACHE_DISABLED) console.warn('⚠️  DISABLE_CACHE set — app-level caching is OFF');
+
 async function cacheGet(key) {
+  if (CACHE_DISABLED) return null;
   // Try Redis first; fall through to LRU on any failure
   if (redisReady && redisClient) {
     try {
@@ -93,6 +99,7 @@ async function cacheGet(key) {
 }
 
 async function cacheSet(key, value, ttlSeconds = 60) {
+  if (CACHE_DISABLED) return;
   lruSet(key, value, ttlSeconds); // always write LRU
   if (redisReady && redisClient) {
     try {

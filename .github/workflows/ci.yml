@@ -126,6 +126,9 @@ jobs:
           node scripts/post-web-build.js
         env:
           CI: true
+          # NO_SW: service worker disabled during active iteration so every
+          # deploy is visible on plain refresh. Remove once the UI stabilizes.
+          NO_SW: 1
           EXPO_PUBLIC_API_URL: https://glow-backend-production-ae1e.up.railway.app
 
       - name: Assert deployable bundle

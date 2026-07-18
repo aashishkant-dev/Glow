@@ -92,7 +92,7 @@ router.get('/providers', async (_req, res) => {
       await cacheSet(CACHE_KEY, payload, 3600);
     }
 
-    res.set('Cache-Control', 'public, max-age=3600, stale-while-revalidate=86400');
+    res.set('Cache-Control', process.env.DISABLE_CACHE ? 'no-store' : 'public, max-age=3600, stale-while-revalidate=86400');
     res.json(payload);
   } catch (err) {
     console.error('GET /public/providers error:', err);
@@ -129,7 +129,7 @@ router.get('/catalog', async (_req, res) => {
       };
       await cacheSet(CACHE_KEY, payload, 600);
     }
-    res.set('Cache-Control', 'public, max-age=300');
+    res.set('Cache-Control', process.env.DISABLE_CACHE ? 'no-store' : 'public, max-age=300');
     res.json(payload);
   } catch (err) {
     console.error('GET /public/catalog error:', err);
