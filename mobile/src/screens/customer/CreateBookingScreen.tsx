@@ -37,7 +37,7 @@ const BRAND_MID   = Colors.brand;
 const BRAND_LIGHT = Colors.brand;
 const MIST        = '#E8F5EE';
 const PAPER       = '#F4F1EA';
-const INK         = '#0A0A0A';
+const INK         = '#1F1215';
 const MUTED       = '#5A5A5A';
 const BG_PAPER    = '#F8FAFC';
 
@@ -106,6 +106,32 @@ function addDays(date: Date, n: number) {
 }
 
 type Step = 1 | 2 | 3 | 4;
+
+// ─── Provider pricing helpers ──────────────────────────────────────────────
+function providerHourlyRate(provider: { pricingModel?: string; hourlyRate?: number } | null): number {
+  if (provider?.pricingModel === 'PER_SERVICE') return provider.hourlyRate ?? 25;
+  return provider?.hourlyRate ?? 25;
+}
+
+function providerServicePrice(provider: { pricingModel?: string; hourlyRate?: number; services?: { name: string; price: number }[] } | null, serviceType: string): number | null {
+  if (provider?.pricingModel === 'PER_SERVICE' && provider.services) {
+    const svc = provider.services.find(s => s.name === serviceType);
+    if (svc && svc.price > 0) return svc.price;
+  }
+  return null;
+}
+
+function calcTotalPrice(
+  provider: { pricingModel?: string; hourlyRate?: number; services?: { name: string; price: number }[] } | null,
+  serviceType: string,
+  hours: number,
+  numSessions: number,
+): number {
+  const svcPrice = providerServicePrice(provider, serviceType);
+  if (svcPrice != null) return svcPrice * numSessions;
+  return providerHourlyRate(provider) * hours * numSessions;
+}
+
 const DAYS_HEADER_EN = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 const DAYS_HEADER_FR = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
 
@@ -223,7 +249,7 @@ function ProviderProfileModal({
 
   const certItems = [
     { label: t.certPoliceCheck, ok: !!provider.policeCheckCleared },
-    { label: t.certProvider,         ok: true /* all on platform have Provider cert */ },
+    { label: t.certArtist,         ok: true /* all on platform have Provider cert */ },
     { label: t.certFirstAid,    ok: !!provider.firstAidCertified },
   ];
 
@@ -423,10 +449,10 @@ function loadLeaflet(): Promise<void> {
 
 
 // Deterministic jitter for Providers without coordinates (same logic as before)
-// Service region centre (Greater Sudbury, ON) — the map's home when neither the
+// Service region centre (Kathmandu, Nepal) — the map's home when neither the
 // user nor a Provider has a real GPS fix, so we never fall back to a world view.
-const REGION_LAT = 46.4917;
-const REGION_LNG = -80.9930;
+const REGION_LAT = 27.7172;
+const REGION_LNG = 85.3240;
 
 // A coordinate pair is "real" only when it isn't the 0/0 (or null) sentinel. The
 // backend sends 0,0 — and sometimes the region centre — for Providers who haven't shared
@@ -478,7 +504,7 @@ function injectPulseCSS() {
   document.head.appendChild(style);
 }
 
-function makeProviderPinHTML(name: string, isSelected: boolean): string {
+function makeProviderPinHTML(name: string, isSelected: boolean, rate: number = 25): string {
   const size = isSelected ? 44 : 36;
   const bg   = isSelected ? Colors.brandDark : '#fff';
   const fg   = isSelected ? '#fff' : Colors.brand;
@@ -491,7 +517,7 @@ function makeProviderPinHTML(name: string, isSelected: boolean): string {
     `<div style="position:relative;display:flex;flex-direction:column;align-items:center;cursor:pointer;">` +
       pulse +
       `<div style="width:${size}px;height:${size}px;border-radius:${size / 2}px;background:${bg};border:2.5px solid ${border};display:flex;align-items:center;justify-content:center;font-size:${isSelected ? 15 : 13}px;font-weight:800;color:${fg};box-shadow:0 3px 10px rgba(0,0,0,0.18);">${initial}</div>` +
-      `<div style="font-size:9px;font-weight:700;color:${isSelected ? Colors.brandDark : Colors.brand};margin-top:2px;">$25</div>` +
+      `<div style="font-size:9px;font-weight:700;color:${isSelected ? Colors.brandDark : Colors.brand};margin-top:2px;">Rs ${rate}</div>` +
       `<div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid ${border};margin-top:0;"></div>` +
     `</div>`
   );
@@ -594,7 +620,7 @@ function GeoMapWeb({
     enriched.forEach(provider => {
       const id = String(provider._id);
       const isSelected = id === selectedId;
-      const html = makeProviderPinHTML(provider.name, isSelected);
+      const html = makeProviderPinHTML(provider.name, isSelected, providerHourlyRate(provider));
       const icon = L.divIcon({
         html,
         className: '',
@@ -628,10 +654,10 @@ function GeoMapWeb({
       <View style={[geoMapStyles.container, { alignItems: 'center', justifyContent: 'center' }]}>
         <View style={{ marginBottom: 8 }}><SearchIcon size={28} color={Colors.brand} /></View>
         <Text style={{ fontSize: 14, fontWeight: '700', color: Colors.brandDark, textAlign: 'center' }}>
-          {tMap.noProvidersNearbyMap}
+          {tMap.noArtistsNearbyMap}
         </Text>
         <Text style={{ fontSize: 12, color: '#5A5A5A', marginTop: 4, textAlign: 'center', paddingHorizontal: 24 }}>
-          {tMap.noProvidersNearbyMapSub}
+          {tMap.noArtistsNearbyMapSub}
         </Text>
       </View>
     );
@@ -796,7 +822,7 @@ function BrowseProviderCard({
         {provider.firstAidCertified && (
           <View style={styles.certBadge}><Text style={styles.certBadgeText}>✓ {tCard.certFirstAid}</Text></View>
         )}
-        <View style={styles.certBadge}><Text style={styles.certBadgeText}>✓ {tCard.certProvider}</Text></View>
+        <View style={styles.certBadge}><Text style={styles.certBadgeText}>✓ {tCard.certArtist}</Text></View>
       </View>
 
       {/* Specialties */}
@@ -897,7 +923,7 @@ function NearMeProviderCard({
             {provider.distanceKm != null && (
               <View style={nearStyles.distBadge}>
                 {/* Brand PinIcon replaces the 📍 emoji (distance VALUE unchanged). */}
-                <PinIcon size={12} color="#2563EB" />
+                <PinIcon size={12} color="#9C5560" />
                 <Text style={nearStyles.distText}>{provider.distanceKm} km</Text>
               </View>
             )}
@@ -906,7 +932,7 @@ function NearMeProviderCard({
                 <Text style={nearStyles.ratingText}>★ {provider.rating.toFixed(1)}</Text>
               </View>
             )}
-            <Text style={nearStyles.rate}>$25/hr</Text>
+            <Text style={nearStyles.rate}>Rs {providerHourlyRate(provider)}/hr</Text>
           </View>
           {(provider.specialties ?? []).length > 0 && (
             <View style={{ flexDirection: 'row', gap: 5, marginTop: 6, flexWrap: 'wrap' }}>
@@ -1081,8 +1107,8 @@ export function CreateBookingScreen() {
   const locale = lang === 'fr' ? 'fr-CA' : 'en-CA';
   const MONTH_NAMES = lang === 'fr' ? MONTH_NAMES_FR : MONTH_NAMES_EN;
   const DAYS_HEADER = lang === 'fr' ? DAYS_HEADER_FR : DAYS_HEADER_EN;
-  const STEP_LABELS_SCHEDULED = [t.stepService, t.stepDateTime, t.stepChooseProvider, t.stepConfirm];
-  const STEP_LABELS_ONDEMAND  = [t.stepService, t.stepChooseProvider, t.stepConfirm];
+  const STEP_LABELS_SCHEDULED = [t.stepService, t.stepDateTime, t.stepChooseArtist, t.stepConfirm];
+  const STEP_LABELS_ONDEMAND  = [t.stepService, t.stepChooseArtist, t.stepConfirm];
   // `coords` keeps a fallback so the nearby-Provider search still returns local
   // results even before the user grants GPS. `realCoords` is null until we have
   // the device's actual location — used for the map's "You" pin so we never
@@ -1101,7 +1127,7 @@ export function CreateBookingScreen() {
   // geocodable address (incl. postal code) instead of a single short free-text line.
   const [street,        setStreet]        = useState('');
   const [unit,          setUnit]          = useState('');
-  const [city,          setCity]          = useState('Sudbury, ON');
+  const [city,          setCity]          = useState('Kathmandu');
   const [postal,        setPostal]        = useState('');
   const [geocoding,     setGeocoding]     = useState(false);
   // Combined, human-readable address string sent to the backend + shown on the booking.
@@ -1113,6 +1139,7 @@ export function CreateBookingScreen() {
   const [startHour,     setStartHour]     = useState(9);
   const [providers,          setProviders]          = useState<AvailableProvider[]>([]);
   const [selectedProvider,   setSelectedProvider]   = useState<AvailableProvider | null>(null);
+  const [proposedPrice,      setProposedPrice]      = useState<string>('');
   const [loading,       setLoading]       = useState(false);
   const [loadingProviders,   setLoadingProviders]   = useState(false);
   const [providerMode,       setProviderMode]       = useState<'near' | 'browse'>('near');
@@ -1206,7 +1233,7 @@ export function CreateBookingScreen() {
   const [calMonth, setCalMonth] = useState(minSelectDate.getMonth());
 
   const canNext =
-    step === 1 ? (!!serviceType && street.trim().length > 2 && postal.trim().length >= 6) :
+    step === 1 ? (!!serviceType && street.trim().length > 2) :
     step === 2 ? selectedDates.length > 0 :
     step === 3 ? !!selectedProvider :
     true;
@@ -1348,12 +1375,11 @@ export function CreateBookingScreen() {
             serviceType,
             hours,
             scheduledAt: scheduledAt.toISOString(),
-            // Real GPS when available, else the geocoded manual address. Backend
-            // falls back to the customer's stored coords if both are absent.
             lat: bookingCoords?.lat,
             lng: bookingCoords?.lng,
             providerId: selectedProvider._id,
             address: address.trim(),
+            proposedPrice: proposedPrice ? Number(proposedPrice) : undefined,
           });
         })
       );
@@ -1564,12 +1590,12 @@ export function CreateBookingScreen() {
           {loadingProviders ? (
             <View style={styles.emptyBox}>
               <ActivityIndicator color={BRAND_MID} size="large" />
-              <Text style={styles.emptyText}>{t.findingProviders}</Text>
+              <Text style={styles.emptyText}>{t.findingArtists}</Text>
             </View>
           ) : providers.length === 0 ? (
             <View style={styles.emptyBox}>
               <View style={{ marginBottom: 8 }}><SearchIcon size={32} color={Colors.tertiaryLabel} /></View>
-              <Text style={styles.emptyText}>{t.noProvidersNearby}</Text>
+              <Text style={styles.emptyText}>{t.noArtistsNearby}</Text>
               <Pressable onPress={() => setProviderMode('browse')} style={{ marginTop: 12 }}>
                 <Text style={{ color: Colors.brand, fontWeight: '700' }}>{t.browseAll}</Text>
               </Pressable>
@@ -1715,16 +1741,19 @@ export function CreateBookingScreen() {
               <Text style={[styles.sectionTitle, { marginTop: 28 }]}>{t.sectionLength}</Text>
               <Text style={styles.sectionSub}>{t.sessionLengthSub}</Text>
               <View style={styles.chipRow}>
-                {HOURS_OPTIONS.map(h => (
-                  <Pressable
-                    key={h}
-                    style={[styles.chip, hours === h && styles.chipActive]}
-                    onPress={() => { tapLight(); setHours(h); }}
-                  >
-                    <Text style={[styles.chipText, hours === h && styles.chipTextActive]}>{h}h</Text>
-                    <Text style={[styles.chipSub, hours === h && { color: '#fff' }]}>${25 * h}</Text>
-                  </Pressable>
-                ))}
+                {HOURS_OPTIONS.map(h => {
+                  const chipPrice = calcTotalPrice(selectedProvider, serviceType, h, 1);
+                  return (
+                    <Pressable
+                      key={h}
+                      style={[styles.chip, hours === h && styles.chipActive]}
+                      onPress={() => { tapLight(); setHours(h); }}
+                    >
+                      <Text style={[styles.chipText, hours === h && styles.chipTextActive]}>{h}h</Text>
+                      <Text style={[styles.chipSub, hours === h && { color: '#fff' }]}>Rs {chipPrice}</Text>
+                    </Pressable>
+                  );
+                })}
               </View>
 
               <Text
@@ -1758,7 +1787,7 @@ export function CreateBookingScreen() {
                   placeholderTextColor="#8E8E93"
                   returnKeyType="next"
                   autoCapitalize="characters"
-                  maxLength={7}
+                  maxLength={10}
                 />
               </View>
               <TextInput
@@ -1891,7 +1920,7 @@ export function CreateBookingScreen() {
           {/* ── Step 3: Provider picker (loading / empty / browse mode) ── */}
           {step === 3 && (
             <View>
-              <Text style={styles.sectionTitle}>{t.chooseProvider}</Text>
+              <Text style={styles.sectionTitle}>{t.chooseArtist}</Text>
 
               <View style={styles.modeToggleRow}>
                 <Pressable
@@ -1915,12 +1944,12 @@ export function CreateBookingScreen() {
               {loadingProviders ? (
                 <View style={styles.emptyBox}>
                   <ActivityIndicator color={BRAND_MID} size="large" />
-                  <Text style={styles.emptyText}>{t.findingProviders}</Text>
+                  <Text style={styles.emptyText}>{t.findingArtists}</Text>
                 </View>
               ) : providers.length === 0 ? (
                 <View style={styles.emptyBox}>
                   <SearchIcon size={32} color={Colors.brand} />
-                  <Text style={styles.emptyText}>{t.noProvidersNearby}</Text>
+                  <Text style={styles.emptyText}>{t.noArtistsNearby}</Text>
                   <Text style={[styles.emptyText, { fontSize: 13, marginTop: 4 }]}>
                     {t.tryAgain}
                   </Text>
@@ -2009,7 +2038,7 @@ export function CreateBookingScreen() {
                   <Text style={styles.confirmLabel}>{t.confirmEstTotal}</Text>
                   <View style={{ flex: 1, alignItems: 'flex-end' }}>
                     <Text style={[styles.confirmValue, styles.confirmValueBold]}>
-                      ${25 * hours * (bookingMode === 'ondemand' ? 1 : Math.max(selectedDates.length, 1))} CAD
+                      Rs {calcTotalPrice(selectedProvider, serviceType, hours, bookingMode === 'ondemand' ? 1 : Math.max(selectedDates.length, 1))}
                     </Text>
                     {bookingMode === 'scheduled' && selectedDates.length > 1 && (
                       <Text style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>
@@ -2019,6 +2048,30 @@ export function CreateBookingScreen() {
                   </View>
                 </View>
               </View>
+
+              {/* Price negotiation UI — only when provider allows it */}
+              {selectedProvider?.priceNegotiable && (
+                <View style={[styles.escrowBox, { backgroundColor: '#FEF3C7', borderColor: '#FDE68A', marginTop: 14 }]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={[styles.escrowTitle, { color: '#92400E' }]}>Propose a Price</Text>
+                    <Text style={[styles.escrowText, { color: '#A16207' }]}>
+                      This provider accepts price negotiation. Enter your offer below (within ±50% of the listed price).
+                    </Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 }}>
+                      <Text style={{ fontSize: 18, fontWeight: '800', color: '#92400E' }}>Rs</Text>
+                      <TextInput
+                        style={[styles.addressInput, { flex: 1, marginTop: 0, borderColor: '#FDE68A', backgroundColor: '#FFFBEB' }]}
+                        value={proposedPrice}
+                        onChangeText={setProposedPrice}
+                        placeholder={`${calcTotalPrice(selectedProvider, serviceType, hours, 1)}`}
+                        placeholderTextColor="#D97706"
+                        keyboardType="number-pad"
+                        maxLength={6}
+                      />
+                    </View>
+                  </View>
+                </View>
+              )}
 
               {/* ── Payment info — settled directly with the caregiver, no in-app
                     charge. Do NOT show payment-method pickers here until real
@@ -2081,7 +2134,7 @@ export function CreateBookingScreen() {
                   {step === 4 && <KeyIcon size={16} color="#fff" />}
                   <Text style={styles.ctaBtnText}>
                     {step === 4
-                      ? t.confirmBtn(25 * hours * (bookingMode === 'ondemand' ? 1 : Math.max(selectedDates.length, 1)))
+                      ? t.confirmBtn(calcTotalPrice(selectedProvider, serviceType, hours, bookingMode === 'ondemand' ? 1 : Math.max(selectedDates.length, 1)))
                       : t.continueBtn}
                   </Text>
                 </View>
@@ -2146,11 +2199,11 @@ const geoMapStyles = StyleSheet.create({
     fontSize: 14, fontWeight: '800', color: INK, marginBottom: 2,
   },
   infoDistBadge: {
-    backgroundColor: '#EFF6FF', borderRadius: 6,
+    backgroundColor: '#FDF2F4', borderRadius: 6,
     paddingHorizontal: 6, paddingVertical: 2,
   },
   infoDistText: {
-    fontSize: 10, color: '#2563EB', fontWeight: '700',
+    fontSize: 10, color: '#9C5560', fontWeight: '700',
   },
   infoSelectBtn: {
     backgroundColor: BRAND_DARK,
@@ -2297,13 +2350,13 @@ const nearStyles = StyleSheet.create({
     fontSize: 10, color: '#fff', fontWeight: '800',
   },
   distBadge: {
-    backgroundColor: '#EFF6FF',
+    backgroundColor: '#FDF2F4',
     borderRadius: 8,
     paddingHorizontal: 7, paddingVertical: 3,
     flexDirection: 'row', alignItems: 'center', gap: 3,
   },
   distText: {
-    fontSize: 11, color: '#2563EB', fontWeight: '700',
+    fontSize: 11, color: '#9C5560', fontWeight: '700',
   },
   ratingBadge: {
     backgroundColor: '#FEF9C3',
@@ -2505,20 +2558,20 @@ const styles = StyleSheet.create({
 
   body: { padding: 20 },
 
-  sectionTitle: { fontSize: 20, fontWeight: '800', color: '#0F172A', marginBottom: 4 },
+  sectionTitle: { fontSize: 20, fontWeight: '800', color: '#1F1215', marginBottom: 4 },
   sectionSub:   { fontSize: 13, color: '#64748B', marginBottom: 16 },
 
-  serviceGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  serviceGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   serviceCard: {
-    width: (SCREEN_W - 52) / 2, flexBasis: (SCREEN_W - 52) / 2,
-    padding: 16, borderRadius: 16,
+    width: (SCREEN_W - 56) / 2, flexBasis: (SCREEN_W - 56) / 2,
+    padding: 18, borderRadius: 20,
     backgroundColor: '#fff',
     borderWidth: 2, borderColor: '#E5E7EB',
-    alignItems: 'center', gap: 6,
+    alignItems: 'center', gap: 8,
     position: 'relative',
-    minHeight: 44,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
+    minHeight: 48,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06, shadowRadius: 6, elevation: 3,
   },
   serviceCardIcon:  { fontSize: 28 },
   serviceCardLabel: { fontSize: 12, fontWeight: '600', color: '#64748B', textAlign: 'center' },
@@ -2551,10 +2604,10 @@ const styles = StyleSheet.create({
 
   calCard: {
     backgroundColor: '#fff',
-    borderRadius: 18, padding: 16, marginTop: 12,
+    borderRadius: 20, padding: 18, marginTop: 14,
     borderWidth: 1, borderColor: '#E5E7EB',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06, shadowRadius: 8, elevation: 3,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08, shadowRadius: 10, elevation: 4,
   },
   calNavRow: {
     flexDirection: 'row', alignItems: 'center',
@@ -2566,7 +2619,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   calNavBtnText:  { fontSize: 20, fontWeight: '700', color: '#374151', lineHeight: 24 },
-  calMonthLabel:  { fontSize: 17, fontWeight: '800', color: '#0F172A' },
+  calMonthLabel:  { fontSize: 17, fontWeight: '800', color: '#1F1215' },
   calDowRow:      { flexDirection: 'row', marginBottom: 8 },
   calDowText:     { flex: 1, textAlign: 'center', fontSize: 11, fontWeight: '700', color: '#94A3B8', letterSpacing: 0.3 },
   calWeekRow:     { flexDirection: 'row', marginBottom: 2 },
@@ -2617,11 +2670,11 @@ const styles = StyleSheet.create({
 
   // Browse card styles
   providerBrowseCard: {
-    padding: 16, borderRadius: 16, marginBottom: 12,
+    padding: 18, borderRadius: 18, marginBottom: 14,
     backgroundColor: '#fff',
     borderWidth: 1.5, borderColor: '#E5E7EB',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06, shadowRadius: 8, elevation: 3,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.08, shadowRadius: 10, elevation: 4,
   },
   providerCardSelected: { borderColor: BRAND_MID, borderWidth: 2, backgroundColor: '#F0FDF8' },
   providerBrowseTop:    { flexDirection: 'row', alignItems: 'flex-start', marginBottom: 10 },
@@ -2709,7 +2762,7 @@ const styles = StyleSheet.create({
   },
   confirmRow:     { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10 },
   confirmLabel:   { fontSize: 14, color: '#64748B', fontWeight: '600' },
-  confirmValue:   { fontSize: 14, color: '#0F172A', fontWeight: '600', flex: 1, textAlign: 'right' },
+  confirmValue:   { fontSize: 14, color: '#1F1215', fontWeight: '600', flex: 1, textAlign: 'right' },
   confirmValueBold: { fontWeight: '800', fontSize: 16, color: BRAND_DARK },
   confirmDivider: { height: 1, backgroundColor: '#E5E7EB', marginVertical: 4 },
   confirmNote:    { fontSize: 13, color: '#94A3B8', textAlign: 'center', lineHeight: 19, marginTop: 14 },
@@ -2727,7 +2780,7 @@ const styles = StyleSheet.create({
   addressInput: {
     borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 14,
     paddingHorizontal: 16, paddingVertical: 14,
-    fontSize: 15, color: '#0F172A',
+    fontSize: 15, color: '#1F1215',
     backgroundColor: '#fff',
     marginTop: 8,
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
@@ -2780,13 +2833,13 @@ const filterStyles = StyleSheet.create({
   },
   handle: { width: 40, height: 4, borderRadius: 2, backgroundColor: '#E5E7EB', alignSelf: 'center', marginBottom: 16 },
   headerRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 },
-  title: { fontSize: 18, fontWeight: '800', color: '#0A0A0A' },
+  title: { fontSize: 18, fontWeight: '800', color: '#1F1215' },
   closeBtn: { fontSize: 18, color: '#6B7280', fontWeight: '700', padding: 4 },
   toggleRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: '#F1F5F9', marginBottom: 8,
   },
-  toggleLabel: { fontSize: 15, fontWeight: '600', color: '#0A0A0A' },
+  toggleLabel: { fontSize: 15, fontWeight: '600', color: '#1F1215' },
   checkbox: {
     width: 22, height: 22, borderRadius: 6, borderWidth: 2, borderColor: '#CBD5E1',
     alignItems: 'center', justifyContent: 'center',

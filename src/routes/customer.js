@@ -37,14 +37,51 @@ const COMMISSION_MIN  = parseFloat(process.env.COMMISSION_MIN) || 2.00;
 
 // Beauty pricing: the chosen provider's own price for the service wins; otherwise
 // the catalog base price; hourly rate only as a last-resort fallback.
-async function priceForBooking(serviceType, hours, providerUserId) {
+async function priceForBooking(serviceType, hours, providerUserId, proposedPrice) {
+  let listedPrice = null;
+
   if (providerUserId) {
-    const ps = await prisma.providerService.findFirst({
-      where: { profile: { userId: providerUserId }, name: serviceType, active: true },
-      select: { price: true },
+    // Look up the provider's pricing model
+    const profile = await prisma.providerProfile.findUnique({
+      where: { userId: providerUserId },
+      select: { pricingModel: true, hourlyRate: true, priceNegotiable: true },
     });
-    if (ps && parseFloat(ps.price.toString()) > 0) return parseFloat(ps.price.toString());
+
+    if (profile) {
+      if (profile.pricingModel === 'PER_SERVICE') {
+        // Per-service: use the provider's own price for this specific service
+        const ps = await prisma.providerService.findFirst({
+          where: { profile: { userId: providerUserId }, name: serviceType, active: true },
+          select: { price: true },
+        });
+        if (ps && parseFloat(ps.price.toString()) > 0) {
+          listedPrice = parseFloat(ps.price.toString());
+        }
+      } else {
+        // Hourly: provider's hourly rate × hours
+        if (profile.hourlyRate && parseFloat(profile.hourlyRate.toString()) > 0) {
+          listedPrice = Math.round(parseFloat(profile.hourlyRate.toString()) * Number(hours) * 100) / 100;
+        }
+      }
+
+      // If the provider allows negotiation and the client proposed a price, use it
+      // (within ±50% of the listed price to prevent abuse)
+      if (listedPrice != null && profile.priceNegotiable && proposedPrice != null) {
+        const proposed = Number(proposedPrice);
+        if (!isNaN(proposed) && proposed > 0) {
+          const lowerBound = listedPrice * 0.5;
+          const upperBound = listedPrice * 1.5;
+          if (proposed >= lowerBound && proposed <= upperBound) {
+            return Math.round(proposed * 100) / 100;
+          }
+        }
+      }
+    }
   }
+
+  // Fallback: catalog base price
+  if (listedPrice != null) return listedPrice;
+
   const item = await prisma.serviceItem.findFirst({
     where: { name: serviceType, active: true },
     select: { basePrice: true },
@@ -173,6 +210,7 @@ router.get(
           policeCheckCleared: true, firstAidCertified: true, approvedByAdmin: true, photoUrl: true,
           availability: true,
           homeService: true, salonService: true, salonAddress: true, serviceRadiusKm: true, coverPhotoUrl: true,
+          pricingModel: true, hourlyRate: true, priceNegotiable: true,
           services: { where: { active: true }, select: { name: true, price: true, durationMin: true } },
           user: {
             select: { id: true, name: true, rating: true, ratingCount: true, lat: true, lng: true, photoUrl: true, role: true, lastSeenAt: true },
@@ -218,6 +256,9 @@ router.get(
             serviceRadiusKm:    p.serviceRadiusKm,
             coverPhotoUrl:      p.coverPhotoUrl || '',
             services:           (p.services || []).map(s => ({ name: s.name, price: toNum(s.price), durationMin: s.durationMin })),
+            pricingModel:       p.pricingModel || 'HOURLY',
+            hourlyRate:         toNum(p.hourlyRate),
+            priceNegotiable:    p.priceNegotiable || false,
             hasLocation,
             online:             p.availability && p.user.lastSeenAt != null && (Date.now() - new Date(p.user.lastSeenAt).getTime() < 10 * 60 * 1000),
           };
@@ -252,7 +293,7 @@ router.post(
   validate,
   async (req, res) => {
     try {
-      const { serviceType, hours, scheduledAt, notes, providerId } = req.body;
+      const { serviceType, hours, scheduledAt, notes, providerId, proposedPrice } = req.body;
 
       const scheduledDate = new Date(scheduledAt);
       const now = new Date();
@@ -294,7 +335,7 @@ router.post(
         latCoord = (me?.lat && me.lat !== 0) ? me.lat : 0;
         lngCoord = (me?.lng && me.lng !== 0) ? me.lng : 0;
       }
-      const price = await priceForBooking(serviceType, hours, resolvedProviderId);
+      const price = await priceForBooking(serviceType, hours, resolvedProviderId, proposedPrice);
       const { platformFee, providerPayout } = computeFees(price);
 
       const booking = await prisma.booking.create({
@@ -422,6 +463,7 @@ router.get(
         // Explicit select — exclude submittedDocuments (base64 blob JSON).
         select: {
           specialties: true, photoUrl: true, policeCheckCleared: true, experienceYears: true,
+          pricingModel: true, hourlyRate: true, priceNegotiable: true,
           user: {
             select: { id: true, name: true, rating: true, lat: true, lng: true, photoUrl: true, lastSeenAt: true },
           },
@@ -446,6 +488,9 @@ router.get(
             photoUrl:           p.user.photoUrl || p.photoUrl || '',
             policeCheckCleared: p.policeCheckCleared,
             experienceYears:    p.experienceYears,
+            pricingModel:       p.pricingModel || 'HOURLY',
+            hourlyRate:         toNum(p.hourlyRate),
+            priceNegotiable:    p.priceNegotiable || false,
           };
         })
         // Keep Providers within radius OR those whose distance is unknown (no coords yet) —
@@ -502,6 +547,9 @@ router.get(
           serviceRadiusKm: true,
           coverPhotoUrl: true,
           languages: true,
+          pricingModel: true,
+          hourlyRate: true,
+          priceNegotiable: true,
           services: { where: { active: true }, select: { name: true, price: true, durationMin: true } },
           user: {
             select: {
@@ -560,6 +608,9 @@ router.get(
           coverPhotoUrl: profile.coverPhotoUrl || '',
           languages: profile.languages ?? [],
           services: (profile.services || []).map(s => ({ name: s.name, price: toNum(s.price), durationMin: s.durationMin })),
+          pricingModel: profile.pricingModel || 'HOURLY',
+          hourlyRate: toNum(profile.hourlyRate),
+          priceNegotiable: profile.priceNegotiable || false,
           completedBookings: completedCount,
           recentRatings: ratedBookings.map(b => ({
             id: b.id,
@@ -992,6 +1043,8 @@ router.post(
 );
 
 // ── PATCH /profile ─────────────────────────────────────────────────────────────
+// Updates User fields + (for Providers) bio / languages / specialties / photos
+// on ProviderProfile. Mobile ProfileScreen saves all of these through one endpoint.
 router.patch(
   '/profile',
   authenticate,
@@ -1001,11 +1054,15 @@ router.patch(
     body('address').optional().trim().isLength({ max: 200 }).withMessage('address too long'),
     body('emergencyContact.name').optional().trim().isLength({ max: 80 }),
     body('emergencyContact.phone').optional().trim(),
+    body('bio').optional().trim().isLength({ max: 600 }).withMessage('bio must be ≤ 600 characters'),
+    body('languages').optional().isArray({ max: 12 }).withMessage('languages must be an array'),
+    body('specialties').optional().isArray({ max: 20 }).withMessage('specialties must be an array'),
+    body('photos').optional().isArray({ max: 10 }).withMessage('photos must be an array'),
   ],
   validate,
   async (req, res) => {
     try {
-      const allowed = ['name', 'email', 'address', 'emergencyContact', 'preferredLanguage', 'gender', 'photoUrl', 'photos'];
+      const allowed = ['name', 'email', 'address', 'emergencyContact', 'preferredLanguage', 'gender', 'photoUrl'];
       const raw = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
       if (raw.name) raw.name = sanitizeName(raw.name);
 
@@ -1024,26 +1081,53 @@ router.patch(
       if (data.photoUrl && !String(data.photoUrl).startsWith('https://')) {
         return res.status(400).json({ error: 'photoUrl must be an https URL' });
       }
-      delete data.photos; // ProviderProfile-only field; not on User model
-      const user = await prisma.user.update({ where: { id: req.user.id }, data });
 
-      if (req.user.role === 'Provider' && (req.body.photoUrl || req.body.photos)) {
+      // Only touch User if there is something to write (avoids empty update errors).
+      let user;
+      if (Object.keys(data).length > 0) {
+        user = await prisma.user.update({ where: { id: req.user.id }, data });
+      } else {
+        user = await prisma.user.findUnique({ where: { id: req.user.id } });
+        if (!user) return res.status(404).json({ error: 'User not found' });
+      }
+
+      // Provider-only profile fields (bio / languages / specialties / gallery / headshot)
+      let providerProfile = null;
+      if (req.user.role === 'Provider') {
         const providerData = {};
         if (req.body.photoUrl) providerData.photoUrl = req.body.photoUrl;
+        if (typeof req.body.bio === 'string') providerData.bio = req.body.bio.trim();
+        if (Array.isArray(req.body.languages)) {
+          providerData.languages = req.body.languages
+            .filter(l => typeof l === 'string' && l.trim())
+            .map(l => l.trim())
+            .slice(0, 12);
+        }
+        if (Array.isArray(req.body.specialties)) {
+          providerData.specialties = req.body.specialties
+            .filter(s => typeof s === 'string' && s.trim())
+            .map(s => s.trim())
+            .slice(0, 20);
+        }
         if (Array.isArray(req.body.photos)) {
           providerData.photos = req.body.photos
             .filter(u => typeof u === 'string' && u.startsWith('http'))
             .slice(0, 10);
         }
-        await prisma.providerProfile.upsert({
-          where:  { userId: req.user.id },
-          update: providerData,
-          create: { userId: req.user.id, ...providerData },
-        });
+        if (Object.keys(providerData).length > 0) {
+          providerProfile = await prisma.providerProfile.upsert({
+            where:  { userId: req.user.id },
+            update: providerData,
+            create: { userId: req.user.id, ...providerData },
+          });
+        } else {
+          providerProfile = await prisma.providerProfile.findUnique({ where: { userId: req.user.id } });
+        }
       }
 
       const { expoPushToken: _pt, ...safeUser } = user;
       safeUser.rating = toNum(safeUser.rating) ?? 0;
+      if (providerProfile) safeUser.providerProfile = providerProfile;
       res.json({ message: 'Profile updated', user: safeUser });
     } catch (err) {
       console.error(err);

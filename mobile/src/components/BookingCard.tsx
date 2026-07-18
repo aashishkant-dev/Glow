@@ -25,17 +25,17 @@ function BookingCardBase({ booking, onPress, showProvider = true }: Props) {
     >
       <View style={styles.row}>
         <View style={[styles.iconWrap, { backgroundColor: accent + '18' }]}>
-          <ServiceIcon serviceType={booking.serviceType} size={24} color={accent} bubble={false} />
+          <ServiceIcon serviceType={booking.serviceType} size={26} color={accent} bubble={false} />
         </View>
-        <View style={{ flex: 1 }}>
+        <View style={styles.textCol}>
           <Text style={styles.serviceType} numberOfLines={1}>{booking.serviceType}</Text>
           <Text style={styles.dateTime}>{dateStr} · {timeStr}</Text>
           {showProvider && booking.provider?.name && (
-            <Text style={styles.providerName} numberOfLines={1}>Provider: {booking.provider.name}</Text>
+            <Text style={styles.providerName} numberOfLines={1}>with {booking.provider.name}</Text>
           )}
         </View>
         <View style={styles.right}>
-          <Text style={styles.price}>${booking.totalPrice}</Text>
+          <Text style={styles.price}>Rs {booking.totalPrice}</Text>
           <StatusBadge status={booking.status} size="sm" />
         </View>
       </View>
@@ -55,11 +55,11 @@ const styles = StyleSheet.create({
   },
   cardPressed: { opacity: 0.92 },
   row:         { flexDirection: 'row', alignItems: 'center', gap: Spacing.md },
-  iconWrap:    { width: 44, height: 44, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
-  icon:        { fontSize: 22 },
+  iconWrap:    { width: 48, height: 48, borderRadius: Radius.md, alignItems: 'center', justifyContent: 'center' },
+  textCol:     { flex: 1, gap: 2 },
   serviceType: { ...Typography.headline },
-  dateTime:    { ...Typography.footnote, marginTop: 2 },
-  providerName:     { ...Typography.caption1, marginTop: 2, color: Colors.secondaryLabel },
+  dateTime:    { ...Typography.footnote, marginTop: 3 },
+  providerName:     { ...Typography.caption1, marginTop: 3, color: Colors.secondaryLabel },
   right:       { alignItems: 'flex-end', gap: Spacing.xs },
   price:       { fontSize: 18, fontWeight: '700', color: Colors.brand },
 });

@@ -125,8 +125,19 @@ export function apiSubmitProviderOnboarding(payload: {
   bio?: string;
   languages?: string[];
   photos?: string[];
+  pricingModel?: 'PER_SERVICE' | 'HOURLY';
+  hourlyRate?: number;
+  priceNegotiable?: boolean;
 }) {
   return request<{ message: string }>('POST', '/auth/provider-profile', payload);
+}
+
+export function apiUpdateProviderPricing(payload: {
+  pricingModel: 'PER_SERVICE' | 'HOURLY';
+  hourlyRate?: number;
+  priceNegotiable?: boolean;
+}) {
+  return request<{ pricingModel: string; hourlyRate: number; priceNegotiable: boolean }>('PATCH', '/pricing', payload);
 }
 
 // ─── Customer ─────────────────────────────────────────────────────────────────
@@ -140,6 +151,7 @@ export function apiCreateBooking(payload: {
   providerId?: string;
   address?: string;
   notes?: string;
+  proposedPrice?: number;
 }) {
   return request<{ booking: Booking }>('POST', '/bookings', payload);
 }
@@ -604,9 +616,14 @@ export interface AvailableProvider {
   policeCheckCleared?: boolean;
   firstAidCertified?: boolean;
   distanceKm?: number;
-  available?: boolean;   // availability toggle is on
-  hasLocation?: boolean; // Provider shared a real GPS location (not the region centre)
-  online?: boolean;      // available AND seen recently → drives the "online now" dot
+  available?: boolean;
+  hasLocation?: boolean;
+  online?: boolean;
+  // Pricing
+  pricingModel?: 'PER_SERVICE' | 'HOURLY';
+  hourlyRate?: number;
+  priceNegotiable?: boolean;
+  services?: { name: string; price: number; durationMin: number }[];
 }
 
 export interface NearbyProvider {
@@ -620,6 +637,10 @@ export interface NearbyProvider {
   photoUrl?: string;
   policeCheckCleared?: boolean;
   experienceYears?: number;
+  // Pricing
+  pricingModel?: 'PER_SERVICE' | 'HOURLY';
+  hourlyRate?: number;
+  priceNegotiable?: boolean;
 }
 
 export interface SubmittedDocument {
@@ -690,6 +711,9 @@ export interface UserProfile {
     photos?: string[];
     specialties?: string[];
     policeCheckCleared?: boolean;
+    pricingModel?: 'PER_SERVICE' | 'HOURLY';
+    hourlyRate?: number;
+    priceNegotiable?: boolean;
   };
 }
 
@@ -819,10 +843,59 @@ export interface ProviderPublicProfile {
     customerName: string;
     createdAt: string;
   }[];
+  // Pricing
+  pricingModel: 'PER_SERVICE' | 'HOURLY';
+  hourlyRate?: number;
+  priceNegotiable: boolean;
+  services: { name: string; price: number; durationMin: number }[];
 }
 
 export function apiGetProviderPublicProfile(providerId: string) {
   return request<{ provider: ProviderPublicProfile }>('GET', `/providers/${providerId}/public`);
+}
+
+// ─── Public (no auth) ─────────────────────────────────────────────────────────
+
+export interface PublicProviderCard {
+  id: string;
+  name: string;
+  photoUrl: string;
+  rating: number | null;
+  ratingCount: number;
+  completedVisits: number;
+  qualificationType: string;
+  experienceYears: number;
+  bio: string;
+  specialties: string[];
+  languages: string[];
+  policeCheckCleared: boolean;
+  firstAidCertified: boolean;
+}
+
+export function apiPublicProviders() {
+  return request<{ total: number; providers: PublicProviderCard[] }>('GET', '/public/providers');
+}
+
+export interface CatalogService {
+  id: string;
+  name: string;
+  description?: string;
+  icon?: string;
+  basePrice: number;
+  durationMin: number;
+  popular: boolean;
+}
+
+export interface CatalogCategory {
+  id: string;
+  name: string;
+  slug: string;
+  icon?: string;
+  services: CatalogService[];
+}
+
+export function apiPublicCatalog() {
+  return request<{ categories: CatalogCategory[] }>('GET', '/public/catalog');
 }
 
 

@@ -115,6 +115,11 @@ enum PayoutMethod {
   OTHER
 }
 
+enum PricingModel {
+  PER_SERVICE
+  HOURLY
+}
+
 // ── Models ────────────────────────────────────────────────────────────────────
 
 model User {
@@ -223,6 +228,12 @@ model ProviderProfile {
   // becomes STRIPE and we store the connected account id instead of an email.
   payoutEmail        String            @default("")   // Interac e-Transfer email
   payoutMethod       PayoutMethod      @default(ETRANSFER)
+
+  // Pricing model: provider chooses PER_SERVICE (individual prices per service)
+  // or HOURLY (single hourly rate for all services).
+  pricingModel       PricingModel      @default(HOURLY)
+  hourlyRate         Decimal?          @db.Decimal(10,2)
+  priceNegotiable    Boolean           @default(false)
 
   createdAt          DateTime          @default(now())
   updatedAt          DateTime          @updatedAt

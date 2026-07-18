@@ -46,19 +46,25 @@ import { confirmAction } from '../../utils/haptics';
 import * as Linking from 'expo-linking';
 import Constants from 'expo-constants';
 import { useAuth } from '../../context/AuthContext';
+import { useLocation } from '../../context/LocationContext';
 import { apiGetProfile, apiSetPublicProfile, apiUpdateProfile, apiUploadPhoto, UserProfile } from '../../api/client';
 import { Storage } from '../../utils/storage';
-import { Colors } from '../../utils/colors';
+import { Colors, Fonts } from '../../utils/colors';
+import { GlowMark } from '../../components/GlowLogo';
 
-// ── Design tokens ──────────────────────────────────────────────────────────────
-const NAVY_DEEP  = '#9C5560';
-const NAVY_MID   = '#B76E79';
-const BRAND      = '#0EA56F';
-const BG         = '#F2F3F7';
+// ── Design tokens — soft beauty / girly palette ────────────────────────────────
+// Soft blush hero, warm cream bg, rose + gold accents. No healthcare navy/gray.
+const ROSE_DEEP  = Colors.brandDeep;   // #A34D63
+const ROSE_MID   = Colors.brand;       // #D97A91
+const ROSE_SOFT  = Colors.brandAccent; // #E9A0B1
+const BRAND      = Colors.brandDark;   // #C4667E
+const GOLD       = Colors.gold;        // #D4AF37
+const BG         = Colors.systemGroupedBackground; // #FFF9F8 warm cream
 const CARD       = '#FFFFFF';
-const LABEL      = '#6B7280';
-const VALUE      = '#111827';
-const DIVIDER_C  = '#F0F1F3';
+const LABEL      = Colors.secondaryLabel;
+const VALUE      = Colors.label;
+const DIVIDER_C  = Colors.separator;
+const ICON_BG    = Colors.brandLight;  // soft rose icon chips
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function fmtMemberSince(dateStr?: string): string {
@@ -75,9 +81,9 @@ function renderStars(rating: number, size = 13): React.ReactNode {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 1 }}>
       {Array.from({ length: full  }).map((_, i) => (
-        <Text key={`f${i}`} style={{ fontSize: size, color: '#F59E0B' }}>★</Text>
+        <Text key={`f${i}`} style={{ fontSize: size, color: '#D4AF37' }}>★</Text>
       ))}
-      {half === 1 && <Text style={{ fontSize: size, color: '#F59E0B' }}>⯨</Text>}
+      {half === 1 && <Text style={{ fontSize: size, color: '#D4AF37' }}>⯨</Text>}
       {Array.from({ length: empty }).map((_, i) => (
         <Text key={`e${i}`} style={{ fontSize: size, color: '#D1D5DB' }}>★</Text>
       ))}
@@ -120,7 +126,7 @@ function infoIcon(glyph: string): GlyphIconFC {
 function VerifiedChip({ label }: { label: string }) {
   return (
     <View style={styles.verifiedChip}>
-      <CheckCircleIcon size={13} color="#16A34A" />
+      <CheckCircleIcon size={13} color="#C4667E" />
       <Text style={styles.verifiedChipText}>{label}</Text>
     </View>
   );
@@ -155,7 +161,7 @@ function InfoRow({
 function StatusChip({ status }: { status: 'pending' | 'approved' | 'rejected' }) {
   const config = {
     pending:  { bg: '#FFF7ED', border: '#FED7AA', text: '#EA580C', label: 'Pending Review' },
-    approved: { bg: '#F0FDF4', border: '#BBF7D0', text: '#16A34A', label: 'Approved' },
+    approved: { bg: '#FCECEF', border: '#E9A0B1', text: '#C4667E', label: 'Approved' },
     rejected: { bg: '#FFF1F2', border: '#FECDD3', text: '#DC2626', label: 'Not Approved' },
   }[status];
   return (
@@ -172,6 +178,7 @@ export function ProfileScreen() {
   const { user, signOut, updatePhoto, photoUri: authPhotoUri, token } = useAuth();
   const insets = useSafeAreaInsets();
   const nav    = useNavigation<any>();
+  const { coords, permissionStatus, requestLocation } = useLocation();
 
   const [photoUri,       setPhotoUri]       = useState<string | null>(authPhotoUri);
   const [photoUploading, setPhotoUploading] = useState(false);
@@ -230,10 +237,11 @@ export function ProfileScreen() {
   const appVersion = Constants.expoConfig?.version ?? '1.0.0';
 
   const SPECIALTY_OPTIONS = [
-    'Dementia Care', "Alzheimer's Care", 'Post-Surgery Support',
-    'Palliative / Hospice Care', 'Pediatric Care', 'Wound Care',
-    'Medication Administration', 'Mobility Assistance', 'Spinal Cord Injury',
-    'ABI (Brain Injury)', 'Autism Support', 'Stroke Recovery',
+    'Bridal Makeup', 'Party Makeup', 'HD / Airbrush Makeup',
+    'Hair Styling', 'Hair Coloring', 'Bridal Mehendi',
+    'Festive Mehendi', 'Nail Art', 'Gel & Acrylic Nails',
+    'Threading & Brows', 'Facials & Skincare', 'Waxing',
+    'Lash Extensions', 'Massage & Spa',
   ];
 
   async function saveSpecialties() {
@@ -501,12 +509,9 @@ export function ProfileScreen() {
   const approvalStatus: 'pending' | 'approved' | 'rejected' =
     !providerP ? 'pending' : providerP.approvedByAdmin ? 'approved' : 'pending';
 
-  const roleLabel = isCustomer ? 'Client' : isProvider ? 'Provider Professional' : 'Administrator';
-  const roleColor = isCustomer ? '#2563EB' : isProvider ? BRAND : '#7C3AED';
-  const roleBg    = isCustomer ? '#EFF6FF' : isProvider ? '#ECFDF5' : '#F5F3FF';
-  const roleBorder = isCustomer ? '#BFDBFE' : isProvider ? '#A7F3D0' : '#DDD6FE';
+  const roleLabel = isCustomer ? 'Glow Client' : isProvider ? 'Beauty Artist' : 'Administrator';
   const initial   = user?.name?.[0]?.toUpperCase() ?? '?';
-  const accountId = user?.id ? `CN-${user.id.slice(-6).toUpperCase()}` : '—';
+  const accountId = user?.id ? `GLOW-${user.id.slice(-6).toUpperCase()}` : '—';
   const memberSince = fmtMemberSince(profile?.createdAt);
 
   const providerRating      = profile?.rating ?? 0;
@@ -521,6 +526,21 @@ export function ProfileScreen() {
   const providerAvgRating = providerRating > 0 ? providerRating.toFixed(1) : null;
   const providerEarned    = profile?.totalEarned ?? null;
 
+  const locationLabel =
+    permissionStatus === 'granted' && coords
+      ? 'Location on'
+      : permissionStatus === 'loading'
+        ? 'Checking…'
+        : permissionStatus === 'unavailable'
+          ? 'Unavailable'
+          : 'Location off';
+  const locationSub =
+    permissionStatus === 'granted' && coords
+      ? 'Artists near you use this for accurate matches'
+      : permissionStatus === 'unavailable'
+        ? 'We couldn’t read GPS — try again or enter an address when booking'
+        : 'Turn on location so we can match you with nearby artists';
+
   return (
     <View style={styles.container}>
       <ScrollView
@@ -528,22 +548,41 @@ export function ProfileScreen() {
         contentContainerStyle={{ paddingBottom: insets.bottom + 48 }}
         showsVerticalScrollIndicator={false}
       >
-        {/* ── Hero gradient header ─────────────────────────────────── */}
+        {/* ── Soft blush hero ──────────────────────────────────────── */}
         <LinearGradient
-          colors={[NAVY_DEEP, NAVY_MID]}
+          colors={[ROSE_DEEP, ROSE_MID, ROSE_SOFT]}
+          start={{ x: 0, y: 0 }}
+          end={{ x: 1, y: 1 }}
           style={[styles.hero, { paddingTop: insets.top + 10 }]}
         >
-          {/* Back button */}
-          {nav.canGoBack() && (
-            <Pressable
-              style={styles.backBtn}
-              onPress={() => nav.goBack()}
-              hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
-            >
-              <ArrowBackIcon size={20} color="rgba(255,255,255,0.8)" />
-              <Text style={styles.backBtnLabel}>Back</Text>
-            </Pressable>
-          )}
+          {/* Soft decorative blooms */}
+          <View pointerEvents="none" style={styles.heroDecor}>
+            <View style={[styles.heroBlob, { top: -50, right: -60, width: 180, height: 180, backgroundColor: 'rgba(255,255,255,0.14)' }]} />
+            <View style={[styles.heroBlob, { bottom: 25, left: -50, width: 140, height: 140, backgroundColor: 'rgba(212,175,55,0.20)' }]} />
+            <View style={[styles.heroBlob, { top: 60, left: 40, width: 14, height: 14, backgroundColor: 'rgba(255,255,255,0.60)' }]} />
+            <View style={[styles.heroBlob, { top: 100, right: 55, width: 10, height: 10, backgroundColor: GOLD }]} />
+            <View style={[styles.heroBlob, { top: 30, right: 30, width: 6, height: 6, backgroundColor: 'rgba(255,255,255,0.70)' }]} />
+          </View>
+
+          {/* Top row: back + bloom mark */}
+          <View style={styles.heroTopRow}>
+            {nav.canGoBack() ? (
+              <Pressable
+                style={styles.backBtn}
+                onPress={() => nav.goBack()}
+                hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+              >
+                <ArrowBackIcon size={20} color="#FFFFFF" />
+                <Text style={styles.backBtnLabel}>Back</Text>
+              </Pressable>
+            ) : (
+              <View style={{ width: 72 }} />
+            )}
+            <View style={styles.heroMarkWrap}>
+              <GlowMark size={28} petal="#FFFFFF" petalInner="rgba(255,255,255,0.45)" core={GOLD} />
+            </View>
+            <View style={{ width: 72 }} />
+          </View>
 
           {/* Avatar */}
           <Pressable
@@ -569,38 +608,33 @@ export function ProfileScreen() {
                 />
               ) : (
                 <LinearGradient
-                  colors={[roleColor, roleColor + 'CC']}
+                  colors={['#FCECEF', '#E9A0B1']}
                   style={styles.avatarCircle}
                 >
                   <Text style={styles.avatarInitial}>{initial}</Text>
                 </LinearGradient>
               )}
-              {/* Upload overlay */}
               {photoUploading && (
                 <View style={styles.avatarUploadOverlay}>
                   <ActivityIndicator color="#fff" size="large" />
                 </View>
               )}
             </View>
-            {/* Camera badge */}
             {!photoUploading && (
               <View style={styles.cameraBadge}>
-                <View style={styles.cameraBadgeInner}>
-                  <CameraIcon size={15} color={BRAND} />
-                </View>
+                <CameraIcon size={14} color="#fff" />
               </View>
             )}
           </Pressable>
 
-          {/* Hint when no photo — nudges users to add one (was easy to miss) */}
+          {/* High-contrast photo CTA — white pill so it never disappears on blush */}
           {!photoUri && !photoUploading && (
-            <Pressable onPress={showPhotoOptions} accessibilityRole="button" style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: -6, marginBottom: 10 }}>
-              <CameraIcon size={14} color={BRAND} />
-              <Text style={[styles.addPhotoHint, { marginTop: 0, marginBottom: 0 }]}>Add a profile photo</Text>
+            <Pressable onPress={showPhotoOptions} accessibilityRole="button" style={styles.addPhotoPill}>
+              <CameraIcon size={13} color={BRAND} />
+              <Text style={styles.addPhotoPillText}>Add a profile photo</Text>
             </Pressable>
           )}
 
-          {/* Photo upload error */}
           {photoError && (
             <View style={styles.photoErrorBanner}>
               <Text style={styles.photoErrorText}>{photoError}</Text>
@@ -610,17 +644,27 @@ export function ProfileScreen() {
             </View>
           )}
 
-          {/* Name */}
           <Text style={styles.heroName}>{user?.name ?? '—'}</Text>
 
-          {/* Role pill — only for Provider/Admin (customers don't need a "Client" tag) */}
-          {!isCustomer && (
-            <View style={[styles.rolePill, { backgroundColor: roleBg, borderColor: roleBorder }]}>
-              <Text style={[styles.rolePillText, { color: roleColor }]}>{roleLabel}</Text>
-            </View>
-          )}
+          {/* Soft glass role / member chips */}
+          <View style={styles.heroChipRow}>
+            {!isCustomer && (
+              <View style={styles.glassChip}>
+                <Text style={styles.glassChipText}>{roleLabel}</Text>
+              </View>
+            )}
+            {isCustomer && (
+              <View style={styles.glassChip}>
+                <Text style={styles.glassChipText}>Glow Client</Text>
+              </View>
+            )}
+            {memberSince ? (
+              <View style={styles.glassChipMuted}>
+                <Text style={styles.glassChipMutedText}>Since {memberSince}</Text>
+              </View>
+            ) : null}
+          </View>
 
-          {/* Provider: star rating inline */}
           {isProvider && providerRating > 0 && (
             <View style={styles.heroRatingRow}>
               {renderStars(providerRating, 14)}
@@ -631,18 +675,12 @@ export function ProfileScreen() {
             </View>
           )}
 
-          {/* Provider: Verified Professional banner — pill with shield */}
           {isProvider && providerP?.approvedByAdmin && (
             <View style={styles.verifiedBanner}>
-              <ShieldCheckIcon size={15} color="#fff" />
-              <Text style={styles.verifiedBannerText}>Verified Professional</Text>
+              <ShieldCheckIcon size={15} color={ROSE_DEEP} />
+              <Text style={styles.verifiedBannerText}>Verified Artist</Text>
             </View>
           )}
-
-          {/* Member since */}
-          {memberSince ? (
-            <Text style={styles.memberSince}>Member since {memberSince}</Text>
-          ) : null}
 
           <View style={styles.heroBottom} />
         </LinearGradient>
@@ -661,7 +699,7 @@ export function ProfileScreen() {
               <Text style={styles.statNum}>
                 {customerHours !== null ? `${customerHours}h` : '—'}
               </Text>
-              <Text style={styles.statLabel}>Hours of Care</Text>
+              <Text style={styles.statLabel}>Hours Booked</Text>
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statCell}>
@@ -698,11 +736,47 @@ export function ProfileScreen() {
           </View>
         )}
 
+        {/* ── Section: Location ────────────────────────────────────── */}
+        <View style={styles.sectionWrap}>
+          <Text style={styles.sectionLabel}>Your Location</Text>
+          <Pressable
+            style={({ pressed }) => [styles.locationCard, pressed && permissionStatus !== 'granted' && { opacity: 0.9 }]}
+            onPress={permissionStatus === 'granted' ? undefined : () => requestLocation()}
+            disabled={permissionStatus === 'granted'}
+          >
+            <View style={[
+              styles.locationIconWrap,
+              permissionStatus === 'granted' ? styles.locationIconOk : styles.locationIconOff,
+            ]}>
+              <PinIcon size={20} color={permissionStatus === 'granted' ? BRAND : '#D97706'} />
+            </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.locationTitle}>{locationLabel}</Text>
+              <Text style={styles.locationSub}>{locationSub}</Text>
+              {permissionStatus === 'granted' && coords ? (
+                <Text style={styles.locationCoords}>
+                  {coords.lat.toFixed(4)}, {coords.lng.toFixed(4)}
+                </Text>
+              ) : null}
+            </View>
+            {permissionStatus !== 'granted' && (
+              <View style={styles.locationCta}>
+                <Text style={styles.locationCtaText}>Enable</Text>
+              </View>
+            )}
+            {permissionStatus === 'granted' && (
+              <View style={styles.locationOkPill}>
+                <CheckCircleIcon size={14} color={BRAND} />
+                <Text style={styles.locationOkText}>Active</Text>
+              </View>
+            )}
+          </Pressable>
+        </View>
+
         {/* ── Section: Personal Info ───────────────────────────────── */}
         <View style={styles.sectionWrap}>
           <Text style={styles.sectionLabel}>Personal Info</Text>
           <View style={styles.card}>
-            {/* Tappable name row for inline edit */}
             <Pressable style={styles.infoRow} onPress={handleEditName}>
               <View style={styles.infoLeft}>
                 <View style={styles.infoIconWrap}><PersonIcon size={18} color={BRAND} /></View>
@@ -716,7 +790,7 @@ export function ProfileScreen() {
             <Divider />
             <InfoRow glyph="cellphone" label="Phone" value={user?.phone ?? '—'} />
             <View style={styles.chipRow}>
-              <VerifiedChip label="OTP Verified" />
+              <VerifiedChip label="Phone verified" />
             </View>
             <Divider />
             <InfoRow glyph="key-variant" label="Account ID" value={accountId} />
@@ -801,7 +875,7 @@ export function ProfileScreen() {
                         </View>
                       ) : (
                         <Text style={{ color: Colors.tertiaryLabel, fontSize: 13, marginTop: 4 }}>
-                          Tap to add your care specialties
+                          Tap to add your beauty specialties
                         </Text>
                       )}
                     </Pressable>
@@ -876,12 +950,12 @@ export function ProfileScreen() {
                       <View key={item.label} style={styles.checkCell}>
                         <View style={[styles.checkIconWrap, item.ok ? styles.checkIconOk : styles.checkIconPending]}>
                           {item.ok
-                            ? <item.Icon size={22} color="#16A34A" />
-                            : <ClockIcon size={22} color="#F59E0B" />
+                            ? <item.Icon size={22} color="#C4667E" />
+                            : <ClockIcon size={22} color="#D4AF37" />
                           }
                         </View>
                         <Text style={styles.checkLabel} numberOfLines={1}>{item.label}</Text>
-                        <Text style={[styles.checkStatus, { color: item.ok ? '#16A34A' : '#F59E0B' }]}>
+                        <Text style={[styles.checkStatus, { color: item.ok ? '#C4667E' : '#D4AF37' }]}>
                           {item.ok ? 'Cleared' : 'Pending'}
                         </Text>
                       </View>
@@ -907,8 +981,8 @@ export function ProfileScreen() {
               style={({ pressed }) => [styles.navCard, pressed && { opacity: 0.85 }]}
               onPress={() => nav.navigate('ProviderDocuments')}
             >
-              <View style={[styles.navCardIcon, { backgroundColor: '#EFF6FF', borderColor: '#BFDBFE' }]}>
-                <NoteIcon size={22} color="#2563EB" />
+              <View style={[styles.navCardIcon, { backgroundColor: '#FCECEF', borderColor: '#F2E7E7' }]}>
+                <NoteIcon size={22} color="#C4667E" />
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.navCardTitle}>My Credential Documents</Text>
@@ -947,12 +1021,56 @@ export function ProfileScreen() {
           </View>
         )}
 
+        {/* ── Section: Provider My Pricing ──────────────────────── */}
+        {isProvider && (
+          <View style={styles.sectionWrap}>
+            <Text style={styles.sectionLabel}>Pricing</Text>
+            <View style={styles.card}>
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+                <View style={[styles.navCardIcon, { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' }]}>
+                  <Text style={{ fontSize: 20 }}>💰</Text>
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.navCardTitle}>My Pricing</Text>
+                  <Text style={styles.navCardSub}>
+                    {providerP?.pricingModel === 'PER_SERVICE' ? 'Per-service pricing' : `Rs ${providerP?.hourlyRate ?? 25}/hr`}
+                    {providerP?.priceNegotiable ? ' · Negotiable' : ''}
+                  </Text>
+                </View>
+              </View>
+
+              {/* Pricing model badge */}
+              <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
+                <View style={{ backgroundColor: '#DCFCE7', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }}>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#166534' }}>
+                    {providerP?.pricingModel === 'PER_SERVICE' ? 'Per Service' : 'Hourly Rate'}
+                  </Text>
+                </View>
+                {providerP?.priceNegotiable && (
+                  <View style={{ backgroundColor: '#FEF3C7', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }}>
+                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#92400E' }}>Open to Negotiation</Text>
+                  </View>
+                )}
+              </View>
+
+              {providerP?.pricingModel === 'HOURLY' && (
+                <View style={{ marginTop: 12, padding: 14, backgroundColor: '#F8FAFC', borderRadius: 12 }}>
+                  <Text style={{ fontSize: 28, fontWeight: '800', color: '#1F1215' }}>
+                    Rs {providerP?.hourlyRate ?? 25}
+                  </Text>
+                  <Text style={{ fontSize: 13, color: '#64748B', marginTop: 2 }}>per hour · 3hr minimum</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        )}
+
         {/* ── Section: Provider public profile (marketing consent) ─────── */}
         {isProvider && providerP?.approvedByAdmin && (
           <View style={styles.sectionWrap}>
             <Text style={styles.sectionLabel}>Visibility</Text>
             <View style={styles.navCard}>
-              <View style={[styles.navCardIcon, { backgroundColor: '#ECFDF5', borderColor: '#A7F3D0' }]}>
+              <View style={[styles.navCardIcon, { backgroundColor: '#FCECEF', borderColor: '#E9A0B1' }]}>
                 <PersonIcon size={22} color={BRAND} />
               </View>
               <View style={{ flex: 1 }}>
@@ -975,7 +1093,7 @@ export function ProfileScreen() {
                   }
                   setPublicSaving(false);
                 }}
-                trackColor={{ false: '#D1D5DB', true: '#A7F3D0' }}
+                trackColor={{ false: '#D1D5DB', true: '#E9A0B1' }}
                 thumbColor={publicProfile ? BRAND : '#F4F4F5'}
               />
             </View>
@@ -988,14 +1106,14 @@ export function ProfileScreen() {
             <Text style={styles.sectionLabel}>Quick Actions</Text>
             <View style={styles.quickActionsGrid}>
               <Pressable style={({ pressed }) => [styles.quickAction, pressed && { opacity: 0.82 }]} onPress={() => nav.navigate('NewBooking')}>
-                <View style={[styles.quickActionIcon, { backgroundColor: '#ECFDF5' }]}>
-                  <CalendarSVGIcon size={22} color={Colors.onlineGreen} />
+                <View style={[styles.quickActionIcon, { backgroundColor: '#FCECEF' }]}>
+                  <CalendarSVGIcon size={22} color={BRAND} />
                 </View>
                 <Text style={styles.quickActionLabel}>Book Now</Text>
               </Pressable>
               <Pressable style={({ pressed }) => [styles.quickAction, pressed && { opacity: 0.82 }]} onPress={() => nav.navigate('BookingsTab')}>
-                <View style={[styles.quickActionIcon, { backgroundColor: '#EFF6FF' }]}>
-                  <NoteIcon size={22} color="#2563EB" />
+                <View style={[styles.quickActionIcon, { backgroundColor: '#FCECEF' }]}>
+                  <NoteIcon size={22} color={BRAND} />
                 </View>
                 <Text style={styles.quickActionLabel}>My Bookings</Text>
               </Pressable>
@@ -1006,8 +1124,8 @@ export function ProfileScreen() {
                 <Text style={styles.quickActionLabel}>Alerts</Text>
               </Pressable>
               <Pressable style={({ pressed }) => [styles.quickAction, pressed && { opacity: 0.82 }]} onPress={() => nav.navigate('Help')}>
-                <View style={[styles.quickActionIcon, { backgroundColor: '#F5F3FF' }]}>
-                  <HelpIcon size={22} color="#7C3AED" />
+                <View style={[styles.quickActionIcon, { backgroundColor: '#F6EBC9' }]}>
+                  <HelpIcon size={22} color="#D4AF37" />
                 </View>
                 <Text style={styles.quickActionLabel}>Help</Text>
               </Pressable>
@@ -1084,7 +1202,7 @@ export function ProfileScreen() {
             <View style={styles.card}>
               <InfoRow
                 glyph="monitor-dashboard" label="Admin Dashboard" value="Open admin panel"
-                valueColor="#2563EB"
+                valueColor="#C4667E"
                 onPress={() => Linking.openURL('/admin')}
               />
               <Divider />
@@ -1099,19 +1217,19 @@ export function ProfileScreen() {
           <View style={styles.card}>
             <InfoRow
               glyph="email-outline" label="Email Us" value="support@glow.app"
-              valueColor="#2563EB"
+              valueColor="#C4667E"
               onPress={() => Linking.openURL('mailto:support@glow.app?subject=Glow Support')}
             />
             <Divider />
             <InfoRow
-              glyph="cellphone" label="Call Us" value="+1 (647) 620-9243"
-              valueColor="#2563EB"
-              onPress={() => Linking.openURL('tel:+16476209243')}
+              glyph="cellphone" label="Call Us" value="+977-1-4XXXXXX"
+              valueColor="#C4667E"
+              onPress={() => Linking.openURL('tel:+97714000000')}
             />
             <Divider />
-            <InfoRow glyph="clock-outline" label="Hours" value="24/7" />
+            <InfoRow glyph="clock-outline" label="Hours" value="9 AM – 8 PM NPT" />
             <Divider />
-            <InfoRow glyph="translate" label="Languages" value="English · Français" />
+            <InfoRow glyph="translate" label="Languages" value="English · Nepali · Hindi" />
           </View>
         </View>
 
@@ -1121,7 +1239,7 @@ export function ProfileScreen() {
           <View style={styles.card}>
             <InfoRow glyph="package-variant" label="Version" value={`v${appVersion}`} />
             <Divider />
-            <InfoRow glyph="map" label="Region" value="Greater Sudbury, ON 🇨🇦" />
+            <InfoRow glyph="map" label="Region" value="Kathmandu Valley, Nepal 🇳🇵" />
             <Divider />
             <InfoRow glyph="map-marker" label="Coverage" value="15 km radius" />
           </View>
@@ -1171,7 +1289,7 @@ export function ProfileScreen() {
         </View>
 
         <Text style={styles.footer}>
-          © {new Date().getFullYear()} Glow · Professional Provider Services{'\n'}Greater Sudbury, ON
+          © {new Date().getFullYear()} Glow · Beauty, on demand{'\n'}Kathmandu, Nepal 🇳🇵
         </Text>
       </ScrollView>
 
@@ -1259,7 +1377,7 @@ export function ProfileScreen() {
         <View style={specStyles.overlay}>
           <View style={specStyles.sheet}>
             <Text style={specStyles.title}>Your specialties</Text>
-            <Text style={specStyles.sub}>Pick the care you're trained for — clients see these.</Text>
+            <Text style={specStyles.sub}>Pick the beauty services you shine at — clients see these.</Text>
             <ScrollView style={{ maxHeight: 360 }} contentContainerStyle={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingVertical: 8 }}>
               {SPECIALTY_OPTIONS.map(s => {
                 const on = specDraft.includes(s);
@@ -1293,66 +1411,80 @@ const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: BG },
   scroll: { flex: 1 },
 
-  // ── Hero ──
+  // ── Soft blush hero ──
   hero: {
     alignItems: 'center',
-    paddingHorizontal: 20,
-    paddingBottom: 36,
+    paddingHorizontal: 24,
+    paddingBottom: 56,
+    overflow: 'hidden',
+    borderBottomLeftRadius: 36,
+    borderBottomRightRadius: 36,
+  },
+  heroDecor: { ...StyleSheet.absoluteFillObject },
+  heroBlob: { position: 'absolute', borderRadius: 999 },
+  heroTopRow: {
+    width: '100%',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 12,
+    minHeight: 40,
+  },
+  heroMarkWrap: {
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.28)',
   },
   backBtn: {
-    alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
     gap: 4,
     paddingVertical: 8,
-    marginBottom: 16,
+    paddingHorizontal: 4,
   },
   backBtnLabel: {
-    color: 'rgba(255,255,255,0.75)',
+    color: '#FFFFFF',
     fontSize: 15,
-    fontWeight: '600',
+    fontWeight: '700',
   },
   heroBottom: { height: 4 },
 
-  // Avatar with white ring + depth shadow
-  avatarWrap: { position: 'relative', marginBottom: 16 },
+  // Avatar — gold-kissed white ring
+  avatarWrap: { position: 'relative', marginBottom: 18 },
   avatarRing: {
-    width: 132, height: 132, borderRadius: 66,
-    borderWidth: 3, borderColor: '#FFFFFF',
+    width: 148, height: 148, borderRadius: 74,
+    borderWidth: 4, borderColor: '#FFFFFF',
     overflow: 'hidden',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.35, shadowRadius: 16,
-    elevation: 10,
+    shadowColor: ROSE_DEEP, shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.4, shadowRadius: 24,
+    elevation: 14,
   },
-  avatarImg:    { width: 124, height: 124, borderRadius: 62 },
-  avatarCircle: { width: 124, height: 124, borderRadius: 62, alignItems: 'center', justifyContent: 'center' },
-  avatarInitial: { color: '#fff', fontSize: 48, fontWeight: '800' },
-  addPhotoHint: { fontSize: 13, fontWeight: '700', color: BRAND, marginTop: -6, marginBottom: 10 },
+  avatarImg:    { width: '100%', height: '100%' },
+  avatarCircle: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
+  avatarInitial: { color: ROSE_DEEP, fontSize: 52, fontWeight: '800', fontFamily: Fonts.bold },
   cameraBadge: {
     position: 'absolute', bottom: 4, right: 4,
-    width: 38, height: 38, borderRadius: 19,
-    backgroundColor: 'rgba(0,0,0,0.6)',
+    width: 40, height: 40, borderRadius: 20,
+    backgroundColor: BRAND,
     alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.15)',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.3, shadowRadius: 4, elevation: 4,
+    borderWidth: 3, borderColor: '#FFFFFF',
+    shadowColor: ROSE_DEEP, shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.35, shadowRadius: 8, elevation: 6,
   },
-  cameraBadgeInner: {
-    width: 18, height: 18, borderRadius: 9,
+  addPhotoPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: '#FFFFFF',
-    alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: 999, marginBottom: 12,
+    shadowColor: ROSE_DEEP, shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15, shadowRadius: 10, elevation: 3,
   },
-  cameraBadgeText: { fontSize: 14, fontWeight: '800', color: '#000000', lineHeight: 18 },
+  addPhotoPillText: { fontSize: 13, fontWeight: '700', color: BRAND },
 
-  // Avatar upload overlay + error
   avatarUploadOverlay: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    borderRadius: 49,
+    ...StyleSheet.absoluteFillObject,
+    backgroundColor: 'rgba(163,77,99,0.55)',
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -1360,262 +1492,278 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: '#FEF2F2',
     borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10,
-    marginTop: 10, borderWidth: 1, borderColor: '#FCA5A5',
+    marginTop: 6, marginBottom: 8, borderWidth: 1, borderColor: '#FCA5A5',
     maxWidth: 300,
   },
   photoErrorText: { flex: 1, fontSize: 12, color: '#DC2626', fontWeight: '500', lineHeight: 16 },
   photoErrorDismiss: { fontSize: 14, color: '#DC2626', fontWeight: '700' },
 
   heroName: {
-    color: '#FFFFFF', fontSize: 24, fontWeight: '800',
-    letterSpacing: -0.3, marginBottom: 10,
-    textShadowColor: 'rgba(0,0,0,0.3)',
-    textShadowOffset: { width: 0, height: 1 },
-    textShadowRadius: 4,
+    color: '#FFFFFF', fontSize: 30, fontWeight: '800',
+    letterSpacing: -0.6, marginBottom: 14,
+    textShadowColor: 'rgba(163,77,99,0.45)',
+    textShadowOffset: { width: 0, height: 2 },
+    shadowRadius: 10,
   },
-
-  rolePill: {
-    paddingHorizontal: 16, paddingVertical: 6,
-    borderRadius: 20, borderWidth: 1,
-    marginBottom: 12,
+  heroChipRow: {
+    flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center',
+    gap: 8, marginBottom: 8,
   },
-  rolePillText: { fontSize: 13, fontWeight: '700' },
+  glassChip: {
+    backgroundColor: 'rgba(255,255,255,0.92)',
+    paddingHorizontal: 16, paddingVertical: 8,
+    borderRadius: 999,
+  },
+  glassChipText: { fontSize: 13, fontWeight: '700', color: ROSE_DEEP },
+  glassChipMuted: {
+    backgroundColor: 'rgba(255,255,255,0.22)',
+    paddingHorizontal: 14, paddingVertical: 7,
+    borderRadius: 999,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)',
+  },
+  glassChipMutedText: { fontSize: 13, fontWeight: '600', color: '#FFFFFF' },
 
   heroRatingRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10, marginTop: 4,
   },
   heroRatingText: {
-    color: 'rgba(255,255,255,0.85)', fontSize: 13, fontWeight: '600',
+    color: 'rgba(255,255,255,0.95)', fontSize: 13, fontWeight: '600',
   },
 
   verifiedBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: '#0EA56F',
-    paddingHorizontal: 14, paddingVertical: 7,
-    borderRadius: 20, marginBottom: 10,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 16, paddingVertical: 8,
+    borderRadius: 22, marginTop: 6,
   },
-  verifiedBannerIcon: { color: '#FFFFFF', fontSize: 13 },
-  verifiedBannerText: { color: '#FFFFFF', fontSize: 13, fontWeight: '700' },
-
-  memberSince: {
-    color: 'rgba(255,255,255,0.45)', fontSize: 12, fontWeight: '500',
-  },
+  verifiedBannerText: { color: ROSE_DEEP, fontSize: 14, fontWeight: '700' },
 
   // ── Stats bar ──
   statsBar: {
     flexDirection: 'row',
     backgroundColor: CARD,
     marginHorizontal: 16,
-    borderRadius: 18,
-    marginTop: -18,
-    paddingVertical: 18,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.08, shadowRadius: 12, elevation: 5,
-    borderWidth: 1, borderColor: 'rgba(0,0,0,0.04)',
+    borderRadius: 26,
+    marginTop: -28,
+    paddingVertical: 22,
+    paddingHorizontal: 8,
+    shadowColor: Colors.cardShadow, shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.18, shadowRadius: 26, elevation: 10,
+    borderWidth: 1, borderColor: Colors.cardBorder,
     marginBottom: 8,
   },
-  statCell: { flex: 1, alignItems: 'center', gap: 3 },
-  statNum: { fontSize: 22, fontWeight: '800', color: VALUE, letterSpacing: -0.5 },
-  statLabel: { fontSize: 11, color: LABEL, fontWeight: '600', textAlign: 'center' },
-  statDivider: { width: 1, height: 36, backgroundColor: DIVIDER_C },
+  statCell: { flex: 1, alignItems: 'center', gap: 5 },
+  statNum: { fontSize: 26, fontWeight: '800', color: ROSE_DEEP, letterSpacing: -0.7 },
+  statLabel: { fontSize: 12, color: LABEL, fontWeight: '600', textAlign: 'center' },
+  statDivider: { width: 1, height: 44, backgroundColor: DIVIDER_C },
+
+  // ── Location card ──
+  locationCard: {
+    backgroundColor: CARD, borderRadius: 20, padding: 18,
+    flexDirection: 'row', alignItems: 'center', gap: 16,
+    borderWidth: 1, borderColor: Colors.cardBorder,
+    shadowColor: Colors.cardShadow, shadowOffset: { width: 0, height: 6 },
+    shadowOpacity: 0.08, shadowRadius: 16, elevation: 4,
+  },
+  locationIconWrap: {
+    width: 50, height: 50, borderRadius: 18,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  locationIconOk:  { backgroundColor: ICON_BG },
+  locationIconOff: { backgroundColor: '#FEF3C7' },
+  locationTitle: { fontSize: 16, fontWeight: '700', color: VALUE, marginBottom: 3 },
+  locationSub:   { fontSize: 13, color: LABEL, lineHeight: 18 },
+  locationCoords: { fontSize: 11, color: Colors.tertiaryLabel, marginTop: 4, fontFamily: Fonts.medium },
+  locationCta: {
+    backgroundColor: BRAND, paddingHorizontal: 16, paddingVertical: 10,
+    borderRadius: 999,
+  },
+  locationCtaText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  locationOkPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: ICON_BG, paddingHorizontal: 12, paddingVertical: 7,
+    borderRadius: 999, borderWidth: 1, borderColor: Colors.brandAccent,
+  },
+  locationOkText: { fontSize: 13, fontWeight: '700', color: BRAND },
 
   // ── Section ──
   sectionWrap: { paddingHorizontal: 16, marginTop: 24 },
   sectionLabel: {
-    fontSize: 11, fontWeight: '700', color: LABEL,
-    textTransform: 'uppercase', letterSpacing: 1,
-    marginBottom: 8, paddingHorizontal: 2,
+    fontSize: 12, fontWeight: '800', color: BRAND,
+    textTransform: 'uppercase', letterSpacing: 1.2,
+    marginBottom: 12, paddingHorizontal: 2,
   },
 
   // ── Card ──
   card: {
-    backgroundColor: CARD, borderRadius: 18,
-    paddingHorizontal: 16, paddingVertical: 14,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05, shadowRadius: 10, elevation: 2,
+    backgroundColor: CARD, borderRadius: 24,
+    paddingHorizontal: 18, paddingVertical: 18,
+    shadowColor: Colors.cardShadow, shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.10, shadowRadius: 22, elevation: 6,
+    borderWidth: 1, borderColor: Colors.cardBorder,
   },
 
-  divider: { height: 1, backgroundColor: DIVIDER_C, marginVertical: 12 },
+  divider: { height: 1, backgroundColor: DIVIDER_C, marginVertical: 14 },
 
   // ── Info row ──
-  infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 },
-  // Fixed-ish left column keeps every row's label flush; long values (e.g. the
-  // bio in "About you") truncate in the right column instead of squeezing the
-  // label or shoving the chevron out of line.
-  infoLeft:  { flexDirection: 'row', alignItems: 'center', gap: 12, flexShrink: 0 },
+  infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 52 },
+  infoLeft:  { flexDirection: 'row', alignItems: 'center', gap: 14, flexShrink: 0 },
   infoIconWrap: {
-    width: 32, height: 32, borderRadius: 10,
-    backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center',
+    width: 40, height: 40, borderRadius: 14,
+    backgroundColor: ICON_BG, alignItems: 'center', justifyContent: 'center',
   },
-  infoIcon:  { fontSize: 15 },
-  infoLabel: { fontSize: 15, color: LABEL, fontWeight: '500' },
-  infoRight: { flexDirection: 'row', alignItems: 'center', gap: 4, flex: 1, justifyContent: 'flex-end' },
-  infoValue: { fontSize: 15, fontWeight: '600', color: VALUE, textAlign: 'right', flexShrink: 1 },
-  infoChevron: { fontSize: 20, color: '#D1D5DB' },
+  infoLabel: { fontSize: 16, color: LABEL, fontWeight: '600' },
+  infoRight: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, justifyContent: 'flex-end' },
+  infoValue: { fontSize: 16, fontWeight: '600', color: VALUE, textAlign: 'right', flexShrink: 1 },
+  infoChevron: { fontSize: 22, color: ROSE_SOFT },
 
   chipRow: { marginTop: 6, marginBottom: 2 },
 
-  // ── Verified chip ──
   verifiedChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    backgroundColor: '#F0FDF4', borderRadius: 8, borderWidth: 1, borderColor: '#BBF7D0',
-    paddingHorizontal: 10, paddingVertical: 4, alignSelf: 'flex-start',
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    backgroundColor: ICON_BG, borderRadius: 999, borderWidth: 1, borderColor: Colors.brandAccent,
+    paddingHorizontal: 14, paddingVertical: 6, alignSelf: 'flex-start',
   },
-  verifiedChipText: { fontSize: 12, fontWeight: '600', color: '#16A34A' },
+  verifiedChipText: { fontSize: 13, fontWeight: '700', color: BRAND },
 
-  // ── Status chip ──
-  approvalRow: { marginBottom: 4 },
+  approvalRow: { marginBottom: 6 },
   statusChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    borderRadius: 12, borderWidth: 1.5,
-    paddingHorizontal: 14, paddingVertical: 8, alignSelf: 'flex-start',
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    borderRadius: 14, borderWidth: 1.5,
+    paddingHorizontal: 16, paddingVertical: 10, alignSelf: 'flex-start',
   },
-  statusDot: { width: 8, height: 8, borderRadius: 4 },
-  statusChipText: { fontSize: 14, fontWeight: '700' },
+  statusDot: { width: 10, height: 10, borderRadius: 5 },
+  statusChipText: { fontSize: 15, fontWeight: '700' },
 
-  // ── Bio block (full-width) ──
   bioBlock: { paddingVertical: 10, gap: 6 },
   bioLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   bioEditHint: { marginLeft: 'auto', fontSize: 13, fontWeight: '700', color: Colors.brand },
   bioValue: {
-    fontSize: 14, color: '#374151', lineHeight: 21, fontWeight: '400',
-    paddingLeft: 44, // visually aligns under the label text (icon 32 + gap 12)
+    fontSize: 14, color: Colors.secondaryLabel, lineHeight: 21, fontWeight: '400',
+    paddingLeft: 46,
   },
   bioPlaceholder: {
-    fontSize: 13, color: '#9CA3AF', lineHeight: 19,
-    paddingLeft: 44,
+    fontSize: 13, color: Colors.tertiaryLabel, lineHeight: 19,
+    paddingLeft: 46,
     fontStyle: 'italic',
   },
 
-  // ── Gallery ──
   galleryEmpty: {
-    backgroundColor: '#F8FAFC', borderRadius: 14, borderWidth: 1, borderColor: '#E5E7EB',
-    borderStyle: 'dashed', paddingVertical: 24, alignItems: 'center', gap: 6, marginBottom: 4,
+    backgroundColor: ICON_BG, borderRadius: 18, borderWidth: 1.5, borderColor: Colors.brandAccent,
+    borderStyle: 'dashed', paddingVertical: 28, alignItems: 'center', gap: 8, marginBottom: 6,
   },
-  galleryEmptyText: { fontSize: 13, color: Colors.secondaryLabel, fontWeight: '600', textAlign: 'center', marginTop: 4 },
-  galleryEmptyHint: { fontSize: 11, color: Colors.tertiaryLabel },
-  galleryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 4 },
-  galleryThumb: { width: 88, height: 88, borderRadius: 10, overflow: 'hidden', position: 'relative' },
-  galleryThumbImg: { width: 88, height: 88 },
+  galleryEmptyText: { fontSize: 14, color: Colors.secondaryLabel, fontWeight: '600', textAlign: 'center', marginTop: 4 },
+  galleryEmptyHint: { fontSize: 12, color: Colors.tertiaryLabel },
+  galleryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 6 },
+  galleryThumb: { width: 96, height: 96, borderRadius: 16, overflow: 'hidden', position: 'relative' },
+  galleryThumbImg: { width: 96, height: 96 },
   galleryRemoveBtn: {
     position: 'absolute', top: 4, right: 4,
     width: 22, height: 22, borderRadius: 11,
-    backgroundColor: 'rgba(0,0,0,0.6)', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(163,77,99,0.75)', alignItems: 'center', justifyContent: 'center',
   },
   galleryRemoveBtnText: { color: '#fff', fontSize: 11, fontWeight: '800' },
   galleryAddTile: {
-    width: 88, height: 88, borderRadius: 10, borderWidth: 2, borderColor: BRAND,
-    borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', backgroundColor: '#F0FDF4',
+    width: 88, height: 88, borderRadius: 14, borderWidth: 2, borderColor: BRAND,
+    borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', backgroundColor: ICON_BG,
   },
   galleryAddTileText: { fontSize: 28, color: BRAND, fontWeight: '300', marginTop: -2 },
 
-  // ── Specialties ──
-  specialtiesBlock: { gap: 8, paddingVertical: 4 },
-  specialtiesLabel: { fontSize: 12, fontWeight: '700', color: LABEL, textTransform: 'uppercase', letterSpacing: 0.5 },
-  specialtiesChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  specialtiesBlock: { gap: 10, paddingVertical: 6 },
+  specialtiesLabel: { fontSize: 13, fontWeight: '800', color: LABEL, textTransform: 'uppercase', letterSpacing: 0.6 },
+  specialtiesChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   specialtyChip: {
-    backgroundColor: '#EFF6FF', borderRadius: 20,
-    paddingHorizontal: 10, paddingVertical: 4,
-    borderWidth: 1, borderColor: '#BFDBFE',
+    backgroundColor: ICON_BG, borderRadius: 22,
+    paddingHorizontal: 14, paddingVertical: 7,
+    borderWidth: 1, borderColor: Colors.brandAccent,
   },
-  specialtyChipText: { fontSize: 12, fontWeight: '600', color: '#1D4ED8' },
+  specialtyChipText: { fontSize: 13, fontWeight: '700', color: BRAND },
 
-  // ── Check grid ──
-  checkGrid: { flexDirection: 'row', gap: 8, marginTop: 8, paddingTop: 4 },
-  checkCell: { flex: 1, alignItems: 'center', gap: 5 },
+  checkGrid: { flexDirection: 'row', gap: 10, marginTop: 10, paddingTop: 6 },
+  checkCell: { flex: 1, alignItems: 'center', gap: 6 },
   checkIconWrap: {
-    width: 46, height: 46, borderRadius: 14,
+    width: 50, height: 50, borderRadius: 18,
     alignItems: 'center', justifyContent: 'center',
   },
-  checkIconOk:      { backgroundColor: '#D1FAE5' },
-  checkIconPending: { backgroundColor: '#FEF3C7' },
-  checkIcon:   { fontSize: 22 },
-  checkLabel:  { fontSize: 11, fontWeight: '700', color: VALUE, textAlign: 'center' },
-  checkStatus: { fontSize: 10, fontWeight: '600', textAlign: 'center' },
+  checkIconOk:      { backgroundColor: ICON_BG },
+  checkIconPending: { backgroundColor: Colors.goldSoft },
+  checkLabel:  { fontSize: 12, fontWeight: '700', color: VALUE, textAlign: 'center' },
+  checkStatus: { fontSize: 11, fontWeight: '600', textAlign: 'center' },
 
-  // ── Quick actions grid ──
-  quickActionsGrid: {
-    flexDirection: 'row', gap: 10,
-  },
+  quickActionsGrid: { flexDirection: 'row', gap: 12 },
   quickAction: {
-    flex: 1, alignItems: 'center', gap: 8,
-    backgroundColor: CARD, borderRadius: 16, paddingVertical: 16,
-    borderWidth: 1, borderColor: '#E5E7EB',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
+    flex: 1, alignItems: 'center', gap: 10,
+    backgroundColor: CARD, borderRadius: 22, paddingVertical: 20,
+    borderWidth: 1, borderColor: Colors.cardBorder,
+    shadowColor: Colors.cardShadow, shadowOffset: { width: 0, height: 5 },
+    shadowOpacity: 0.07, shadowRadius: 12, elevation: 3,
   },
   quickActionIcon: {
-    width: 44, height: 44, borderRadius: 14,
+    width: 52, height: 52, borderRadius: 18,
     alignItems: 'center', justifyContent: 'center',
   },
   quickActionLabel: {
-    fontSize: 11, fontWeight: '700', color: VALUE, textAlign: 'center',
+    fontSize: 12.5, fontWeight: '700', color: VALUE, textAlign: 'center',
   },
 
-  // ── Nav cards (Docs/Earnings) ──
   navCard: {
-    backgroundColor: CARD, borderRadius: 18, padding: 16,
-    flexDirection: 'row', alignItems: 'center', gap: 14,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05, shadowRadius: 10, elevation: 2,
-    borderWidth: 1.5, borderColor: '#E5E7EB',
+    backgroundColor: CARD, borderRadius: 24, padding: 20,
+    flexDirection: 'row', alignItems: 'center', gap: 16,
+    shadowColor: Colors.cardShadow, shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.10, shadowRadius: 20, elevation: 6,
+    borderWidth: 1, borderColor: Colors.cardBorder,
   },
   navCardIcon: {
-    width: 48, height: 48, borderRadius: 14,
+    width: 54, height: 54, borderRadius: 20,
     alignItems: 'center', justifyContent: 'center',
     borderWidth: 1,
   },
-  navCardTitle: { fontSize: 15, fontWeight: '700', color: VALUE, marginBottom: 3 },
-  navCardSub:   { fontSize: 12, color: LABEL },
+  navCardTitle: { fontSize: 16, fontWeight: '700', color: VALUE, marginBottom: 4 },
+  navCardSub:   { fontSize: 13, color: LABEL, lineHeight: 18 },
   navCardChevron: {
-    width: 30, height: 30, borderRadius: 15,
-    backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center',
+    width: 34, height: 34, borderRadius: 17,
+    backgroundColor: ICON_BG, alignItems: 'center', justifyContent: 'center',
   },
-  navCardChevronText: { fontSize: 18, color: '#9CA3AF', fontWeight: '600' },
+  navCardChevronText: { fontSize: 20, color: BRAND, fontWeight: '600' },
 
-  // ── Verify grid (Customer) ──
-  verifyGrid: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 6 },
-  verifyCell: { alignItems: 'center', gap: 4, flex: 1 },
+  verifyGrid: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 10 },
+  verifyCell: { alignItems: 'center', gap: 8, flex: 1 },
   verifyCellIcon: {
-    width: 48, height: 48, borderRadius: 16,
-    backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center',
+    width: 58, height: 58, borderRadius: 22,
+    backgroundColor: ICON_BG, alignItems: 'center', justifyContent: 'center',
   },
-  verifyCellStatus: { fontSize: 16, color: '#16A34A', fontWeight: '700' },
-  verifyCellLabel:  { fontSize: 11, fontWeight: '600', color: LABEL, textAlign: 'center', lineHeight: 14 },
+  verifyCellLabel:  { fontSize: 12.5, fontWeight: '600', color: LABEL, textAlign: 'center', lineHeight: 16 },
 
-  // ── Trust rows ──
-  trustRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 2 },
+  trustRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, paddingVertical: 4 },
   trustIconWrap: {
-    width: 36, height: 36, borderRadius: 10,
-    backgroundColor: '#F3F4F6', alignItems: 'center', justifyContent: 'center',
+    width: 40, height: 40, borderRadius: 14,
+    backgroundColor: ICON_BG, alignItems: 'center', justifyContent: 'center',
   },
-  trustLabel: { fontSize: 14, fontWeight: '600', color: VALUE, marginBottom: 2 },
-  trustDesc:  { fontSize: 12, color: LABEL, lineHeight: 18 },
+  trustLabel: { fontSize: 15, fontWeight: '600', color: VALUE, marginBottom: 3 },
+  trustDesc:  { fontSize: 13, color: LABEL, lineHeight: 19 },
 
-  // ── No profile note ──
   noProfileNote: { paddingVertical: 8 },
   noProfileText: { fontSize: 14, color: LABEL, lineHeight: 20 },
 
-  // ── Sign out ──
   signOutBtn: {
-    borderRadius: 16, backgroundColor: CARD,
-    borderWidth: 2, borderColor: '#FF3B30',
-    paddingVertical: 18, alignItems: 'center',
-    shadowColor: '#FF3B30', shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08, shadowRadius: 8, elevation: 2,
+    borderRadius: 22, backgroundColor: CARD,
+    borderWidth: 1.5, borderColor: '#FECACA',
+    paddingVertical: 20, alignItems: 'center',
+    shadowColor: Colors.cardShadow, shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.06, shadowRadius: 12, elevation: 2,
   },
-  signOutText: { color: '#FF3B30', fontSize: 16, fontWeight: '700' },
+  signOutText: { color: '#DC2626', fontSize: 17, fontWeight: '700' },
 
   deleteAccountBtn: {
     borderRadius: 16, backgroundColor: 'transparent',
     paddingVertical: 16, alignItems: 'center', marginTop: 12,
   },
   deleteAccountText: { color: '#DC2626', fontSize: 15, fontWeight: '700', textDecorationLine: 'underline' },
-  deleteAccountHint: { fontSize: 11, color: '#9CA3AF', textAlign: 'center', lineHeight: 16, marginTop: 4, paddingHorizontal: 12 },
+  deleteAccountHint: { fontSize: 11, color: Colors.tertiaryLabel, textAlign: 'center', lineHeight: 16, marginTop: 4, paddingHorizontal: 12 },
 
   footer: {
-    textAlign: 'center', fontSize: 11, color: '#B8BBC4',
-    marginTop: 28, marginHorizontal: 20, lineHeight: 16,
+    textAlign: 'center', fontSize: 12, color: Colors.tertiaryLabel,
+    marginTop: 32, marginHorizontal: 20, lineHeight: 18,
   },
 });
 

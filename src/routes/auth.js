@@ -247,6 +247,9 @@ router.post(
         bio,
         languages,
         photos,
+        pricingModel,
+        hourlyRate,
+        priceNegotiable,
       } = req.body;
 
       const data = {};
@@ -262,6 +265,9 @@ router.post(
       if (bio                !== undefined) data.bio                = bio.trim();
       if (Array.isArray(languages))         data.languages          = languages;
       if (Array.isArray(photos))            data.photos             = photos.filter(u => typeof u === 'string' && u.startsWith('http')).slice(0, 10);
+      if (pricingModel       !== undefined) data.pricingModel       = pricingModel === 'PER_SERVICE' ? 'PER_SERVICE' : 'HOURLY';
+      if (hourlyRate         !== undefined && pricingModel !== 'PER_SERVICE') data.hourlyRate = Number(hourlyRate) || 25;
+      if (priceNegotiable    !== undefined) data.priceNegotiable    = Boolean(priceNegotiable);
 
       const profile = await prisma.providerProfile.upsert({
         where:  { userId: req.user.id },

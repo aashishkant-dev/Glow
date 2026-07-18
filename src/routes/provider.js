@@ -215,10 +215,12 @@ router.get(
       // bounding box and were silently dropped — Providers reported "recent jobs not
       // showing". Pull them in separately and show them with no distance rather
       // than hiding real work.
+      // lat/lng are non-nullable; 0/0 is the "geocode failed / unknown" marker
+      // (see customer.js create). Spreading `OR:` here would also clobber
+      // poolWhere's own OR — AND the two conditions instead.
       const noGeo = await prisma.booking.findMany({
         where: {
-          ...poolWhere,
-          OR: [{ lat: null }, { lng: null }],
+          AND: [poolWhere, { lat: 0, lng: 0 }],
         },
         include: { customer: { select: { id: true, name: true, phone: true, rating: true, photoUrl: true } } },
         take: 50,
@@ -1051,6 +1053,40 @@ router.get(
       res.json({ services: services.map(s => ({ ...s, price: toNum(s.price) })) });
     } catch (err) {
       console.error('GET /provider/services error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+// ── PATCH /pricing — update the provider's pricing model and rate ──────────────
+router.patch(
+  '/pricing',
+  authenticate,
+  requireRole('Provider'),
+  async (req, res) => {
+    try {
+      const profile = await prisma.providerProfile.findUnique({ where: { userId: req.user.id }, select: { id: true } });
+      if (!profile) return res.status(403).json({ error: 'Provider profile not found.' });
+
+      const { pricingModel, hourlyRate, priceNegotiable } = req.body;
+      const data = {};
+      if (pricingModel !== undefined) data.pricingModel = pricingModel === 'PER_SERVICE' ? 'PER_SERVICE' : 'HOURLY';
+      if (hourlyRate !== undefined)   data.hourlyRate = Number(hourlyRate) || 25;
+      if (priceNegotiable !== undefined) data.priceNegotiable = Boolean(priceNegotiable);
+
+      if (Object.keys(data).length === 0) {
+        return res.status(400).json({ error: 'No valid pricing fields provided' });
+      }
+
+      const updated = await prisma.providerProfile.update({ where: { userId: req.user.id }, data });
+      cacheFlushPattern('providers:*').catch(() => {});
+      res.json({
+        pricingModel: updated.pricingModel,
+        hourlyRate: toNum(updated.hourlyRate),
+        priceNegotiable: updated.priceNegotiable,
+      });
+    } catch (err) {
+      console.error('PATCH /pricing error:', err);
       res.status(500).json({ error: 'Server error' });
     }
   }

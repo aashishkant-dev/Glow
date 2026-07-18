@@ -102,7 +102,7 @@ export function ProviderPublicProfileScreen() {
   }, [providerId]);
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#F8FAFC' }}>
+    <View style={{ flex: 1, backgroundColor: Colors.systemGroupedBackground }}>
       {loading ? (
         <View style={[styles.centered, { paddingTop: insets.top + 60 }]}>
           <ActivityIndicator color={Colors.brand} size="large" />
@@ -282,8 +282,14 @@ export function ProviderPublicProfileScreen() {
           {/* Fixed bottom Book CTA */}
           <View style={[styles.bottomCTA, { paddingBottom: insets.bottom + 12 }]}>
             <View style={styles.priceLine}>
-              <Text style={styles.priceText}>$25 / hr</Text>
-              <Text style={styles.minText}>· 3 hr minimum</Text>
+              {provider.pricingModel === 'PER_SERVICE' && provider.services?.length > 0 ? (
+                <Text style={styles.priceText}>From Rs {Math.min(...provider.services.map(s => s.price))}</Text>
+              ) : (
+                <Text style={styles.priceText}>Rs {provider.hourlyRate ?? 25} / hr</Text>
+              )}
+              {provider.priceNegotiable && (
+                <Text style={[styles.minText, { color: '#16A34A', fontWeight: '700' }]}> · Negotiable</Text>
+              )}
             </View>
             <Pressable
               style={({ pressed }) => [styles.bookBtn, pressed && { opacity: 0.88, transform: [{ scale: 0.97 }] }]}
@@ -345,8 +351,8 @@ const styles = StyleSheet.create({
   bioText: { fontSize: 14, color: '#374151', lineHeight: 22 },
 
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  tag: { backgroundColor: '#EEF2FF', borderRadius: 8, paddingHorizontal: 11, paddingVertical: 6 },
-  tagText: { fontSize: 12, color: '#4338CA', fontWeight: '700' },
+  tag: { backgroundColor: Colors.brandLight, borderRadius: 8, paddingHorizontal: 11, paddingVertical: 6 },
+  tagText: { fontSize: 12, color: Colors.brandDark, fontWeight: '700' },
 
   certItem: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
   certIcon: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },

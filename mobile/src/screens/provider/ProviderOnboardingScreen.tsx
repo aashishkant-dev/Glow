@@ -72,7 +72,7 @@ const STEP4_DOCS = [
   { id: 'insurance',       label: 'Liability Insurance',          required: false, hint: 'Professional liability if applicable' },
 ];
 
-const STEP_LABELS = ['Credentials', 'Specialties', 'Details', 'Documents'];
+const STEP_LABELS = ['Credentials', 'Specialties', 'Details', 'Pricing', 'Documents'];
 
 // ── SVG-style icons as text ────────────────────────────────────────────────────
 function DocIcon({ id, done }: { id: string; done?: boolean }) {
@@ -85,10 +85,10 @@ function StepIndicator({ step }: { step: number }) {
   return (
     <View style={styles.stepWrap}>
       <View style={styles.stepTrack}>
-        <View style={[styles.stepFill, { width: `${((step - 1) / 3) * 100}%` as any }]} />
+        <View style={[styles.stepFill, { width: `${((step - 1) / 4) * 100}%` as any }]} />
       </View>
       <View style={styles.stepRow}>
-        {[1, 2, 3, 4].map(s => (
+        {[1, 2, 3, 4, 5].map(s => (
           <View key={s} style={styles.stepItem}>
             <View style={[
               styles.stepDot,
@@ -129,7 +129,7 @@ export function ProviderOnboardingScreen() {
   const insets = useSafeAreaInsets();
   const { user, updateUser } = useAuth();
 
-  const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
 
   // Step 1
   const [qualType, setQualType]     = useState<QualType>('MAKEUP_ARTIST');
@@ -147,7 +147,13 @@ export function ProviderOnboardingScreen() {
   const [driversLic, setDriversLic] = useState(false);
   const [ownCar, setOwnCar]         = useState(false);
 
-  // Step 4 — per-doc upload state
+  // Step 4 — Pricing
+  const [pricingModel, setPricingModel]       = useState<'PER_SERVICE' | 'HOURLY'>('HOURLY');
+  const [hourlyRate, setHourlyRate]           = useState('25');
+  const [servicePrices, setServicePrices]     = useState<Record<string, string>>({});
+  const [priceNegotiable, setPriceNegotiable] = useState(false);
+
+  // Step 5 — per-doc upload state
   const [docStates, setDocStates] = useState<Record<string, DocState>>(initDocStates);
 
   const [loading, setLoading] = useState(false);
@@ -180,9 +186,12 @@ export function ProviderOnboardingScreen() {
         firstAidCertified: firstAid,
         driversLicense:    driversLic,
         ownTransportation: ownCar,
+        pricingModel,
+        hourlyRate:        pricingModel === 'HOURLY' ? Number(hourlyRate) || 25 : undefined,
+        priceNegotiable,
       });
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setStep(4);
+      setStep(5);
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Could not save your profile. Please try again.');
     }
@@ -275,19 +284,22 @@ export function ProviderOnboardingScreen() {
   const footerLabel =
     step === 1 ? 'Continue →' :
     step === 2 ? 'Continue →' :
-    step === 3 ? 'Submit Profile' :
+    step === 3 ? 'Continue →' :
+    step === 4 ? 'Submit Profile' :
     'Go to Dashboard →';
 
   function handleFooterNext() {
     if (step === 1) setStep(2);
     else if (step === 2) setStep(3);
-    else if (step === 3) submitProfile();
+    else if (step === 3) setStep(4);
+    else if (step === 4) submitProfile();
     else finishOnboarding();
   }
 
   function handleFooterBack() {
     if (step === 2) setStep(1);
     else if (step === 3) setStep(2);
+    else if (step === 4) setStep(3);
   }
 
   const anyUploading = Object.values(docStates).some(d => d.uploading);
@@ -307,13 +319,14 @@ export function ProviderOnboardingScreen() {
             style={[styles.header, { paddingTop: insets.top + 24 }]}
           >
             <View style={styles.headerBadge}>
-              <Text style={styles.headerBadgeText}>Step {step} of 4</Text>
+              <Text style={styles.headerBadgeText}>Step {step} of 5</Text>
             </View>
             <Text style={styles.headerTitle}>Provider Verification</Text>
             <Text style={styles.headerSub}>
               {step === 1 ? 'Tell us about your credential' :
                step === 2 ? 'Specialties & languages' :
                step === 3 ? 'Final details' :
+               step === 4 ? 'Set your prices' :
                'Upload your documents'}
             </Text>
             <StepIndicator step={step} />
@@ -478,8 +491,126 @@ export function ProviderOnboardingScreen() {
               </>
             )}
 
-            {/* ── STEP 4: Documents ── */}
+            {/* ── STEP 4: Pricing ── */}
             {step === 4 && (
+              <>
+                <Text style={styles.sectionTitle}>Set Your Prices</Text>
+                <Text style={styles.sectionSub}>How would you like to charge for your services? You can change this later from your profile.</Text>
+
+                {/* Pricing model toggle */}
+                <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
+                  {[
+                    { key: 'HOURLY' as const, label: 'Hourly Rate', desc: 'One rate for all services', icon: '⏰' },
+                    { key: 'PER_SERVICE' as const, label: 'Per Service', desc: 'Different price per service', icon: '💫' },
+                  ].map(m => {
+                    const active = pricingModel === m.key;
+                    return (
+                      <Pressable
+                        key={m.key}
+                        style={[styles.qualCard, { width: '47%' }, active && { borderColor: GREEN, borderLeftColor: GREEN, backgroundColor: GREEN + '0D' }]}
+                        onPress={() => {
+                          if (Platform.OS !== 'web') Haptics.selectionAsync();
+                          setPricingModel(m.key);
+                        }}
+                      >
+                        {active && <View style={[styles.qualActiveDot, { backgroundColor: GREEN }]} />}
+                        <Text style={{ fontSize: 22, marginBottom: 4 }}>{m.icon}</Text>
+                        <Text style={[styles.qualLabel, active && { color: GREEN }]}>{m.label}</Text>
+                        <Text style={styles.qualDesc}>{m.desc}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+
+                {/* Hourly rate input */}
+                {pricingModel === 'HOURLY' && (
+                  <>
+                    <Text style={styles.fieldLabel}>HOURLY RATE (Rs)</Text>
+                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                      <Text style={{ fontSize: 20, fontWeight: '800', color: GREEN }}>Rs</Text>
+                      <TextInput
+                        style={[styles.input, { flex: 1 }]}
+                        value={hourlyRate}
+                        onChangeText={setHourlyRate}
+                        placeholder="25"
+                        placeholderTextColor="#94A3B8"
+                        keyboardType="number-pad"
+                        maxLength={5}
+                        returnKeyType="done"
+                      />
+                      <Text style={{ fontSize: 14, color: '#64748B', fontWeight: '600' }}>/hour</Text>
+                    </View>
+                    <View style={[styles.infoBox, { marginTop: 14 }]}>
+                      <Text style={styles.infoBoxIcon}>💡</Text>
+                      <Text style={styles.infoBoxText}>
+                        Clients will see your hourly rate and the total estimated cost based on session duration.
+                      </Text>
+                    </View>
+                  </>
+                )}
+
+                {/* Per-service price inputs */}
+                {pricingModel === 'PER_SERVICE' && (
+                  <>
+                    <Text style={styles.fieldLabel}>SERVICE PRICES (Rs)</Text>
+                    {specialties.length === 0 ? (
+                      <View style={[styles.infoBox, { backgroundColor: '#FEF3C7', borderColor: '#FCD34D' }]}>
+                        <Text style={styles.infoBoxIcon}>⚠️</Text>
+                        <Text style={[styles.infoBoxText, { color: '#92400E' }]}>
+                          No specialties selected yet. Go back to Step 2 to select specialties, then set prices for each.
+                        </Text>
+                      </View>
+                    ) : (
+                      specialties.map(s => (
+                        <View key={s} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                          <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: TEXT }}>{s}</Text>
+                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                            <Text style={{ fontSize: 16, fontWeight: '800', color: GREEN }}>Rs</Text>
+                            <TextInput
+                              style={[styles.input, { width: 90, textAlign: 'right' }]}
+                              value={servicePrices[s] || ''}
+                              onChangeText={v => setServicePrices(prev => ({ ...prev, [s]: v }))}
+                              placeholder="—"
+                              placeholderTextColor="#CBD5E1"
+                              keyboardType="number-pad"
+                              maxLength={5}
+                            />
+                          </View>
+                        </View>
+                      ))
+                    )}
+                    <View style={[styles.infoBox, { marginTop: 6 }]}>
+                      <Text style={styles.infoBoxIcon}>💡</Text>
+                      <Text style={styles.infoBoxText}>
+                        Set a fixed price for each service. Clients see the exact amount before booking.
+                      </Text>
+                    </View>
+                  </>
+                )}
+
+                {/* Negotiable toggle */}
+                <View style={[styles.card, { marginTop: 20 }]}>
+                  <View style={styles.switchRow}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.switchLabel}>Allow Price Negotiation</Text>
+                      <Text style={styles.switchSub}>Clients can propose a different price when booking</Text>
+                    </View>
+                    <Switch
+                      value={priceNegotiable}
+                      onValueChange={v => {
+                        if (Platform.OS !== 'web') Haptics.selectionAsync();
+                        setPriceNegotiable(v);
+                      }}
+                      trackColor={{ false: '#E2E8F0', true: GREEN + '60' }}
+                      thumbColor={priceNegotiable ? GREEN : '#CBD5E1'}
+                    />
+                  </View>
+                </View>
+              </>
+            )}
+
+            {/* ── STEP 5: Documents ── */}
+            {step === 5 && (
               <>
                 <Text style={styles.sectionTitle}>Identity Verification</Text>
                 <Text style={styles.sectionSub}>
@@ -596,7 +727,7 @@ export function ProviderOnboardingScreen() {
 
         {/* ── Sticky footer ── */}
         <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
-          {step > 1 && step < 4 && (
+          {step > 1 && step < 5 && (
             <Pressable style={styles.backBtn} onPress={handleFooterBack} accessibilityRole="button">
               <Text style={styles.backBtnText}>← Back</Text>
             </Pressable>
@@ -608,7 +739,7 @@ export function ProviderOnboardingScreen() {
             accessibilityRole="button"
           >
             <LinearGradient
-              colors={step === 3 ? [GREEN, GREEN] : [BRAND_DARK, BRAND]}
+              colors={step === 4 ? [GREEN, GREEN] : [BRAND_DARK, BRAND]}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
               style={styles.nextBtnGrad}
             >
