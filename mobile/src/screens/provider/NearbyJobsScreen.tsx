@@ -408,7 +408,6 @@ function coarseArea(address?: string): string | null {
 // schedule, hours, $ pay, a rough "~X km away" and a coarse neighbourhood — enough to
 // decide, nothing that identifies the client before a match.
 function OpenJobCard({ job, isNew, onPress }: { job: any; isNew: boolean; onPress: () => void }) {
-  const accent = Colors.brand;
   const date = new Date(job.scheduledAt);
   const dateStr = date.toLocaleDateString('en-CA', { weekday: 'short', month: 'short', day: 'numeric' });
   const timeStr = date.toLocaleTimeString('en-CA', { hour: '2-digit', minute: '2-digit' });
@@ -417,48 +416,40 @@ function OpenJobCard({ job, isNew, onPress }: { job: any; isNew: boolean; onPres
 
   return (
     <Pressable
-      style={({ pressed }) => [openCardStyles.card, pressed && { opacity: 0.93, transform: [{ scale: 0.99 }] }]}
+      style={({ pressed }) => [openCardStyles.card, pressed && { opacity: 0.93, transform: [{ scale: 0.985 }] }]}
       onPress={onPress}
     >
-      <View style={openCardStyles.header}>
-        <View style={[openCardStyles.iconWrap, { backgroundColor: accent + '18' }]}>
-          <ServiceIcon serviceType={job.serviceType} size={24} color={accent} bubble={false} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <View style={openCardStyles.titleRow}>
-            <Text style={openCardStyles.serviceType} numberOfLines={1}>{job.serviceType}</Text>
-            {isNew && (
-              <View style={openCardStyles.newTag}><Text style={openCardStyles.newTagText}>NEW</Text></View>
-            )}
-            {urgent && (
-              <View style={openCardStyles.urgentTag}><Text style={openCardStyles.urgentTagText}>URGENT</Text></View>
-            )}
-          </View>
-          <Text style={openCardStyles.dateTime}>{dateStr} · {timeStr}</Text>
-        </View>
-        <View style={openCardStyles.priceWrap}>
-          <Text style={openCardStyles.price}>${job.totalPrice}</Text>
-          <Text style={openCardStyles.hours}>{job.hours}h</Text>
-        </View>
+      {/* Left art panel — soft rose canvas with the service mark */}
+      <View style={openCardStyles.art}>
+        {Platform.OS === 'web' && (
+          <View style={[StyleSheet.absoluteFill, { background: 'linear-gradient(160deg, #E9A0B1, #C4667E)' } as any]} />
+        )}
+        <View style={openCardStyles.artGlow} />
+        <ServiceIcon serviceType={job.serviceType} size={26} color="#fff" bubble={false} />
+        {job.distanceKm != null && (
+          <Text style={openCardStyles.artKm}>~{job.distanceKm} km</Text>
+        )}
       </View>
 
-      <View style={openCardStyles.divider} />
-
-      <View style={openCardStyles.metaRow}>
-        {job.distanceKm != null && (
-          <View style={openCardStyles.chip}>
-            <PinIcon size={13} color={Colors.brand} />
-            <Text style={openCardStyles.chipText}>~{job.distanceKm} km away</Text>
+      {/* Body */}
+      <View style={openCardStyles.body}>
+        <View style={openCardStyles.titleRow}>
+          <Text style={openCardStyles.serviceType} numberOfLines={1}>{job.serviceType}</Text>
+          {isNew && (
+            <View style={openCardStyles.newTag}><Text style={openCardStyles.newTagText}>JUST IN</Text></View>
+          )}
+          {urgent && (
+            <View style={openCardStyles.urgentTag}><Text style={openCardStyles.urgentTagText}>ASAP</Text></View>
+          )}
+        </View>
+        <Text style={openCardStyles.dateTime}>{dateStr} · {timeStr}{area ? ` · ${area}` : ''}</Text>
+        <View style={openCardStyles.payRow}>
+          <Text style={openCardStyles.price}>${job.totalPrice}</Text>
+          <View style={openCardStyles.sessionChip}>
+            <ClockIcon size={12} color={Colors.brandDeep} />
+            <Text style={openCardStyles.sessionChipText}>{job.hours}h session</Text>
           </View>
-        )}
-        {area && (
-          <View style={openCardStyles.chip}>
-            <Text style={openCardStyles.chipText} numberOfLines={1}>{area}</Text>
-          </View>
-        )}
-        <View style={openCardStyles.chip}>
-          <ClockIcon size={13} color={Colors.secondaryLabel} />
-          <Text style={openCardStyles.chipText}>{job.hours}h shift</Text>
+          <Text style={openCardStyles.viewLink}>View →</Text>
         </View>
       </View>
     </Pressable>
@@ -467,31 +458,40 @@ function OpenJobCard({ job, isNew, onPress }: { job: any; isNew: boolean; onPres
 
 const openCardStyles = StyleSheet.create({
   card: {
-    backgroundColor: Colors.systemBackground,
+    flexDirection: 'row',
+    backgroundColor: '#fff',
     borderWidth: 1, borderColor: Colors.separator,
-    borderRadius: 18, padding: 16,
-    marginHorizontal: 16, marginVertical: 6,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2,
+    borderRadius: 24, overflow: 'hidden',
+    marginHorizontal: 16, marginVertical: 7,
+    shadowColor: Colors.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.07, shadowRadius: 16, elevation: 3,
   },
-  header: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  iconWrap: { width: 48, height: 48, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  serviceType: { fontSize: 16, fontWeight: '800', color: Colors.label, flexShrink: 1 },
-  dateTime: { fontSize: 12.5, color: Colors.secondaryLabel, marginTop: 3 },
-  priceWrap: { alignItems: 'flex-end' },
-  price: { fontSize: 22, fontWeight: '900', color: Colors.brand },
-  hours: { fontSize: 11, color: Colors.secondaryLabel },
-  divider: { height: 1, backgroundColor: Colors.separator, marginVertical: 12 },
-  metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  chip: {
+  art: {
+    width: 86, backgroundColor: Colors.brandAccent,
+    alignItems: 'center', justifyContent: 'center', gap: 6,
+    overflow: 'hidden',
+  },
+  artGlow: {
+    position: 'absolute', top: -22, left: -22,
+    width: 70, height: 70, borderRadius: 35,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+  },
+  artKm: { color: 'rgba(255,255,255,0.9)', fontSize: 10.5, fontFamily: 'Inter_600SemiBold' },
+  body: { flex: 1, padding: 14, paddingLeft: 16 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 7 },
+  serviceType: { fontSize: 16, fontFamily: 'Inter_600SemiBold', color: Colors.label, flexShrink: 1, letterSpacing: -0.2 },
+  dateTime: { fontSize: 12.5, color: Colors.secondaryLabel, marginTop: 3, fontFamily: 'Inter_400Regular' },
+  payRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 12 },
+  price: { fontSize: 22, fontFamily: 'Inter_700Bold', color: Colors.label, letterSpacing: -0.5 },
+  sessionChip: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: '#F1F5F4', borderRadius: 9, paddingHorizontal: 10, paddingVertical: 6,
+    backgroundColor: Colors.brandLight, borderRadius: 100, paddingHorizontal: 10, paddingVertical: 5,
   },
-  chipText: { fontSize: 12, fontWeight: '600', color: Colors.secondaryLabel },
-  newTag: { backgroundColor: Colors.brand, borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2 },
-  newTagText: { fontSize: 9, fontWeight: '900', color: '#fff', letterSpacing: 0.5 },
-  urgentTag: { backgroundColor: '#FEF2F2', borderRadius: 6, paddingHorizontal: 6, paddingVertical: 2, borderWidth: 1, borderColor: '#FCA5A5' },
-  urgentTagText: { fontSize: 9, fontWeight: '900', color: '#DC2626', letterSpacing: 0.5 },
+  sessionChipText: { fontSize: 11.5, fontFamily: 'Inter_500Medium', color: Colors.brandDeep },
+  viewLink: { marginLeft: 'auto', fontSize: 13, fontFamily: 'Inter_500Medium', color: Colors.brandDark },
+  newTag: { backgroundColor: Colors.gold, borderRadius: 100, paddingHorizontal: 8, paddingVertical: 3 },
+  newTagText: { fontSize: 9, fontFamily: 'Inter_700Bold', color: '#fff', letterSpacing: 0.7 },
+  urgentTag: { backgroundColor: Colors.brandLight, borderRadius: 100, paddingHorizontal: 8, paddingVertical: 3 },
+  urgentTagText: { fontSize: 9, fontFamily: 'Inter_700Bold', color: Colors.brandDeep, letterSpacing: 0.7 },
 });
 
 // ── Profile-boost incentive banner ────────────────────────────────────────────
@@ -897,8 +897,8 @@ export function NearbyJobsScreen() {
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View style={styles.headerRow}>
           <View>
-            <Text style={styles.headerTitle}>Find Jobs</Text>
-            <Text style={styles.headerSub}>Open bookings near you</Text>
+            <Text style={styles.headerTitle}>Fresh requests</Text>
+            <Text style={styles.headerSub}>Clients near you are ready to glow</Text>
           </View>
           <View style={styles.headerRight}>
             {activeTab === 'new' && (
@@ -999,16 +999,16 @@ export function NearbyJobsScreen() {
                         : <BriefcaseIcon size={30} color={Colors.brand} />}
                     </View>
                     <Text style={styles.emptyTitle}>
-                      {searchText ? 'No matching jobs' : 'No jobs nearby right now'}
+                      {searchText ? 'No matching requests' : 'All quiet — for now'}
                     </Text>
                     <Text style={styles.emptySub}>
                       {searchText
-                        ? `No jobs match "${searchText}". Try clearing the filter.`
-                        : 'New jobs are posted regularly. Pull down to refresh, or check back soon.'}
+                        ? `Nothing matches "${searchText}". Try clearing the filter.`
+                        : 'New glam requests land here all day. Pull to refresh, or polish your profile while you wait.'}
                     </Text>
                     {!searchText && (
                       <Pressable style={styles.refreshBtn} onPress={() => load(true)}>
-                        <Text style={styles.refreshBtnText}>Check Again</Text>
+                        <Text style={styles.refreshBtnText}>Refresh requests</Text>
                       </Pressable>
                     )}
                   </View>

@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Image } from 'expo-image';
 import {
   Animated,
-  Dimensions,
+  Easing,
   Platform,
   Pressable,
   RefreshControl,
@@ -13,15 +13,23 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { CalendarSVGIcon, FlashIcon, HomeSVGIcon } from '../../components/TabIcons';
-import { GlowLogo } from '../../components/GlowLogo';
-import { apiMyBookings, Booking } from '../../api/client';
+import { CalendarSVGIcon, StarIcon, SearchIcon } from '../../components/TabIcons';
+import { GlowLogo, GlowMark } from '../../components/GlowLogo';
+import {
+  apiMyBookings,
+  apiPublicCatalog,
+  apiPublicProviders,
+  Booking,
+  CatalogService,
+  PublicProviderCard,
+} from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useLang, useT } from '../../context/LangContext';
 import { useLocation } from '../../context/LocationContext';
-import { Colors, ServiceAccentColors } from '../../utils/colors';
+import { Colors, Fonts } from '../../utils/colors';
 import { ServiceIcon } from '../../components/ServiceIcon';
-import { BellIcon, PinIcon } from '../../components/CareIcons';
+import { BellIcon, PinIcon, CheckDecagramIcon } from '../../components/CareIcons';
+import { SparkleIcon } from '../../components/BeautyIcons';
 import { BookingCard } from '../../components/BookingCard';
 import { BookingCardSkeleton } from '../../components/SkeletonLoader';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -30,17 +38,39 @@ import { Storage } from '../../utils/storage';
 import { useChatUnread } from '../../context/ChatUnreadContext';
 
 const SERVICES = [
-  { id: '1',  en: 'Makeup',        fr: 'Maquillage',          accent: ServiceAccentColors['Makeup'] },
-  { id: '2',  en: 'Bridal Makeup', fr: 'Maquillage de mariée', accent: ServiceAccentColors['Bridal Makeup'] },
-  { id: '3',  en: 'Party Makeup',  fr: 'Maquillage de soirée', accent: ServiceAccentColors['Party Makeup'] },
-  { id: '4',  en: 'Threading',     fr: 'Épilation au fil',     accent: ServiceAccentColors['Threading'] },
-  { id: '5',  en: 'Hair Styling',  fr: 'Coiffure',             accent: ServiceAccentColors['Hair Styling'] },
-  { id: '6',  en: 'Hair Coloring', fr: 'Coloration',           accent: ServiceAccentColors['Hair Coloring'] },
-  { id: '7',  en: 'Facial',        fr: 'Soin du visage',       accent: ServiceAccentColors['Facial'] },
-  { id: '8',  en: 'Waxing',        fr: 'Épilation à la cire',  accent: ServiceAccentColors['Waxing'] },
-  { id: '9',  en: 'Nails',         fr: 'Ongles',               accent: ServiceAccentColors['Nails'] },
-  { id: '10', en: 'Mehendi',       fr: 'Mehendi',              accent: ServiceAccentColors['Mehendi'] },
-  { id: '11', en: 'Massage',       fr: 'Massage',              accent: ServiceAccentColors['Massage'] },
+  { id: '1',  en: 'Makeup',        fr: 'Maquillage' },
+  { id: '2',  en: 'Bridal Makeup', fr: 'Maquillage de mariée' },
+  { id: '3',  en: 'Party Makeup',  fr: 'Maquillage de soirée' },
+  { id: '4',  en: 'Threading',     fr: 'Épilation au fil' },
+  { id: '5',  en: 'Hair Styling',  fr: 'Coiffure' },
+  { id: '6',  en: 'Hair Coloring', fr: 'Coloration' },
+  { id: '7',  en: 'Facial',        fr: 'Soin du visage' },
+  { id: '8',  en: 'Waxing',        fr: 'Épilation à la cire' },
+  { id: '9',  en: 'Nails',         fr: 'Ongles' },
+  { id: '10', en: 'Mehendi',       fr: 'Mehendi' },
+  { id: '11', en: 'Massage',       fr: 'Massage' },
+];
+
+const FR_SERVICE_NAMES: Record<string, string> = Object.fromEntries(SERVICES.map(s => [s.en, s.fr]));
+
+// Occasion-first browsing — how women actually shop beauty: by moment, not by
+// service taxonomy. Each maps to the closest bookable service.
+const OCCASIONS: { id: string; en: string; fr: string; subEn: string; subFr: string; service: string; tint: string }[] = [
+  { id: 'wedding',  en: 'Wedding',       fr: 'Mariage',        subEn: 'Bridal glam',        subFr: 'Glam de mariée',   service: 'Bridal Makeup', tint: '#FCECEF' },
+  { id: 'party',    en: 'Party night',   fr: 'Soirée',         subEn: 'Full glam look',     subFr: 'Look glamour',     service: 'Party Makeup',  tint: '#F6EBC9' },
+  { id: 'date',     en: 'Date night',    fr: 'Rendez-vous',    subEn: 'Soft & radiant',     subFr: 'Douce & radieuse', service: 'Makeup',        tint: '#FCECEF' },
+  { id: 'festival', en: 'Festival',      fr: 'Festival',       subEn: 'Mehendi & more',     subFr: 'Mehendi & plus',   service: 'Mehendi',       tint: '#F6EBC9' },
+  { id: 'everyday', en: 'Everyday glow', fr: 'Éclat quotidien', subEn: 'Skin-first beauty', subFr: 'Peau éclatante',   service: 'Facial',        tint: '#FCECEF' },
+  { id: 'metime',   en: 'Me-time',       fr: 'Moment à moi',   subEn: 'Relax & recharge',   subFr: 'Détente totale',   service: 'Massage',       tint: '#F6EBC9' },
+];
+
+// Editorial inspiration tiles — designer photography drops in here later
+// (see brand asset list); until then soft duotone canvases.
+const INSPO: { id: string; en: string; fr: string; tagEn: string; tagFr: string; service: string; from: string; to: string }[] = [
+  { id: 'softglam', en: 'Soft glam is in',        fr: 'Le soft glam',          tagEn: 'TREND',  tagFr: 'TENDANCE', service: 'Makeup',        from: '#E9A0B1', to: '#A34D63' },
+  { id: 'bridal',   en: 'Wedding season looks',   fr: 'Looks de mariage',      tagEn: 'EDIT',   tagFr: 'ÉDITO',    service: 'Bridal Makeup', from: '#D4AF37', to: '#A3812A' },
+  { id: 'nails',    en: 'Nail art we love',       fr: "Nail art qu'on adore",  tagEn: 'LOVED',  tagFr: 'COUP DE ♥', service: 'Nails',        from: '#D97A91', to: '#7E3B4D' },
+  { id: 'hair',     en: 'Effortless waves',       fr: 'Ondulations naturelles', tagEn: 'HOW-TO', tagFr: 'TUTO',    service: 'Hair Styling',  from: '#C4667E', to: '#8E4257' },
 ];
 
 const ACTIVE_STATUSES = new Set(['REQUESTED', 'ACCEPTED', 'ON_MY_WAY', 'STARTED']);
@@ -52,79 +82,60 @@ function formatTime(iso: string, locale: string) {
   return new Date(iso).toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
-import { OSMMap } from '../../components/OSMMap';
-
-declare global { interface Window { L: any } }
-
-function loadLeaflet(): Promise<void> {
-  return new Promise(resolve => {
-    if (typeof window === 'undefined') { resolve(); return; }
-    if (window.L) { resolve(); return; }
-    const link = document.createElement('link');
-    link.rel = 'stylesheet';
-    link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-    document.head.appendChild(link);
-    const script = document.createElement('script');
-    script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-    script.onload = () => resolve();
-    document.head.appendChild(script);
-  });
+/** Press-scale wrapper — every touch feels alive. */
+function Touch({ children, onPress, style }: { children: React.ReactNode; onPress?: () => void; style?: any }) {
+  const scale = useRef(new Animated.Value(1)).current;
+  return (
+    <Animated.View style={[{ transform: [{ scale }] }, style]}>
+      <Pressable
+        onPress={onPress}
+        onPressIn={() => Animated.spring(scale, { toValue: 0.97, useNativeDriver: true, speed: 50, bounciness: 4 }).start()}
+        onPressOut={() => Animated.spring(scale, { toValue: 1, useNativeDriver: true, speed: 40, bounciness: 6 }).start()}
+      >
+        {children}
+      </Pressable>
+    </Animated.View>
+  );
 }
 
-function WebMapPreview() {
-  const containerRef = useRef<any>(null);
-  const mapRef       = useRef<any>(null);
-  const roRef        = useRef<any>(null);
-
-  useEffect(() => {
-    let cancelled = false;
-    loadLeaflet().then(() => {
-      if (cancelled || !containerRef.current || mapRef.current) return;
-      const L = window.L;
-      const map = L.map(containerRef.current, {
-        zoomControl: false, scrollWheelZoom: false,
-        dragging: false, doubleClickZoom: false,
-        attributionControl: false, keyboard: false, tap: false,
-      }).setView([46.4917, -80.9924], 12);
-      L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png', {
-        maxZoom: 19, attribution: '© CartoDB',
-      }).addTo(map);
-      const style = document.createElement('style');
-      style.textContent = `
-        .cn-provider-pin{position:relative;width:20px;height:20px;}
-        .cn-provider-pin-inner{width:20px;height:20px;background:linear-gradient(135deg,#B76E79,#B76E79);border:2.5px solid #fff;border-radius:50%;box-shadow:0 3px 10px rgba(183,110,121,.5);}
-        .cn-provider-pin-pulse{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);width:32px;height:32px;border-radius:50%;background:rgba(183,110,121,.2);animation:pulse-map 2s ease-out infinite;}
-        @keyframes pulse-map{0%{transform:translate(-50%,-50%) scale(.6);opacity:.9}100%{transform:translate(-50%,-50%) scale(1.8);opacity:0}}
-      `;
-      document.head.appendChild(style);
-      L.circle([46.4917, -80.9924], { radius: 15000, color: '#B76E79', fillColor: '#B76E79', fillOpacity: 0.05, weight: 1.5, dashArray: '6,4' }).addTo(map);
-      [
-        [46.492, -80.992], [46.506, -80.971], [46.479, -81.012],
-        [46.514, -80.954], [46.476, -80.984], [46.501, -81.001],
-      ].forEach(([lat, lng]) => {
-        const icon = L.divIcon({ html: '<div class="cn-provider-pin"><div class="cn-provider-pin-pulse"></div><div class="cn-provider-pin-inner"></div></div>', className: '', iconAnchor: [10, 10] });
-        L.marker([lat, lng], { icon }).addTo(map);
-      });
-      mapRef.current = map;
-      // Leaflet renders white/blurry if the container had zero size when created
-      // (common when the card mounts collapsed). Re-measure several times AND on
-      // container resize so tiles paint once the box has real dimensions.
-      const refresh = () => { if (mapRef.current) mapRef.current.invalidateSize(); };
-      [50, 250, 600, 1200].forEach(t => setTimeout(() => { if (!cancelled) refresh(); }, t));
-      if (typeof ResizeObserver !== 'undefined' && containerRef.current) {
-        const ro = new ResizeObserver(() => refresh());
-        ro.observe(containerRef.current);
-        roRef.current = ro;
-      }
-    });
-    return () => {
-      cancelled = true;
-      if (roRef.current) { roRef.current.disconnect(); roRef.current = null; }
-      if (mapRef.current) { mapRef.current.remove(); mapRef.current = null; }
-    };
-  }, []);
-
-  return <div ref={containerRef} style={{ height: 200, width: '100%', backgroundColor: '#F0F0F0', borderRadius: 16, overflow: 'hidden' }} />;
+/** Editorial artist card — soft rose canvas, avatar, gold-verified. */
+function ArtistCard({ artist, locale, onPress }: { artist: PublicProviderCard; locale: string; onPress: () => void }) {
+  const initial = artist.name?.[0]?.toUpperCase() ?? '?';
+  return (
+    <Touch onPress={onPress} style={styles.artistCardWrap}>
+      <View style={styles.artistCard}>
+        <View style={styles.artistCanvas}>
+          {artist.photoUrl ? (
+            <Image source={{ uri: artist.photoUrl }} style={styles.artistPhoto} contentFit="cover" cachePolicy="memory-disk" transition={200} />
+          ) : (
+            <View style={styles.artistPhotoFallback}>
+              <Text style={styles.artistInitial}>{initial}</Text>
+            </View>
+          )}
+        </View>
+        <View style={styles.artistBody}>
+          <View style={styles.artistNameRow}>
+            <Text style={styles.artistName} numberOfLines={1}>{artist.name}</Text>
+            {artist.policeCheckCleared && <CheckDecagramIcon size={14} color={Colors.gold} />}
+          </View>
+          <Text style={styles.artistRole} numberOfLines={1}>
+            {artist.specialties.length ? artist.specialties.slice(0, 2).join(' · ') : artist.qualificationType}
+          </Text>
+          <View style={styles.artistMetaRow}>
+            <StarIcon size={12} color={Colors.gold} filled />
+            <Text style={styles.artistRatingNum}>
+              {artist.rating != null ? Number(artist.rating).toFixed(1) : (locale.startsWith('fr') ? 'Nouveau' : 'New')}
+            </Text>
+            {artist.ratingCount > 0 && <Text style={styles.artistRatingCount}>({artist.ratingCount})</Text>}
+            <View style={styles.metaDot} />
+            <Text style={styles.artistVisits}>
+              {artist.completedVisits} {locale.startsWith('fr') ? 'visites' : 'visits'}
+            </Text>
+          </View>
+        </View>
+      </View>
+    </Touch>
+  );
 }
 
 export function HomeScreen() {
@@ -139,9 +150,12 @@ export function HomeScreen() {
   const [showIOSHint, setShowIOSHint] = useState(false);
   const [showLocationPrompt, setShowLocationPrompt] = useState(false);
   const [locationPromptedBefore, setLocationPromptedBefore] = useState(true);
+  const [popularServices, setPopularServices] = useState<CatalogService[]>([]);
+  const [artists, setArtists] = useState<PublicProviderCard[]>([]);
+  const [specialtyFilter, setSpecialtyFilter] = useState<string>('All');
   const pulseAnim = useRef(new Animated.Value(1)).current;
+  const fadeIn = useRef(new Animated.Value(0)).current;
 
-  // Bell badge = unread notifications (matches the Notifications screen it opens).
   const { notifications } = useChatUnread();
   const unreadCount = notifications.filter(n => !n.read).length;
 
@@ -149,12 +163,14 @@ export function HomeScreen() {
   const activeBooking  = bookings.find(b => ACTIVE_STATUSES.has(b.status));
   const recentBookings = bookings.filter(b => !ACTIVE_STATUSES.has(b.status)).slice(0, 3);
 
-  // Check if we've already prompted for location before
+  useEffect(() => {
+    Animated.timing(fadeIn, { toValue: 1, duration: 600, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+  }, []);
+
   useEffect(() => {
     Storage.getLocationPrompted().then(v => setLocationPromptedBefore(v));
   }, []);
 
-  // Show location prompt once automatically on first time only
   useEffect(() => {
     if (locationPromptedBefore) return;
     if (permissionStatus === 'denied' || permissionStatus === 'unavailable') {
@@ -163,9 +179,7 @@ export function HomeScreen() {
     }
   }, [permissionStatus, locationPromptedBefore]);
 
-  // Auto-dismiss the sheet once permission is granted — covers the "Open
-  // Settings to Enable" path where the user grants in iOS Settings and comes
-  // back (LocationContext re-checks on foreground), otherwise the sheet stuck.
+  // Auto-dismiss once permission granted (e.g. user enabled in Settings).
   useEffect(() => {
     if (permissionStatus === 'granted' && showLocationPrompt) {
       setShowLocationPrompt(false);
@@ -187,10 +201,6 @@ export function HomeScreen() {
     setLocationPromptedBefore(true);
   };
 
-  const handleLocationPillPress = () => {
-    setShowLocationPrompt(true);
-  };
-
   const load = useCallback(async (showRefresh = false) => {
     if (showRefresh) setRefreshing(true);
     else setLoading(true);
@@ -203,6 +213,36 @@ export function HomeScreen() {
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  // Public catalog + artist directory — cached server-side.
+  useEffect(() => {
+    apiPublicCatalog()
+      .then(({ categories }) => {
+        const all = categories.flatMap(c => c.services);
+        const popular = all.filter(s => s.popular);
+        setPopularServices((popular.length ? popular : all).slice(0, 8));
+      })
+      .catch(() => {});
+    apiPublicProviders()
+      .then(({ providers }) => setArtists(providers))
+      .catch(() => {});
+  }, []);
+
+  // Browse artists by their niche: chips from the specialties artists actually
+  // have, list re-ordered by rating within the chosen specialty.
+  const specialtyChips = React.useMemo(() => {
+    const counts = new Map<string, number>();
+    artists.forEach(a => a.specialties.forEach(s => counts.set(s, (counts.get(s) ?? 0) + 1)));
+    const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([s]) => s);
+    return ['All', ...top];
+  }, [artists]);
+
+  const filteredArtists = React.useMemo(() => {
+    const pool = specialtyFilter === 'All'
+      ? artists
+      : artists.filter(a => a.specialties.includes(specialtyFilter));
+    return [...pool].sort((a, b) => (Number(b.rating) || 0) - (Number(a.rating) || 0)).slice(0, 8);
+  }, [artists, specialtyFilter]);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return;
@@ -233,248 +273,314 @@ export function HomeScreen() {
   const firstName = user?.name?.split(' ')[0] ?? (lang === 'fr' ? 'là' : 'there');
   const hour      = new Date().getHours();
   const greeting  = t.greeting(hour);
-  const today     = new Date().toLocaleDateString(locale, { weekday: 'long', month: 'long', day: 'numeric' });
-
-  const serviceRows: typeof SERVICES[] = [];
-  for (let i = 0; i < SERVICES.length; i += 2) serviceRows.push(SERVICES.slice(i, i + 2));
 
   return (
     <View style={styles.container}>
       <ScrollView
-        style={styles.scrollView}
+        style={{ flex: 1 }}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
         refreshControl={
-          <RefreshControl
-            refreshing={refreshing}
-            onRefresh={() => load(true)}
-            tintColor={Colors.systemBlue}
-          />
+          <RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={Colors.brand} />
         }
       >
-        {/* ── Hero — Dark, clean Uber-style ── */}
-        <View style={[styles.hero, { paddingTop: insets.top + 20, paddingBottom: 24 }]}>
-          <View style={styles.heroTop}>
-            <GlowLogo size={28} showWordmark inverted />
-            <View style={styles.heroActions}>
-              <Pressable
-                style={({ pressed }) => [styles.langToggle, pressed && { opacity: 0.75 }]}
-                onPress={() => setLang(lang === 'en' ? 'fr' : 'en')}
-              >
-                <Text style={styles.langToggleText}>{lang === 'en' ? 'FR' : 'EN'}</Text>
+        <Animated.View style={{ opacity: fadeIn }}>
+          {/* Decorative glow field behind the header — quiet, editorial */}
+          <View pointerEvents="none" style={styles.bgField}>
+            <View style={[styles.bgBlob, { top: -60, right: -70, width: 220, height: 220, backgroundColor: Colors.brandLight }]} />
+            <View style={[styles.bgBlob, { top: 90, left: -80, width: 170, height: 170, backgroundColor: Colors.goldSoft }]} />
+            <View style={[styles.bgBlob, { top: 30, right: 90, width: 14, height: 14, backgroundColor: Colors.brandAccent, opacity: 0.6 }]} />
+          </View>
+
+          {/* ── Top bar — minimal ── */}
+          <View style={[styles.topBar, { paddingTop: insets.top + 14 }]}>
+            <GlowLogo size={34} showWordmark variant="onLight" />
+            <View style={styles.topActions}>
+              <Pressable style={({ pressed }) => [styles.pillBtn, pressed && { opacity: 0.7 }]} onPress={() => setLang(lang === 'en' ? 'fr' : 'en')}>
+                <Text style={styles.pillBtnText}>{lang === 'en' ? 'FR' : 'EN'}</Text>
               </Pressable>
-              <Pressable
-                onPress={() => nav.navigate('Notifications')}
-                style={{ width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(255,255,255,0.18)', alignItems: 'center', justifyContent: 'center', position: 'relative' }}
-              >
-                <BellIcon size={20} color="#fff" />
+              <Pressable style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.7 }]} onPress={() => nav.navigate('Notifications')}>
+                <BellIcon size={18} color={Colors.label} />
                 {unreadCount > 0 && (
-                  <View style={{
-                    position: 'absolute', top: 4, right: 4,
-                    minWidth: 16, height: 16, borderRadius: 8,
-                    backgroundColor: '#FF3B30',
-                    alignItems: 'center', justifyContent: 'center',
-                    paddingHorizontal: 3,
-                  }}>
-                    <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>
-                      {unreadCount > 9 ? '9+' : unreadCount}
-                    </Text>
+                  <View style={styles.bellBadge}>
+                    <Text style={styles.bellBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
                   </View>
                 )}
               </Pressable>
-              <Pressable style={styles.avatarBtn} onPress={() => nav.navigate('Profile')}>
+              <Pressable
+                style={({ pressed }) => [styles.avatarBtn, pressed && { opacity: 0.88, transform: [{ scale: 0.96 }] }]}
+                onPress={() => nav.navigate('Profile')}
+                accessibilityLabel="Open profile"
+                accessibilityRole="button"
+              >
                 {photoUri ? (
-                  <Image source={{ uri: photoUri }} style={styles.avatarBtnImg} contentFit="cover" cachePolicy="memory-disk" transition={150} />
+                  <Image source={{ uri: photoUri }} style={styles.avatarImg} contentFit="cover" cachePolicy="memory-disk" transition={150} />
                 ) : (
-                  <Text style={styles.avatarBtnText}>{user?.name?.[0]?.toUpperCase() ?? '?'}</Text>
+                  <Text style={styles.avatarText}>{user?.name?.[0]?.toUpperCase() ?? '?'}</Text>
                 )}
+                {/* Soft rose ring + gold dot make the profile entry obvious */}
+                <View style={styles.avatarRing} pointerEvents="none" />
+                <View style={styles.avatarDot} pointerEvents="none" />
               </Pressable>
             </View>
           </View>
 
-          <Text style={styles.greetingMain}>{greeting}, {firstName}</Text>
-          <Text style={styles.greetingSub}>{today}</Text>
-
-          {/* Location pill — real status only, no Sudbury default */}
-          <Pressable
-            style={({ pressed }) => [styles.locationBadge, { alignSelf: 'flex-start', marginBottom: 18 }, pressed && { opacity: 0.7 }]}
-            onPress={handleLocationPillPress}
-          >
-            <PinIcon size={14} color={permissionStatus === 'granted' ? '#34C759' : '#fff'} />
-            <Text style={styles.locationText}>
-              {permissionStatus === 'granted' ? 'Location on' : 'Set your location'}
+          {/* ── Greeting — editorial two-tone with gold period ── */}
+          <View style={styles.greetingBlock}>
+            <Text style={styles.greetingEyebrow}>{greeting}</Text>
+            <Text style={styles.greetingMain}>
+              {firstName}
+              <Text style={styles.greetingDot}>.</Text>
             </Text>
-          </Pressable>
-
-          {/* ── Hero CTA Buttons — On Demand + Schedule ── */}
-          <View style={styles.ctaRow}>
-            <Pressable
-              style={({ pressed }) => [styles.ctaBtn, styles.ctaBtnRed, pressed && { opacity: 0.88, transform: [{ scale: 0.97 }] }]}
-              onPress={() => nav.navigate('NewBooking', { bookingMode: 'ondemand', _t: Date.now() })}
-            >
-              {Platform.OS === 'web' && (
-                <View style={[StyleSheet.absoluteFill, { borderRadius: 20, background: 'linear-gradient(135deg, #FF4444, #FF6B00)' } as any]} />
-              )}
-              <FlashIcon size={28} color="#fff" />
-              <Text style={styles.ctaBtnTitle}>{t.onDemandTitle}</Text>
-              <Text style={styles.ctaBtnSub}>{t.onDemandSub}</Text>
-            </Pressable>
-            <Pressable
-              style={({ pressed }) => [styles.ctaBtn, styles.ctaBtnGreen, pressed && { opacity: 0.88, transform: [{ scale: 0.97 }] }]}
-              onPress={() => nav.navigate('NewBooking', { bookingMode: 'scheduled', _t: Date.now() })}
-            >
-              {Platform.OS === 'web' && (
-                <View style={[StyleSheet.absoluteFill, { borderRadius: 20, background: `linear-gradient(135deg, ${Colors.brandDark}, ${Colors.brand})` } as any]} />
-              )}
-              <CalendarSVGIcon size={28} color="#fff" />
-              <Text style={styles.ctaBtnTitle}>{t.scheduledTitle}</Text>
-              <Text style={styles.ctaBtnSub}>{t.scheduledSub}</Text>
-            </Pressable>
+            <Text style={styles.greetingSub}>{t.readySub}</Text>
           </View>
 
-          {/* ── Map Preview — full width inside hero ── */}
-          {Platform.OS === 'web' ? (
-            <View style={styles.heroMapWrap}>
-              <WebMapPreview />
+          {/* ── Search ── */}
+          <Touch style={styles.searchWrap} onPress={() => nav.navigate('NewBooking', { bookingMode: 'scheduled', _t: Date.now() })}>
+            <View style={styles.searchBar}>
+              <SearchIcon size={17} color={Colors.tertiaryLabel} />
+              <Text style={styles.searchText}>{t.searchPlaceholder}</Text>
             </View>
-          ) : (
-            <View style={[styles.heroMapWrap, { overflow: 'hidden', borderRadius: 16, height: 200 }]}>
-              <OSMMap
-                style={{ height: 200, width: '100%' }}
-                center={{ lat: 46.4917, lng: -80.9924 }}
-                zoom={12}
-                markers={[
-                  [46.492, -80.992], [46.506, -80.971], [46.479, -81.012],
-                  [46.514, -80.954], [46.476, -80.984], [46.501, -81.001],
-                ].map(([lat, lng]) => ({ lat, lng, color: '#B76E79' }))}
-              />
-            </View>
-          )}
-        </View>
+          </Touch>
 
-        {/* ── Active booking banner ── */}
-        {activeBooking && (
-          <Pressable
-            style={styles.activeBanner}
-            onPress={() => nav.navigate('Tracking', {
+          {/* ── Occasions — browse by moment ── */}
+          <View style={[styles.sectionHeader, { marginTop: 8 }]}>
+            <Text style={styles.sectionTitle}>{t.occasionTitle}</Text>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.occRow}>
+            {OCCASIONS.map(o => (
+              <Touch key={o.id} onPress={() => nav.navigate('NewBooking', { serviceType: o.service, bookingMode: 'scheduled', _t: Date.now() })}>
+                <View style={[styles.occCard, { backgroundColor: o.tint }]}>
+                  <View style={styles.occIcon}>
+                    <ServiceIcon serviceType={o.service} size={20} color={Colors.brandDeep} bubble={false} />
+                  </View>
+                  <Text style={styles.occName}>{lang === 'fr' ? o.fr : o.en}</Text>
+                  <Text style={styles.occSub}>{lang === 'fr' ? o.subFr : o.subEn}</Text>
+                </View>
+              </Touch>
+            ))}
+          </ScrollView>
+
+          {/* ── Hero banner — book now ── */}
+          <Touch style={styles.heroWrap} onPress={() => nav.navigate('NewBooking', { bookingMode: 'ondemand', _t: Date.now() })}>
+            <View style={styles.heroBanner}>
+              {Platform.OS === 'web' && (
+                <View style={[StyleSheet.absoluteFill, { borderRadius: 28, background: 'linear-gradient(120deg, #E9A0B1 0%, #D97A91 55%, #A34D63 130%)' } as any]} />
+              )}
+              <View style={styles.heroGlow} />
+              <Text style={styles.heroKicker}>{lang === 'fr' ? "C'EST L'HEURE DE BRILLER" : "IT'S GLOW O'CLOCK"}</Text>
+              <Text style={styles.heroTitle}>{lang === 'fr' ? 'Sublime,\ndès ce soir.' : 'Stunning,\nby tonight.'}</Text>
+              <Text style={styles.heroSub}>{t.onDemandSub}</Text>
+              <View style={styles.heroCtaRow}>
+                <View style={styles.heroCta}>
+                  <Text style={styles.heroCtaText}>{t.bookNow}</Text>
+                </View>
+                <Pressable hitSlop={8} onPress={() => nav.navigate('NewBooking', { bookingMode: 'scheduled', _t: Date.now() })}>
+                  <Text style={styles.heroAlt}>{t.scheduledTitle} →</Text>
+                </Pressable>
+              </View>
+            </View>
+          </Touch>
+
+          {/* ── Active booking ── */}
+          {activeBooking && (
+            <Touch style={styles.sectionPad} onPress={() => nav.navigate('Tracking', {
               bookingId: activeBooking._id,
               bookingLocation: activeBooking.lat ? { lat: activeBooking.lat, lng: activeBooking.lng } : undefined,
-            })}
-          >
-            <View style={styles.activeBannerInner}>
-              <Animated.View style={[styles.activeDot, { transform: [{ scale: pulseAnim }] }]} />
-              <View style={styles.activeBannerLeft}>
-                <Text style={styles.activeBannerTitle}>{t.activeBooking}</Text>
-                <Text style={styles.activeBannerSub}>
-                  {activeBooking.serviceType} · {formatDate(activeBooking.scheduledAt, locale)} {formatTime(activeBooking.scheduledAt, locale)}
+            })}>
+              <View style={styles.activeBanner}>
+                <Animated.View style={[styles.activeDot, { transform: [{ scale: pulseAnim }] }]} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.activeTitle}>{t.activeBooking}</Text>
+                  <Text style={styles.activeSub}>
+                    {activeBooking.serviceType} · {formatDate(activeBooking.scheduledAt, locale)} {formatTime(activeBooking.scheduledAt, locale)}
+                  </Text>
+                </View>
+                <StatusBadge status={activeBooking.status} />
+              </View>
+            </Touch>
+          )}
+
+          {/* ── Categories ── */}
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.catScroll} contentContainerStyle={styles.catRow}>
+            {SERVICES.map(item => (
+              <Touch key={item.id} onPress={() => nav.navigate('NewBooking', { serviceType: item.en, bookingMode: 'scheduled', _t: Date.now() })}>
+                <View style={styles.catChip}>
+                  <View style={styles.catCircle}>
+                    <ServiceIcon serviceType={item.en} size={21} color={Colors.brandDark} bubble={false} />
+                  </View>
+                  <Text style={styles.catLabel} numberOfLines={1}>{lang === 'fr' ? item.fr : item.en}</Text>
+                </View>
+              </Touch>
+            ))}
+          </ScrollView>
+
+          {/* ── Trending services ── */}
+          {popularServices.length > 0 && (
+            <>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>{lang === 'fr' ? 'Tout le monde réserve' : "Everyone's booking"}</Text>
+                <SparkleIcon size={16} color={Colors.gold} />
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trendRow}>
+                {popularServices.map((svc, i) => (
+                  <Touch key={svc.id} onPress={() => nav.navigate('NewBooking', { serviceType: svc.name, bookingMode: 'scheduled', _t: Date.now() })}>
+                    <View style={[styles.trendCard, i % 2 === 1 && { backgroundColor: Colors.goldSoft }, i === 0 && styles.trendCardLead]}>
+                      <View style={styles.trendTopRow}>
+                        <View style={styles.trendIconWrap}>
+                          <ServiceIcon serviceType={svc.name} size={19} color={Colors.brandDark} bubble={false} />
+                        </View>
+                        {svc.popular && (
+                          <View style={styles.trendBadge}>
+                            <Text style={styles.trendBadgeText}>{lang === 'fr' ? 'Populaire' : 'Popular'}</Text>
+                          </View>
+                        )}
+                      </View>
+                      <Text style={[styles.trendName, i === 0 && { color: '#fff' }]} numberOfLines={2}>
+                        {lang === 'fr' ? (FR_SERVICE_NAMES[svc.name] ?? svc.name) : svc.name}
+                      </Text>
+                      <Text style={[styles.trendMeta, i === 0 && { color: 'rgba(255,255,255,0.85)' }]}>
+                        {svc.durationMin ? `${svc.durationMin} min · ` : ''}{t.from} ${Math.round(svc.basePrice)}
+                      </Text>
+                    </View>
+                  </Touch>
+                ))}
+              </ScrollView>
+            </>
+          )}
+
+          {/* ── Top rated artists ── */}
+          {artists.length > 0 && (
+            <>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>{lang === 'fr' ? 'Adorées des clientes' : 'Loved by clients'}</Text>
+                <Pressable onPress={() => nav.navigate('NewBooking', { bookingMode: 'scheduled', _t: Date.now() })}>
+                  <Text style={styles.seeAll}>{t.seeAll}</Text>
+                </Pressable>
+              </View>
+              {/* Niche chips — browse artists by what they're best at */}
+              {specialtyChips.length > 2 && (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.nicheRow}>
+                  {specialtyChips.map(sp => {
+                    const active = specialtyFilter === sp;
+                    return (
+                      <Pressable
+                        key={sp}
+                        style={[styles.nicheChip, active && styles.nicheChipActive]}
+                        onPress={() => setSpecialtyFilter(sp)}
+                      >
+                        <Text style={[styles.nicheChipText, active && styles.nicheChipTextActive]}>
+                          {sp === 'All' ? (lang === 'fr' ? 'Toutes' : 'All') : sp}
+                        </Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              )}
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.artistRow}>
+                {filteredArtists.map(a => (
+                  <ArtistCard
+                    key={a.id}
+                    artist={a}
+                    locale={locale}
+                    onPress={() => nav.navigate('ProviderPublicProfile', { providerId: a.id, providerName: a.name })}
+                  />
+                ))}
+              </ScrollView>
+            </>
+          )}
+
+          {/* ── Beauty inspiration — editorial carousel ── */}
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>{t.inspirationTitle}</Text>
+            <SparkleIcon size={16} color={Colors.gold} />
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.inspoRow}>
+            {INSPO.map(item => (
+              <Touch key={item.id} onPress={() => nav.navigate('NewBooking', { serviceType: item.service, bookingMode: 'scheduled', _t: Date.now() })}>
+                <View style={styles.inspoCard}>
+                  {Platform.OS === 'web' ? (
+                    <View style={[StyleSheet.absoluteFill, { background: `linear-gradient(150deg, ${item.from}, ${item.to})` } as any]} />
+                  ) : (
+                    <View style={[StyleSheet.absoluteFill, { backgroundColor: item.from }]} />
+                  )}
+                  <View style={styles.inspoGlow} />
+                  <View style={styles.inspoTag}>
+                    <Text style={styles.inspoTagText}>{lang === 'fr' ? item.tagFr : item.tagEn}</Text>
+                  </View>
+                  <Text style={styles.inspoTitle}>{lang === 'fr' ? item.fr : item.en}</Text>
+                  <Text style={styles.inspoCta}>{lang === 'fr' ? 'Réserver ce look →' : 'Book this look →'}</Text>
+                </View>
+              </Touch>
+            ))}
+          </ScrollView>
+
+          {/* ── Offer strip ── */}
+          <View style={styles.sectionPad}>
+            <View style={styles.offerCard}>
+              <View style={styles.offerIcon}>
+                <SparkleIcon size={18} color={Colors.gold} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.offerTitle}>{lang === 'fr' ? 'Le glam vient à vous' : 'Glam that comes to you'}</Text>
+                <Text style={styles.offerSub}>
+                  {lang === 'fr' ? 'Chaque artiste est vérifiée et assurée' : 'Every artist is verified & background checked'}
                 </Text>
               </View>
-              <View style={styles.activeBannerRight}>
-                <StatusBadge status={activeBooking.status} />
-                <Text style={styles.activeBannerChevron}>›</Text>
-              </View>
             </View>
-          </Pressable>
-        )}
+          </View>
 
-        {/* ── Services ── */}
-        <View style={styles.sectionHeader}>
-          <Text style={styles.sectionLabel}>{t.servicesLabel}</Text>
-          <Text style={styles.sectionTitle}>{t.servicesTitle}</Text>
-        </View>
-        <View style={styles.servicesGrid}>
-          {serviceRows.map((row, rowIdx) => (
-            <View key={rowIdx} style={styles.serviceGridRow}>
-              {row.map(item => (
-                <Pressable
-                  key={item.id}
-                  style={({ pressed }) => [
-                    styles.serviceGridCard,
-                    { borderColor: item.accent + '30' },
-                    pressed && { opacity: 0.88, transform: [{ scale: 0.97 }] },
-                  ]}
-                  onPress={() => nav.navigate('NewBooking', { serviceType: item.en, bookingMode: 'scheduled', _t: Date.now() })}
-                >
-                  <ServiceIcon serviceType={item.en} size={30} color={item.accent} bubble={false} />
-                  <Text style={styles.serviceGridName} numberOfLines={2}>
-                    {lang === 'fr' ? item.fr : item.en}
-                  </Text>
-                </Pressable>
-              ))}
-              {row.length === 1 && <View style={styles.serviceGridCardEmpty} />}
-            </View>
-          ))}
-        </View>
-
-        {/* ── Recent Bookings ── */}
-        <View style={styles.sectionHeader}>
-          <View>
-            <Text style={styles.sectionLabel}>{t.recentLabel}</Text>
+          {/* ── Your bookings ── */}
+          <View style={styles.sectionHeader}>
             <Text style={styles.sectionTitle}>{t.recentTitle}</Text>
-          </View>
-          <Pressable onPress={() => nav.navigate('BookingsTab')} style={styles.seeAllBtn}>
-            <Text style={styles.seeAll}>{t.seeAll} →</Text>
-          </Pressable>
-        </View>
-
-        {loading ? (
-          <><BookingCardSkeleton /><BookingCardSkeleton /></>
-        ) : recentBookings.length === 0 ? (
-          <View style={styles.emptyState}>
-            <View style={styles.emptyIconWrap}>
-              <CalendarSVGIcon size={40} color={Colors.tertiaryLabel} />
-            </View>
-            <Text style={styles.emptyTitle}>{t.emptyTitle}</Text>
-            <Text style={styles.emptySub}>{t.emptySub}</Text>
-            <Pressable
-              style={({ pressed }) => [styles.emptyBookBtn, pressed && { opacity: 0.85 }]}
-              onPress={() => nav.navigate('NewBooking', { _t: Date.now() })}
-            >
-              <Text style={styles.emptyBookBtnText}>{t.bookFirst} →</Text>
+            <Pressable onPress={() => nav.navigate('BookingsTab')}>
+              <Text style={styles.seeAll}>{t.seeAll}</Text>
             </Pressable>
           </View>
-        ) : (
-          recentBookings.map(b => (
-            <BookingCard key={b._id} booking={b} onPress={() => nav.navigate('BookingDetail', { booking: b })} />
-          ))
-        )}
 
-        {/* ── Trust stats — moved to the bottom (not the first thing seen) ── */}
-        <View style={styles.statsRow}>
-          {([
-            ['15+', t.statProvider],
-            ['4.8', t.statRating],
-            ['$25', t.statRate],
-          ] as [string, string][]).map(([num, label], i) => (
-            <React.Fragment key={label}>
-              {i > 0 && <View style={styles.statDivider} />}
-              <View style={styles.statItem}>
-                <Text style={styles.statNum}>{num}</Text>
-                <Text style={styles.statLabel}>{label}</Text>
+          {loading ? (
+            <><BookingCardSkeleton /><BookingCardSkeleton /></>
+          ) : recentBookings.length === 0 ? (
+            <View style={styles.emptyState}>
+              <View style={styles.emptyArt}>
+                <GlowMark size={44} petal={Colors.brandAccent} core={Colors.gold} />
               </View>
-            </React.Fragment>
-          ))}
-        </View>
+              <Text style={styles.emptyTitle}>{t.emptyTitle}</Text>
+              <Text style={styles.emptySub}>{t.emptySub}</Text>
+              <Touch onPress={() => nav.navigate('NewBooking', { _t: Date.now() })}>
+                <View style={styles.emptyCta}>
+                  <Text style={styles.emptyCtaText}>{t.bookFirst}</Text>
+                </View>
+              </Touch>
+            </View>
+          ) : (
+            recentBookings.map(b => (
+              <BookingCard key={b._id} booking={b} onPress={() => nav.navigate('BookingDetail', { booking: b })} />
+            ))
+          )}
 
-        {showIOSHint && (
-          <View style={styles.iosHint}>
-            <Text style={styles.iosHintText}>
-              {lang === 'fr'
-                ? "Appuyez sur Partager puis « Ajouter à l'écran d'accueil »"
-                : 'Tap Share → "Add to Home Screen" to install'}
+          {showIOSHint && (
+            <View style={styles.iosHint}>
+              <Text style={styles.iosHintText}>
+                {lang === 'fr'
+                  ? "Appuyez sur Partager puis « Ajouter à l'écran d'accueil »"
+                  : 'Tap Share → "Add to Home Screen" to install'}
+              </Text>
+              <Pressable onPress={dismissIOSHint} style={{ padding: 4 }} hitSlop={12}>
+                <Text style={styles.iosHintDismiss}>✕</Text>
+              </Pressable>
+            </View>
+          )}
+
+          {/* ── Footer ── */}
+          <View style={styles.footer}>
+            <GlowMark size={26} petal={Colors.opaqueSeparator} core={Colors.opaqueSeparator} />
+            <Text style={styles.footerNote}>
+              {lang === 'fr' ? 'Beauté à domicile · Kathmandu, Népal' : 'Beauty at your doorstep · Kathmandu, Nepal 🇳🇵'}
             </Text>
-            <Pressable onPress={dismissIOSHint} style={styles.iosHintDismiss} hitSlop={12}>
-              <Text style={styles.iosHintDismissText}>✕</Text>
-            </Pressable>
+            <Text style={styles.footerCopy}>© {new Date().getFullYear()} Glow</Text>
           </View>
-        )}
-
-        <View style={styles.footer}>
-          <GlowLogo size={28} showWordmark variant="onLight" />
-          <View style={{ height: 8 }} />
-          <Text style={styles.footerSub}>Professional Provider Care · Greater Sudbury, ON</Text>
-          <Text style={styles.footerNote}>© {new Date().getFullYear()} Glow · Not covered by OHIP · Private pay</Text>
-        </View>
+        </Animated.View>
       </ScrollView>
       <LocationPrompt
         visible={showLocationPrompt}
@@ -488,200 +594,242 @@ export function HomeScreen() {
 
 const styles = StyleSheet.create({
   container:     { flex: 1, backgroundColor: Colors.systemGroupedBackground },
-  scrollView:    { flex: 1 },
-  scrollContent: { paddingBottom: 32, backgroundColor: Colors.systemGroupedBackground },
+  // Extra bottom padding so content clears the floating pill tab bar.
+  scrollContent: { paddingBottom: 130 },
 
-  hero: { backgroundColor: Colors.brandDark, paddingHorizontal: 20 },
-  heroTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
-  heroActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  locationBadge: {
-    flexDirection: 'row', alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 20, paddingHorizontal: 14, paddingVertical: 6,
-    gap: 6,
+  topBar: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 24, marginBottom: 26,
   },
-  locationIcon: { fontSize: 14, color: '#fff' },
-  locationText: { color: '#fff', fontSize: 13, fontWeight: '600' },
-  langToggle: {
-    paddingHorizontal: 10, paddingVertical: 5,
-    backgroundColor: 'rgba(255,255,255,0.1)',
-    borderRadius: 10,
+  topActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  pillBtn: {
+    paddingHorizontal: 12, paddingVertical: 7,
+    backgroundColor: '#fff', borderRadius: 12,
+    borderWidth: 1, borderColor: Colors.separator,
   },
-  langToggleText: { color: '#fff', fontSize: 12, fontWeight: '700', letterSpacing: 0.5 },
+  pillBtnText: { color: Colors.secondaryLabel, fontSize: 12, fontFamily: Fonts.semibold, letterSpacing: 0.4 },
+  iconBtn: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: '#fff', borderWidth: 1, borderColor: Colors.separator,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  bellBadge: {
+    position: 'absolute', top: 1, right: 1,
+    minWidth: 15, height: 15, borderRadius: 8,
+    backgroundColor: Colors.brand,
+    alignItems: 'center', justifyContent: 'center', paddingHorizontal: 3,
+  },
+  bellBadgeText: { color: '#fff', fontSize: 9.5, fontFamily: Fonts.bold },
   avatarBtn: {
-    width: 40, height: 40, borderRadius: 20,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderWidth: 2, borderColor: 'rgba(255,255,255,0.3)',
-    alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
-  },
-  avatarBtnImg:  { width: 40, height: 40, borderRadius: 20 },
-  avatarBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
-  greetingMain: { color: '#fff', fontSize: 32, fontWeight: '900', letterSpacing: -1, marginBottom: 4 },
-  greetingSub:  { color: 'rgba(255,255,255,0.5)', fontSize: 13, marginBottom: 20, fontWeight: '500' },
-
-  // Hero CTA Buttons
-  ctaRow: { flexDirection: 'row', gap: 12, marginBottom: 16 },
-  ctaBtn: {
-    flex: 1, minHeight: 120, borderRadius: 20,
-    padding: 18, alignItems: 'flex-start', justifyContent: 'flex-end',
-    gap: 4,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 14,
-    elevation: 8,
-  },
-  ctaBtnRed: { backgroundColor: '#FF4444' },
-  ctaBtnGreen: { backgroundColor: Colors.brandDark },
-  ctaBtnTitle: { color: '#fff', fontSize: 18, fontWeight: '900', letterSpacing: -0.4 },
-  ctaBtnSub:   { color: 'rgba(255,255,255,0.75)', fontSize: 12, fontWeight: '600' },
-
-  // Hero map
-  heroMapWrap: { width: '100%' },
-
-  // Active banner
-  activeBanner: {
-    marginHorizontal: 16, marginTop: 16,
-    borderRadius: 16, overflow: 'hidden',
-    backgroundColor: '#fff',
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.06,
-    shadowRadius: 8,
-    elevation: 3,
-    borderWidth: 1,
-    borderColor: Colors.separator,
-  },
-  activeBannerInner: { padding: 16, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  activeBannerLeft:    { flex: 1 },
-  activeDot:           { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.onlineGreen },
-  activeBannerTitle:   { fontSize: 14, fontWeight: '700', color: Colors.label },
-  activeBannerSub:     { fontSize: 12, color: Colors.secondaryLabel, marginTop: 2 },
-  activeBannerRight:   { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  activeBannerChevron: { fontSize: 22, color: Colors.tertiaryLabel, fontWeight: '300' },
-
-  // Stats
-  statsRow: {
-    flexDirection: 'row',
-    marginHorizontal: 16,
-    marginTop: 16,
-    backgroundColor: '#fff',
-    borderRadius: 16,
-    padding: 18,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 8,
-    elevation: 2,
-    borderWidth: 1,
-    borderColor: Colors.separator,
-  },
-  statItem:   { flex: 1, alignItems: 'center' },
-  statNum:    { fontSize: 22, fontWeight: '900', color: Colors.label, letterSpacing: -0.5 },
-  statLabel:  { fontSize: 11, color: Colors.secondaryLabel, marginTop: 3, textAlign: 'center', fontWeight: '600' },
-  statDivider:{ width: 1, backgroundColor: Colors.separator, marginHorizontal: 8 },
-
-
-  // Section headers
-  sectionHeader: {
-    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end',
-    paddingHorizontal: 20, marginBottom: 12, marginTop: 28,
-  },
-  sectionLabel: { fontSize: 11, fontWeight: '700', color: Colors.secondaryLabel, letterSpacing: 0.8, marginBottom: 4, textTransform: 'uppercase' },
-  sectionTitle: { fontSize: 22, fontWeight: '800', color: Colors.label, letterSpacing: -0.5 },
-  seeAllBtn:    { paddingBottom: 2 },
-  seeAll:       { fontSize: 14, fontWeight: '600', color: Colors.systemBlue },
-
-  // Quick
-  quickRow: { flexDirection: 'row', paddingHorizontal: 16, gap: 10 },
-  quickCard: {
-    flex: 1, borderRadius: 16, padding: 16, alignItems: 'center', gap: 6,
-    backgroundColor: '#fff',
-    borderWidth: 1.5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  quickCardIcon:  { fontSize: 26, fontWeight: '900', marginBottom: 2 },
-  quickCardTitle: { fontSize: 13, fontWeight: '800', textAlign: 'center' },
-  quickCardSub:   { fontSize: 11, color: Colors.tertiaryLabel, textAlign: 'center' },
-
-  // Services
-  servicesGrid:      { paddingHorizontal: 16, gap: 10 },
-  serviceGridRow:    { flexDirection: 'row', gap: 10 },
-  serviceGridCard: {
-    flex: 1, minHeight: 100,
-    backgroundColor: '#fff',
-    borderRadius: 16, padding: 16,
-    justifyContent: 'center', alignItems: 'center',
-    borderWidth: 1.5,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
-  },
-  serviceGridCardEmpty: { flex: 1 },
-  serviceGridIcon:  { fontSize: 28, marginBottom: 8 },
-  serviceGridName:  { fontSize: 12, fontWeight: '700', color: Colors.label, textAlign: 'center' },
-
-  // Trust
-  trustGrid: {
-    paddingHorizontal: 16, flexDirection: 'row', flexWrap: 'wrap', gap: 10,
-  },
-  trustCard: {
-    flex: 1, minWidth: '44%',
-    backgroundColor: '#fff',
-    borderRadius: 16, padding: 18,
-    alignItems: 'center', gap: 6,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.05,
-    shadowRadius: 6,
-    elevation: 2,
-    borderWidth: 1,
-    borderColor: Colors.separator,
-  },
-  trustCardIcon:  { fontSize: 24, fontWeight: '900', color: Colors.systemBlue },
-  trustCardLabel: { fontSize: 13, fontWeight: '700', color: Colors.label, textAlign: 'center' },
-  trustCardSub:   { fontSize: 11, color: Colors.secondaryLabel, textAlign: 'center' },
-
-  // Empty state
-  emptyState:   { alignItems: 'center', paddingVertical: 40, paddingHorizontal: 24 },
-  emptyIconWrap:{ width: 72, height: 72, borderRadius: 36, backgroundColor: Colors.systemGroupedBackground, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
-  emptyIcon:    { fontSize: 32, color: Colors.secondaryLabel },
-  emptyTitle:   { fontSize: 18, fontWeight: '700', color: Colors.label, marginBottom: 6 },
-  emptySub:     { fontSize: 14, color: Colors.secondaryLabel, textAlign: 'center', marginBottom: 20 },
-  emptyBookBtn: {
-    backgroundColor: Colors.brand, borderRadius: 14,
-    paddingVertical: 14, paddingHorizontal: 24,
+    width: 42, height: 42, borderRadius: 21,
+    backgroundColor: Colors.brandLight,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: Colors.brandAccent,
     shadowColor: Colors.brand,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 4,
+    shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.22,
+    shadowRadius: 6,
+    elevation: 3,
   },
-  emptyBookBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  avatarImg: { width: 38, height: 38, borderRadius: 19 },
+  avatarText: { color: Colors.brandDark, fontSize: 16, fontFamily: Fonts.bold },
+  avatarRing: {
+    ...StyleSheet.absoluteFillObject,
+    borderRadius: 21,
+    borderWidth: 0,
+  },
+  avatarDot: {
+    position: 'absolute', bottom: -1, right: -1,
+    width: 12, height: 12, borderRadius: 6,
+    backgroundColor: Colors.gold,
+    borderWidth: 2, borderColor: '#fff',
+  },
 
-  // iOS install hint
+  bgField: { position: 'absolute', top: 0, left: 0, right: 0, height: 340, overflow: 'hidden' },
+  bgBlob: { position: 'absolute', borderRadius: 999 },
+
+  greetingBlock: { paddingHorizontal: 24, marginBottom: 22 },
+  greetingEyebrow: { fontSize: 15, color: Colors.secondaryLabel, fontFamily: Fonts.regular, marginBottom: 2 },
+  greetingMain: { fontSize: 42, lineHeight: 48, fontFamily: Fonts.bold, color: Colors.label, letterSpacing: -1.4 },
+  greetingDot: { color: Colors.gold },
+  greetingSub:  { fontSize: 15, color: Colors.secondaryLabel, marginTop: 8, fontFamily: Fonts.regular },
+
+  searchWrap: { paddingHorizontal: 24, marginBottom: 18 },
+  searchBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: '#fff',
+    borderWidth: 1, borderColor: Colors.separator,
+    borderRadius: 18, paddingHorizontal: 18, paddingVertical: 15,
+  },
+  searchText: { color: Colors.secondaryLabel, fontSize: 14.5, fontFamily: Fonts.regular },
+
+  heroWrap: { paddingHorizontal: 24, marginBottom: 10 },
+  heroBanner: {
+    backgroundColor: Colors.brand, borderRadius: 28, padding: 26,
+    overflow: 'hidden',
+    shadowColor: Colors.brand, shadowOffset: { width: 0, height: 14 }, shadowOpacity: 0.32, shadowRadius: 28, elevation: 8,
+  },
+  heroGlow: {
+    position: 'absolute', top: -50, right: -30,
+    width: 160, height: 160, borderRadius: 80,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  heroKicker: { color: 'rgba(255,255,255,0.92)', fontSize: 11, fontFamily: Fonts.semibold, letterSpacing: 1.4 },
+  heroTitle: { color: '#fff', fontSize: 28, lineHeight: 33, fontFamily: Fonts.bold, letterSpacing: -0.6, marginTop: 10 },
+  heroSub: { color: 'rgba(255,255,255,0.95)', fontSize: 13.5, marginTop: 8, fontFamily: Fonts.regular },
+  heroCtaRow: { flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: 20 },
+  heroCta: {
+    backgroundColor: '#fff', borderRadius: 100, paddingHorizontal: 22, paddingVertical: 12,
+  },
+  heroCtaText: { color: Colors.brandDeep, fontSize: 14, fontFamily: Fonts.semibold },
+  heroAlt: { color: 'rgba(255,255,255,0.9)', fontSize: 13.5, fontFamily: Fonts.medium },
+
+  sectionPad: { paddingHorizontal: 24 },
+
+  activeBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: '#fff', borderRadius: 20, padding: 18,
+    borderWidth: 1, borderColor: Colors.separator, marginTop: 14,
+  },
+  activeDot:   { width: 9, height: 9, borderRadius: 5, backgroundColor: Colors.systemGreen },
+  activeTitle: { fontSize: 14, fontFamily: Fonts.semibold, color: Colors.label },
+  activeSub:   { fontSize: 12.5, color: Colors.secondaryLabel, marginTop: 2, fontFamily: Fonts.regular },
+
+  // Occasion tiles
+  occRow: { paddingHorizontal: 24, gap: 12 },
+  occCard: { width: 150, borderRadius: 24, padding: 16, minHeight: 128, justifyContent: 'flex-end' },
+  occIcon: {
+    position: 'absolute', top: 14, left: 14,
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  occName: { fontSize: 15, fontFamily: Fonts.semibold, color: Colors.label },
+  occSub: { fontSize: 12, color: Colors.secondaryLabel, marginTop: 2, fontFamily: Fonts.regular },
+
+  // Inspiration tiles
+  inspoRow: { paddingHorizontal: 24, gap: 12 },
+  inspoCard: {
+    width: 240, height: 150, borderRadius: 26, padding: 18,
+    overflow: 'hidden', justifyContent: 'flex-end',
+  },
+  inspoGlow: {
+    position: 'absolute', top: -40, right: -30,
+    width: 130, height: 130, borderRadius: 65,
+    backgroundColor: 'rgba(255,255,255,0.16)',
+  },
+  inspoTag: {
+    position: 'absolute', top: 14, left: 16,
+    backgroundColor: 'rgba(255,255,255,0.25)', borderRadius: 100,
+    paddingHorizontal: 10, paddingVertical: 4,
+  },
+  inspoTagText: { color: '#fff', fontSize: 9.5, fontFamily: Fonts.semibold, letterSpacing: 1 },
+  inspoTitle: { color: '#fff', fontSize: 18, fontFamily: Fonts.semibold, letterSpacing: -0.3, lineHeight: 23 },
+  inspoCta: { color: 'rgba(255,255,255,0.85)', fontSize: 12, marginTop: 5, fontFamily: Fonts.medium },
+
+  catScroll: { marginTop: 24 },
+  catRow: { paddingHorizontal: 24, gap: 16 },
+  catChip: { alignItems: 'center', gap: 8, width: 66 },
+  catCircle: {
+    width: 58, height: 58, borderRadius: 29,
+    backgroundColor: '#fff',
+    borderWidth: 1, borderColor: Colors.separator,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  catLabel: { fontSize: 11.5, fontFamily: Fonts.medium, color: Colors.label },
+
+  sectionHeader: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    paddingHorizontal: 24, marginTop: 34, marginBottom: 16,
+  },
+  sectionTitle: { fontSize: 21, fontFamily: Fonts.semibold, color: Colors.label, letterSpacing: -0.4 },
+  seeAll: { fontSize: 13.5, fontFamily: Fonts.medium, color: Colors.brandDark },
+
+  trendRow: { paddingHorizontal: 24, gap: 12 },
+  trendCard: {
+    width: 168, borderRadius: 22, padding: 16,
+    backgroundColor: Colors.brandLight,
+  },
+  trendCardLead: { width: 205, backgroundColor: Colors.brand },
+  trendTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  trendIconWrap: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: 'rgba(255,255,255,0.85)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  trendBadge: { backgroundColor: 'rgba(255,255,255,0.85)', borderRadius: 100, paddingHorizontal: 9, paddingVertical: 4 },
+  trendBadgeText: { fontSize: 9.5, fontFamily: Fonts.semibold, color: Colors.brandDeep, letterSpacing: 0.3 },
+  trendName: { fontSize: 15, fontFamily: Fonts.semibold, color: Colors.label, marginTop: 14, lineHeight: 19 },
+  trendMeta: { fontSize: 12.5, color: Colors.secondaryLabel, marginTop: 6, fontFamily: Fonts.regular },
+
+  nicheRow: { paddingHorizontal: 24, gap: 8, marginBottom: 14 },
+  nicheChip: {
+    paddingHorizontal: 14, paddingVertical: 8,
+    borderRadius: 100, backgroundColor: '#fff',
+    borderWidth: 1, borderColor: Colors.separator,
+  },
+  nicheChipActive: { backgroundColor: Colors.label, borderColor: Colors.label },
+  nicheChipText: { fontSize: 12.5, fontFamily: Fonts.medium, color: Colors.secondaryLabel },
+  nicheChipTextActive: { color: '#fff' },
+
+  artistRow: { paddingHorizontal: 24, gap: 14 },
+  artistCardWrap: {},
+  artistCard: {
+    width: 200, backgroundColor: '#fff', borderRadius: 24,
+    borderWidth: 1, borderColor: Colors.separator, overflow: 'hidden',
+  },
+  artistCanvas: { height: 120, backgroundColor: Colors.brandLight },
+  artistPhoto: { width: '100%', height: '100%' },
+  artistPhotoFallback: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  artistInitial: { fontSize: 34, fontFamily: Fonts.semibold, color: Colors.brandAccent },
+  artistBody: { padding: 14 },
+  artistNameRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  artistName: { fontSize: 15, fontFamily: Fonts.semibold, color: Colors.label, flexShrink: 1 },
+  artistRole: { fontSize: 12, color: Colors.secondaryLabel, marginTop: 2, fontFamily: Fonts.regular },
+  artistMetaRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 9 },
+  artistRatingNum: { fontSize: 12.5, fontFamily: Fonts.semibold, color: Colors.label },
+  artistRatingCount: { fontSize: 11.5, color: Colors.secondaryLabel, fontFamily: Fonts.regular },
+  metaDot: { width: 3, height: 3, borderRadius: 2, backgroundColor: Colors.systemGray3, marginHorizontal: 3 },
+  artistVisits: { fontSize: 11.5, color: Colors.secondaryLabel, fontFamily: Fonts.regular },
+
+  offerCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    backgroundColor: Colors.goldSoft, borderRadius: 22, padding: 18,
+    marginTop: 34,
+  },
+  offerIcon: {
+    width: 42, height: 42, borderRadius: 21,
+    backgroundColor: 'rgba(255,255,255,0.8)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  offerTitle: { fontSize: 14.5, fontFamily: Fonts.semibold, color: Colors.label },
+  offerSub: { fontSize: 12.5, color: Colors.secondaryLabel, marginTop: 2, fontFamily: Fonts.regular, lineHeight: 17 },
+
+  emptyState: { alignItems: 'center', paddingVertical: 36, paddingHorizontal: 24 },
+  emptyArt: {
+    width: 84, height: 84, borderRadius: 42,
+    backgroundColor: '#fff', borderWidth: 1, borderColor: Colors.separator,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 18,
+  },
+  emptyTitle: { fontSize: 17, fontFamily: Fonts.semibold, color: Colors.label, marginBottom: 6 },
+  emptySub:   { fontSize: 13.5, color: Colors.secondaryLabel, textAlign: 'center', marginBottom: 20, fontFamily: Fonts.regular },
+  emptyCta: {
+    backgroundColor: Colors.brand, borderRadius: 100,
+    paddingVertical: 14, paddingHorizontal: 28,
+    shadowColor: Colors.brand, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.28, shadowRadius: 16, elevation: 5,
+  },
+  emptyCtaText: { color: '#fff', fontSize: 14, fontFamily: Fonts.semibold },
+
   iosHint: {
-    flexDirection: 'row', alignItems: 'center',
-    marginHorizontal: 16, marginBottom: 12,
-    backgroundColor: Colors.systemGroupedBackground, borderRadius: 14, padding: 14,
-    gap: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    marginHorizontal: 24, marginTop: 20,
+    backgroundColor: '#fff', borderRadius: 16, padding: 14,
+    borderWidth: 1, borderColor: Colors.separator,
   },
-  iosHintText:        { flex: 1, fontSize: 13, color: Colors.label, lineHeight: 18 },
-  iosHintDismiss:     { padding: 4 },
-  iosHintDismissText: { color: Colors.tertiaryLabel, fontSize: 14, fontWeight: '700' },
+  iosHintText:    { flex: 1, fontSize: 13, color: Colors.label, lineHeight: 18, fontFamily: Fonts.regular },
+  iosHintDismiss: { color: Colors.tertiaryLabel, fontSize: 14, fontFamily: Fonts.bold },
 
-  // Footer
-  footer: {
-    alignItems: 'center', paddingVertical: 32, paddingHorizontal: 24,
-    marginTop: 8, borderTopWidth: 1, borderTopColor: Colors.separator,
-  },
-  footerLogo: { fontSize: 18, fontWeight: '900', color: Colors.label, letterSpacing: -0.3, marginBottom: 4 },
-  footerSub:  { fontSize: 13, color: Colors.secondaryLabel, textAlign: 'center', marginBottom: 6 },
-  footerNote: { fontSize: 11, color: Colors.tertiaryLabel, textAlign: 'center', lineHeight: 16 },
+  footer: { alignItems: 'center', paddingVertical: 40, gap: 8 },
+  footerNote: { fontSize: 12.5, color: Colors.tertiaryLabel, fontFamily: Fonts.regular },
+  footerCopy: { fontSize: 11, color: Colors.systemGray3, fontFamily: Fonts.regular },
 });

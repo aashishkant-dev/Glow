@@ -11,8 +11,8 @@ export function LocationBanner() {
 
   return (
     <View style={styles.banner}>
-      <View style={{ marginRight: 6 }}><PinIcon size={15} color="#92400E" /></View>
-      <Text style={styles.text}>Enable location for accurate matches</Text>
+      <View style={{ marginRight: 6 }}><PinIcon size={15} color={Colors.brandDeep} /></View>
+      <Text style={styles.text}>Enable location for nearby artists</Text>
       <Pressable onPress={requestLocation} style={styles.btn}>
         <Text style={styles.btnText}>Enable</Text>
       </Pressable>
@@ -25,19 +25,21 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    backgroundColor: '#FEF3C7',
-    borderRadius: 10,
+    backgroundColor: Colors.brandLight,
+    borderRadius: 14,
     paddingHorizontal: 14,
-    paddingVertical: 10,
+    paddingVertical: 11,
     marginHorizontal: 16,
     marginBottom: 8,
+    borderWidth: 1,
+    borderColor: Colors.brandAccent,
   },
-  text: { flex: 1, fontSize: 13, color: '#92400E', fontWeight: '500' },
+  text: { flex: 1, fontSize: 13, color: Colors.brandDeep, fontWeight: '600' },
   btn: {
-    backgroundColor: '#F59E0B',
-    borderRadius: 7,
-    paddingHorizontal: 12,
-    paddingVertical: 6,
+    backgroundColor: Colors.brand,
+    borderRadius: 999,
+    paddingHorizontal: 14,
+    paddingVertical: 7,
     marginLeft: 10,
   },
   btnText: { color: '#fff', fontWeight: '700', fontSize: 13 },

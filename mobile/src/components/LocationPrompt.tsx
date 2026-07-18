@@ -62,7 +62,7 @@ export function LocationPrompt({ onRequest, onSkip, onManualAddress, visible, is
         ]}
       >
         <LinearGradient
-          colors={['#0A2540', '#1E3A5F', '#2D5A87']}
+          colors={['#A34D63', '#D97A91', '#E9A0B1']}
           style={styles.header}
         >
           <View style={styles.locationIconWrap}>
@@ -70,20 +70,20 @@ export function LocationPrompt({ onRequest, onSkip, onManualAddress, visible, is
           </View>
           <Text style={styles.title}>Enable Location</Text>
           <Text style={styles.subtitle}>
-            Glow needs your location to find nearby Providers and provide accurate service tracking
+            Glow needs your location to find artists near you and track your booking live
           </Text>
         </LinearGradient>
 
         <View style={styles.content}>
           <View style={styles.benefits}>
             {([
-              { Icon: SearchIcon, title: 'Find Nearby Providers', desc: 'Discover available care professionals in your area' },
-              { Icon: NavigateIcon, title: 'Real-time Tracking', desc: 'Track your Provider\'s arrival with live updates' },
-              { Icon: PinIcon, title: 'Accurate Service', desc: 'Get precise directions to your care location' },
+              { Icon: SearchIcon, title: 'Find artists near you', desc: 'Discover verified beauty artists in your area' },
+              { Icon: NavigateIcon, title: 'Real-time Tracking', desc: 'Watch your artist arrive in real time' },
+              { Icon: PinIcon, title: 'Accurate Service', desc: 'Get precise directions to your service location' },
             ] as { Icon: IconComp; title: string; desc: string }[]).map((benefit, i) => (
               <View key={i} style={styles.benefitRow}>
                 <View style={styles.benefitIcon}>
-                  <benefit.Icon size={22} color={Colors.onlineGreen} />
+                  <benefit.Icon size={22} color={Colors.brand} />
                 </View>
                 <View style={styles.benefitContent}>
                   <Text style={styles.benefitTitle}>{benefit.title}</Text>
@@ -135,7 +135,7 @@ export function LocationPrompt({ onRequest, onSkip, onManualAddress, visible, is
                 disabled={loading}
               >
                 <LinearGradient
-                  colors={loading ? ['#ccc', '#aaa'] : [Colors.onlineGreen, '#059669']}
+                  colors={loading ? ['#ccc', '#aaa'] : [Colors.brand, Colors.brandDark]}
                   style={styles.enableBtnGrad}
                 >
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
@@ -279,8 +279,8 @@ const styles = StyleSheet.create({
   },
   benefitIcon: {
     width: 44, height: 44,
-    borderRadius: 12,
-    backgroundColor: '#F0FDF4',
+    borderRadius: 14,
+    backgroundColor: Colors.brandLight,
     alignItems: 'center',
     justifyContent: 'center',
   },
@@ -301,12 +301,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'flex-start',
     gap: 10,
-    backgroundColor: '#F8FAFC',
+    backgroundColor: Colors.brandLight,
     padding: 14,
-    borderRadius: 12,
+    borderRadius: 14,
     marginBottom: 20,
     borderWidth: 1,
-    borderColor: '#E5E7EB',
+    borderColor: Colors.brandAccent,
   },
   privacyIcon: { fontSize: 18 },
   privacyText: {
@@ -321,7 +321,7 @@ const styles = StyleSheet.create({
   enableBtn: {
     borderRadius: 16,
     overflow: 'hidden',
-    shadowColor: '#059669',
+    shadowColor: Colors.brand,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,

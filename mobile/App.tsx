@@ -8,13 +8,14 @@ import * as Font from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import {
-  PlusJakartaSans_300Light,
-  PlusJakartaSans_400Regular,
-  PlusJakartaSans_500Medium,
-  PlusJakartaSans_600SemiBold,
-  PlusJakartaSans_700Bold,
-  PlusJakartaSans_800ExtraBold,
-} from '@expo-google-fonts/plus-jakarta-sans';
+  Inter_300Light,
+  Inter_400Regular,
+  Inter_500Medium,
+  Inter_600SemiBold,
+  Inter_700Bold,
+  Inter_800ExtraBold,
+} from '@expo-google-fonts/inter';
+import { Poppins_300Light, Poppins_500Medium } from '@expo-google-fonts/poppins';
 import { AuthProvider } from './src/context/AuthContext';
 import { LangProvider } from './src/context/LangContext';
 // Side-effect import: registers the background-location TaskManager task at the
@@ -51,12 +52,14 @@ function App() {
     Font.loadAsync({
       ...Ionicons.font,
       ...MaterialCommunityIcons.font,
-      PlusJakartaSans_300Light,
-      PlusJakartaSans_400Regular,
-      PlusJakartaSans_500Medium,
-      PlusJakartaSans_600SemiBold,
-      PlusJakartaSans_700Bold,
-      PlusJakartaSans_800ExtraBold,
+      Inter_300Light,
+      Inter_400Regular,
+      Inter_500Medium,
+      Inter_600SemiBold,
+      Inter_700Bold,
+      Inter_800ExtraBold,
+      Poppins_300Light,
+      Poppins_500Medium,
     })
       .catch(() => {})
       .finally(() => {

@@ -376,7 +376,7 @@ export function BookingDetailScreen() {
                 {booking.provider.phone && (
                   <Pressable style={[styles.providerActionBtn, styles.providerActionBtnGreen]} onPress={callProvider}>
                     <CallIcon size={18} color="#fff" />
-                    <Text style={styles.providerActionBtnText}>{t.callProvider}</Text>
+                    <Text style={styles.providerActionBtnText}>{t.callArtist}</Text>
                   </Pressable>
                 )}
                 <Pressable
@@ -399,7 +399,7 @@ export function BookingDetailScreen() {
             <View style={styles.liveCard}>
               <View style={styles.liveCardHeader}>
                 <View style={styles.liveDot} />
-                <Text style={styles.liveCardTitle}>{t.findingProvider}{'.'.repeat(dotCount)}</Text>
+                <Text style={styles.liveCardTitle}>{t.findingArtist}{'.'.repeat(dotCount)}</Text>
               </View>
               <Text style={styles.liveCardDesc}>
                 {t.findingDesc}
@@ -421,14 +421,14 @@ export function BookingDetailScreen() {
                   let the client pick another. */}
               {booking.status === 'REQUESTED' && !booking.provider && (
                 <Pressable
-                  style={({ pressed }) => [styles.chooseProviderBtn, pressed && { opacity: 0.85 }]}
+                  style={({ pressed }) => [styles.chooseArtistBtn, pressed && { opacity: 0.85 }]}
                   onPress={() => nav.navigate('CreateBooking', {
                     reassignBookingId: booking._id,
                     serviceType: booking.serviceType,
                     _t: Date.now(),
                   })}
                 >
-                  <Text style={styles.chooseProviderBtnText}>{t.chooseProvider}</Text>
+                  <Text style={styles.chooseArtistBtnText}>{t.chooseArtist}</Text>
                 </Pressable>
               )}
             </View>
@@ -584,7 +584,7 @@ export function BookingDetailScreen() {
             style={styles.rateBtn}
             onPress={() => setShowRateModal(true)}
           >
-            <Text style={styles.rateBtnText}>{t.rateProvider}</Text>
+            <Text style={styles.rateBtnText}>{t.rateArtist}</Text>
           </Pressable>
         )}
 
@@ -915,11 +915,11 @@ const styles = StyleSheet.create({
   liveDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#00C853' },
   liveCardTitle: { fontSize: 15, fontWeight: '700', color: '#0369A1', flex: 1 },
   liveCardDesc: { fontSize: 13, color: '#0284C7', lineHeight: 19, marginBottom: 14 },
-  chooseProviderBtn: {
+  chooseArtistBtn: {
     marginTop: 14, backgroundColor: Colors.brand, borderRadius: 12,
     paddingVertical: 13, alignItems: 'center',
   },
-  chooseProviderBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  chooseArtistBtnText: { color: '#fff', fontSize: 14, fontWeight: '700' },
   liveSteps: { gap: 10 },
   liveStep: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   liveStepDot: { width: 12, height: 12, borderRadius: 6, flexShrink: 0 },

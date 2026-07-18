@@ -1,134 +1,145 @@
+/**
+ * Glow 2.0 design tokens — luxury beauty palette.
+ *
+ * Soft rose primary, warm gold accent, near-white rose backgrounds, Apple-ink
+ * text. Calm, minimal, premium. No healthcare reds, no loud gradients.
+ */
 export const Colors = {
-  // Brand — Glow rose gold
-  brand:         '#B76E79',   // rose gold
-  brandDark:     '#9C5560',
-  brandLight:    '#FDF2F4',
-  brandAccent:   '#D48A94',   // lighter rose accent
+  // Brand
+  brand:         '#D97A91',   // soft rose
+  brandDark:     '#C4667E',   // pressed / emphasis rose
+  brandDeep:     '#A34D63',   // deep rose (dark headers, gradient ends)
+  brandLight:    '#FCECEF',   // highlight rose
+  brandAccent:   '#E9A0B1',   // pale rose accent
+  gold:          '#D4AF37',   // warm gold
+  goldSoft:      '#F6EBC9',   // gold tint bg
 
   // System
-  systemBlue:    '#1B6CA8',
-  systemBlueDark:'#14527F',
-  systemGreen:   '#059669',
-  systemRed:     '#DC2626',
-  systemOrange:  '#D97706',
-  systemYellow:  '#CA8A04',
-  systemPurple:  '#7C3AED',
-  systemTeal:    '#0D9488',
+  systemBlue:    '#0A84FF',
+  systemBlueDark:'#0060DF',
+  systemGreen:   '#3BA55D',
+  systemRed:     '#D96C6C',
+  systemOrange:  '#D99A6C',
+  systemYellow:  '#D4AF37',
+  systemPurple:  '#A78BFA',
+  systemTeal:    '#5EAAA8',
 
-  // Grays
-  systemGray:  '#64748B',
-  systemGray2: '#94A3B8',
-  systemGray3: '#CBD5E1',
-  systemGray4: '#E2E8F0',
-  systemGray5: '#F1F5F9',
-  systemGray6: '#F8FAFC',
+  // Grays (warm, Apple-ish)
+  systemGray:  '#6E6E73',
+  systemGray2: '#8E8E93',
+  systemGray3: '#C7C7CC',
+  systemGray4: '#E5E5EA',
+  systemGray5: '#F2F2F7',
+  systemGray6: '#F9F9FB',
 
   // Labels
-  label:          '#1F1215',
-  secondaryLabel: '#5B4A4E',
-  tertiaryLabel:  '#A08C90',
+  label:          '#1D1D1F',
+  secondaryLabel: '#5F5F66',
+  tertiaryLabel:  '#8C8C93',
 
   // Backgrounds
   systemBackground:                  '#FFFFFF',
-  secondarySystemBackground:         '#FBF7F8',
+  secondarySystemBackground:         '#FFF9F8',
   tertiarySystemBackground:          '#FFFFFF',
-  systemGroupedBackground:           '#FDF2F4',
+  systemGroupedBackground:           '#FFF9F8',
   secondarySystemGroupedBackground:  '#FFFFFF',
 
   // Separators
-  separator:       '#F0E4E6',
-  opaqueSeparator: '#DBC9CC',
+  separator:       '#F2E7E7',
+  opaqueSeparator: '#E8D9DA',
 
-  // Hero/header
-  heroNavy:      '#B76E79',
-  heroNavyLight: '#CA8490',
+  // Hero/header (legacy key names kept for call sites)
+  heroNavy:      '#D97A91',
+  heroNavyLight: '#E9A0B1',
 
   // Status / semantic
-  trustGreen:   '#059669',
-  onlineGreen:  '#10B981',
-  offlineGray:  '#94A3B8',
-  urgentOrange: '#D97706',
-  earningsGold: '#CA8A04',
-  accentGold:   '#E3B23C',
+  trustGreen:   '#3BA55D',
+  onlineGreen:  '#3BA55D',
+  offlineGray:  '#A6A6AB',
+  urgentOrange: '#D99A6C',
+  earningsGold: '#D4AF37',
+  accentGold:   '#D4AF37',
 
   // Cards
-  cardShadow:       '#B76E79',
+  cardShadow:       '#A34D63',
   cardBackground:   '#FFFFFF',
-  cardBorder:       '#F0E4E6',
-  cardShadowLight:  'rgba(183,110,121,0.06)',
-  cardShadowMedium: 'rgba(183,110,121,0.10)',
+  cardBorder:       '#F2E7E7',
+  cardShadowLight:  'rgba(163,77,99,0.05)',
+  cardShadowMedium: 'rgba(163,77,99,0.09)',
 
-  // Service pastels
-  servicePersonal:   '#FDF2F4',
-  serviceCompanion:  '#F5F3FF',
-  serviceMeal:       '#FFF7ED',
-  serviceMedication: '#ECFDF5',
-  serviceHousing:    '#FEF3C7',
-  serviceMobility:   '#E0F2FE',
-  serviceSurgery:    '#FFF1F2',
+  // Service pastels — calm rose-family tints only, no rainbow
+  servicePersonal:   '#FCECEF',
+  serviceCompanion:  '#F6EBC9',
+  serviceMeal:       '#FCECEF',
+  serviceMedication: '#EDF5EF',
+  serviceHousing:    '#F6EBC9',
+  serviceMobility:   '#FCECEF',
+  serviceSurgery:    '#FCECEF',
 
-  // Accent service colors
-  servicePersonalAccent:   '#B76E79',
-  serviceCompanionAccent:  '#7C3AED',
-  serviceMealAccent:       '#D97706',
-  serviceMedicationAccent: '#059669',
-  serviceHousingAccent:    '#CA8A04',
-  serviceMobilityAccent:   '#0284C7',
-  serviceSurgeryAccent:    '#DC2626',
+  // Accent service colors — rose + gold only
+  servicePersonalAccent:   '#D97A91',
+  serviceCompanionAccent:  '#D4AF37',
+  serviceMealAccent:       '#C4667E',
+  serviceMedicationAccent: '#3BA55D',
+  serviceHousingAccent:    '#D4AF37',
+  serviceMobilityAccent:   '#A34D63',
+  serviceSurgeryAccent:    '#D97A91',
 
   // Primary action
-  primaryButton:     '#B76E79',
+  primaryButton:     '#D97A91',
   primaryButtonText: '#FFFFFF',
 
   // Map overlay
-  mapOverlay: 'rgba(31,18,21,0.7)',
-  mapPill:    'rgba(31,18,21,0.65)',
+  mapOverlay: 'rgba(29,29,31,0.62)',
+  mapPill:    'rgba(29,29,31,0.55)',
 };
 
 export const StatusColors: Record<string, string> = {
-  REQUESTED: '#D97706',
-  ACCEPTED:  '#B76E79',
-  ON_MY_WAY: '#0284C7',
-  STARTED:   '#7C3AED',
-  COMPLETED: '#059669',
-  CANCELLED: '#DC2626',
+  REQUESTED: '#D99A6C',
+  ACCEPTED:  '#D97A91',
+  ON_MY_WAY: '#A34D63',
+  STARTED:   '#D4AF37',
+  COMPLETED: '#3BA55D',
+  CANCELLED: '#D96C6C',
 };
 
+// One calm family: rose tints with rose/gold accents. Deliberately quiet —
+// the old rainbow map read as a healthcare app.
 export const ServiceColors: Record<string, string> = {
-  'Makeup':        '#FDF2F4',
-  'Bridal Makeup': '#FFF1F2',
-  'Party Makeup':  '#F5F3FF',
-  'Threading':     '#ECFDF5',
-  'Hair Styling':  '#FFF7ED',
-  'Hair Coloring': '#FEF3C7',
-  'Facial':        '#E0F2FE',
-  'Waxing':        '#F0FDF4',
-  'Nails':         '#FDF2F8',
-  'Mehendi':       '#FEF9C3',
-  'Massage':       '#EEF2FF',
+  'Makeup':        '#FCECEF',
+  'Bridal Makeup': '#F6EBC9',
+  'Party Makeup':  '#FCECEF',
+  'Threading':     '#FCECEF',
+  'Hair Styling':  '#FCECEF',
+  'Hair Coloring': '#F6EBC9',
+  'Facial':        '#FCECEF',
+  'Waxing':        '#FCECEF',
+  'Nails':         '#FCECEF',
+  'Mehendi':       '#F6EBC9',
+  'Massage':       '#FCECEF',
 };
 
 export const ServiceAccentColors: Record<string, string> = {
-  'Makeup':        '#B76E79',
-  'Bridal Makeup': '#DC2666',
-  'Party Makeup':  '#7C3AED',
-  'Threading':     '#059669',
-  'Hair Styling':  '#D97706',
-  'Hair Coloring': '#CA8A04',
-  'Facial':        '#0284C7',
-  'Waxing':        '#16A34A',
-  'Nails':         '#DB2777',
-  'Mehendi':       '#A16207',
-  'Massage':       '#6366F1',
+  'Makeup':        '#D97A91',
+  'Bridal Makeup': '#D4AF37',
+  'Party Makeup':  '#C4667E',
+  'Threading':     '#A34D63',
+  'Hair Styling':  '#D97A91',
+  'Hair Coloring': '#D4AF37',
+  'Facial':        '#C4667E',
+  'Waxing':        '#A34D63',
+  'Nails':         '#D97A91',
+  'Mehendi':       '#D4AF37',
+  'Massage':       '#C4667E',
 };
 
-// Plus Jakarta Sans — loaded in App.tsx. Use these for branded headings/labels.
-// Falls back to system font until fonts finish loading (App gates render on it).
+// Inter — loaded in App.tsx. Use these for branded headings/labels.
+// Falls back to system font (SF Pro on iOS) until fonts finish loading.
 export const Fonts = {
-  light:    'PlusJakartaSans_300Light',
-  regular:  'PlusJakartaSans_400Regular',
-  medium:   'PlusJakartaSans_500Medium',
-  semibold: 'PlusJakartaSans_600SemiBold',
-  bold:     'PlusJakartaSans_700Bold',
-  extrabold:'PlusJakartaSans_800ExtraBold',
+  light:    'Inter_300Light',
+  regular:  'Inter_400Regular',
+  medium:   'Inter_500Medium',
+  semibold: 'Inter_600SemiBold',
+  bold:     'Inter_700Bold',
+  extrabold:'Inter_800ExtraBold',
 } as const;

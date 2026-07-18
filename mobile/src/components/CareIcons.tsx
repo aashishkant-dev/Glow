@@ -27,6 +27,21 @@ export {
   SearchIcon,
 } from './TabIcons';
 
+import {
+  SparkleIcon,
+  LipstickIcon,
+  BrushIcon,
+  HennaIcon,
+  NailIcon,
+  ScissorsIcon,
+  HairColorIcon,
+  FacialIcon,
+  WaxIcon,
+  LotusIcon,
+  CrownIcon,
+} from './BeautyIcons';
+export * from './BeautyIcons';
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared pin path — identical silhouette to GlowLogo's pin, drawn on
 // a 112×112 viewBox so role marks are drop-in siblings of the logo mark.
@@ -128,7 +143,7 @@ export function AdminMark({
 type IconProps = { size?: number; color?: string };
 
 // Shared stroke attributes — the brand-kit system (1.9, round, no fill).
-const S = { strokeWidth: 1.9, strokeLinecap: 'round', strokeLinejoin: 'round', fill: 'none' } as const;
+const S = { strokeWidth: 1.55, strokeLinecap: 'round', strokeLinejoin: 'round', fill: 'none' } as const;
 
 /** FindJobsIcon — briefcase + magnifier (i-findjobs). */
 export function FindJobsIcon({ size = 24, color = Colors.brand }: IconProps) {
@@ -495,18 +510,16 @@ export function PackageIcon({ size = 24, color = Colors.brand }: IconProps) {
 // ─────────────────────────────────────────────────────────────────────────────
 export type ServiceIconComponent = React.ComponentType<{ size?: number; color?: string }>;
 
-// Beauty services reuse the existing abstract line icons until a bespoke
-// beauty icon set lands (brush, scissors, nail, henna...).
 export const SERVICE_ICON_MAP: Record<string, ServiceIconComponent> = {
-  'Makeup':        PersonalCareIcon,
-  'Bridal Makeup': CheckDecagramIcon,
-  'Party Makeup':  CompanionIcon,
-  'Threading':     PulseIcon,
-  'Hair Styling':  PersonalCareIcon,
-  'Hair Coloring': MealIcon,
-  'Facial':        PersonalCareIcon,
-  'Waxing':        HousekeepingIcon,
-  'Nails':         MedicationIcon,
-  'Mehendi':       NoteIcon,
-  'Massage':       MobilityIcon,
+  'Makeup':        LipstickIcon,
+  'Bridal Makeup': CrownIcon,
+  'Party Makeup':  SparkleIcon,
+  'Threading':     BrushIcon,
+  'Hair Styling':  ScissorsIcon,
+  'Hair Coloring': HairColorIcon,
+  'Facial':        FacialIcon,
+  'Waxing':        WaxIcon,
+  'Nails':         NailIcon,
+  'Mehendi':       HennaIcon,
+  'Massage':       LotusIcon,
 };

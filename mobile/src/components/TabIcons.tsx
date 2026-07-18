@@ -16,7 +16,7 @@ export function HomeIcon({ size = 24, color = '#000', filled = false }: P) {
           fill={color}
         />
       ) : (
-        <G fill="none" stroke={color} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round">
+        <G fill="none" stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round">
           {/* brand-kit i-home */}
           <Path d="M4 10.5 12 4l8 6.5" />
           <Path d="M6 9.6V19a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1V9.6" />
@@ -31,10 +31,10 @@ export function CalendarIcon({ size = 24, color = '#000', filled = false }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Rect x="3.5" y="5" width="17" height="15.5" rx="2.5"
-        stroke={color} strokeWidth={1.9} fill={filled ? color + '22' : 'none'}
+        stroke={color} strokeWidth={1.6} fill={filled ? color + '22' : 'none'}
       />
       <Path d="M3.5 9.5h17M8 3.5v3M16 3.5v3"
-        stroke={color} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"
+        stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"
       />
       {filled ? (
         <>
@@ -59,17 +59,17 @@ export function BriefcaseIcon({ size = 24, color = '#000', filled = false }: P) 
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Rect x="3" y="8" width="18" height="11.5" rx="2"
-        stroke={color} strokeWidth={1.9} fill={filled ? color + '22' : 'none'}
+        stroke={color} strokeWidth={1.6} fill={filled ? color + '22' : 'none'}
       />
       <Path d="M9 8V6.7A1.7 1.7 0 0 1 10.7 5h2.6A1.7 1.7 0 0 1 15 6.7V8"
-        stroke={color} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round"
+        stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"
       />
       {filled ? (
         <Circle cx="12" cy="12.5" r="1.8" fill={color} />
       ) : (
         <>
-          <Circle cx="12" cy="12.5" r="1.8" stroke={color} strokeWidth={1.9} />
-          <Path d="M9 17.2a3 3 0 0 1 6 0" stroke={color} strokeWidth={1.9} strokeLinecap="round" strokeLinejoin="round" />
+          <Circle cx="12" cy="12.5" r="1.8" stroke={color} strokeWidth={1.6} />
+          <Path d="M9 17.2a3 3 0 0 1 6 0" stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
         </>
       )}
     </Svg>
@@ -92,7 +92,7 @@ export function PlusIcon({ size = 28, color = '#fff' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 28 28" fill="none">
       <Path d="M14 6v16M6 14h16"
-        stroke={color} strokeWidth={2.5} strokeLinecap="round"
+        stroke={color} strokeWidth={1.8} strokeLinecap="round"
       />
     </Svg>
   );
@@ -102,8 +102,8 @@ export function SearchJobsIcon({ size = 24, color = '#fff' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       {/* Magnifier */}
-      <Circle cx="10" cy="10" r="6" stroke={color} strokeWidth={2} />
-      <Path d="M15 15l4 4" stroke={color} strokeWidth={2.2} strokeLinecap="round" />
+      <Circle cx="10" cy="10" r="6" stroke={color} strokeWidth={1.6} />
+      <Path d="M15 15l4 4" stroke={color} strokeWidth={1.7} strokeLinecap="round" />
       {/* Location pin inside */}
       <Path
         d="M10 7c-1.66 0-3 1.34-3 3 0 2.25 3 5 3 5s3-2.75 3-5c0-1.66-1.34-3-3-3z"
@@ -149,8 +149,8 @@ export function ChatIcon({ size = 24, color = '#000' }: P) {
 export function SearchIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx="10.5" cy="10.5" r="6.5" stroke={color} strokeWidth={2} />
-      <Path d="M15.5 15.5L20 20" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Circle cx="10.5" cy="10.5" r="6.5" stroke={color} strokeWidth={1.6} />
+      <Path d="M15.5 15.5L20 20" stroke={color} strokeWidth={1.6} strokeLinecap="round" />
     </Svg>
   );
 }
@@ -159,7 +159,7 @@ export function CloseCircleIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Circle cx="12" cy="12" r="10" fill={color} />
-      <Path d="M8 8l8 8M16 8l-8 8" stroke="#fff" strokeWidth={2} strokeLinecap="round" />
+      <Path d="M8 8l8 8M16 8l-8 8" stroke="#fff" strokeWidth={1.6} strokeLinecap="round" />
     </Svg>
   );
 }
@@ -167,8 +167,8 @@ export function CloseCircleIcon({ size = 24, color = '#000' }: P) {
 export function MapIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M9 3L3 6v15l6-3 6 3 6-3V3l-6 3-6-3z" stroke={color} strokeWidth={1.8} strokeLinejoin="round" />
-      <Path d="M9 3v15M15 6v15" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+      <Path d="M9 3L3 6v15l6-3 6 3 6-3V3l-6 3-6-3z" stroke={color} strokeWidth={1.6} strokeLinejoin="round" />
+      <Path d="M9 3v15M15 6v15" stroke={color} strokeWidth={1.6} strokeLinecap="round" />
     </Svg>
   );
 }
@@ -176,7 +176,7 @@ export function MapIcon({ size = 24, color = '#000' }: P) {
 export function ListIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M3 6h18M3 12h18M3 18h18" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M3 6h18M3 12h18M3 18h18" stroke={color} strokeWidth={1.6} strokeLinecap="round" />
     </Svg>
   );
 }
@@ -184,8 +184,8 @@ export function ListIcon({ size = 24, color = '#000' }: P) {
 export function LocateIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx="12" cy="12" r="3" stroke={color} strokeWidth={2} />
-      <Path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Circle cx="12" cy="12" r="3" stroke={color} strokeWidth={1.6} />
+      <Path d="M12 2v3M12 19v3M2 12h3M19 12h3" stroke={color} strokeWidth={1.6} strokeLinecap="round" />
       <Circle cx="12" cy="12" r="8" stroke={color} strokeWidth={1.5} />
     </Svg>
   );
@@ -194,7 +194,7 @@ export function LocateIcon({ size = 24, color = '#000' }: P) {
 export function RadioOnIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx="12" cy="12" r="9" stroke={color} strokeWidth={2} />
+      <Circle cx="12" cy="12" r="9" stroke={color} strokeWidth={1.6} />
       <Circle cx="12" cy="12" r="4" fill={color} />
     </Svg>
   );
@@ -225,7 +225,7 @@ export function StarIcon({ size = 24, color = '#FFB800', filled = true }: P) {
 export function DocumentIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" stroke={color} strokeWidth={1.8} strokeLinejoin="round" />
+      <Path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6z" stroke={color} strokeWidth={1.6} strokeLinejoin="round" />
       <Path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" stroke={color} strokeWidth={1.5} strokeLinecap="round" />
     </Svg>
   );
@@ -234,9 +234,9 @@ export function DocumentIcon({ size = 24, color = '#000' }: P) {
 export function CashIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x="2" y="6" width="20" height="12" rx="2" stroke={color} strokeWidth={1.8} />
+      <Rect x="2" y="6" width="20" height="12" rx="2" stroke={color} strokeWidth={1.6} />
       <Circle cx="12" cy="12" r="3" stroke={color} strokeWidth={1.5} />
-      <Path d="M6 10v0M18 10v0M6 14v0M18 14v0" stroke={color} strokeWidth={2} strokeLinecap="round" />
+      <Path d="M6 10v0M18 10v0M6 14v0M18 14v0" stroke={color} strokeWidth={1.6} strokeLinecap="round" />
     </Svg>
   );
 }
@@ -245,7 +245,7 @@ export function CheckCircleIcon({ size = 24, color = Colors.onlineGreen }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Circle cx="12" cy="12" r="10" fill={color} />
-      <Path d="M7 12l3.5 3.5L17 8" stroke="#fff" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M7 12l3.5 3.5L17 8" stroke="#fff" strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
     </Svg>
   );
 }
@@ -253,8 +253,8 @@ export function CheckCircleIcon({ size = 24, color = Colors.onlineGreen }: P) {
 export function PersonIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx="12" cy="8" r="4" stroke={color} strokeWidth={1.8} />
-      <Path d="M4 20c0-4 3.58-7 8-7s8 3 8 7" stroke={color} strokeWidth={1.8} strokeLinecap="round" />
+      <Circle cx="12" cy="8" r="4" stroke={color} strokeWidth={1.6} />
+      <Path d="M4 20c0-4 3.58-7 8-7s8 3 8 7" stroke={color} strokeWidth={1.6} strokeLinecap="round" />
     </Svg>
   );
 }
@@ -278,7 +278,7 @@ export function ChevronForwardIcon({ size = 24, color = '#000' }: P) {
 export function HourglassIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M6 2h12v6l-4 4 4 4v6H6v-6l4-4-4-4V2z" stroke={color} strokeWidth={1.8} strokeLinejoin="round" />
+      <Path d="M6 2h12v6l-4 4 4 4v6H6v-6l4-4-4-4V2z" stroke={color} strokeWidth={1.6} strokeLinejoin="round" />
     </Svg>
   );
 }
@@ -294,8 +294,8 @@ export function FlashIcon({ size = 24, color = '#000' }: P) {
 export function CalendarSVGIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x="3" y="4" width="18" height="17" rx="2.5" stroke={color} strokeWidth={1.7} />
-      <Path d="M8 2v4M16 2v4M3 9h18" stroke={color} strokeWidth={1.7} strokeLinecap="round" />
+      <Rect x="3" y="4" width="18" height="17" rx="2.5" stroke={color} strokeWidth={1.6} />
+      <Path d="M8 2v4M16 2v4M3 9h18" stroke={color} strokeWidth={1.6} strokeLinecap="round" />
     </Svg>
   );
 }
@@ -303,7 +303,7 @@ export function CalendarSVGIcon({ size = 24, color = '#000' }: P) {
 export function HomeSVGIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M12 3L3 10.5V21H9V15H15V21H21V10.5L12 3Z" stroke={color} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
+      <Path d="M12 3L3 10.5V21H9V15H15V21H21V10.5L12 3Z" stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round" />
     </Svg>
   );
 }
@@ -311,8 +311,8 @@ export function HomeSVGIcon({ size = 24, color = '#000' }: P) {
 export function CameraIcon({ size = 18, color = '#fff' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M4 8.5a2 2 0 0 1 2-2h1.2l.9-1.6a1.5 1.5 0 0 1 1.3-.8h5.2a1.5 1.5 0 0 1 1.3.8l.9 1.6H18a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8Z" stroke={color} strokeWidth={1.8} strokeLinejoin="round" />
-      <Circle cx="12" cy="12.5" r="3.2" stroke={color} strokeWidth={1.8} />
+      <Path d="M4 8.5a2 2 0 0 1 2-2h1.2l.9-1.6a1.5 1.5 0 0 1 1.3-.8h5.2a1.5 1.5 0 0 1 1.3.8l.9 1.6H18a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-8Z" stroke={color} strokeWidth={1.6} strokeLinejoin="round" />
+      <Circle cx="12" cy="12.5" r="3.2" stroke={color} strokeWidth={1.6} />
     </Svg>
   );
 }

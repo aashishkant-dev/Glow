@@ -337,7 +337,7 @@ export function BookingsScreen() {
                 style={({ pressed }) => [styles.bookNowBtn, pressed && { opacity: 0.85 }]}
                 onPress={() => nav.navigate('NewBooking')}
               >
-                <Text style={styles.bookNowBtnText}>{t.bookProvider}</Text>
+                <Text style={styles.bookNowBtnText}>{t.bookArtist}</Text>
               </Pressable>
             )}
           </View>
@@ -451,7 +451,7 @@ const styles = StyleSheet.create({
   statCellVal: { fontSize: 16, fontWeight: '800', color: Colors.label },
   statCellLabel: { fontSize: 10, color: Colors.secondaryLabel, fontWeight: '600' },
 
-  list: { paddingTop: 8, paddingBottom: 40 },
+  list: { paddingTop: 8, paddingBottom: 130 },
 
   reBookBtn: {
     marginHorizontal: 16, marginTop: -6, marginBottom: 12,

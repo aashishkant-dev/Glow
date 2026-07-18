@@ -37,7 +37,6 @@ import { getSocket } from '../../utils/socket';
 import { GlowLogo } from '../../components/GlowLogo';
 import { JobCard } from '../../components/JobCard';
 import { LocationPrompt } from '../../components/LocationPrompt';
-import { LinearGradient } from 'expo-linear-gradient';
 
 function ActiveJobBanner({ job, onPress }: { job: Booking; onPress: () => void }) {
   return (
@@ -258,7 +257,7 @@ export function ProviderDashboardScreen() {
   }
 
   return (
-    <View style={{ flex: 1, backgroundColor: '#F1F5F4' }}>
+    <View style={{ flex: 1, backgroundColor: Colors.systemGroupedBackground }}>
       <ScrollView
         style={styles.container}
         contentContainerStyle={{ paddingBottom: 60 }}
@@ -267,21 +266,13 @@ export function ProviderDashboardScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={Colors.brand} progressBackgroundColor={Colors.cardBackground} />
         }
       >
-        {/* ── Hero gradient: header + online toggle + stats ── */}
-        <LinearGradient
-          colors={[Colors.brandDark, Colors.brand]}
-          start={{ x: 0, y: 0 }}
-          end={{ x: 0.6, y: 1 }}
-          style={[styles.hero, { paddingTop: insets.top + 14 }]}
-        >
+        {/* ── Light header — Stripe × Apple ── */}
+        <View style={[styles.hero, { paddingTop: insets.top + 14 }]}>
           {/* Header row */}
           <View style={styles.heroHeader}>
-            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <GlowLogo size={34} showWordmark={false} inverted />
-              <View style={{ flex: 1 }}>
-                <Text style={styles.heroGreeting}>{greeting}</Text>
-                <Text style={styles.heroName} numberOfLines={1}>{firstName}</Text>
-              </View>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.heroGreeting}>{greeting}</Text>
+              <Text style={styles.heroName} numberOfLines={1}>{firstName}</Text>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
               <Pressable
@@ -291,7 +282,7 @@ export function ProviderDashboardScreen() {
                 <Text style={styles.heroBtnText}>{lang === 'en' ? 'FR' : 'EN'}</Text>
               </Pressable>
               <Pressable style={styles.heroBtn} onPress={() => nav.navigate('Notifications')}>
-                <BellIcon size={20} color="#fff" />
+                <BellIcon size={18} color={Colors.label} />
                 {unreadCount > 0 && (
                   <View style={styles.bellBadge}>
                     <Text style={styles.bellBadgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
@@ -308,13 +299,13 @@ export function ProviderDashboardScreen() {
             </View>
           </View>
 
-          {/* Online / Offline toggle row */}
+          {/* Availability card */}
           <View style={styles.heroToggleRow}>
             <View style={{ flex: 1, gap: 3 }}>
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
-                <View style={[styles.statusDot, { backgroundColor: isOnline ? Colors.onlineGreen : 'rgba(255,255,255,0.55)' }]} />
+                <View style={[styles.statusDot, { backgroundColor: isOnline ? Colors.systemGreen : Colors.systemGray3 }]} />
                 <Text style={styles.heroToggleTitle}>
-                  {isOnline ? "You're Online" : "You're Offline"}
+                  {isOnline ? "You're online" : "You're offline"}
                 </Text>
               </View>
               <Text style={styles.heroToggleSub}>
@@ -324,39 +315,69 @@ export function ProviderDashboardScreen() {
             <Pressable
               onPress={toggleOnline}
               disabled={toggling}
-              style={[styles.toggleSwitch, { backgroundColor: isOnline ? Colors.brandAccent : 'rgba(255,255,255,0.25)' }]}
+              style={[styles.toggleSwitch, { backgroundColor: isOnline ? Colors.systemGreen : Colors.systemGray4 }]}
             >
               <View style={[styles.toggleKnob, { transform: [{ translateX: isOnline ? 20 : 0 }] }]} />
             </Pressable>
           </View>
 
-          {/* Stats strip */}
-          <View style={styles.heroStats}>
-            <View style={styles.heroStatItem}>
-              <Text style={styles.heroStatValue}>${todayEarnings.toFixed(0)}</Text>
-              <Text style={styles.heroStatLabel}>{t.today}</Text>
-            </View>
-            <View style={styles.heroStatDivider} />
-            <View style={styles.heroStatItem}>
-              <Text style={styles.heroStatValue}>${weekEarnings.toFixed(0)}</Text>
-              <Text style={styles.heroStatLabel}>{t.thisWeek}</Text>
-            </View>
-            <View style={styles.heroStatDivider} />
-            <View style={styles.heroStatItem}>
-              <Text style={styles.heroStatValue} numberOfLines={1}>
-                {(profile?.rating ?? 0) > 0 ? `★ ${profile?.rating?.toFixed(1)}` : '—'}
-              </Text>
-              <Text style={styles.heroStatLabel}>Rating</Text>
-            </View>
-            <View style={styles.heroStatDivider} />
-            <View style={styles.heroStatItem}>
-              <Text style={styles.heroStatValue} numberOfLines={1}>
-                {(profile as any)?.totalSessions ?? jobs.filter(j => j.status === 'COMPLETED').length}
-              </Text>
-              <Text style={styles.heroStatLabel}>Sessions</Text>
-            </View>
+          {/* Stat grid — 2×2 metric cards */}
+          <View style={styles.statGrid}>
+            {([
+              [`$${todayEarnings.toFixed(0)}`, t.today,   Colors.label],
+              [`$${weekEarnings.toFixed(0)}`,  t.thisWeek, Colors.label],
+              [(profile?.rating ?? 0) > 0 ? `${profile?.rating?.toFixed(1)} ★` : '—', 'Rating', Colors.gold],
+              [String((profile as any)?.totalSessions ?? jobs.filter(j => j.status === 'COMPLETED').length), 'Sessions', Colors.label],
+            ] as [string, string, string][]).map(([value, label, color]) => (
+              <View key={label} style={styles.statCard}>
+                <Text style={[styles.statCardValue, { color }]} numberOfLines={1}>{value}</Text>
+                <Text style={styles.statCardLabel}>{label}</Text>
+              </View>
+            ))}
           </View>
-        </LinearGradient>
+        </View>
+
+        {/* ── Weekly earnings card — floating over hero, mockup-style bars ── */}
+        <View style={styles.earnCard}>
+          <View style={styles.earnCardTop}>
+            <Text style={styles.earnCardLabel}>{t.thisWeek}</Text>
+            <Text style={styles.earnCardValue}>${weekEarnings.toFixed(0)}</Text>
+          </View>
+          <View style={styles.earnBars}>
+            {(() => {
+              const now = new Date();
+              const days = Array.from({ length: 7 }, (_, i) => {
+                const d = new Date(now);
+                d.setDate(now.getDate() - (6 - i));
+                return d;
+              });
+              const sums = days.map(d =>
+                jobs
+                  .filter(j => j.status === 'COMPLETED' && new Date(j.scheduledAt).toDateString() === d.toDateString())
+                  .reduce((s, j) => s + j.totalPrice, 0),
+              );
+              const max = Math.max(...sums, 1);
+              return days.map((d, i) => (
+                <View key={i} style={styles.earnBarCol}>
+                  <View style={styles.earnBarTrack}>
+                    <View
+                      style={[
+                        styles.earnBarFill,
+                        {
+                          height: `${Math.max(sums[i] / max * 100, 6)}%` as any,
+                          backgroundColor: i === 6 ? Colors.brand : Colors.brandLight,
+                        },
+                      ]}
+                    />
+                  </View>
+                  <Text style={styles.earnBarLabel}>
+                    {d.toLocaleDateString(lang === 'fr' ? 'fr-CA' : 'en-CA', { weekday: 'narrow' })}
+                  </Text>
+                </View>
+              ));
+            })()}
+          </View>
+        </View>
 
         {/* ── New Requests banner (client picked this Provider) — top priority ── */}
         {pendingRequests.length > 0 && (
@@ -364,7 +385,7 @@ export function ProviderDashboardScreen() {
             <View style={styles.requestsBell}><BellIcon size={24} color="#fff" /></View>
             <View style={styles.requestsBannerText}>
               <Text style={styles.requestsBannerTitle} numberOfLines={1}>
-                {pendingRequests.length} new care request{pendingRequests.length > 1 ? 's' : ''}
+                {pendingRequests.length} new booking request{pendingRequests.length > 1 ? 's' : ''}
               </Text>
               <Text style={styles.requestsBannerSub} numberOfLines={2}>
                 A client requested you — tap to accept or decline
@@ -525,70 +546,87 @@ export function ProviderDashboardScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F1F5F4' },
+  container: { flex: 1, backgroundColor: Colors.systemGroupedBackground },
 
-  // ── Hero section (header + toggle + stats) ──
+  // ── Weekly earnings card (floats over hero bottom edge) ──
+  earnCard: {
+    marginHorizontal: 20, marginTop: 12,
+    backgroundColor: '#fff', borderRadius: 20, padding: 16,
+    borderWidth: 1, borderColor: Colors.separator,
+    shadowColor: Colors.brandDark,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.1,
+    shadowRadius: 20,
+    elevation: 5,
+  },
+  earnCardTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  earnCardLabel: { fontSize: 12, fontWeight: '700', color: Colors.brandDark },
+  earnCardValue: { fontSize: 24, fontWeight: '800', color: Colors.label, letterSpacing: -0.5 },
+  earnBars: { flexDirection: 'row', alignItems: 'flex-end', gap: 7, height: 76, marginTop: 12 },
+  earnBarCol: { flex: 1, alignItems: 'center', gap: 4, height: '100%' },
+  earnBarTrack: { flex: 1, width: '100%', justifyContent: 'flex-end' },
+  earnBarFill: { width: '100%', borderRadius: 4 },
+  earnBarLabel: { fontSize: 9.5, color: Colors.tertiaryLabel, fontWeight: '600' },
+
+  // ── Light header (greeting + availability + stat grid) ──
   hero: {
-    paddingHorizontal: 16,
-    paddingBottom: 24,
+    paddingHorizontal: 20,
+    paddingBottom: 8,
   },
   heroHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
-    marginBottom: 22,
+    alignItems: 'center',
+    marginBottom: 24,
   },
-  heroGreeting: { fontSize: 13, color: 'rgba(255,255,255,0.7)', fontWeight: '500', marginBottom: 2 },
-  heroName: { fontSize: 26, fontFamily: Fonts.extrabold, color: '#fff', letterSpacing: -0.5 },
+  heroGreeting: { fontSize: 14, color: Colors.secondaryLabel, fontFamily: Fonts.regular, marginBottom: 2 },
+  heroName: { fontSize: 30, fontFamily: Fonts.bold, color: Colors.label, letterSpacing: -0.8 },
 
-  // Icon buttons inside hero (translucent white circles)
   heroBtn: {
     width: 38, height: 38, borderRadius: 19,
-    backgroundColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: '#fff',
+    borderWidth: 1, borderColor: Colors.separator,
     alignItems: 'center', justifyContent: 'center',
     position: 'relative',
   },
-  heroBtnText: { color: '#fff', fontSize: 12, fontWeight: '800', letterSpacing: 0.5 },
+  heroBtnText: { color: Colors.secondaryLabel, fontSize: 12, fontFamily: Fonts.semibold, letterSpacing: 0.4 },
 
-  // Avatar inside hero
   heroAvatar: {
     width: 42, height: 42, borderRadius: 21,
-    backgroundColor: 'rgba(255,255,255,0.2)',
-    borderWidth: 2, borderColor: 'rgba(255,255,255,0.4)',
+    backgroundColor: Colors.brandLight,
     alignItems: 'center', justifyContent: 'center',
     overflow: 'hidden',
     position: 'relative',
   },
   heroAvatarImg: { width: 42, height: 42, borderRadius: 21 },
-  heroAvatarText: { color: '#fff', fontSize: 17, fontWeight: '800' },
+  heroAvatarText: { color: Colors.brandDark, fontSize: 16, fontFamily: Fonts.semibold },
   avatarOnlineDot: {
     position: 'absolute', bottom: 1, right: 1,
     width: 10, height: 10, borderRadius: 5,
-    backgroundColor: Colors.onlineGreen,
-    borderWidth: 1.5, borderColor: Colors.brandDark,
+    backgroundColor: Colors.systemGreen,
+    borderWidth: 1.5, borderColor: '#fff',
   },
 
-  // Bell badge (used inside heroBtn)
   bellBadge: {
     position: 'absolute', top: 0, right: 0,
     minWidth: 16, height: 16, borderRadius: 8,
-    backgroundColor: '#FF3B30',
+    backgroundColor: Colors.brand,
     alignItems: 'center', justifyContent: 'center',
     paddingHorizontal: 3,
   },
-  bellBadgeText: { color: '#fff', fontSize: 10, fontWeight: '800' },
+  bellBadgeText: { color: '#fff', fontSize: 10, fontFamily: Fonts.bold },
 
-  // Online/Offline toggle row inside hero
+  // Availability card
   heroToggleRow: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.13)',
-    borderRadius: 16, paddingHorizontal: 18, paddingVertical: 14,
-    gap: 16, marginBottom: 14,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)',
+    backgroundColor: '#fff',
+    borderRadius: 20, paddingHorizontal: 18, paddingVertical: 16,
+    gap: 16, marginBottom: 12,
+    borderWidth: 1, borderColor: Colors.separator,
   },
   statusDot: { width: 8, height: 8, borderRadius: 4 },
-  heroToggleTitle: { fontSize: 15, fontWeight: '700', color: '#fff' },
-  heroToggleSub: { fontSize: 12, color: 'rgba(255,255,255,0.75)' },
+  heroToggleTitle: { fontSize: 15, fontFamily: Fonts.semibold, color: Colors.label },
+  heroToggleSub: { fontSize: 12.5, color: Colors.secondaryLabel, fontFamily: Fonts.regular },
   toggleSwitch: {
     width: 48, height: 28, borderRadius: 14,
     justifyContent: 'center', paddingHorizontal: 3,
@@ -597,24 +635,19 @@ const styles = StyleSheet.create({
     width: 22, height: 22, borderRadius: 11,
     backgroundColor: '#fff',
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.3, shadowRadius: 3, elevation: 3,
+    shadowOpacity: 0.2, shadowRadius: 3, elevation: 3,
   },
 
-  // Stats strip inside hero
-  heroStats: {
-    flexDirection: 'row',
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    borderRadius: 14,
-    paddingVertical: 14,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
-    alignItems: 'center',
+  // Stat grid — 2×2 metric cards
+  statGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  statCard: {
+    flexBasis: '48%', flexGrow: 1,
+    backgroundColor: '#fff',
+    borderRadius: 20, paddingVertical: 18, paddingHorizontal: 18,
+    borderWidth: 1, borderColor: Colors.separator,
   },
-  heroStatItem: { flex: 1, alignItems: 'center', gap: 4, paddingHorizontal: 2 },
-  heroStatDivider: { width: 1, height: 32, backgroundColor: 'rgba(255,255,255,0.25)' },
-  // Fixed value height + single line keeps all four labels on the same baseline,
-  // so "★ 4.5" (rating) and the Sessions count don't push their labels out of line.
-  heroStatValue: { color: '#fff', fontSize: 18, fontWeight: '900', letterSpacing: -0.4, lineHeight: 22, textAlign: 'center' },
-  heroStatLabel: { color: 'rgba(255,255,255,0.7)', fontSize: 9, fontWeight: '700', textTransform: 'uppercase', letterSpacing: 0.6, textAlign: 'center' },
+  statCardValue: { fontSize: 24, fontFamily: Fonts.bold, letterSpacing: -0.6 },
+  statCardLabel: { fontSize: 11.5, color: Colors.secondaryLabel, marginTop: 5, fontFamily: Fonts.medium, textTransform: 'uppercase', letterSpacing: 0.6 },
 
   // Doc verification card
   docCard: {

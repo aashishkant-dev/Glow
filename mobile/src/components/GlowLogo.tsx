@@ -1,35 +1,58 @@
 import React from 'react';
-import { Text, View, StyleSheet } from 'react-native';
-import Svg, { Path } from 'react-native-svg';
+import { Platform, Text, View, StyleSheet } from 'react-native';
+import Svg, { Path, Circle, G } from 'react-native-svg';
 import { Colors } from '../utils/colors';
 
 interface Props {
   size?: number;
   showWordmark?: boolean;
-  /** 'onDark' = white wordmark (hero/green bg). 'onLight' = brand wordmark (white bg). */
+  /** 'onDark' = light wordmark (rose/plum bg). 'onLight' = rose wordmark (light bg). */
   variant?: 'onDark' | 'onLight' | 'green' | 'blue';
-  /** Invert the pin for dark/green backgrounds: white pin body + green heart. */
+  /** Invert for dark/brand backgrounds: white petals + gold core. */
   inverted?: boolean;
 }
 
 /**
- * Map-pin + heart mark. Solid brand fill (no SVG gradient): gradients via
- * url(#id) are fragile in react-native-svg-web/PWA and were rendering blank.
- * A flat fill is identical visually at this size and bulletproof everywhere.
+ * Glow Bloom mark — from the brand identity (Figma "Luxury Beauty Brand
+ * Identity"), refined: four organic petals radiating from a champagne-gold
+ * core, corner micro-dots as scattered light. Improvements over the source:
+ * two-layer petals (deep rose under, soft rose inset) for depth without SVG
+ * gradients (url(#id) renders blank in react-native-svg-web), a specular
+ * micro-highlight on the core, and slightly rotated dot orbit so the mark
+ * reads "blooming", not static.
  */
-function PinIcon({ size, pinFill = Colors.brand, heartFill = '#FFFFFF' }: { size: number; pinFill?: string; heartFill?: string }) {
+export function GlowMark({
+  size = 44,
+  petal,
+  petalInner,
+  core = Colors.gold,
+}: {
+  size?: number;
+  petal?: string;
+  petalInner?: string;
+  core?: string;
+}) {
+  const p  = petal ?? Colors.brand;
+  const pi = petalInner ?? Colors.brandAccent;
+  // One petal pointing up, drawn as a teardrop; reused via rotation.
+  const PETAL = 'M56 12 C46 24 42 33 42 40 C42 49 48 54 56 54 C64 54 70 49 70 40 C70 33 66 24 56 12 Z';
+  const PETAL_IN = 'M56 20 C50 28 47.5 34 47.5 39 C47.5 45.5 51 49 56 49 C61 49 64.5 45.5 64.5 39 C64.5 34 62 28 56 20 Z';
   return (
     <Svg width={size} height={size} viewBox="0 0 112 112">
-      {/* Pin body (refined teardrop) */}
-      <Path
-        d="M56 6 C32 6 13 25 13 48.5 C13 66 26 80 44 97 L52.5 104.6 C54.5 106.4 57.5 106.4 59.5 104.6 L68 97 C86 80 99 66 99 48.5 C99 25 80 6 56 6 Z"
-        fill={pinFill}
-      />
-      {/* Heart knockout */}
-      <Path
-        d="M56 66 C54.9 66 53.8 65.6 53 64.9 C44.4 58 38.5 51.9 38.5 44.3 C38.5 38.2 43 34 48.2 34 C51.3 34 54.1 35.5 56 38 C57.9 35.5 60.7 34 63.8 34 C69 34 73.5 38.2 73.5 44.3 C73.5 51.9 67.6 58 59 64.9 C58.2 65.6 57.1 66 56 66 Z"
-        fill={heartFill}
-      />
+      {[0, 90, 180, 270].map(r => (
+        <G key={r} transform={`rotate(${r} 56 56)`}>
+          <Path d={PETAL} fill={p} />
+          <Path d={PETAL_IN} fill={pi} opacity={0.55} />
+        </G>
+      ))}
+      {/* Champagne core + specular highlight */}
+      <Circle cx={56} cy={56} r={9} fill={core} />
+      <Circle cx={53.4} cy={53.4} r={2.6} fill="#FFFFFF" opacity={0.75} />
+      {/* Scattered-light micro-dots, slightly off-axis orbit */}
+      <Circle cx={92} cy={26} r={3.4} fill={core} opacity={0.9} />
+      <Circle cx={22} cy={88} r={2.6} fill={p} opacity={0.75} />
+      <Circle cx={96} cy={78} r={2} fill={p} opacity={0.55} />
+      <Circle cx={18} cy={30} r={1.8} fill={core} opacity={0.6} />
     </Svg>
   );
 }
@@ -37,17 +60,30 @@ function PinIcon({ size, pinFill = Colors.brand, heartFill = '#FFFFFF' }: { size
 export function GlowLogo({ size = 44, showWordmark = true, variant = 'onDark', inverted = false }: Props) {
   // Legacy values: 'green'/'blue' came from older callers; treat as onDark.
   const onLight = variant === 'onLight';
+  const wordSize = Math.round(size * 0.52);
   return (
     <View style={styles.row}>
-      <PinIcon
+      <GlowMark
         size={size}
-        pinFill={inverted ? '#FFFFFF' : Colors.brand}
-        heartFill={inverted ? Colors.brand : '#FFFFFF'}
+        petal={inverted ? '#FFFFFF' : Colors.brand}
+        petalInner={inverted ? 'rgba(255,255,255,0.45)' : Colors.brandAccent}
+        core={Colors.gold}
       />
       {showWordmark && (
-        <Text style={[styles.wordmark, { fontSize: Math.round(size * 0.41) }]}>
-          <Text style={[styles.light, onLight && { color: Colors.secondaryLabel }]}>Care</Text>
-          <Text style={[styles.bold, onLight && { color: Colors.label }]}>Nearby</Text>
+        <Text
+          style={[
+            styles.wordmark,
+            { fontSize: wordSize },
+            onLight ? styles.neonOnLight : styles.neonOnDark,
+            // Web gets a layered luminous halo; native falls back to the
+            // single RN text shadow set in neonOnLight/neonOnDark.
+            Platform.OS === 'web' &&
+              ({ textShadow: onLight
+                  ? '0 0 12px rgba(217,122,145,0.5), 0 0 30px rgba(217,122,145,0.25)'
+                  : '0 0 12px rgba(255,255,255,0.55), 0 0 30px rgba(255,214,230,0.4)' } as any),
+          ]}
+        >
+          glow
         </Text>
       )}
     </View>
@@ -56,10 +92,32 @@ export function GlowLogo({ size = 44, showWordmark = true, variant = 'onDark', i
 
 const styles = StyleSheet.create({
   row:      { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  wordmark: { letterSpacing: -0.4 },
-  // On Android, fontFamily + fontWeight together can break rendering (the weight
-  // is baked into the family name; passing fontWeight makes the OS look for a
-  // non-existent variant → tofu/blank). Use the weighted family name ONLY.
-  light:    { color: 'rgba(255,255,255,0.7)', fontFamily: 'PlusJakartaSans_500Medium' },
-  bold:     { color: '#FFFFFF', fontFamily: 'PlusJakartaSans_800ExtraBold' },
+  // Brand wordmark: lowercase Poppins Light, wide tracking, luminous halo —
+  // per the identity spec. fontFamily only (no fontWeight): weight is baked
+  // into the family name; combining both breaks rendering on Android.
+  wordmark: {
+    letterSpacing: 5,
+    fontFamily: 'Poppins_300Light',
+  },
+  neonOnLight: {
+    color: Colors.brandDark,
+    textShadowColor: 'rgba(217,122,145,0.5)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 12,
+  },
+  neonOnDark: {
+    color: '#FFFFFF',
+    textShadowColor: 'rgba(255,214,230,0.6)',
+    textShadowOffset: { width: 0, height: 0 },
+    textShadowRadius: 12,
+  },
 });
+
+/** Brand tagline — wide-tracked caps, per the identity's lockup. */
+export function GlowTagline({ color = Colors.secondaryLabel, size = 10.5 }: { color?: string; size?: number }) {
+  return (
+    <Text style={{ fontSize: size, letterSpacing: 2.4, color, fontFamily: 'Poppins_500Medium', textTransform: 'uppercase' }}>
+      Beauty · On Demand · Everywhere
+    </Text>
+  );
+}

@@ -80,23 +80,28 @@ function HomeTabs() {
         tabBarInactiveTintColor: INACTIVE,
         // Show labels (Home / My Bookings) to match the Provider tab bar layout.
         tabBarShowLabel: true,
-        tabBarLabelStyle: { fontSize: 10, fontWeight: '600', marginTop: 2 },
+        tabBarLabelStyle: { fontSize: 10.5, fontFamily: 'Inter_500Medium', marginTop: 2 },
+        // Floating iOS-style pill bar — detached from the screen edges with a
+        // soft rose shadow, like modern beauty/lifestyle apps.
         tabBarStyle: {
-          borderTopColor: 'transparent',
+          position: 'absolute' as const,
+          left: 16, right: 16,
+          bottom: Platform.OS === 'ios' ? 24 : 14,
           borderTopWidth: 0,
-          backgroundColor: Colors.systemBackground,
-          height: Platform.OS === 'ios' ? 88 : 72,
-          paddingBottom: Platform.OS === 'ios' ? 28 : 12,
+          backgroundColor: 'rgba(255,255,255,0.96)',
+          height: 70,
+          paddingBottom: 10,
           paddingTop: 10,
-          paddingHorizontal: 0,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: -2 },
-          shadowOpacity: 0.06,
-          shadowRadius: 10,
-          elevation: 10,
+          paddingHorizontal: 8,
+          borderRadius: 100,
+          borderWidth: 1,
+          borderColor: Colors.separator,
+          shadowColor: Colors.cardShadow,
+          shadowOffset: { width: 0, height: 12 },
+          shadowOpacity: 0.14,
+          shadowRadius: 30,
+          elevation: 12,
           overflow: 'visible',
-          borderTopLeftRadius: 32,
-          borderTopRightRadius: 32,
         },
       }}
     >
@@ -148,7 +153,7 @@ function HomeTabs() {
         name="BookingsTab"
         component={BookingsScreen}
         options={{
-          tabBarLabel: 'My Bookings',
+          tabBarLabel: 'Bookings',
           tabBarIcon: ({ focused }) => (
             <CalendarIcon size={24} color={focused ? ACTIVE : INACTIVE} filled={focused} />
           ),
