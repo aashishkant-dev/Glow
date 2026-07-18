@@ -3,8 +3,8 @@
 //  - DEV backend when the admin is opened on a dev host or with ?env=dev, so docs
 //    uploaded from dev.glow.app are visible here (they live in the dev DB).
 //  - Canonical PROD API otherwise.
-const PROD_API = 'https://glow-backend.up.railway.app';
-const DEV_API  = 'https://glow-backend.up.railway.app';
+const PROD_API = 'https://glow-backend-production-ae1e.up.railway.app';
+const DEV_API  = 'https://glow-backend-production-ae1e.up.railway.app';
 const API_BASE = (() => {
   const host = window.location.hostname;
   const qsEnv = new URLSearchParams(window.location.search).get('env');

@@ -23,7 +23,7 @@
       "distribution": "internal",
       "channel": "preview",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.glow.app"
+        "EXPO_PUBLIC_API_URL": "https://glow-backend-production-ae1e.up.railway.app"
       },
       "android": {
         "buildType": "apk"
@@ -36,7 +36,7 @@
       "channel": "production",
       "autoIncrement": true,
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://api.glow.app",
+        "EXPO_PUBLIC_API_URL": "https://glow-backend-production-ae1e.up.railway.app",
         "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       },
       "android": {
@@ -56,8 +56,7 @@
         "track": "internal"
       },
       "ios": {
-        "appleTeamId": "HK8LQXCZQC",
-        "ascAppId": "6779246235"
+        "appleTeamId": "HK8LQXCZQC"
       }
     }
   }

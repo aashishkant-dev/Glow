@@ -46,7 +46,8 @@
         "android.permission.CAMERA",
         "android.permission.RECEIVE_BOOT_COMPLETED",
         "android.permission.VIBRATE",
-        "android.permission.POST_NOTIFICATIONS"
+        "android.permission.POST_NOTIFICATIONS",
+        "android.permission.RECORD_AUDIO"
       ],
       "config": {
         "googleMaps": {
@@ -114,7 +115,10 @@
       "@sentry/react-native"
     ],
     "extra": {
-      "apiUrl": "https://glow-backend.up.railway.app"
+      "apiUrl": "https://glow-backend-production-ae1e.up.railway.app",
+      "eas": {
+        "projectId": "7211e7dd-0674-4a3c-9a5c-c68efd518f86"
+      }
     },
     "owner": "aashishkant69s-organization"
   }

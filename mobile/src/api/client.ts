@@ -9,7 +9,7 @@ export const API_BASE: string = (() => {
   const url = (process.env.EXPO_PUBLIC_API_URL as string | undefined) ?? '';
   if (!url || url.includes('localhost')) {
     if (__DEV__) return 'http://localhost:3000';
-    return 'https://api.glow.app';
+    return 'https://glow-backend-production-ae1e.up.railway.app';
   }
   return url;
 })();
