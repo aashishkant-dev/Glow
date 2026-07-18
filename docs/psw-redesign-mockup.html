@@ -1,0 +1,611 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Glow Provider Redesign Mockup</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Display', sans-serif; background: #0a0a0f; color: #fff; display: flex; gap: 24px; padding: 32px; overflow-x: auto; min-height: 100vh; align-items: flex-start; }
+
+  .screen-wrapper { display: flex; flex-direction: column; align-items: center; gap: 12px; flex-shrink: 0; }
+  .screen-label { font-size: 13px; font-weight: 600; color: #888; letter-spacing: 0.08em; text-transform: uppercase; }
+
+  .phone { width: 375px; height: 812px; background: #0f0f17; border-radius: 44px; border: 1.5px solid #2a2a3a; overflow: hidden; display: flex; flex-direction: column; position: relative; box-shadow: 0 32px 80px rgba(0,0,0,0.6), inset 0 1px 0 rgba(255,255,255,0.05); }
+
+  /* Status bar */
+  .status-bar { height: 50px; background: transparent; display: flex; align-items: center; justify-content: space-between; padding: 14px 24px 0; flex-shrink: 0; }
+  .status-time { font-size: 15px; font-weight: 700; color: #fff; }
+  .status-icons { display: flex; gap: 6px; align-items: center; }
+  .status-icons span { font-size: 13px; color: #fff; }
+
+  /* Scrollable content */
+  .screen-content { flex: 1; overflow: hidden; display: flex; flex-direction: column; }
+  .scroll-area { flex: 1; overflow-y: auto; scrollbar-width: none; }
+  .scroll-area::-webkit-scrollbar { display: none; }
+
+  /* Bottom tab bar */
+  .tab-bar { height: 83px; background: rgba(15,15,23,0.95); border-top: 1px solid rgba(255,255,255,0.06); display: flex; align-items: flex-start; justify-content: space-around; padding-top: 10px; flex-shrink: 0; backdrop-filter: blur(20px); }
+  .tab-item { display: flex; flex-direction: column; align-items: center; gap: 4px; width: 80px; cursor: pointer; }
+  .tab-icon { width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 18px; position: relative; }
+  .tab-icon.active { background: rgba(14,165,111,0.15); }
+  .tab-label { font-size: 10px; font-weight: 600; color: #555; letter-spacing: 0.02em; }
+  .tab-label.active { color: #0EA56F; }
+  .tab-badge { position: absolute; top: -4px; right: -4px; background: #EF4444; color: #fff; font-size: 9px; font-weight: 800; min-width: 16px; height: 16px; border-radius: 8px; display: flex; align-items: center; justify-content: center; border: 2px solid #0f0f17; }
+
+  /* ── HOME SCREEN ── */
+  .home-header { padding: 8px 20px 16px; display: flex; align-items: center; justify-content: space-between; }
+  .header-left { display: flex; flex-direction: column; }
+  .greeting { font-size: 13px; color: #666; font-weight: 500; }
+  .header-name { font-size: 22px; font-weight: 800; color: #fff; letter-spacing: -0.3px; }
+  .avatar-btn { width: 44px; height: 44px; border-radius: 22px; background: linear-gradient(135deg, #0EA56F, #059669); display: flex; align-items: center; justify-content: center; font-size: 18px; font-weight: 800; color: #fff; position: relative; cursor: pointer; }
+  .avatar-dot { position: absolute; bottom: 1px; right: 1px; width: 10px; height: 10px; background: #22C55E; border-radius: 5px; border: 2px solid #0f0f17; }
+
+  /* Online toggle card */
+  .online-card { margin: 0 16px 16px; background: linear-gradient(135deg, #0d2818, #0a1f12); border: 1px solid rgba(14,165,111,0.25); border-radius: 20px; padding: 18px 20px; display: flex; align-items: center; justify-content: space-between; }
+  .online-left { display: flex; flex-direction: column; gap: 4px; }
+  .online-status-row { display: flex; align-items: center; gap: 8px; }
+  .online-dot { width: 8px; height: 8px; background: #22C55E; border-radius: 4px; box-shadow: 0 0 8px #22C55E; animation: pulse 2s infinite; }
+  @keyframes pulse { 0%,100%{opacity:1;} 50%{opacity:0.5;} }
+  .online-label { font-size: 16px; font-weight: 700; color: #22C55E; }
+  .online-sub { font-size: 12px; color: #4a7a5a; }
+  .toggle { width: 52px; height: 30px; background: #0EA56F; border-radius: 15px; display: flex; align-items: center; padding: 3px; cursor: pointer; }
+  .toggle-knob { width: 24px; height: 24px; background: #fff; border-radius: 12px; margin-left: auto; box-shadow: 0 2px 4px rgba(0,0,0,0.3); }
+
+  /* Earnings strip */
+  .earnings-strip { margin: 0 16px 16px; display: flex; gap: 10px; }
+  .earn-card { flex: 1; background: #161620; border: 1px solid #252535; border-radius: 16px; padding: 14px 14px; }
+  .earn-label { font-size: 11px; color: #555; font-weight: 600; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 6px; }
+  .earn-value { font-size: 20px; font-weight: 800; color: #fff; letter-spacing: -0.5px; }
+  .earn-value span { font-size: 12px; font-weight: 500; color: #555; }
+
+  /* Doc verification card */
+  .doc-card { margin: 0 16px 16px; background: linear-gradient(135deg, #1a1230, #120e24); border: 1px solid rgba(139,92,246,0.3); border-radius: 20px; padding: 18px 20px; }
+  .doc-card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 14px; }
+  .doc-card-title { font-size: 15px; font-weight: 700; color: #fff; }
+  .doc-badge { background: rgba(234,179,8,0.15); border: 1px solid rgba(234,179,8,0.3); color: #EAB308; font-size: 11px; font-weight: 700; padding: 3px 10px; border-radius: 20px; }
+  .doc-badge.done { background: rgba(34,197,94,0.15); border-color: rgba(34,197,94,0.3); color: #22C55E; }
+  .doc-items { display: flex; flex-direction: column; gap: 8px; margin-bottom: 14px; }
+  .doc-item { display: flex; align-items: center; gap: 10px; }
+  .doc-icon { width: 28px; height: 28px; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; }
+  .doc-icon.ok { background: rgba(34,197,94,0.15); }
+  .doc-icon.warn { background: rgba(234,179,8,0.15); }
+  .doc-icon.pending { background: rgba(99,102,241,0.15); }
+  .doc-name { font-size: 13px; color: #ccc; font-weight: 500; flex: 1; }
+  .doc-status { font-size: 11px; font-weight: 600; }
+  .doc-status.ok { color: #22C55E; }
+  .doc-status.warn { color: #EAB308; }
+  .doc-status.pending { color: #818CF8; }
+  .doc-progress { height: 4px; background: rgba(255,255,255,0.06); border-radius: 2px; margin-bottom: 14px; overflow: hidden; }
+  .doc-progress-fill { height: 100%; background: linear-gradient(90deg, #8B5CF6, #6366F1); border-radius: 2px; width: 67%; }
+  .doc-upload-btn { background: rgba(139,92,246,0.15); border: 1px solid rgba(139,92,246,0.3); border-radius: 12px; padding: 10px; text-align: center; font-size: 13px; font-weight: 600; color: #A78BFA; cursor: pointer; }
+
+  /* Recent activity */
+  .section-header { display: flex; align-items: center; justify-content: space-between; padding: 0 20px 10px; }
+  .section-title { font-size: 16px; font-weight: 700; color: #fff; }
+  .section-link { font-size: 13px; color: #0EA56F; font-weight: 600; }
+  .activity-card { margin: 0 16px 10px; background: #161620; border: 1px solid #252535; border-radius: 16px; padding: 14px 16px; display: flex; align-items: center; gap: 12px; }
+  .activity-icon { width: 40px; height: 40px; border-radius: 12px; background: rgba(14,165,111,0.1); display: flex; align-items: center; justify-content: center; font-size: 18px; flex-shrink: 0; }
+  .activity-info { flex: 1; }
+  .activity-title { font-size: 14px; font-weight: 600; color: #fff; margin-bottom: 2px; }
+  .activity-sub { font-size: 12px; color: #555; }
+  .activity-earn { font-size: 15px; font-weight: 700; color: #22C55E; }
+
+  /* ── REQUESTS SCREEN ── */
+  .req-header { padding: 8px 20px 16px; }
+  .req-title { font-size: 26px; font-weight: 800; color: #fff; letter-spacing: -0.5px; margin-bottom: 4px; }
+  .req-sub { font-size: 13px; color: #555; }
+  .req-tabs { display: flex; gap: 8px; padding: 0 16px 16px; }
+  .req-tab { padding: 7px 16px; border-radius: 20px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .req-tab.active { background: #0EA56F; color: #fff; }
+  .req-tab.inactive { background: #1a1a2a; color: #666; }
+
+  .request-card { margin: 0 16px 12px; background: #161620; border: 1px solid #252535; border-radius: 20px; overflow: hidden; }
+  .request-card.new { border-color: rgba(14,165,111,0.4); background: linear-gradient(135deg, #0d2818, #161620); }
+  .req-card-top { padding: 16px 16px 12px; }
+  .req-card-row1 { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 10px; }
+  .req-service { font-size: 16px; font-weight: 700; color: #fff; }
+  .req-earn { font-size: 18px; font-weight: 800; color: #22C55E; }
+  .req-earn span { font-size: 12px; font-weight: 500; color: #4a7a5a; }
+  .req-details { display: flex; gap: 16px; }
+  .req-detail { display: flex; align-items: center; gap: 5px; font-size: 12px; color: #777; }
+  .req-card-divider { height: 1px; background: #1e1e2e; margin: 0 16px; }
+  .req-card-bottom { padding: 12px 16px; display: flex; gap: 10px; }
+  .req-client { display: flex; align-items: center; gap: 8px; flex: 1; }
+  .req-avatar { width: 32px; height: 32px; border-radius: 16px; background: linear-gradient(135deg, #3730a3, #6366F1); display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 700; color: #fff; }
+  .req-client-info { display: flex; flex-direction: column; }
+  .req-client-name { font-size: 13px; font-weight: 600; color: #ccc; }
+  .req-rating { font-size: 11px; color: #EAB308; }
+  .req-new-badge { background: rgba(14,165,111,0.15); border: 1px solid rgba(14,165,111,0.3); color: #0EA56F; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 10px; align-self: center; }
+
+  .req-actions { display: flex; gap: 8px; margin: 0 16px 16px; }
+  .req-decline { flex: 1; background: rgba(239,68,68,0.1); border: 1px solid rgba(239,68,68,0.2); border-radius: 14px; padding: 12px; text-align: center; font-size: 14px; font-weight: 700; color: #EF4444; cursor: pointer; }
+  .req-accept { flex: 2; background: #0EA56F; border-radius: 14px; padding: 12px; text-align: center; font-size: 14px; font-weight: 700; color: #fff; cursor: pointer; }
+
+  /* empty state */
+  .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 32px; text-align: center; gap: 12px; }
+  .empty-icon { font-size: 48px; }
+  .empty-title { font-size: 18px; font-weight: 700; color: #fff; }
+  .empty-sub { font-size: 13px; color: #555; line-height: 1.5; }
+
+  /* ── MY JOBS SCREEN ── */
+  .jobs-header { padding: 8px 20px 16px; }
+  .jobs-title { font-size: 26px; font-weight: 800; color: #fff; letter-spacing: -0.5px; }
+
+  .active-job-banner { margin: 0 16px 16px; background: linear-gradient(135deg, #064e3b, #065f46); border: 1px solid rgba(34,197,94,0.3); border-radius: 20px; padding: 16px 18px; }
+  .active-job-label { font-size: 11px; font-weight: 700; color: #4ade80; text-transform: uppercase; letter-spacing: 0.08em; margin-bottom: 6px; display: flex; align-items: center; gap: 6px; }
+  .pulse-dot { width: 7px; height: 7px; background: #4ade80; border-radius: 4px; display: inline-block; animation: pulse 1.5s infinite; }
+  .active-job-service { font-size: 18px; font-weight: 800; color: #fff; margin-bottom: 4px; }
+  .active-job-info { font-size: 13px; color: #6ee7b7; margin-bottom: 14px; }
+  .active-job-btn { background: #22C55E; border-radius: 12px; padding: 11px; text-align: center; font-size: 14px; font-weight: 700; color: #fff; cursor: pointer; }
+
+  .jobs-section-title { padding: 4px 20px 8px; font-size: 12px; font-weight: 700; color: #444; text-transform: uppercase; letter-spacing: 0.06em; }
+  .job-card { margin: 0 16px 10px; background: #161620; border: 1px solid #252535; border-radius: 16px; padding: 14px 16px; display: flex; justify-content: space-between; align-items: flex-start; }
+  .job-card-left { display: flex; flex-direction: column; gap: 4px; }
+  .job-service { font-size: 15px; font-weight: 700; color: #fff; }
+  .job-date { font-size: 12px; color: #555; }
+  .job-client { font-size: 12px; color: #777; }
+  .job-card-right { display: flex; flex-direction: column; align-items: flex-end; gap: 4px; }
+  .job-earn { font-size: 16px; font-weight: 800; color: #fff; }
+  .job-status-badge { font-size: 10px; font-weight: 700; padding: 3px 8px; border-radius: 8px; }
+  .job-status-badge.completed { background: rgba(34,197,94,0.15); color: #22C55E; }
+  .job-status-badge.accepted { background: rgba(14,165,111,0.15); color: #0EA56F; }
+  .job-status-badge.cancelled { background: rgba(107,114,128,0.15); color: #9CA3AF; }
+
+  /* ── PROFILE SCREEN ── */
+  .profile-hero { background: linear-gradient(180deg, #0d2818 0%, #0f0f17 100%); padding: 16px 20px 24px; }
+  .profile-hero-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+  .profile-back { font-size: 22px; color: #0EA56F; cursor: pointer; }
+  .profile-edit { font-size: 14px; font-weight: 600; color: #0EA56F; }
+  .profile-avatar-section { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+  .profile-avatar { width: 88px; height: 88px; border-radius: 44px; background: linear-gradient(135deg, #0EA56F, #059669); display: flex; align-items: center; justify-content: center; font-size: 32px; font-weight: 800; color: #fff; border: 3px solid rgba(14,165,111,0.4); position: relative; }
+  .profile-camera { position: absolute; bottom: 0; right: 0; width: 26px; height: 26px; background: #0EA56F; border-radius: 13px; display: flex; align-items: center; justify-content: center; font-size: 12px; border: 2px solid #0f0f17; }
+  .profile-verified-badge { background: rgba(14,165,111,0.15); border: 1px solid rgba(14,165,111,0.3); color: #4ade80; font-size: 11px; font-weight: 700; padding: 4px 12px; border-radius: 20px; display: flex; align-items: center; gap: 5px; }
+  .profile-name { font-size: 22px; font-weight: 800; color: #fff; letter-spacing: -0.3px; }
+  .profile-role { font-size: 13px; color: #0EA56F; font-weight: 600; }
+  .profile-rating { font-size: 13px; color: #EAB308; }
+
+  .profile-stats { display: flex; padding: 0 16px; gap: 10px; margin-bottom: 20px; }
+  .stat-pill { flex: 1; background: #161620; border: 1px solid #252535; border-radius: 14px; padding: 12px 10px; display: flex; flex-direction: column; align-items: center; gap: 2px; }
+  .stat-val { font-size: 18px; font-weight: 800; color: #fff; }
+  .stat-key { font-size: 10px; color: #555; font-weight: 600; text-transform: uppercase; }
+
+  .profile-section { margin: 0 16px 14px; background: #161620; border: 1px solid #252535; border-radius: 18px; overflow: hidden; }
+  .profile-section-header { padding: 14px 16px 12px; border-bottom: 1px solid #1e1e2e; display: flex; align-items: center; justify-content: space-between; }
+  .profile-section-title { font-size: 14px; font-weight: 700; color: #fff; }
+  .profile-section-edit { font-size: 12px; color: #0EA56F; font-weight: 600; }
+  .profile-row { padding: 12px 16px; display: flex; align-items: center; gap: 10px; border-bottom: 1px solid #1a1a2a; }
+  .profile-row:last-child { border-bottom: none; }
+  .profile-row-icon { width: 32px; height: 32px; border-radius: 10px; display: flex; align-items: center; justify-content: center; font-size: 15px; flex-shrink: 0; }
+  .profile-row-label { font-size: 13px; color: #888; flex: 1; }
+  .profile-row-val { font-size: 13px; color: #ccc; font-weight: 500; }
+  .profile-row-arrow { color: #333; font-size: 16px; }
+
+  .verify-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 14px; }
+  .verify-item { background: #1a1a2a; border-radius: 12px; padding: 12px; display: flex; flex-direction: column; gap: 4px; }
+  .verify-icon { font-size: 18px; margin-bottom: 2px; }
+  .verify-label { font-size: 11px; color: #888; font-weight: 600; }
+  .verify-status { font-size: 12px; font-weight: 700; }
+  .verify-status.ok { color: #22C55E; }
+  .verify-status.pending { color: #EAB308; }
+
+  /* scrollbar hide */
+  .scroll-area { -ms-overflow-style: none; scrollbar-width: none; }
+</style>
+</head>
+<body>
+
+<!-- SCREEN 1: HOME -->
+<div class="screen-wrapper">
+  <div class="screen-label">1 — Home (Dashboard)</div>
+  <div class="phone">
+    <div class="status-bar">
+      <span class="status-time">9:41</span>
+      <div class="status-icons"><span>●●●</span><span>WiFi</span><span>🔋</span></div>
+    </div>
+    <div class="screen-content">
+      <div class="scroll-area">
+        <div class="home-header">
+          <div class="header-left">
+            <span class="greeting">Good morning,</span>
+            <span class="header-name">Sarah K.</span>
+          </div>
+          <div class="avatar-btn">S<div class="avatar-dot"></div></div>
+        </div>
+
+        <!-- Online toggle -->
+        <div class="online-card">
+          <div class="online-left">
+            <div class="online-status-row"><div class="online-dot"></div><span class="online-label">You're Online</span></div>
+            <span class="online-sub">Accepting new requests</span>
+          </div>
+          <div class="toggle"><div class="toggle-knob"></div></div>
+        </div>
+
+        <!-- Earnings -->
+        <div class="earnings-strip">
+          <div class="earn-card">
+            <div class="earn-label">Today</div>
+            <div class="earn-value">$75 <span>earned</span></div>
+          </div>
+          <div class="earn-card">
+            <div class="earn-label">This Week</div>
+            <div class="earn-value">$312 <span>earned</span></div>
+          </div>
+        </div>
+
+        <!-- Documents verification card -->
+        <div class="doc-card">
+          <div class="doc-card-header">
+            <span class="doc-card-title">📋 Your Documents</span>
+            <span class="doc-badge">2 / 3</span>
+          </div>
+          <div class="doc-items">
+            <div class="doc-item">
+              <div class="doc-icon ok">✅</div>
+              <span class="doc-name">Provider Certificate</span>
+              <span class="doc-status ok">Approved</span>
+            </div>
+            <div class="doc-item">
+              <div class="doc-icon ok">✅</div>
+              <span class="doc-name">First Aid / CPR</span>
+              <span class="doc-status ok">Approved</span>
+            </div>
+            <div class="doc-item">
+              <div class="doc-icon warn">⏳</div>
+              <span class="doc-name">Police Check</span>
+              <span class="doc-status warn">Required</span>
+            </div>
+          </div>
+          <div class="doc-progress"><div class="doc-progress-fill"></div></div>
+          <div class="doc-upload-btn">+ Upload Police Check</div>
+        </div>
+
+        <!-- Recent activity -->
+        <div class="section-header">
+          <span class="section-title">Recent Jobs</span>
+          <span class="section-link">See All →</span>
+        </div>
+        <div class="activity-card">
+          <div class="activity-icon">🏠</div>
+          <div class="activity-info">
+            <div class="activity-title">Personal Care</div>
+            <div class="activity-sub">Today · 3h · Maria J.</div>
+          </div>
+          <span class="activity-earn">+$75</span>
+        </div>
+        <div class="activity-card">
+          <div class="activity-icon">🤝</div>
+          <div class="activity-info">
+            <div class="activity-title">Companionship</div>
+            <div class="activity-sub">Yesterday · 4h · Robert T.</div>
+          </div>
+          <span class="activity-earn">+$100</span>
+        </div>
+        <div style="height:16px"></div>
+      </div>
+    </div>
+    <div class="tab-bar">
+      <div class="tab-item">
+        <div class="tab-icon active"><span>🏠</span></div>
+        <span class="tab-label active">Home</span>
+      </div>
+      <div class="tab-item">
+        <div class="tab-icon"><span>📨</span>
+          <div class="tab-badge">2</div>
+        </div>
+        <span class="tab-label">Requests</span>
+      </div>
+      <div class="tab-item">
+        <div class="tab-icon"><span>💼</span></div>
+        <span class="tab-label">My Jobs</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SCREEN 2: REQUESTS -->
+<div class="screen-wrapper">
+  <div class="screen-label">2 — Requests</div>
+  <div class="phone">
+    <div class="status-bar">
+      <span class="status-time">9:41</span>
+      <div class="status-icons"><span>●●●</span><span>WiFi</span><span>🔋</span></div>
+    </div>
+    <div class="screen-content">
+      <div class="scroll-area">
+        <div class="req-header">
+          <div class="req-title">Requests</div>
+          <div class="req-sub">Customers who chose you</div>
+        </div>
+        <div class="req-tabs">
+          <div class="req-tab active">New (2)</div>
+          <div class="req-tab inactive">Upcoming</div>
+          <div class="req-tab inactive">Past</div>
+        </div>
+
+        <!-- Request card 1 - new -->
+        <div class="request-card new">
+          <div class="req-card-top">
+            <div class="req-card-row1">
+              <div>
+                <div class="req-service">Personal Care</div>
+                <div class="req-details">
+                  <span class="req-detail">📅 Tomorrow 2pm</span>
+                  <span class="req-detail">⏱ 3 hrs</span>
+                  <span class="req-detail">📍 2.1 km</span>
+                </div>
+              </div>
+              <div style="text-align:right">
+                <div class="req-earn">$75 <span>/job</span></div>
+                <div class="req-new-badge">NEW</div>
+              </div>
+            </div>
+          </div>
+          <div class="req-card-divider"></div>
+          <div class="req-card-bottom">
+            <div class="req-client">
+              <div class="req-avatar">M</div>
+              <div class="req-client-info">
+                <span class="req-client-name">Maria Johnson</span>
+                <span class="req-rating">⭐ 4.9 · 12 sessions</span>
+              </div>
+            </div>
+          </div>
+          <div class="req-actions">
+            <div class="req-decline">Decline</div>
+            <div class="req-accept">✓ Accept</div>
+          </div>
+        </div>
+
+        <!-- Request card 2 -->
+        <div class="request-card new">
+          <div class="req-card-top">
+            <div class="req-card-row1">
+              <div>
+                <div class="req-service">Meal Preparation</div>
+                <div class="req-details">
+                  <span class="req-detail">📅 Fri 10am</span>
+                  <span class="req-detail">⏱ 2 hrs</span>
+                  <span class="req-detail">📍 3.8 km</span>
+                </div>
+              </div>
+              <div style="text-align:right">
+                <div class="req-earn">$50 <span>/job</span></div>
+                <div class="req-new-badge">NEW</div>
+              </div>
+            </div>
+          </div>
+          <div class="req-card-divider"></div>
+          <div class="req-card-bottom">
+            <div class="req-client">
+              <div class="req-avatar" style="background:linear-gradient(135deg,#7c3aed,#a78bfa)">R</div>
+              <div class="req-client-info">
+                <span class="req-client-name">Robert Thompson</span>
+                <span class="req-rating">⭐ 5.0 · 3 sessions</span>
+              </div>
+            </div>
+          </div>
+          <div class="req-actions">
+            <div class="req-decline">Decline</div>
+            <div class="req-accept">✓ Accept</div>
+          </div>
+        </div>
+        <div style="height:16px"></div>
+      </div>
+    </div>
+    <div class="tab-bar">
+      <div class="tab-item">
+        <div class="tab-icon"><span>🏠</span></div>
+        <span class="tab-label">Home</span>
+      </div>
+      <div class="tab-item">
+        <div class="tab-icon active"><span>📨</span>
+          <div class="tab-badge">2</div>
+        </div>
+        <span class="tab-label active">Requests</span>
+      </div>
+      <div class="tab-item">
+        <div class="tab-icon"><span>💼</span></div>
+        <span class="tab-label">My Jobs</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SCREEN 3: MY JOBS -->
+<div class="screen-wrapper">
+  <div class="screen-label">3 — My Jobs</div>
+  <div class="phone">
+    <div class="status-bar">
+      <span class="status-time">9:41</span>
+      <div class="status-icons"><span>●●●</span><span>WiFi</span><span>🔋</span></div>
+    </div>
+    <div class="screen-content">
+      <div class="scroll-area">
+        <div class="jobs-header">
+          <div class="jobs-title">My Jobs</div>
+        </div>
+
+        <!-- Active job banner -->
+        <div class="active-job-banner">
+          <div class="active-job-label"><span class="pulse-dot"></span> In Progress</div>
+          <div class="active-job-service">Personal Care · Maria J.</div>
+          <div class="active-job-info">Started 2:05pm · 3h session · $75</div>
+          <div class="active-job-btn">Continue Job →</div>
+        </div>
+
+        <div class="jobs-section-title">Upcoming</div>
+        <div class="job-card">
+          <div class="job-card-left">
+            <div class="job-service">Meal Preparation</div>
+            <div class="job-date">Fri May 24 · 10:00am · 2h</div>
+            <div class="job-client">Robert Thompson</div>
+          </div>
+          <div class="job-card-right">
+            <div class="job-earn">$50</div>
+            <div class="job-status-badge accepted">Accepted</div>
+          </div>
+        </div>
+
+        <div class="jobs-section-title">Completed</div>
+        <div class="job-card">
+          <div class="job-card-left">
+            <div class="job-service">Companionship</div>
+            <div class="job-date">Thu May 22 · 1:00pm · 4h</div>
+            <div class="job-client">Robert Thompson</div>
+          </div>
+          <div class="job-card-right">
+            <div class="job-earn">$100</div>
+            <div class="job-status-badge completed">Paid</div>
+          </div>
+        </div>
+        <div class="job-card">
+          <div class="job-card-left">
+            <div class="job-service">Personal Care</div>
+            <div class="job-date">Wed May 21 · 9:00am · 3h</div>
+            <div class="job-client">Linda Chen</div>
+          </div>
+          <div class="job-card-right">
+            <div class="job-earn">$75</div>
+            <div class="job-status-badge completed">Paid</div>
+          </div>
+        </div>
+        <div style="height:16px"></div>
+      </div>
+    </div>
+    <div class="tab-bar">
+      <div class="tab-item">
+        <div class="tab-icon"><span>🏠</span></div>
+        <span class="tab-label">Home</span>
+      </div>
+      <div class="tab-item">
+        <div class="tab-icon"><span>📨</span></div>
+        <span class="tab-label">Requests</span>
+      </div>
+      <div class="tab-item">
+        <div class="tab-icon active"><span>💼</span></div>
+        <span class="tab-label active">My Jobs</span>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- SCREEN 4: PROFILE -->
+<div class="screen-wrapper">
+  <div class="screen-label">4 — Profile (via avatar tap)</div>
+  <div class="phone">
+    <div class="status-bar">
+      <span class="status-time">9:41</span>
+      <div class="status-icons"><span>●●●</span><span>WiFi</span><span>🔋</span></div>
+    </div>
+    <div class="screen-content">
+      <div class="scroll-area">
+        <!-- Hero -->
+        <div class="profile-hero">
+          <div class="profile-hero-header">
+            <span class="profile-back">‹</span>
+            <span class="profile-edit">Edit</span>
+          </div>
+          <div class="profile-avatar-section">
+            <div class="profile-avatar">S<div class="profile-camera">📷</div></div>
+            <div class="profile-name">Sarah Kowalski</div>
+            <div class="profile-role">Personal Support Worker</div>
+            <div class="profile-rating">⭐ 4.9 · 28 ratings</div>
+            <div class="profile-verified-badge">✓ Verified Professional</div>
+          </div>
+        </div>
+
+        <!-- Stats -->
+        <div class="profile-stats" style="margin-top:16px">
+          <div class="stat-pill">
+            <div class="stat-val">47</div>
+            <div class="stat-key">Sessions</div>
+          </div>
+          <div class="stat-pill">
+            <div class="stat-val">4.9⭐</div>
+            <div class="stat-key">Rating</div>
+          </div>
+          <div class="stat-pill">
+            <div class="stat-val">$1.2k</div>
+            <div class="stat-key">Earned</div>
+          </div>
+        </div>
+
+        <!-- Verification -->
+        <div class="profile-section" style="margin-top:4px">
+          <div class="profile-section-header">
+            <span class="profile-section-title">Verification Status</span>
+          </div>
+          <div class="verify-grid">
+            <div class="verify-item">
+              <div class="verify-icon">📜</div>
+              <div class="verify-label">Provider Certificate</div>
+              <div class="verify-status ok">✓ Approved</div>
+            </div>
+            <div class="verify-item">
+              <div class="verify-icon">🚑</div>
+              <div class="verify-label">First Aid</div>
+              <div class="verify-status ok">✓ Approved</div>
+            </div>
+            <div class="verify-item">
+              <div class="verify-icon">🛡️</div>
+              <div class="verify-label">Police Check</div>
+              <div class="verify-status pending">⏳ Pending</div>
+            </div>
+            <div class="verify-item">
+              <div class="verify-icon">✅</div>
+              <div class="verify-label">Admin Review</div>
+              <div class="verify-status ok">✓ Approved</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Professional info -->
+        <div class="profile-section">
+          <div class="profile-section-header">
+            <span class="profile-section-title">Professional Info</span>
+            <span class="profile-section-edit">Edit</span>
+          </div>
+          <div class="profile-row">
+            <div class="profile-row-icon" style="background:rgba(14,165,111,0.1)">🎓</div>
+            <span class="profile-row-label">Qualification</span>
+            <span class="profile-row-val">Provider · 4 yrs exp</span>
+          </div>
+          <div class="profile-row">
+            <div class="profile-row-icon" style="background:rgba(99,102,241,0.1)">🗣️</div>
+            <span class="profile-row-label">Languages</span>
+            <span class="profile-row-val">EN · FR</span>
+          </div>
+          <div class="profile-row">
+            <div class="profile-row-icon" style="background:rgba(234,179,8,0.1)">⭐</div>
+            <span class="profile-row-label">Specialties</span>
+            <span class="profile-row-val">Dementia · Palliative</span>
+          </div>
+        </div>
+
+        <!-- Account -->
+        <div class="profile-section">
+          <div class="profile-section-header">
+            <span class="profile-section-title">Account</span>
+          </div>
+          <div class="profile-row">
+            <div class="profile-row-icon" style="background:rgba(59,130,246,0.1)">📱</div>
+            <span class="profile-row-label">Phone</span>
+            <span class="profile-row-val">+1 (613) ···5678 ✓</span>
+          </div>
+          <div class="profile-row">
+            <div class="profile-row-icon" style="background:rgba(107,114,128,0.1)">🪪</div>
+            <span class="profile-row-label">Account ID</span>
+            <span class="profile-row-val">CN-482910</span>
+          </div>
+        </div>
+        <div style="height:24px"></div>
+      </div>
+    </div>
+    <!-- no tab bar - it's a stack screen -->
+  </div>
+</div>
+
+</body>
+</html>

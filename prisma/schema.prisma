@@ -1,0 +1,578 @@
+// prisma/schema.prisma
+// Glow — PostgreSQL schema
+// Migrated from MongoDB/Mongoose. All Mongoose models are represented here.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── Enums ─────────────────────────────────────────────────────────────────────
+
+enum UserRole {
+  CUSTOMER
+  Provider
+  ADMIN
+  SALON
+}
+
+enum Gender {
+  M
+  F
+  NB
+  prefer_not_to_say
+}
+
+enum QualificationType {
+  MAKEUP_ARTIST
+  HAIR_STYLIST
+  ESTHETICIAN
+  NAIL_TECH
+  MEHENDI_ARTIST
+  MASSAGE_THERAPIST
+  COSMETOLOGIST
+  Other
+}
+
+enum BookingStatus {
+  REQUESTED
+  ACCEPTED
+  ON_MY_WAY
+  STARTED
+  COMPLETED
+  CANCELLED
+}
+
+enum UrgencyLevel {
+  routine
+  urgent
+  emergency
+}
+
+enum PaymentStatus {
+  PENDING
+  AUTHORIZED
+  PAID
+  RELEASED
+  REFUNDED
+  FAILED
+}
+
+enum DocumentEntityType {
+  Provider
+  CUSTOMER
+  BOOKING
+  GENERAL
+}
+
+enum DocType {
+  police_check
+  provider_certificate
+  first_aid_cert
+  driver_license
+  insurance
+  id_proof
+  photo
+  resume
+  other
+}
+
+enum DocumentStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+enum AdminRole {
+  ADMIN
+  SUPER_ADMIN
+}
+
+enum AuditAction {
+  PROVIDER_APPROVED
+  PROVIDER_REJECTED
+  DOCUMENT_APPROVED
+  DOCUMENT_REJECTED
+  BOOKING_CANCELLED
+  PAYMENT_RELEASED
+  SETTINGS_CHANGED
+  ADMIN_LOGIN
+  ADMIN_LOGOUT
+}
+
+enum PayoutStatus {
+  PENDING
+  PROCESSING
+  PAID
+}
+
+enum PayoutMethod {
+  ETRANSFER
+  STRIPE
+  OTHER
+}
+
+// ── Models ────────────────────────────────────────────────────────────────────
+
+model User {
+  id                 String    @id @default(cuid())
+  role               UserRole
+  name               String
+  phone              String    @unique
+  email              String?
+  address            String?
+  gender             Gender?
+  preferredLanguage  String    @default("English")
+  dateOfBirth        DateTime?
+
+  // Location stored as flat lat/lng (no GeoJSON in Postgres — use PostGIS via raw SQL when needed)
+  lat                Float     @default(0)
+  lng                Float     @default(0)
+
+  emergencyContactName  String?
+  emergencyContactPhone String?
+
+  rating             Decimal   @default(0) @db.Decimal(3,2)
+  ratingCount        Int       @default(0)
+  isVerified         Boolean   @default(false)
+  photoUrl           String    @default("")
+  expoPushToken      String    @default("")
+  onboardingComplete Boolean   @default(false)
+
+  // Set when the user deletes their account (App Store Guideline 5.1.1(v)).
+  // The row is anonymized + kept for legal/payment retention; a non-null value
+  // blocks login and hides the account everywhere.
+  deletedAt          DateTime?
+
+  lastSeenAt         DateTime?
+
+  createdAt          DateTime  @default(now())
+  updatedAt          DateTime  @updatedAt
+
+  // Relations
+  providerProfile         ProviderProfile?
+  bookingsAsCustomer Booking[]  @relation("CustomerBookings")
+  bookingsAsProvider      Booking[]  @relation("ProviderBookings")
+  messagesSent       Message[]
+  payouts            Payout[]
+  notifications      Notification[]
+
+  @@index([role, isVerified])
+  @@index([role, createdAt(sort: Desc)])
+  @@index([rating(sort: Desc)])
+  @@index([lat, lng])                               // bounding-box pre-filter for nearby queries
+  @@index([role, lat, lng])                         // Provider nearby bounding-box with role filter
+  @@index([deletedAt])                              // fast filter for soft-deleted accounts
+  @@index([lastSeenAt(sort: Desc)])                 // Provider online status queries
+}
+
+model ProviderProfile {
+  id                 String            @id @default(cuid())
+  userId             String            @unique
+  user               User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  qualificationType  QualificationType @default(COSMETOLOGIST)
+  licenseNumber      String            @default("")
+  collegeName        String            @default("")
+
+  certifications     String[]          @default([])
+  experienceYears    Int               @default(0)
+
+  // Submitted documents stored as JSON array (legacy — new uploads go to Document table).
+  // Contains base64 dataUrls from older onboarding flow. Do not write new base64 here;
+  // admin reads merge both sources. Will be migrated to Document table in a future pass.
+  submittedDocuments Json              @default("[]")
+
+  availability       Boolean           @default(true)
+  // Marketing consent: approved Providers are showcased on the public landing page
+  // (first name + last initial, photo, rating — never contact info or precise location).
+  // Opt-out toggle lives in the Provider profile screen.
+  publicProfile      Boolean           @default(true)
+  approvedByAdmin    Boolean           @default(false)
+  rejectionReason    String            @default("")
+  bio                String            @default("")
+
+  languages          String[]          @default(["English"])
+  photoUrl           String            @default("")
+  photos             String[]          @default([])  // gallery images (Vercel Blob URLs)
+  specialties        String[]          @default([])
+  policeCheckCleared Boolean           @default(false)
+
+  firstAidCertified  Boolean           @default(false)
+  driversLicense     Boolean           @default(false)
+  ownTransportation  Boolean           @default(false)
+  insuranceVerified  Boolean           @default(false)
+
+  // Marketplace vertical this provider belongs to ("Beauty" for Glow).
+  category           String            @default("Beauty")
+  // Where the provider works: at the customer's home and/or at their own salon/studio.
+  homeService        Boolean           @default(true)
+  salonService       Boolean           @default(false)
+  salonAddress       String            @default("")
+  serviceRadiusKm    Int               @default(10)
+  coverPhotoUrl      String            @default("")
+
+  // Mock wallet: total amount the Provider has "withdrawn" from released earnings.
+  // Available balance = (sum of RELEASED payouts) - walletWithdrawn. Pre-Stripe.
+  walletWithdrawn    Decimal           @default(0) @db.Decimal(10,2)
+
+  // Payout destination (pre-Stripe). When Stripe Connect lands, payoutMethod
+  // becomes STRIPE and we store the connected account id instead of an email.
+  payoutEmail        String            @default("")   // Interac e-Transfer email
+  payoutMethod       PayoutMethod      @default(ETRANSFER)
+
+  createdAt          DateTime          @default(now())
+  updatedAt          DateTime          @updatedAt
+
+  documents          Document[]
+  services           ProviderService[]
+
+  @@index([approvedByAdmin, availability])
+  @@index([approvedByAdmin, availability, userId])  // nearby Provider lookup covering index
+  @@index([qualificationType])
+  @@index([policeCheckCleared])
+  @@index([experienceYears(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+}
+
+model Booking {
+  id                    String        @id @default(cuid())
+  customerId            String
+  customer              User          @relation("CustomerBookings", fields: [customerId], references: [id])
+  providerId                 String?
+  provider                   User?         @relation("ProviderBookings", fields: [providerId], references: [id])
+
+  serviceType           String
+  hours                 Int           // Business rule: minimum 3
+  status                BookingStatus @default(REQUESTED)
+  scheduledAt           DateTime
+
+  // Location stored as flat lat/lng
+  lat                   Float
+  lng                   Float
+  address               String        @default("")
+
+  price                 Decimal       @db.Decimal(10,2)  // CAD — exposed as totalPrice in API responses
+  notes                 String        @default("")
+  ratingGiven           Boolean       @default(false)
+  cancelledBy           String?       // 'CUSTOMER' | 'Provider' | 'ADMIN'
+
+  recipientName     String        @default("")
+  urgency               UrgencyLevel  @default(routine)
+
+  paymentStatus         PaymentStatus @default(PENDING)
+  stripePaymentIntentId String?
+  platformFee           Decimal       @default(0) @db.Decimal(10,2)  // Glow's cut (18% min $10 CAD)
+  providerPayout             Decimal       @default(0) @db.Decimal(10,2)  // Amount paid to Provider
+
+  // Provider live location (updated every 5s during active job)
+  providerLocationLat        Float?
+  providerLocationLng        Float?
+  providerLocationUpdatedAt  DateTime?
+
+  // Dedicated-request lifecycle: when a client picks a specific Provider we stamp
+  // providerRequestedAt. If that Provider declines OR doesn't respond within the timeout,
+  // openToPool flips true and the booking surfaces to ALL nearby Providers.
+  providerRequestedAt        DateTime?
+  openToPool            Boolean       @default(false)
+
+  serviceNotes             String        @default("")
+  providerArrivingAt         DateTime?
+  startedAt             DateTime?
+
+  tipAmount             Decimal       @default(0) @db.Decimal(10,2)
+  tipPaymentIntentId    String?
+  tipPaid               Boolean       @default(false)
+
+  ratingValue           Decimal?      @db.Decimal(3,2)
+  ratingComment         String        @default("")
+  providerRatingGiven        Boolean       @default(false)
+  providerRatingValue        Decimal?      @db.Decimal(3,2)
+  providerRatingComment      String        @default("")
+
+  createdAt             DateTime      @default(now())
+  updatedAt             DateTime      @updatedAt
+
+  messages              Message[]
+
+  @@index([customerId, status])
+  @@index([providerId, status])
+  @@index([status, scheduledAt])
+  @@index([paymentStatus])
+  @@index([createdAt(sort: Desc)])
+  @@index([scheduledAt])
+  @@index([updatedAt(sort: Desc)])
+  @@index([providerId, scheduledAt, status])
+  @@index([customerId, scheduledAt(sort: Desc)])
+  @@index([openToPool, status, scheduledAt])        // pool job surfacing query
+  @@index([status, openToPool])                     // admin dashboard filters
+}
+
+model Document {
+  id               String             @id @default(cuid())
+  entityType       DocumentEntityType
+  entityId         String             // References ProviderProfile.id or other entity
+  providerProfile       ProviderProfile?        @relation(fields: [entityId], references: [id], onDelete: Cascade)
+
+  docType          DocType
+  label            String             @default("")
+  fileName         String
+  originalName     String
+  mimeType         String
+  size             Int
+  storagePath      String             @default("")
+  url              String             @default("")
+  // WARNING: base64 fallback thumbnail — can be 100KB+ per row. Only populated when cloud
+  // storage (R2/Vercel Blob) is unavailable. Never select this field in list queries.
+  dataUrl          String             @default("") @db.Text // base64 fallback thumbnail
+  status           DocumentStatus     @default(PENDING)
+
+  submittedAt      DateTime           @default(now())
+  reviewedAt       DateTime?
+  reviewedBy       String?            // Admin.id
+
+  rejectionReason  String             @default("")
+  notes            String             @default("")
+  expiresAt        DateTime?
+  isActive         Boolean            @default(true)
+
+  createdAt        DateTime           @default(now())
+  updatedAt        DateTime           @updatedAt
+
+  @@index([entityType, entityId])
+  @@index([entityId, status])                       // for Provider document status lookups
+  @@index([entityType, docType, status])
+  @@index([status, submittedAt(sort: Desc)])
+  @@index([isActive, status, submittedAt(sort: Desc)]) // admin pending queue
+  @@index([reviewedBy])
+}
+
+model Admin {
+  id           String    @id @default(cuid())
+  username     String    @unique
+  passwordHash String
+  email        String?   @unique
+  role         AdminRole @default(ADMIN)
+  isActive     Boolean   @default(true)
+  lastLogin    DateTime?
+
+  // Permissions as flat booleans
+  canApproveProvider      Boolean @default(true)
+  canVerifyDocuments Boolean @default(true)
+  canManageBookings  Boolean @default(true)
+  canViewAnalytics   Boolean @default(true)
+
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+
+  auditLogs    AuditLog[]
+}
+
+model AuditLog {
+  id         String      @id @default(cuid())
+  adminId    String
+  admin      Admin       @relation(fields: [adminId], references: [id])
+  action     AuditAction
+  entityType String?
+  entityId   String?
+  details    Json        @default("{}")
+  ipAddress  String?
+  userAgent  String?
+
+  createdAt  DateTime    @default(now())
+
+  @@index([adminId, createdAt(sort: Desc)])
+  @@index([entityType, entityId])
+  @@index([action, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])                  // retention: keep 2yr, purge older rows
+}
+
+model Message {
+  id         String   @id @default(cuid())
+  bookingId  String
+  booking    Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  senderId   String
+  sender     User     @relation(fields: [senderId], references: [id])
+  senderName String
+  senderRole String   // 'CUSTOMER' | 'Provider'
+  text       String
+  read       Boolean  @default(false)
+
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([bookingId, createdAt])
+  @@index([senderId, read])                         // for unread count queries per sender
+  @@index([bookingId, senderId, read])              // for mark-as-read updateMany
+  @@index([createdAt(sort: Desc)])                  // retention cleanup
+}
+
+model OTP {
+  id              String    @id @default(cuid())
+  phone           String    @unique
+  otp             String
+  attempts        Int       @default(0)
+  lastGeneratedAt DateTime?
+  expiresAt       DateTime
+
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
+
+  @@index([phone])
+  @@index([expiresAt])
+}
+
+// Marketing/contact leads captured from the public landing page (pre-signup).
+model Lead {
+  id          String    @id @default(cuid())
+  name        String
+  phone       String
+  email       String    @default("")
+  serviceType String    @default("")   // what care they're interested in
+  message     String    @default("")
+  source      String    @default("landing") // which page/campaign
+  contacted   Boolean   @default(false) // staff followed up
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([contacted, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+}
+
+// Landing-page "Apply as a Provider" funnel. Distinct from Lead (customer care
+// requests) — captures structured screening answers so admin can triage
+// applicants fast instead of parsing free-text messages.
+model ProviderApplicant {
+  id                String    @id @default(cuid())
+  name              String
+  phone             String
+  email             String    @default("")
+  city              String    @default("") // self-reported, used to gut-check the 15km Sudbury service area
+  qualificationType String    @default("") // Provider Certificate / Provider Diploma / HCA / Other / None yet
+  experienceYears   Int       @default(0)
+  hasPoliceCheck    Boolean   @default(false) // vulnerable sector check, current within last 6mo
+  hasFirstAid       Boolean   @default(false) // First Aid / CPR certified
+  hasReliableTransport Boolean @default(false) // own vehicle or reliable transit — needed for in-home visits across Sudbury
+  availability      String    @default("") // e.g. "Weekdays", "Evenings & weekends", "Flexible"
+  message           String    @default("") // free-text "tell us about yourself"
+  source            String    @default("landing")
+  // Auto-screen result, computed at submit time from the booleans above — lets
+  // admin sort "ready to fast-track" from "needs review" without re-reading every row.
+  // 'qualified'   = has cert + police check + first aid
+  // 'review'      = missing 1-2 of the above but otherwise plausible
+  // 'unqualified' = no Provider qualification and no police check
+  screenResult      String    @default("review")
+  contacted         Boolean   @default(false)
+  status            String    @default("new") // new / contacted / interview_scheduled / approved / rejected
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  @@unique([phone])                                 // prevent duplicate applications from same number
+  @@index([status, createdAt(sort: Desc)])
+  @@index([screenResult, createdAt(sort: Desc)])
+  @@index([createdAt(sort: Desc)])
+}
+
+model Payout {
+  id         String       @id @default(cuid())
+  providerId      String
+  provider        User         @relation(fields: [providerId], references: [id])
+  amount     Decimal      @db.Decimal(10,2)
+  bookingIds String[]     @default([])  // Array of Booking.id strings
+  status     PayoutStatus @default(PENDING)
+  method     PayoutMethod @default(ETRANSFER)
+  adminNote  String       @default("")
+  paidAt     DateTime?
+
+  createdAt  DateTime     @default(now())
+  updatedAt  DateTime     @updatedAt
+
+  @@index([providerId])
+  @@index([providerId, status])                          // for payout queue filtered by status
+  @@index([status, createdAt(sort: Desc)])          // for admin payouts list filtered by status
+}
+
+// Persisted in-app notifications. Socket events are real-time but ephemeral — a
+// row is written for every notable event (booking status changes, tips, ratings,
+// approvals) so the Notifications screen shows full history even after the app was
+// closed when the event happened.
+model Notification {
+  id        String   @id @default(cuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  type      String   @default("booking")  // booking | message | rating | request | job | approved | tip
+  title     String
+  body      String   @default("")
+  bookingId String?
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
+  @@index([userId, read])
+  @@index([bookingId])                              // link notifications to a booking
+  @@index([createdAt(sort: Desc)])                  // retention cleanup: delete where createdAt < cutoff
+}
+
+// ── Marketplace service catalog ──────────────────────────────────────────────
+// Glow is one vertical ("Beauty") of a multi-service marketplace. Categories let
+// the same backend serve other verticals (Care, Cleaning, ...) later.
+
+model ServiceCategory {
+  id        String        @id @default(cuid())
+  name      String        @unique   // "Beauty", "Care", ...
+  slug      String        @unique
+  icon      String        @default("")
+  sortOrder Int           @default(0)
+  active    Boolean       @default(true)
+  services  ServiceItem[]
+
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+}
+
+// Platform-level catalog entry (Threading, Bridal Makeup, ...). Providers attach
+// their own price/duration via ProviderService.
+model ServiceItem {
+  id               String            @id @default(cuid())
+  categoryId       String
+  category         ServiceCategory   @relation(fields: [categoryId], references: [id], onDelete: Cascade)
+  name             String
+  description      String            @default("")
+  icon             String            @default("")
+  basePrice        Decimal           @default(0) @db.Decimal(10,2) // suggested price shown before a provider is chosen
+  durationMin      Int               @default(60)
+  popular          Boolean           @default(false)               // surfaces in "Popular Services" rail
+  active           Boolean           @default(true)
+  sortOrder        Int               @default(0)
+  providerServices ProviderService[]
+
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+
+  @@unique([categoryId, name])
+  @@index([categoryId, active, sortOrder])
+  @@index([popular, active])
+}
+
+// A provider's own offering: their price and duration for a catalog service.
+model ProviderService {
+  id            String          @id @default(cuid())
+  profileId     String
+  profile       ProviderProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  serviceItemId String?
+  serviceItem   ServiceItem?    @relation(fields: [serviceItemId], references: [id], onDelete: SetNull)
+  name          String          // denormalized display name (matches Booking.serviceType)
+  price         Decimal         @db.Decimal(10,2)
+  durationMin   Int             @default(60)
+  active        Boolean         @default(true)
+
+  createdAt     DateTime        @default(now())
+  updatedAt     DateTime        @updatedAt
+
+  @@unique([profileId, name])
+  @@index([profileId, active])
+  @@index([serviceItemId])
+}

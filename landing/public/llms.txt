@@ -1,0 +1,39 @@
+# CareNearby
+
+> CareNearby is an on-demand Personal Support Worker (PSW) booking platform serving Greater Sudbury, Ontario, Canada.
+
+## What we do
+- Connect families with verified, police-checked PSWs in Greater Sudbury
+- Flat rate: $25/hr, 3-hour minimum booking
+- Available for on-demand (same day) and scheduled bookings
+- Bilingual: English and French
+- Services: Personal Care, Companionship, Meal Preparation, Medication Reminders, Light Housekeeping, Mobility Assistance, Post-Surgery Support
+
+## Who we serve
+- Seniors needing help with daily living activities
+- Families managing aging parents
+- Post-surgery recovery patients
+- People with disabilities requiring personal care support
+
+## Coverage
+- Greater Sudbury, Ontario, Canada (15km radius)
+- Including: Sudbury, Hanmer, Valley East, Capreol, Lively
+
+## Pricing
+- $25 CAD per hour
+- 3-hour minimum
+- No agency fees
+- Private pay (not covered by OHIP for PSW services)
+
+## How to book
+- Web app: https://carenearby.app
+- Available on iOS and Android (PWA)
+
+## Contact
+- Email: support@carenearby.app
+- Support: English & French, Mon-Fri 9am-5pm Eastern
+
+## Links
+- App: https://carenearby.app
+- Blog: https://carenearby-landing.vercel.app/blog
+- Sitemap: https://carenearby-landing.vercel.app/sitemap.xml

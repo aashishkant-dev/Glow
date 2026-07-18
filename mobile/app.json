@@ -1,0 +1,121 @@
+{
+  "expo": {
+    "name": "Glow",
+    "slug": "glow",
+    "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "icon": "./assets/icon.png",
+    "orientation": "portrait",
+    "userInterfaceStyle": "light",
+    "scheme": "glow",
+    "assetBundlePatterns": [
+      "**/*"
+    ],
+    "ios": {
+      "supportsTablet": false,
+      "bundleIdentifier": "com.glowbeauty.app",
+      "infoPlist": {
+        "NSLocationWhenInUseUsageDescription": "Glow uses your location to find beauty artists near you and share your arrival with customers during an active appointment.",
+        "NSLocationAlwaysAndWhenInUseUsageDescription": "Glow shares your location with customers during active appointments so they can track your arrival, even when the app is in the background.",
+        "NSPhotoLibraryUsageDescription": "Glow needs access to your photos to upload profile and portfolio pictures.",
+        "NSPhotoLibraryAddUsageDescription": "Glow saves photos to your library.",
+        "NSCameraUsageDescription": "Glow needs camera access to take profile and portfolio photos.",
+        "ITSAppUsesNonExemptEncryption": false,
+        "UIBackgroundModes": [
+          "remote-notification",
+          "location"
+        ]
+      }
+    },
+    "android": {
+      "package": "com.glowbeauty.app",
+      "adaptiveIcon": {
+        "foregroundImage": "./assets/adaptive-icon.png",
+        "backgroundColor": "#B76E79"
+      },
+      "permissions": [
+        "android.permission.ACCESS_FINE_LOCATION",
+        "android.permission.ACCESS_COARSE_LOCATION",
+        "android.permission.ACCESS_BACKGROUND_LOCATION",
+        "android.permission.FOREGROUND_SERVICE",
+        "android.permission.FOREGROUND_SERVICE_LOCATION",
+        "android.permission.READ_EXTERNAL_STORAGE",
+        "android.permission.WRITE_EXTERNAL_STORAGE",
+        "android.permission.CAMERA",
+        "android.permission.RECEIVE_BOOT_COMPLETED",
+        "android.permission.VIBRATE",
+        "android.permission.POST_NOTIFICATIONS"
+      ],
+      "config": {
+        "googleMaps": {
+          "apiKey": "YOUR_GOOGLE_MAPS_ANDROID_API_KEY"
+        }
+      }
+    },
+    "web": {
+      "bundler": "metro",
+      "output": "single",
+      "name": "Glow",
+      "shortName": "Glow",
+      "lang": "en",
+      "themeColor": "#B76E79",
+      "backgroundColor": "#FFF5F6",
+      "description": "Book verified beauty artists near you — makeup, hair, nails, mehendi and more, at home or in the salon.",
+      "favicon": "./assets/favicon.png",
+      "meta": {
+        "keywords": "beauty, makeup artist, bridal makeup, threading, hair styling, nails, mehendi, facial, home salon"
+      }
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationAlwaysAndWhenInUsePermission": "Glow shares your location with the customer while you're on an active appointment so they can track your arrival.",
+          "locationWhenInUsePermission": "Glow uses your location to find nearby beauty appointments and share your arrival with customers.",
+          "isIosBackgroundLocationEnabled": true,
+          "isAndroidBackgroundLocationEnabled": true,
+          "isAndroidForegroundServiceEnabled": true
+        }
+      ],
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Glow needs access to your photos to set profile and portfolio pictures.",
+          "cameraPermission": "Glow needs camera access to take profile and portfolio photos."
+        }
+      ],
+      "expo-font",
+      [
+        "expo-splash-screen",
+        {
+          "image": "./assets/splash.png",
+          "resizeMode": "contain",
+          "backgroundColor": "#FFF5F6",
+          "imageWidth": 200
+        }
+      ],
+      [
+        "expo-notifications",
+        {
+          "icon": "./assets/notification-icon.png",
+          "color": "#B76E79",
+          "defaultChannel": "default",
+          "sounds": []
+        }
+      ],
+      "expo-secure-store",
+      "@react-native-community/datetimepicker",
+      "expo-asset",
+      "expo-image",
+      "expo-status-bar",
+      "expo-localization",
+      "@sentry/react-native"
+    ],
+    "extra": {
+      "apiUrl": "https://glow-backend.up.railway.app"
+    },
+    "owner": "aashishkant69s-organization"
+  }
+}

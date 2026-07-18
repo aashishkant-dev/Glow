@@ -1,0 +1,57 @@
+{
+  "name": "glow-backend",
+  "version": "1.0.0",
+  "description": "Glow backend – on-demand beauty services marketplace API",
+  "main": "src/server.js",
+  "scripts": {
+    "start": "node src/server.js",
+    "dev": "nodemon src/server.js",
+    "dev:all": "./dev.sh",
+    "test": "jest --testPathPatterns=src/tests --forceExit --detectOpenHandles",
+    "test:ci": "JWT_SECRET=test-secret-ci DATABASE_URL=postgresql://localhost/test jest --testPathPatterns=src/tests --forceExit --detectOpenHandles",
+    "migrate": "prisma migrate deploy",
+    "migrate:dev": "prisma migrate dev",
+    "db:generate": "prisma generate",
+    "seed:admin": "node scripts/seed-admin.js",
+    "postinstall": "prisma generate",
+    "install:all": "npm install && (cd mobile && npm install) && (cd landing && npm install)",
+    "build:mobile-web": "cd mobile && npm run build:web"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.1045.0",
+    "@aws-sdk/lib-storage": "^3.1045.0",
+    "@prisma/adapter-pg": "^7.8.0",
+    "@prisma/client": "^7.8.0",
+    "@vercel/blob": "^2.3.0",
+    "bcryptjs": "^3.0.3",
+    "compression": "^1.8.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "express-rate-limit": "^7.3.1",
+    "express-validator": "^7.1.0",
+    "helmet": "^7.1.0",
+    "ioredis": "^5.10.1",
+    "jsonwebtoken": "^9.0.2",
+    "multer": "^1.4.5-lts.1",
+    "pg": "^8.21.0",
+    "prisma": "^7.8.0",
+    "sharp": "^0.34.5",
+    "socket.io": "^4.8.3",
+    "stripe": "^15.7.0",
+    "twilio": "^5.12.2"
+  },
+  "devDependencies": {
+    "@types/compression": "^1.8.1",
+    "jest": "^30.4.2",
+    "nodemon": "^3.1.0",
+    "supertest": "^7.2.2",
+    "typescript": "~5.9.2"
+  },
+  "jest": {
+    "setupFiles": ["./src/tests/setup.js"]
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}

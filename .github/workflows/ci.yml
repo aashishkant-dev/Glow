@@ -1,0 +1,530 @@
+name: CI / CD
+
+# Real gates, in order of what actually breaks the app:
+#   mobile-check   → tsc + native (iOS/Android) Metro bundle. If this fails, an OTA
+#                    update WOULD CRASH the live App Store app. Hard gate.
+#   ota-safety     → warns when a change touches native config (app.json, native deps,
+#                    eas.json) — those CANNOT ship via OTA and need a new EAS build.
+#   backend-test   → syntax + Jest + prisma validate.
+#   landing-build  → Next.js build.
+#   pwa-build      → expo web export + post-web-build.js (font relocation — without it
+#                    Vercel drops fonts and every icon renders blank) + bundle assertions.
+#   deploy         → main only. Landing + PWA + admin to Vercel, prisma migrate,
+#                    then HARD post-deploy verification (fails red if prod is broken).
+#   ota-publish    → main only, when mobile JS changed: auto-publishes EAS Update so
+#                    the App Store app gets fixes without a manual step.
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+    branches: [main]
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ── Mobile crash gate: typecheck + native bundle ─────────────────────────────
+  # This is the job that answers "is the app gonna crash because of this change?"
+  # tsc catches type-level breakage; the ios/android Metro export catches
+  # import-time crashes (bad imports, web-only APIs, syntax) in the EXACT bundle
+  # an OTA update would ship to the live App Store build.
+  mobile-check:
+    name: Mobile crash gate (tsc + native bundle)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm ci || npm ci || npm ci
+
+      - name: TypeScript check
+        working-directory: mobile
+        run: npx tsc --noEmit
+
+      - name: Native bundle check (what OTA would ship)
+        working-directory: mobile
+        run: npx expo export -p ios -p android --output-dir /tmp/native-export
+        env:
+          CI: true
+          EXPO_PUBLIC_API_URL: https://api.carenearby.app
+
+      - name: Assert native bundle has no dev API URL
+        run: |
+          if grep -rq "carenearby-dev-api-development" /tmp/native-export/_expo 2>/dev/null; then
+            echo "::error::Dev API URL baked into native bundle — OTA would point prod users at the dev DB."
+            exit 1
+          fi
+          echo "✓ native bundle clean"
+
+  # ── OTA safety: flag changes that CANNOT ship over-the-air ──────────────────
+  ota-safety:
+    name: OTA safety check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'push'
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 2
+
+      - name: Detect native-config changes
+        run: |
+          CHANGED=$(git diff --name-only HEAD^ HEAD -- \
+            mobile/app.json mobile/eas.json mobile/package.json mobile/package-lock.json \
+            mobile/android mobile/ios || true)
+          if [ -n "$CHANGED" ]; then
+            echo "::warning title=Needs native EAS build::These files affect the NATIVE app and cannot ship via OTA update:%0A$CHANGED%0AUsers on the App Store build will NOT get this change until you run 'eas build' + submit. If mobile/src also changed, an OTA against the old native layer may CRASH — verify runtimeVersion compatibility first. See docs/CRASH_SAFETY_CHECKLIST.md"
+            {
+              echo "## ⚠️ OTA-unsafe change detected"
+              echo ""
+              echo "Changed native-affecting files:"
+              echo '```'
+              echo "$CHANGED"
+              echo '```'
+              echo "OTA (eas update) will NOT deliver these. A new EAS build + App Store submission is required."
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "✓ No native-config changes — safe to ship via OTA." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
+
+  # ── Backend tests ────────────────────────────────────────────────────────────
+  backend-test:
+    name: Backend tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: package-lock.json
+
+      - name: Install dependencies
+        run: npm ci || npm ci || npm ci
+
+      - name: Syntax check
+        run: find src -name "*.js" ! -path "src/tests/*" | xargs -I{} node --check {}
+
+      - name: Prisma schema validate
+        run: ./node_modules/.bin/prisma validate
+
+      - name: Run tests
+        run: npm test
+
+      - name: Check for hardcoded secrets
+        run: |
+          if grep -rn "sk_live_\|AIza" src/ --include="*.js"; then
+            echo "Hardcoded secret found!" && exit 1
+          fi
+
+  # ── Landing build ────────────────────────────────────────────────────────────
+  landing-build:
+    name: Landing build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: landing/package-lock.json
+
+      - name: Restore Next.js build cache
+        uses: actions/cache@v4.2.3
+        with:
+          path: landing/.next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('landing/package-lock.json') }}-${{ hashFiles('landing/**/*.ts', 'landing/**/*.tsx', 'landing/**/*.css') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('landing/package-lock.json') }}-
+
+      - name: Install dependencies
+        working-directory: landing
+        run: npm ci || npm ci || npm ci
+
+      - name: Build
+        working-directory: landing
+        run: npm run build
+        env:
+          NEXT_TELEMETRY_DISABLED: 1
+
+  # ── PWA build (web) ──────────────────────────────────────────────────────────
+  pwa-build:
+    name: PWA build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        working-directory: mobile
+        run: npm ci || npm ci || npm ci
+
+      - name: Build Expo web + post-process
+        working-directory: mobile
+        # post-web-build.js is NOT optional: it relocates vector-icon fonts out of
+        # dist/assets/node_modules (Vercel silently drops node_modules paths →
+        # every icon renders blank) and copies web/* PWA assets (manifest, sw, icons).
+        run: |
+          npx expo export -p web --output-dir dist
+          node scripts/post-web-build.js
+        env:
+          CI: true
+          EXPO_PUBLIC_API_URL: https://api.carenearby.app
+
+      - name: Assert deployable bundle
+        working-directory: mobile
+        run: |
+          FAIL=0
+          if [ -d dist/assets/node_modules ]; then
+            echo "::error::dist/assets/node_modules exists — Vercel drops it, icons will render blank."
+            FAIL=1
+          fi
+          if grep -rq "carenearby-dev-api-development" dist/_expo/static/js/web/*.js; then
+            echo "::error::Dev API URL found in prod PWA bundle — logins would hit the dev DB."
+            FAIL=1
+          fi
+          if grep -rq "assets/node_modules" dist/_expo/static/js/web/*.js; then
+            echo "::error::Bundle still references assets/node_modules — fonts will 404."
+            FAIL=1
+          fi
+          [ "$FAIL" = "0" ] && echo "✓ PWA bundle deployable (fonts relocated, prod API only)"
+          exit $FAIL
+
+      - name: Upload PWA artifact
+        uses: actions/upload-artifact@v4.6.2
+        with:
+          name: pwa-dist
+          path: mobile/dist/
+          retention-days: 1
+
+  # ── Deploy (main push only) ──────────────────────────────────────────────────
+  deploy:
+    name: Deploy
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [mobile-check, backend-test, landing-build, pwa-build]
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: landing/package-lock.json
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      # ── Landing: build + deploy prebuilt ────────────────────────────────────
+      - name: Restore Next.js build cache
+        uses: actions/cache@v4.2.3
+        with:
+          path: landing/.next/cache
+          key: nextjs-${{ runner.os }}-${{ hashFiles('landing/package-lock.json') }}-${{ hashFiles('landing/**/*.ts', 'landing/**/*.tsx', 'landing/**/*.css') }}
+          restore-keys: |
+            nextjs-${{ runner.os }}-${{ hashFiles('landing/package-lock.json') }}-
+
+      - name: Install landing dependencies
+        working-directory: landing
+        run: npm ci || npm ci || npm ci
+
+      - name: Build and deploy landing to Vercel
+        working-directory: landing
+        run: |
+          mkdir -p .vercel
+          echo '{"projectId":"prj_4KonVbegRB8BCfB7rGG9bAhCVeuP","orgId":"team_3ucuU6nY6h28u3fr1Q6LTU9y"}' > .vercel/project.json
+          vercel build --prod --yes \
+            --token "$VERCEL_TOKEN" \
+            --scope "aashishkants-projects"
+          vercel deploy --prebuilt --prod --yes \
+            --token "$VERCEL_TOKEN" \
+            --scope "aashishkants-projects" | tee /tmp/landing-deploy.log
+          DEPLOY_URL=$(grep -Eo "https://[a-zA-Z0-9._-]+\.vercel\.app" /tmp/landing-deploy.log | tail -1)
+          echo "Landing deployed: $DEPLOY_URL"
+          # ca.carenearby.app is the project's custom domain → auto-aliased on prod
+          # deploy. carenearby-landing.vercel.app is the stable vercel alias.
+          if [ -n "$DEPLOY_URL" ]; then
+            vercel alias set "$DEPLOY_URL" carenearby-landing.vercel.app \
+              --token "$VERCEL_TOKEN" --scope "aashishkants-projects" || true
+          fi
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          VERCEL_PROJECT_ID: prj_4KonVbegRB8BCfB7rGG9bAhCVeuP
+          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          NEXT_TELEMETRY_DISABLED: 1
+
+      # ── PWA: download artifact (already post-processed) + deploy ────────────
+      - name: Download PWA artifact
+        uses: actions/download-artifact@v4.3.0
+        with:
+          name: pwa-dist
+          path: pwa-dist
+
+      - name: Stage PWA under rootDirectory
+        run: |
+          # Prod PWA Vercel project has rootDirectory=mobile + outputDirectory=dist,
+          # buildCommand:"" — files must land at pwa-dist/mobile/dist/.
+          mkdir -p pwa-dist/mobile/dist
+          for f in pwa-dist/*; do
+            case "$f" in pwa-dist/mobile) ;; *) cp -r "$f" pwa-dist/mobile/dist/ ;; esac
+          done
+          cp mobile/vercel.json pwa-dist/mobile/vercel.json
+          mkdir -p pwa-dist/.vercel
+          cat > pwa-dist/.vercel/project.json << 'EOF'
+          {"projectId":"prj_7FykpvoccjMs9QKZcD8jxl7vQ62w","orgId":"team_3ucuU6nY6h28u3fr1Q6LTU9y"}
+          EOF
+
+      - name: Deploy PWA to Vercel
+        run: |
+          vercel deploy pwa-dist --prod --yes \
+            --token "$VERCEL_TOKEN" \
+            --scope "aashishkants-projects" | tee /tmp/pwa-deploy.log
+          DEPLOY_URL=$(grep -Eo "https://[a-zA-Z0-9._-]+\.vercel\.app" /tmp/pwa-deploy.log | tail -1)
+          echo "PWA deployed: $DEPLOY_URL"
+          if [ -z "$DEPLOY_URL" ]; then
+            echo "::error::PWA deploy produced no URL"; exit 1
+          fi
+          vercel alias set "$DEPLOY_URL" carenearby.app \
+            --token "$VERCEL_TOKEN" --scope "aashishkants-projects"
+          vercel alias set "$DEPLOY_URL" carenearby.vercel.app \
+            --token "$VERCEL_TOKEN" --scope "aashishkants-projects" || true
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          VERCEL_PROJECT_ID: prj_7FykpvoccjMs9QKZcD8jxl7vQ62w
+          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+
+      # ── Admin panel ──────────────────────────────────────────────────────────
+      - name: Deploy admin panel to Vercel
+        run: |
+          mkdir -p admin/.vercel
+          echo '{"projectId":"prj_TgGySFmZ2f6pfuP2MLUwAv7CfgkA","orgId":"team_3ucuU6nY6h28u3fr1Q6LTU9y"}' > admin/.vercel/project.json
+          vercel deploy admin --prod --yes \
+            --token "$VERCEL_TOKEN" \
+            --scope "aashishkants-projects" | tee /tmp/admin-deploy.log
+          DEPLOY_URL=$(grep -Eo "https://[a-zA-Z0-9._-]+\.vercel\.app" /tmp/admin-deploy.log | tail -1)
+          echo "Admin deployed: $DEPLOY_URL"
+          if [ -n "$DEPLOY_URL" ]; then
+            vercel alias set "$DEPLOY_URL" admin.carenearby.app \
+              --token "$VERCEL_TOKEN" --scope "aashishkants-projects" || true
+          fi
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          VERCEL_PROJECT_ID: prj_TgGySFmZ2f6pfuP2MLUwAv7CfgkA
+          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+
+      # ── Prisma migrations on Railway prod DB ────────────────────────────────
+      - name: Install backend dependencies
+        run: npm ci || npm ci || npm ci
+
+      - name: Run Prisma migrations (production)
+        run: ./node_modules/.bin/prisma migrate deploy
+        env:
+          DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL_PROD }}
+
+      # ── Post-deploy verification — HARD failures, not decorative echoes ─────
+      - name: Verify API health (retry up to 3 min — Railway deploys independently)
+        run: |
+          for i in $(seq 1 18); do
+            STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 15 \
+              https://api.carenearby.app/health || echo "000")
+            [ "$STATUS" = "200" ] && { echo "✓ API healthy"; exit 0; }
+            echo "API HTTP $STATUS — retry $i/18"; sleep 10
+          done
+          echo "::error::API never became healthy after deploy"; exit 1
+
+      - name: Verify landing (ca.carenearby.app)
+        run: |
+          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 30 https://ca.carenearby.app || echo "000")
+          echo "Landing: HTTP $STATUS"
+          [ "$STATUS" = "200" ] || { echo "::error::Landing is down after deploy"; exit 1; }
+
+      - name: Verify PWA serves a working bundle
+        run: |
+          HTML=$(curl -sf --max-time 30 https://carenearby.app) || { echo "::error::PWA unreachable"; exit 1; }
+          BUNDLE=$(echo "$HTML" | grep -oE '/_expo/static/js/web/[^"]+\.js' | head -1)
+          [ -n "$BUNDLE" ] || { echo "::error::No JS bundle referenced in PWA HTML"; exit 1; }
+          curl -sf --max-time 60 "https://carenearby.app$BUNDLE" -o /tmp/bundle.js || { echo "::error::PWA bundle 404s — app is a blank page"; exit 1; }
+          if grep -q "carenearby-dev-api-development" /tmp/bundle.js; then
+            echo "::error::LIVE PWA points at the dev API — users are logging into the dev DB"; exit 1
+          fi
+          FONT=$(grep -oE '/assets/[^"]*MaterialCommunityIcons[^"]*\.ttf' /tmp/bundle.js | head -1)
+          if [ -n "$FONT" ]; then
+            FSTATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 30 "https://carenearby.app$FONT")
+            [ "$FSTATUS" = "200" ] || { echo "::error::Icon font $FONT returns $FSTATUS — icons render blank"; exit 1; }
+          fi
+          echo "✓ PWA bundle live, prod API, fonts served"
+
+      - name: Verify admin panel
+        run: |
+          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 30 https://admin.carenearby.app || echo "000")
+          echo "Admin: HTTP $STATUS"
+          [ "$STATUS" = "200" ] || { echo "::error::Admin panel is down after deploy"; exit 1; }
+
+  # ── OTA publish (main push, mobile JS changed) ───────────────────────────────
+  # Delivers JS fixes to the live App Store app automatically. Gated on the
+  # mobile crash gate. Requires EXPO_TOKEN repo secret (robot token from
+  # expo.dev → Access Tokens); skips with a loud notice when missing.
+  ota-publish:
+    name: OTA publish (EAS Update)
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    needs: [mobile-check]
+    steps:
+      - uses: actions/checkout@v4.2.2
+        with:
+          fetch-depth: 2
+
+      - name: Check if mobile JS changed
+        id: diff
+        run: |
+          if git diff --name-only HEAD^ HEAD -- mobile/src mobile/App.js mobile/App.tsx mobile/index.js 2>/dev/null | grep -q .; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "No mobile JS changes — OTA not needed." >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/setup-node@v4.4.0
+        if: steps.diff.outputs.changed == 'true'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install dependencies
+        if: steps.diff.outputs.changed == 'true'
+        working-directory: mobile
+        run: npm ci || npm ci || npm ci
+
+      - name: Publish OTA update
+        if: steps.diff.outputs.changed == 'true'
+        working-directory: mobile
+        run: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::warning title=OTA skipped::Mobile JS changed but EXPO_TOKEN secret is not set — the live App Store app will NOT receive this fix automatically. Either add the secret (expo.dev → Access Tokens → gh secret set EXPO_TOKEN) or publish manually: cd mobile && EXPO_PUBLIC_API_URL=https://api.carenearby.app npx eas-cli update --branch production --environment production --message '...'"
+            echo "## ⚠️ OTA publish skipped (no EXPO_TOKEN)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+          npx eas-cli update --branch production --environment production \
+            --message "${COMMIT_MSG}" --non-interactive
+          echo "## ✅ OTA published to production branch" >> "$GITHUB_STEP_SUMMARY"
+        env:
+          EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+          EXPO_PUBLIC_API_URL: https://api.carenearby.app
+          COMMIT_MSG: ${{ github.event.head_commit.message }}
+
+  # ── Deploy dev (dev branch push only) ────────────────────────────────────────
+  deploy-dev:
+    name: Deploy Dev
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/dev' && github.event_name == 'push'
+    needs: [mobile-check, backend-test, pwa-build]
+
+    steps:
+      - uses: actions/checkout@v4.2.2
+
+      - uses: actions/setup-node@v4.4.0
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - name: Install Vercel CLI
+        run: npm install -g vercel@latest
+
+      - name: Install mobile dependencies
+        working-directory: mobile
+        run: npm ci || npm ci || npm ci
+
+      - name: Build PWA (dev, no service worker) + post-process
+        working-directory: mobile
+        run: |
+          npx expo export -p web --output-dir dist
+          node scripts/post-web-build.js
+        env:
+          CI: true
+          NO_SW: 1
+          EXPO_PUBLIC_API_URL: https://carenearby-dev-api-development.up.railway.app
+
+      - name: Build Vercel output structure
+        run: |
+          mkdir -p mobile/dist/.vercel/output/static
+          cp -r mobile/dist/_expo mobile/dist/.vercel/output/static/ 2>/dev/null || true
+          cp -r mobile/dist/assets mobile/dist/.vercel/output/static/ 2>/dev/null || true
+          for f in favicon.ico favicon.svg apple-touch-icon.png icon-192.png icon-512.png manifest.json sw.js index.html metadata.json; do
+            cp "mobile/dist/$f" mobile/dist/.vercel/output/static/ 2>/dev/null || true
+          done
+          cat > mobile/dist/.vercel/output/config.json << 'EOF'
+          {
+            "version": 3,
+            "routes": [
+              { "src": "/_expo/(.*)", "dest": "/_expo/$1" },
+              { "src": "/favicon.ico", "dest": "/favicon.ico" },
+              { "src": "/manifest.json", "dest": "/manifest.json" },
+              { "src": "/sw.js", "dest": "/sw.js" },
+              { "src": "/apple-touch-icon.png", "dest": "/apple-touch-icon.png" },
+              { "src": "/icon-.*\\.png", "dest": "/$0" },
+              { "handle": "filesystem" },
+              { "src": "/(.*)", "dest": "/index.html" }
+            ]
+          }
+          EOF
+          cat > mobile/dist/.vercel/project.json << 'EOF'
+          {"projectId":"prj_fIM0IUBgYLhwBF7mADbWEACgdBCI","orgId":"team_3ucuU6nY6h28u3fr1Q6LTU9y"}
+          EOF
+
+      - name: Deploy PWA to Vercel (dev)
+        run: |
+          vercel deploy mobile/dist --prebuilt --yes \
+            --token "$VERCEL_TOKEN" \
+            --scope "aashishkants-projects" | tee /tmp/dev-deploy.log
+          DEPLOY_URL=$(grep -Eo "https://[a-zA-Z0-9._-]+\.vercel\.app" /tmp/dev-deploy.log | tail -1)
+          echo "Dev PWA deployed: $DEPLOY_URL"
+          if [ -n "$DEPLOY_URL" ]; then
+            vercel alias set "$DEPLOY_URL" dev.carenearby.app \
+              --token "$VERCEL_TOKEN" --scope "aashishkants-projects" || true
+          fi
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+          VERCEL_ORG_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          VERCEL_TEAM_ID: ${{ secrets.VERCEL_TEAM_ID }}
+          VERCEL_PROJECT_ID: prj_fIM0IUBgYLhwBF7mADbWEACgdBCI
+
+      - name: Run Prisma migrations (dev)
+        run: |
+          npm ci || npm ci || npm ci
+          ./node_modules/.bin/prisma migrate deploy || echo "Migration skipped — check RAILWAY_DATABASE_URL_DEV secret"
+        env:
+          DATABASE_URL: ${{ secrets.RAILWAY_DATABASE_URL_DEV }}
+
+      - name: Health check dev
+        run: |
+          sleep 30
+          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 30 \
+            https://carenearby-dev-api-development.up.railway.app/health || echo "000")
+          echo "Dev API: HTTP $STATUS"
+          STATUS=$(curl -sf -o /dev/null -w "%{http_code}" --max-time 30 \
+            https://dev.carenearby.app || echo "000")
+          echo "Dev PWA: HTTP $STATUS"
