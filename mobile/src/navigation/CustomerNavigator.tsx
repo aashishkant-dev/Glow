@@ -124,6 +124,9 @@ function HomeTabs() {
         name="NewBooking"
         component={CreateBookingScreen}
         options={{
+          // Booking flow is full-screen: the floating pill bar was covering the
+          // flow's own Continue/Confirm bottom bar, making booking impossible.
+          tabBarStyle: { display: 'none' },
           tabBarLabel: () => null,
           tabBarIcon: () => (
             <View style={{

@@ -1420,7 +1420,7 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 36,
     borderBottomRightRadius: 36,
   },
-  heroDecor: { ...StyleSheet.absoluteFillObject },
+  heroDecor: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   heroBlob: { position: 'absolute', borderRadius: 999 },
   heroTopRow: {
     width: '100%',
@@ -1483,7 +1483,7 @@ const styles = StyleSheet.create({
   addPhotoPillText: { fontSize: 13, fontWeight: '700', color: BRAND },
 
   avatarUploadOverlay: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: 'rgba(163,77,99,0.55)',
     alignItems: 'center',
     justifyContent: 'center',

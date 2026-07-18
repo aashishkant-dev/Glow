@@ -634,7 +634,7 @@ const styles = StyleSheet.create({
   avatarImg: { width: 38, height: 38, borderRadius: 19 },
   avatarText: { color: Colors.brandDark, fontSize: 16, fontFamily: Fonts.bold },
   avatarRing: {
-    ...StyleSheet.absoluteFillObject,
+    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
     borderRadius: 21,
     borderWidth: 0,
   },

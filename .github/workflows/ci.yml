@@ -25,7 +25,7 @@ on:
 
 env:
   GLOW_API_URL: https://glow-backend-production-ae1e.up.railway.app
-  GLOW_PWA_URL: https://glow-app.vercel.app
+  GLOW_PWA_URL: https://glow-app-omega.vercel.app
 
 concurrency:
   group: ci-${{ github.ref }}
