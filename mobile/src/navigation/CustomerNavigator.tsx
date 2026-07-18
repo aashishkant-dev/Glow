@@ -72,7 +72,12 @@ function CustomerMessageListener() {
 
 function HomeTabs() {
   return (
-    <View style={{ flex: 1, overflow: 'visible' }}>
+    // `overflow: visible` here used to let horizontal ScrollViews inside any
+    // tab (occasion/category/trending rows) leak past the viewport edge on
+    // web — RN Web needs a clipping ancestor for those rows to scroll
+    // instead of overflowing. The floating tab bar is `position: absolute`
+    // so it still renders outside this box regardless of the clip.
+    <View style={{ flex: 1, overflow: 'hidden' }}>
     <Tab.Navigator
       screenOptions={{
         headerShown: false,

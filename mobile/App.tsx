@@ -91,5 +91,9 @@ function App() {
 export default Sentry.wrap(App);
 
 const styles = StyleSheet.create({
-  root: { flex: 1, backgroundColor: Colors.systemBackground },
+  // overflow: 'hidden' clips the whole app to viewport width on web — without
+  // it, any horizontal ScrollView row (occasions, categories, trending) that
+  // doesn't get clipped by an ancestor bleeds past the screen edge and the
+  // page itself becomes horizontally scrollable.
+  root: { flex: 1, backgroundColor: Colors.systemBackground, overflow: 'hidden' as const },
 });

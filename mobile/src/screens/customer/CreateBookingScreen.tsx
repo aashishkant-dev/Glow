@@ -1959,7 +1959,7 @@ export function CreateBookingScreen() {
                   {/* Sort + Filter bar — Browse Profiles only (Near Me has its own map UX) */}
                   {providerMode === 'browse' && (
                     <>
-                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }} contentContainerStyle={{ gap: 8, paddingRight: 8 }}>
+                      <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ width: '100%', marginBottom: 10 }} contentContainerStyle={{ gap: 8, paddingRight: 8 }}>
                         {(['distance', 'rating', 'price', 'experience'] as const).map(opt => (
                           <Pressable
                             key={opt}

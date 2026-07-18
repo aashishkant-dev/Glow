@@ -347,7 +347,7 @@ export function HomeScreen() {
           <View style={[styles.sectionHeader, { marginTop: 8 }]}>
             <Text style={styles.sectionTitle}>{t.occasionTitle}</Text>
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.occRow}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll} contentContainerStyle={styles.occRow}>
             {OCCASIONS.map(o => (
               <Touch key={o.id} onPress={() => nav.navigate('NewBooking', { serviceType: o.service, bookingMode: 'scheduled', _t: Date.now() })}>
                 <View style={[styles.occCard, { backgroundColor: o.tint }]}>
@@ -422,7 +422,7 @@ export function HomeScreen() {
                 <Text style={styles.sectionTitle}>{lang === 'fr' ? 'Tout le monde réserve' : "Everyone's booking"}</Text>
                 <SparkleIcon size={16} color={Colors.gold} />
               </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.trendRow}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll} contentContainerStyle={styles.trendRow}>
                 {popularServices.map((svc, i) => (
                   <Touch key={svc.id} onPress={() => nav.navigate('NewBooking', { serviceType: svc.name, bookingMode: 'scheduled', _t: Date.now() })}>
                     <View style={[styles.trendCard, i % 2 === 1 && { backgroundColor: Colors.goldSoft }, i === 0 && styles.trendCardLead]}>
@@ -460,7 +460,7 @@ export function HomeScreen() {
               </View>
               {/* Niche chips — browse artists by what they're best at */}
               {specialtyChips.length > 2 && (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.nicheRow}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll} contentContainerStyle={styles.nicheRow}>
                   {specialtyChips.map(sp => {
                     const active = specialtyFilter === sp;
                     return (
@@ -477,7 +477,7 @@ export function HomeScreen() {
                   })}
                 </ScrollView>
               )}
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.artistRow}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll} contentContainerStyle={styles.artistRow}>
                 {filteredArtists.map(a => (
                   <ArtistCard
                     key={a.id}
@@ -495,7 +495,7 @@ export function HomeScreen() {
             <Text style={styles.sectionTitle}>{t.inspirationTitle}</Text>
             <SparkleIcon size={16} color={Colors.gold} />
           </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.inspoRow}>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll} contentContainerStyle={styles.inspoRow}>
             {INSPO.map(item => (
               <Touch key={item.id} onPress={() => nav.navigate('NewBooking', { serviceType: item.service, bookingMode: 'scheduled', _t: Date.now() })}>
                 <View style={styles.inspoCard}>
@@ -727,7 +727,11 @@ const styles = StyleSheet.create({
   inspoTitle: { color: '#fff', fontSize: 18, fontFamily: Fonts.semibold, letterSpacing: -0.3, lineHeight: 23 },
   inspoCta: { color: 'rgba(255,255,255,0.85)', fontSize: 12, marginTop: 5, fontFamily: Fonts.medium },
 
-  catScroll: { marginTop: 24 },
+  // Clamps every horizontal row to the screen width on web — without an
+  // explicit style, RN Web can size a ScrollView to its content instead of
+  // its container, letting the row (and the page) bleed past the viewport.
+  hScroll: { width: '100%' },
+  catScroll: { width: '100%', marginTop: 24 },
   catRow: { paddingHorizontal: 24, gap: 16 },
   catChip: { alignItems: 'center', gap: 8, width: 66 },
   catCircle: {

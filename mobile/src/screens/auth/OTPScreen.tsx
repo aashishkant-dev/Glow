@@ -233,10 +233,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2,
   },
-  digitBoxFilled: { borderColor: Colors.systemBlue, backgroundColor: '#EFF6FF' },
+  digitBoxFilled: { borderColor: Colors.brand, backgroundColor: Colors.brandLight },
   resendRow: { flexDirection: 'row', justifyContent: 'center', alignItems: 'center', marginTop: 20 },
   resendLabel: { fontSize: 14, color: Colors.secondaryLabel },
-  resendBtn: { fontSize: 14, fontWeight: '700', color: Colors.systemBlue },
+  resendBtn: { fontSize: 14, fontWeight: '700', color: Colors.brandDark },
   resendBtnDisabled: { color: Colors.tertiaryLabel },
   devHint: { textAlign: 'center', fontSize: 11, color: Colors.tertiaryLabel, marginTop: 24, lineHeight: 16 },
 });

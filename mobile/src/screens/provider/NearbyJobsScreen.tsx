@@ -810,7 +810,7 @@ export function NearbyJobsScreen() {
 
       {/* Service chips */}
       {serviceTypes.length > 0 && (
-        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }} contentContainerStyle={{ gap: 8, paddingRight: 4 }}>
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ width: '100%', marginBottom: 12 }} contentContainerStyle={{ gap: 8, paddingRight: 4 }}>
           <Pressable style={[styles.chip, !serviceFilter && styles.chipActive]} onPress={() => setFilter(null)}>
             <Text style={[styles.chipText, !serviceFilter && styles.chipTextActive]}>All</Text>
           </Pressable>
