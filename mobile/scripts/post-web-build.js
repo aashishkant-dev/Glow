@@ -74,19 +74,23 @@ if (fs.existsSync(nmAssets)) {
 const indexPath = path.join(DIST, 'index.html');
 let html = fs.readFileSync(indexPath, 'utf8');
 
+// NOTE: this block — not web/index.html — is what actually ships: expo generates
+// dist/index.html and we inject into it. Keep web/index.html in sync for dev.
+// ?v=3 busts week-long icon CDN caches + Chrome's sticky favicon cache (the old
+// CareNearby heart kept showing even after the files became the Glow bloom).
 const PWA_TAGS = `
   <!-- PWA: manifest + install support (injected by post-web-build.js) -->
   <link rel="manifest" href="/manifest.json" />
-  <meta name="theme-color" content="#057A55" />
+  <meta name="theme-color" content="#B76E79" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
   <meta name="apple-mobile-web-app-title" content="Glow" />
   <meta name="mobile-web-app-capable" content="yes" />
-  <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
-  <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png" />
-  <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png" />`;
+  <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3" />
+  <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png?v=3" />
+  <link rel="icon" type="image/svg+xml" href="/favicon.svg?v=3" />
+  <link rel="icon" type="image/png" sizes="192x192" href="/icon-192.png?v=3" />
+  <link rel="icon" type="image/png" sizes="512x512" href="/icon-512.png?v=3" />`;
 
 // NO_SW=1 (dev builds): don't cache at all. Inject a kill-switch that unregisters
 // any existing service worker and clears caches, so dev always serves fresh.
