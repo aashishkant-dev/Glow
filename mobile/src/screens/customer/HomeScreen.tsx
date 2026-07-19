@@ -155,6 +155,8 @@ export function HomeScreen() {
   const [catalogPrices, setCatalogPrices] = useState<Record<string, number>>({});
   const [showMatch, setShowMatch] = useState(false);
   const [showWeddingRoles, setShowWeddingRoles] = useState(false);
+  // Keep the home screen calm: six occasions up front, the rest behind one tap.
+  const [showAllOccasions, setShowAllOccasions] = useState(false);
   const [openLook, setOpenLook] = useState<Look | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fadeIn = useRef(new Animated.Value(0)).current;
@@ -355,7 +357,7 @@ export function HomeScreen() {
 
           {/* ── Occasion grid — the heart of the home screen ── */}
           <View style={styles.occGrid}>
-            {OCCASIONS.map(o => (
+            {(showAllOccasions ? OCCASIONS : OCCASIONS.slice(0, 6)).map(o => (
               <Touch
                 key={o.id}
                 style={o.big ? styles.occBigWrap : styles.occWrap}
@@ -376,6 +378,14 @@ export function HomeScreen() {
               </Touch>
             ))}
           </View>
+          <Pressable
+            style={({ pressed }) => [styles.occMore, pressed && { opacity: 0.7 }]}
+            onPress={() => { tapLight(); setShowAllOccasions(v => !v); }}
+          >
+            <Text style={styles.occMoreText}>
+              {showAllOccasions ? 'Show less' : `More occasions (${OCCASIONS.length - 6})`}
+            </Text>
+          </Pressable>
 
           {/* ── Trending looks — outcomes, not services ── */}
           <View style={styles.sectionHeader}>
@@ -584,6 +594,9 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     marginBottom: 12,
   },
+  occMore: { alignSelf: 'center', marginTop: 16, paddingVertical: 8, paddingHorizontal: 18 },
+  occMoreText: { fontSize: 13.5, fontFamily: Fonts.medium, color: Colors.brandDark },
+
   occName: { fontSize: 15.5, fontFamily: Fonts.semibold, color: Colors.label },
   occNameBig: { fontSize: 20, letterSpacing: -0.3 },
   occSub: { fontSize: 12, color: Colors.secondaryLabel, marginTop: 2, fontFamily: Fonts.regular },

@@ -230,10 +230,19 @@ jobs:
 
       - name: Verify PWA serves a working bundle
         run: |
-          HTML=$(curl -sf --max-time 30 "$GLOW_PWA_URL") || { echo "::error::PWA unreachable"; exit 1; }
-          BUNDLE=$(echo "$HTML" | grep -oE '/_expo/static/js/web/[^"]+\.js' | head -1)
-          [ -n "$BUNDLE" ] || { echo "::error::No JS bundle referenced in PWA HTML"; exit 1; }
-          curl -sf --max-time 60 "$GLOW_PWA_URL$BUNDLE" -o /tmp/bundle.js || { echo "::error::PWA bundle 404s — app is a blank page"; exit 1; }
+          # The alias + CDN can lag the deploy by a few seconds — index.html and
+          # the hashed bundle briefly disagree and the bundle 404s. Retry the
+          # whole fetch (HTML + bundle together) so we never verify a torn state.
+          OK=""
+          for i in $(seq 1 10); do
+            HTML=$(curl -s --max-time 30 -H 'Cache-Control: no-cache' "$GLOW_PWA_URL?ci=$i") || HTML=""
+            BUNDLE=$(echo "$HTML" | grep -oE '/_expo/static/js/web/[^"]+\.js' | head -1)
+            if [ -n "$BUNDLE" ] && curl -sf --max-time 60 "$GLOW_PWA_URL$BUNDLE" -o /tmp/bundle.js; then
+              OK=1; break
+            fi
+            echo "PWA not consistent yet (bundle: ${BUNDLE:-none}) — retry $i/10"; sleep 10
+          done
+          [ -n "$OK" ] || { echo "::error::PWA bundle 404s — app is a blank page"; exit 1; }
           if grep -q "carenearby" /tmp/bundle.js; then
             echo "::error::LIVE PWA references CareNearby — stale env in bundle"; exit 1
           fi
