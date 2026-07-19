@@ -1,19 +1,19 @@
 import Navbar from '@/components/layout/Navbar'
 import Footer from '@/components/layout/Footer'
 import Hero from '@/components/sections/Hero'
-import Trust from '@/components/sections/Trust'
+import Occasions from '@/components/sections/Occasions'
 import HowItWorks from '@/components/sections/HowItWorks'
-import Features from '@/components/sections/Features'
-import ServiceAreas from '@/components/sections/ServiceAreas'
-import Directory from '@/components/sections/Directory'
-import Pricing from '@/components/sections/Pricing'
-import Safety from '@/components/sections/Safety'
+import GlowMatch from '@/components/sections/GlowMatch'
+import TrendingLooks from '@/components/sections/TrendingLooks'
+import WhyGlow from '@/components/sections/WhyGlow'
+import ArtistPortfolios from '@/components/sections/ArtistPortfolios'
+import TrustSection from '@/components/sections/TrustSection'
 import Testimonials from '@/components/sections/Testimonials'
-import CaregiverCTA from '@/components/sections/CaregiverCTA'
+import ArtistCTA from '@/components/sections/ArtistCTA'
+import BeautyJourney from '@/components/sections/BeautyJourney'
+import Community from '@/components/sections/Community'
 import FAQ from '@/components/sections/FAQ'
-import Contact from '@/components/sections/Contact'
 import FinalCTA from '@/components/sections/FinalCTA'
-import StickyCallBar from '@/components/StickyCallBar'
 
 export default function HomePage() {
   return (
@@ -21,21 +21,21 @@ export default function HomePage() {
       <Navbar />
       <main>
         <Hero />
-        <Trust />
+        <Occasions />
         <HowItWorks />
-        <Features />
-        <ServiceAreas />
-        <Directory />
-        <Pricing />
-        <Safety />
+        <GlowMatch />
+        <TrendingLooks />
+        <WhyGlow />
+        <ArtistPortfolios />
+        <TrustSection />
         <Testimonials />
-        <CaregiverCTA />
+        <ArtistCTA />
+        <BeautyJourney />
+        <Community />
         <FAQ />
-        <Contact />
         <FinalCTA />
       </main>
       <Footer />
-      <StickyCallBar />
     </>
   )
 }

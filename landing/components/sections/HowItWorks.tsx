@@ -1,135 +1,117 @@
+import Reveal from '@/components/ui/Reveal'
+
 const steps = [
   {
     num: '01',
-    tag: '≈ 2 min',
-    title: 'Tell us what\'s needed',
-    desc: 'Pick the type of care, date, and how long. Personal care, mobility, post-op, dementia, companionship — the app maps it to the right caregiver.',
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-        <circle cx="11" cy="11" r="7" />
-        <path d="m21 21-4.3-4.3" />
-      </svg>
-    ),
+    title: 'Choose Your Occasion',
+    desc: 'Tell us what you\'re getting ready for — wedding, reception, date, photoshoot, or any moment that matters.',
+    color: 'var(--rose)',
+    bg: 'var(--rose-bg)',
   },
   {
     num: '02',
-    tag: 'Instant',
-    title: 'Browse & select your Provider',
-    desc: 'Browse verified caregivers near you with photos, reviews, and credentials in plain view, and choose exactly who you book. Every Provider is police-checked and credential-confirmed.',
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-        <circle cx="12" cy="8" r="4" />
-        <path d="M4 20c0-4 4-7 8-7s8 3 8 7" />
-        <path d="m17 13 2 2 4-4" />
-      </svg>
-    ),
+    title: 'Glow Matches You',
+    desc: 'Our intelligent matching system recommends the best verified artists based on your style, budget, and location.',
+    color: 'var(--gold)',
+    bg: 'var(--gold-bg)',
   },
   {
     num: '03',
-    tag: 'Today',
-    title: 'Confirm & track live',
-    desc: 'Pay in-app, get live arrival updates and photo notes, and rate the visit. Re-book the same Provider with one tap next time.',
-    icon: (
-      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-        <path d="M3 12 12 4l9 8M5 10v10h14V10" />
-      </svg>
-    ),
+    title: 'Compare & Book',
+    desc: 'Review portfolios, read real client reviews, and book your perfect artist in seconds — all transparent pricing.',
+    color: '#9B7DBF',
+    bg: '#F5F0FA',
+  },
+  {
+    num: '04',
+    title: 'Enjoy Your Glow',
+    desc: 'Relax and enjoy a premium beauty experience. Your verified artist comes to you — at home or at the salon.',
+    color: '#5BA88C',
+    bg: '#F0FAF5',
   },
 ]
 
 export default function HowItWorks() {
   return (
-    <section className="sec" id="how">
+    <section id="how" className="sec" style={{ background: 'var(--paper)' }}>
       <div className="wrap">
-        <div className="sec-head">
-          <span className="sec-meta">Section 01 — Process</span>
-          <h2 className="h2">
-            Three steps.
-            <br />
-            <i>No</i> phone tag.
-          </h2>
-          <div className="right">Book in minutes — most requests are confirmed the same day.</div>
-        </div>
-
-        <div
-          style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}
-          className="steps-responsive"
-        >
-          {steps.map(step => (
-            <div
-              key={step.num}
-              style={{
-                background: 'var(--card-2)',
-                border: '1px solid rgba(10,10,10,0.10)',
-                borderRadius: 20,
-                padding: '36px 32px',
-                position: 'relative',
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 14,
-                transition: 'transform .25s ease, border-color .25s ease, box-shadow .25s ease',
-              }}
-              className="step-card-hover"
-            >
-              <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                <span
-                  style={{
-                    fontFamily: 'var(--serif)',
-                    fontStyle: 'italic',
-                    fontWeight: 400,
-                    fontSize: 48,
-                    lineHeight: 0.85,
-                    letterSpacing: '-0.025em',
-                    color: 'var(--green)',
-                  }}
-                >
-                  {step.num}
-                </span>
-                <span
-                  style={{
-                    fontFamily: 'var(--mono)',
-                    fontSize: 10.5,
-                    letterSpacing: '0.14em',
-                    textTransform: 'uppercase',
-                    color: 'var(--green-2)',
-                    background: 'var(--mist)',
-                    border: '1px solid rgba(3,78,54,0.15)',
-                    padding: '3px 8px',
-                    borderRadius: 6,
-                  }}
-                >
-                  {step.tag}
-                </span>
-              </div>
-              <div
-                style={{
-                  width: 46,
-                  height: 46,
-                  borderRadius: 13,
-                  background: 'var(--paper-2)',
-                  border: '1px solid rgba(10,10,10,0.10)',
-                  color: 'var(--green)',
-                  display: 'grid',
-                  placeItems: 'center',
-                }}
-              >
-                {step.icon}
-              </div>
-              <h3 style={{ fontWeight: 700, fontSize: 20, letterSpacing: '-0.018em' }}>{step.title}</h3>
-              <p style={{ fontSize: 14.5, lineHeight: 1.6, color: 'var(--muted)', maxWidth: '34ch' }}>{step.desc}</p>
+        <Reveal>
+          <div style={{ textAlign: 'center', marginBottom: 80 }}>
+            <div className="eyebrow" style={{ justifyContent: 'center', marginBottom: 20 }}>
+              <span className="dot" />
+              How it Works
             </div>
-          ))}
+            <h2 className="h2" style={{ textAlign: 'center', maxWidth: 520, margin: '0 auto' }}>
+              From booking to <i>beautiful</i> in minutes
+            </h2>
+          </div>
+        </Reveal>
+
+        {/* Timeline */}
+        <div style={{ position: 'relative', maxWidth: 800, margin: '0 auto' }}>
+          {/* Vertical line */}
+          <div style={{
+            position: 'absolute',
+            left: 39,
+            top: 40,
+            bottom: 40,
+            width: 2,
+            background: 'linear-gradient(to bottom, var(--rose), var(--gold), #9B7DBF, #5BA88C)',
+            borderRadius: 2,
+          }} className="timeline-line" />
+
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 48 }}>
+            {steps.map((step, i) => (
+              <Reveal key={step.num} delay={i * 100}>
+                <div style={{ display: 'flex', gap: 32, alignItems: 'flex-start' }}>
+                  {/* Number circle */}
+                  <div style={{
+                    width: 80,
+                    height: 80,
+                    borderRadius: 20,
+                    background: step.bg,
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    flexShrink: 0,
+                    position: 'relative',
+                    zIndex: 1,
+                  }}>
+                    <span style={{
+                      fontFamily: 'var(--serif)',
+                      fontSize: 28,
+                      fontStyle: 'italic',
+                      color: step.color,
+                      fontWeight: 400,
+                    }}>{step.num}</span>
+                  </div>
+
+                  {/* Content */}
+                  <div style={{ paddingTop: 8 }}>
+                    <h3 style={{
+                      fontSize: 22,
+                      fontWeight: 700,
+                      letterSpacing: '-0.02em',
+                      marginBottom: 8,
+                      color: 'var(--ink)',
+                    }}>{step.title}</h3>
+                    <p style={{
+                      fontSize: 15.5,
+                      lineHeight: 1.6,
+                      color: 'var(--muted)',
+                      maxWidth: '44ch',
+                    }}>{step.desc}</p>
+                  </div>
+                </div>
+              </Reveal>
+            ))}
+          </div>
         </div>
       </div>
 
       <style dangerouslySetInnerHTML={{ __html: `
-        @media (max-width: 880px) {
-          .steps-responsive { grid-template-columns: 1fr !important; }
-        }
-        .step-card-hover:hover {
-          transform: translateY(-3px) !important;
-          border-color: rgba(10,10,10,0.2) !important;
-          box-shadow: 0 24px 60px -28px rgba(10,10,10,0.18) !important;
+        @media (max-width: 640px) {
+          .timeline-line { left: 23px !important; }
         }
       ` }} />
     </section>

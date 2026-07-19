@@ -1,6 +1,6 @@
 'use client'
 import { useState } from 'react'
-import ProviderApplyForm from './ProviderApplyForm'
+import ProviderApplyForm from './PSWApplyForm'
 
 const stats = [
   {

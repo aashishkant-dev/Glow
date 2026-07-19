@@ -1,39 +1,34 @@
-const BrandMark = () => (
-  <svg style={{ width: 30, height: 30 }} viewBox="0 0 112 112" aria-hidden="true">
-    <path d="M56 6 C32 6 13 25 13 48.5 C13 66 26 80 44 97 L52.5 104.6 C54.5 106.4 57.5 106.4 59.5 104.6 L68 97 C86 80 99 66 99 48.5 C99 25 80 6 56 6 Z" fill="#057A55" />
-    <path d="M56 66 C54.9 66 53.8 65.6 53 64.9 C44.4 58 38.5 51.9 38.5 44.3 C38.5 38.2 43 34 48.2 34 C51.3 34 54.1 35.5 56 38 C57.9 35.5 60.7 34 63.8 34 C69 34 73.5 38.2 73.5 44.3 C73.5 51.9 67.6 58 59 64.9 C58.2 65.6 57.1 66 56 66 Z" fill="#FFFFFF" />
-  </svg>
-)
+'use client'
 
-// Section anchors are prefixed with "/" so they still work from /privacy,
-// /terms, /support and /blog — a bare "#how" is dead off the home page.
+import { GlowMark } from '@/components/brand/GlowMark'
+
 const footCols = [
   {
-    title: 'Product',
+    title: 'Discover',
     links: [
-      ['How it works', '/#how'],
-      ['Platform', '/#platform'],
-      ['Caregivers', '/#directory'],
-      ['Pricing', '/#pricing'],
+      ['Occasions', '/#occasions'],
+      ['How it Works', '/#how'],
+      ['Trending Looks', '/#looks'],
+      ['Glow Match', '/#match'],
       ['Blog', '/blog'],
-      ['Download', '/#dl'],
     ],
   },
   {
-    title: 'For Providers',
+    title: 'For Artists',
     links: [
-      ['Apply', '/#provider'],
-      ['Pay & payouts', '/#pricing'],
+      ['Join Glow', '/#artists'],
+      ['Artist Portfolios', '/#portfolios'],
+      ['Grow Your Business', '/#artists'],
       ['Support', '/support'],
     ],
   },
   {
     title: 'Company',
     links: [
+      ['About', '/'],
       ['Contact', '/#contact'],
-      ['Support', '/support'],
-      ['Privacy policy', '/privacy'],
-      ['Terms of service', '/terms'],
+      ['Privacy Policy', '/privacy'],
+      ['Terms of Service', '/terms'],
     ],
   },
 ]
@@ -42,10 +37,9 @@ export default function Footer() {
   return (
     <footer
       style={{
-        background: 'var(--paper-2)',
-        color: 'var(--ink)',
+        background: 'var(--ink)',
+        color: '#fff',
         padding: '80px 0 36px',
-        borderTop: '1px solid rgba(10,10,10,0.10)',
       }}
     >
       <div className="wrap">
@@ -56,11 +50,11 @@ export default function Footer() {
             fontSize: 'clamp(80px, 15vw, 220px)',
             lineHeight: 0.78,
             letterSpacing: '-0.05em',
-            color: 'var(--ink)',
+            color: '#fff',
             marginBottom: 56,
           }}
         >
-          Care<i style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', fontWeight: 400, color: 'var(--green)', letterSpacing: '-0.03em' }}>Nearby.</i>
+          Glow<i style={{ fontFamily: 'var(--serif)', fontStyle: 'italic', fontWeight: 400, color: 'var(--rose)', letterSpacing: '-0.03em' }}>.</i>
         </div>
 
         {/* grid */}
@@ -70,39 +64,37 @@ export default function Footer() {
             gridTemplateColumns: '1.6fr 1fr 1fr 1fr',
             gap: 48,
             paddingTop: 56,
-            borderTop: '1px solid rgba(10,10,10,0.10)',
+            borderTop: '1px solid rgba(255,255,255,0.10)',
           }}
           className="foot-grid-responsive"
         >
           {/* brand col */}
           <div>
-            <a
-              href="/"
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 10,
-                fontFamily: 'var(--sans)',
-                fontWeight: 300,
-                fontSize: 20,
-                letterSpacing: '-0.02em',
-                color: 'var(--ink)',
-              }}
-            >
-              <BrandMark />
-              Care<strong style={{ fontWeight: 800 }}>Nearby</strong>
-            </a>
-            <p
-              style={{
-                fontSize: 14.5,
-                color: 'var(--muted)',
-                lineHeight: 1.6,
-                maxWidth: '34ch',
-                marginTop: 18,
-              }}
-            >
-              Verified home care in Greater Sudbury, Ontario. Book a Personal Support Worker in minutes — flat $25/hr, no surprises.
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 18 }}>
+              <GlowMark size={28} inverted />
+              <span style={{ fontFamily: 'var(--sans)', fontWeight: 300, fontSize: 20, letterSpacing: '-0.02em', color: '#fff' }}>
+                Glow
+              </span>
+            </div>
+            <p style={{ fontSize: 14.5, color: 'rgba(255,255,255,0.5)', lineHeight: 1.6, maxWidth: '34ch' }}>
+              Premium beauty marketplace connecting you with verified makeup artists, hairstylists, and beauty professionals across Nepal.
             </p>
+            <div style={{ display: 'flex', gap: 16, marginTop: 24 }}>
+              {['Instagram', 'TikTok', 'Facebook'].map(social => (
+                <a
+                  key={social}
+                  href="#"
+                  style={{
+                    fontSize: 13, fontWeight: 500, color: 'rgba(255,255,255,0.4)',
+                    transition: 'color .15s ease',
+                  }}
+                  onMouseEnter={e => ((e.target as HTMLElement).style.color = 'var(--rose)')}
+                  onMouseLeave={e => ((e.target as HTMLElement).style.color = 'rgba(255,255,255,0.4)')}
+                >
+                  {social}
+                </a>
+              ))}
+            </div>
           </div>
 
           {/* link cols */}
@@ -114,7 +106,7 @@ export default function Footer() {
                   fontSize: 11,
                   letterSpacing: '0.16em',
                   textTransform: 'uppercase',
-                  color: 'var(--muted)',
+                  color: 'rgba(255,255,255,0.35)',
                   marginBottom: 18,
                   fontWeight: 600,
                 }}
@@ -142,7 +134,7 @@ export default function Footer() {
           style={{
             marginTop: 64,
             paddingTop: 24,
-            borderTop: '1px solid rgba(10,10,10,0.10)',
+            borderTop: '1px solid rgba(255,255,255,0.08)',
             display: 'flex',
             justifyContent: 'space-between',
             alignItems: 'center',
@@ -152,11 +144,11 @@ export default function Footer() {
             fontSize: 11,
             letterSpacing: '0.14em',
             textTransform: 'uppercase',
-            color: 'var(--muted)',
+            color: 'rgba(255,255,255,0.3)',
           }}
         >
-          <span>&copy; 2026 Glow Inc. · Greater Sudbury, ON</span>
-          <span>Made with care in Northern Ontario 🇨🇦</span>
+          <span>&copy; 2026 Glow Inc. · Nepal</span>
+          <span>Made with love for beauty</span>
         </div>
       </div>
 
@@ -164,8 +156,11 @@ export default function Footer() {
         @media (max-width: 880px) {
           .foot-grid-responsive { grid-template-columns: 1fr 1fr !important; gap: 36px !important; }
         }
-        .foot-link { font-size: 14.5px; font-weight: 500; color: var(--ink); transition: color .15s ease; }
-        .foot-link:hover { color: var(--green-2); }
+        @media (max-width: 520px) {
+          .foot-grid-responsive { grid-template-columns: 1fr !important; }
+        }
+        .foot-link { font-size: 14.5px; font-weight: 500; color: rgba(255,255,255,0.6); transition: color .15s ease; }
+        .foot-link:hover { color: #fff; }
       ` }} />
     </footer>
   )

@@ -1,85 +1,103 @@
-const promises = [
+import Reveal from '@/components/ui/Reveal'
+import { StarIcon } from '@/components/brand/BeautyIcons'
+
+const testimonials = [
   {
-    title: 'Confidence from day one',
-    text: 'Every Provider clears a Vulnerable Sector police check, credential verification, and reference calls before they ever appear in search — so you can book a new caregiver with confidence, not just hope.',
+    quote: 'I felt absolutely amazing on my wedding day. My artist understood exactly what I wanted and made it even more beautiful than I imagined.',
+    name: 'Anita Rai',
+    occasion: 'Wedding',
+    rating: 5,
+    gradient: 'linear-gradient(135deg, var(--rose-bg) 0%, var(--blush-2) 100%)',
   },
   {
-    title: 'No surprises on price',
-    text: 'Flat $25/hr, 3-hour minimum, no surge or weekend surcharge. You see the price before you book, and that\'s what you pay.',
+    quote: 'Booking was effortless. Glow matched me with the perfect artist for my reception — the whole experience felt premium from start to finish.',
+    name: 'Srijana Thapa',
+    occasion: 'Reception',
+    rating: 5,
+    gradient: 'linear-gradient(135deg, var(--gold-bg) 0%, #F5EDD4 100%)',
   },
   {
-    title: 'Built for working caregivers too',
-    text: 'Providers keep the majority of every dollar billed — no agency markup eating into their pay. That means better caregivers stay on the platform.',
+    quote: 'I used Glow for my graduation photoshoot. The artist was professional, punctual, and the results were stunning. I got so many compliments!',
+    name: 'Prerana Shrestha',
+    occasion: 'Graduation',
+    rating: 5,
+    gradient: 'linear-gradient(135deg, #F5F0FA 0%, #E8DCF5 100%)',
   },
 ]
 
 export default function Testimonials() {
   return (
-    <section
-      style={{
-        padding: '160px 0',
-        background: 'var(--paper)',
-      }}
-    >
-      <div className="wrap-tight">
-        <div className="sec-head" style={{ marginBottom: 64 }}>
-          <span className="sec-meta">Section 06 — Our promise</span>
-          <h2 className="h2">
-            What you can <i>expect.</i>
-          </h2>
-          <div className="right">
-            Glow is new to Greater Sudbury. Here&apos;s exactly what we screen for and what we charge — no inflated numbers.
-          </div>
-        </div>
-
-        {/* featured statement */}
-        <div style={{ marginBottom: 80 }}>
-          <p
-            style={{
-              fontFamily: 'var(--serif)',
-              fontWeight: 400,
-              fontStyle: 'italic',
-              fontSize: 'clamp(32px, 4.4vw, 60px)',
-              lineHeight: 1.08,
-              letterSpacing: '-0.022em',
-              color: 'var(--ink)',
-              maxWidth: '26ch',
-            }}
-          >
-            &ldquo;We built the booking experience families expect from modern apps —{' '}
-            <em style={{ color: 'var(--green)', fontStyle: 'italic' }}>without</em>{' '}
-            the agency wait times or markup.&rdquo;
-          </p>
-        </div>
-
-        {/* promise cards */}
-        <div
-          style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14 }}
-          className="tst-mini-responsive"
-        >
-          {promises.map(p => (
-            <div
-              key={p.title}
-              style={{
-                background: 'var(--card-2)',
-                border: '1px solid rgba(10,10,10,0.10)',
-                borderRadius: 18,
-                padding: 28,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 14,
-              }}
-            >
-              <h3 style={{ fontSize: 17, fontWeight: 700, letterSpacing: '-0.01em' }}>{p.title}</h3>
-              <p style={{ fontSize: 15, color: 'var(--muted)', lineHeight: 1.6, flex: 1 }}>{p.text}</p>
+    <section className="sec" style={{ background: 'var(--paper)' }}>
+      <div className="wrap">
+        <Reveal>
+          <div style={{ textAlign: 'center', marginBottom: 64 }}>
+            <div className="eyebrow" style={{ justifyContent: 'center', marginBottom: 20 }}>
+              <span className="dot" />
+              Client Stories
             </div>
+            <h2 className="h2" style={{ textAlign: 'center', maxWidth: 560, margin: '0 auto' }}>
+              Moments that <i>matter</i>, remembered beautifully
+            </h2>
+          </div>
+        </Reveal>
+
+        <div style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(3, 1fr)',
+          gap: 24,
+        }} className="testimonials-grid">
+          {testimonials.map((t, i) => (
+            <Reveal key={t.name} delay={i * 100}>
+              <div className="luxury-card" style={{ padding: 0, overflow: 'hidden', height: '100%', display: 'flex', flexDirection: 'column' }}>
+                {/* Top gradient */}
+                <div style={{
+                  height: 8,
+                  background: t.gradient,
+                }} />
+
+                <div style={{ padding: '32px 28px', flex: 1, display: 'flex', flexDirection: 'column' }}>
+                  {/* Stars */}
+                  <div style={{ display: 'flex', gap: 3, marginBottom: 16 }}>
+                    {[...Array(t.rating)].map((_, j) => (
+                      <StarIcon key={j} size={16} color="var(--gold)" filled />
+                    ))}
+                  </div>
+
+                  {/* Quote */}
+                  <blockquote style={{
+                    fontSize: 16,
+                    lineHeight: 1.6,
+                    color: 'var(--ink)',
+                    fontStyle: 'italic',
+                    fontFamily: 'var(--serif)',
+                    flex: 1,
+                    marginBottom: 24,
+                  }}>
+                    &ldquo;{t.quote}&rdquo;
+                  </blockquote>
+
+                  {/* Author */}
+                  <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginTop: 'auto' }}>
+                    <div style={{
+                      width: 40, height: 40, borderRadius: 12,
+                      background: t.gradient,
+                    }} />
+                    <div>
+                      <span style={{ fontSize: 14, fontWeight: 600, display: 'block' }}>{t.name}</span>
+                      <span style={{ fontSize: 12, color: 'var(--muted)' }}>{t.occasion}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </Reveal>
           ))}
         </div>
       </div>
 
       <style dangerouslySetInnerHTML={{ __html: `
-        @media (max-width: 980px) { .tst-grid-responsive { grid-template-columns: 1fr !important; } }
-        @media (max-width: 880px) { .tst-mini-responsive { grid-template-columns: 1fr !important; } }
+        @media (max-width: 768px) {
+          .testimonials-grid { grid-template-columns: 1fr !important; max-width: 480px; margin: 0 auto; }
+        }
       ` }} />
     </section>
   )
