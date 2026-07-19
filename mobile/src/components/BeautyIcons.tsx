@@ -29,89 +29,115 @@ export function SparkleIcon({ size = 24, color = Colors.brand }: IconProps) {
   );
 }
 
-/** LipstickIcon — minimal tube geometry. Makeup. */
+/** LipstickIcon — slanted bullet, slim tube, rounded base. Makeup. */
 export function LipstickIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
-        <Path d="M10 9V5.2a1.6 1.6 0 0 1 1-1.5l2-.9a.7.7 0 0 1 1 .7V9" />
-        <Rect x={9} y={9} width={6} height={4.6} rx={1.1} />
-        <Rect x={8} y={13.6} width={8} height={7} rx={1.6} />
+        <Path d="M10.1 9.5V5.6c0-.5.3-1 .8-1.2l2.3-1.1c.4-.2.7.1.7.5v5.7" />
+        <Rect x={9.2} y={9.5} width={5.6} height={3.6} rx={0.9} />
+        <Path d="M8.1 13.1h7.8v5.5a1.8 1.8 0 0 1-1.8 1.8H9.9a1.8 1.8 0 0 1-1.8-1.8z" />
+        <Path d="M10.3 15.2v2.3" opacity={0.5} />
       </G>
     </Svg>
   );
 }
 
-/** BrushIcon — single elegant liner stroke. Threading & brows. */
+/** BrushIcon — angled liner brush with ferrule + bristle breaks. Threading & brows. */
 export function BrushIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
-        <Path d="M15.2 3.9a2.3 2.3 0 0 1 3.2 3.2l-9.4 9.4-4.3 1.1 1.1-4.3z" />
-        <Path d="M13.4 5.7l3.2 3.2" />
+        <Path d="m4.6 19.4 1.2-4.2 9-9a2.25 2.25 0 0 1 3.2 3.2l-9 9z" />
+        <Path d="m13.5 5.5 3.2 3.2" />
+        <Path d="m6.6 14.4 3.2 3.2" opacity={0.5} />
       </G>
     </Svg>
   );
 }
 
-/** HennaIcon — open hand, minimal. Mehendi. */
+/** HennaIcon — hand with mehndi medallion. Mehendi. */
 export function HennaIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
-        <Path d="M8 20.5v-7.4a1.6 1.6 0 1 1 3.2 0v2.9M11.2 16v-4.8a1.6 1.6 0 1 1 3.2 0V16M14.4 16v-3.3a1.6 1.6 0 1 1 3.2 0v4.2c0 2.9-1.9 5.3-5.1 5.3h-2.1c-1.6 0-2.6-.8-3.3-2.4l-1.6-3.3a1.3 1.3 0 0 1 2.3-1.1l1.3 2.1" />
+        <Path d="M7.8 12.8V6.3a1.45 1.45 0 0 1 2.9 0v4.4M10.7 10.7V4.9a1.45 1.45 0 0 1 2.9 0v5.8M13.6 10.7V6.3a1.45 1.45 0 0 1 2.9 0v7.2c0 4-2.4 7-6.2 7-1.6 0-2.9-.8-3.6-2.3l-1.9-3.9a1.35 1.35 0 0 1 2.4-1.2l1.4 2.6" />
+        <Circle cx={12.4} cy={15.4} r={1.7} />
       </G>
-      <Circle cx={12.6} cy={18.4} r={0.55} fill={color} />
+      <Circle cx={12.4} cy={15.4} r={0.42} fill={color} />
+      <Circle cx={9.4} cy={17.6} r={0.42} fill={color} opacity={0.6} />
+      <Circle cx={15.4} cy={17.4} r={0.42} fill={color} opacity={0.6} />
     </Svg>
   );
 }
 
-/** NailIcon — polish bottle, minimal. Nails. */
+/** NailIcon — elegant polish bottle: slim cap, rounded flacon, brush stem. Manicure / nails. */
 export function NailIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
-        <Rect x={10} y={3} width={4} height={2.4} rx={0.8} />
-        <Path d="M8.8 6.2h6.4l.6 3c.4 2.2-1.2 4.2-3.4 4.4v5.5a1.4 1.4 0 0 1-2.8 0v-5.5c-2.2-.2-3.8-2.2-3.4-4.4z" />
+        <Rect x={10.3} y={2.8} width={3.4} height={4.6} rx={1.2} />
+        <Path d="M8.9 9.4h6.2c1.8.9 2.9 2.5 2.9 4.6 0 3.9-2.7 6.5-6 6.5s-6-2.6-6-6.5c0-2.1 1.1-3.7 2.9-4.6z" />
+        <Path d="M12 9.4v5.2" opacity={0.5} />
       </G>
+      <Circle cx={12} cy={15.4} r={0.6} fill={color} opacity={0.5} />
     </Svg>
   );
 }
 
-/** ScissorsIcon — thin shears. Hair styling. */
+/** PedicureIcon — footprint: sole + toes. Pedicure. */
+export function PedicureIcon({ size = 24, color = Colors.brand }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <G stroke={color} {...S}>
+        <Path d="M12.6 8.4c2.7 0 4.4 2.4 4.2 5.5-.2 3.5-1.7 7-4.2 7s-4-3.5-4.2-7c-.2-3.1 1.5-5.5 4.2-5.5z" />
+        <Circle cx={8.6} cy={5.3} r={1.35} />
+      </G>
+      <Circle cx={11.5} cy={3.9} r={0.75} fill={color} />
+      <Circle cx={13.9} cy={3.6} r={0.7} fill={color} />
+      <Circle cx={16.1} cy={4.1} r={0.65} fill={color} />
+      <Circle cx={17.9} cy={5.2} r={0.6} fill={color} />
+    </Svg>
+  );
+}
+
+/** ScissorsIcon — proper shears geometry with pivot. Hair styling. */
 export function ScissorsIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
-        <Circle cx={6.3} cy={6.5} r={2.1} />
-        <Circle cx={6.3} cy={17.5} r={2.1} />
-        <Path d="M19.5 5.5 8.2 12M19.5 18.5 8.2 12" />
+        <Circle cx={6} cy={6.2} r={2.5} />
+        <Circle cx={6} cy={17.8} r={2.5} />
+        <Path d="M19.8 4.4 8.2 16M14.4 14.5l5.4 5.1M8.2 8 12 11.8" />
       </G>
+      <Circle cx={12} cy={12} r={0.5} fill={color} />
     </Svg>
   );
 }
 
-/** HairColorIcon — droplet. Hair coloring. */
+/** HairColorIcon — dye droplet with inner shine. Hair coloring. */
 export function HairColorIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
         <Path d="M12 3.6c2.8 3.5 4.2 6 4.2 8.2a4.2 4.2 0 1 1-8.4 0c0-2.2 1.4-4.7 4.2-8.2z" />
+        <Path d="M9.9 11.6c0 1.2.7 2.1 1.7 2.4" opacity={0.5} />
         <Path d="M7 20.5h10" opacity={0.55} />
       </G>
     </Svg>
   );
 }
 
-/** FacialIcon — calm face outline. Skincare. */
+/** FacialIcon — serene oval face, closed relaxed eyes. Skincare. */
 export function FacialIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
-        <Path d="M12 20.5a6.8 6.8 0 0 0 6.8-6.8c0-3.8-2.7-9.2-6.8-9.2s-6.8 5.4-6.8 9.2A6.8 6.8 0 0 0 12 20.5z" />
-        <Path d="M9.3 13h.01M14.7 13h.01" strokeWidth={2} />
-        <Path d="M10.6 16.3c.8.7 2 .7 2.8 0" />
+        <Path d="M12 3.8c3.9 0 6.5 3.3 6.5 7.3 0 4.8-2.8 9.1-6.5 9.1s-6.5-4.3-6.5-9.1c0-4 2.6-7.3 6.5-7.3z" />
+        <Path d="M8.9 12.1c.5.5 1.2.5 1.7 0M13.4 12.1c.5.5 1.2.5 1.7 0" />
+        <Path d="M10.7 15.7c.8.6 1.8.6 2.6 0" />
       </G>
+      <Circle cx={17.9} cy={5.4} r={0.55} fill={color} opacity={0.6} />
     </Svg>
   );
 }
@@ -128,36 +154,56 @@ export function WaxIcon({ size = 24, color = Colors.brand }: IconProps) {
   );
 }
 
-/** LotusIcon — thin lotus. Massage / spa. */
+/** LotusIcon — balanced three-petal lotus over base leaves. Massage / spa. */
 export function LotusIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
-        <Path d="M12 5c1.5 1.8 2.3 3.6 2.3 5.4S13.3 13.6 12 13.6s-2.3-1.4-2.3-3.2S10.5 6.8 12 5z" />
-        <Path d="M5.5 9c2.1.6 3.7 1.7 4.6 3.1M18.5 9c-2.1.6-3.7 1.7-4.6 3.1" />
-        <Path d="M4 13.7c1.5 3.6 4.3 5.5 8 5.5s6.5-1.9 8-5.5c-2.7-.8-5.3-.8-8 0-2.7-.8-5.3-.8-8 0z" />
+        <Path d="M12 4.5c1.8 2 2.7 4 2.7 6 0 2.4-1.2 4-2.7 4s-2.7-1.6-2.7-4c0-2 .9-4 2.7-4z" />
+        <Path d="M6.2 8.3c.4 3.2 1.9 5.4 4.4 6.5M17.8 8.3c-.4 3.2-1.9 5.4-4.4 6.5" />
+        <Path d="M3.5 12.6c.9 4.6 4 7.4 8.5 7.4s7.6-2.8 8.5-7.4c-1.7 1.1-3.4 1.7-5.2 1.7-1.2 0-2.3-.2-3.3-.7-1 .5-2.1.7-3.3.7-1.8 0-3.5-.6-5.2-1.7z" />
       </G>
     </Svg>
   );
 }
 
-/** CrownIcon — thin tiara line. Bridal. */
+/** SpaBloomIcon — four-petal bloom echoing the Glow brand mark. Spa / bloom. */
+export function SpaBloomIcon({ size = 24, color = Colors.brand }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24">
+      <G stroke={color} {...S}>
+        <Path d="M12 3.2c1.5 1.5 2.2 3 2.2 4.4S13.3 10 12 10s-2.2-1-2.2-2.4.7-2.9 2.2-4.4z" />
+        <Path d="M20.8 12c-1.5 1.5-3 2.2-4.4 2.2S14 13.3 14 12s1-2.2 2.4-2.2 2.9.7 4.4 2.2z" />
+        <Path d="M12 20.8c-1.5-1.5-2.2-3-2.2-4.4S10.7 14 12 14s2.2 1 2.2 2.4-.7 2.9-2.2 4.4z" />
+        <Path d="M3.2 12c1.5-1.5 3-2.2 4.4-2.2S10 10.7 10 12s-1 2.2-2.4 2.2S4.7 13.5 3.2 12z" />
+      </G>
+      <Circle cx={12} cy={12} r={1.05} fill={color} />
+    </Svg>
+  );
+}
+
+/** CrownIcon — tiara with gem points. Bridal. */
 export function CrownIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
         <Path d="M4.5 8.8l3.6 3L12 6l3.9 5.8 3.6-3-1.5 8.4a1.5 1.5 0 0 1-1.5 1.3H7.5A1.5 1.5 0 0 1 6 17.2z" />
+        <Path d="M8.6 15.6h6.8" opacity={0.5} />
       </G>
+      <Circle cx={12} cy={4.6} r={0.55} fill={color} />
+      <Circle cx={4} cy={7.3} r={0.5} fill={color} opacity={0.7} />
+      <Circle cx={20} cy={7.3} r={0.5} fill={color} opacity={0.7} />
     </Svg>
   );
 }
 
-/** MirrorIcon — hand mirror line. Glam. */
+/** MirrorIcon — hand mirror with catchlight. Glam. */
 export function MirrorIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
         <Circle cx={12} cy={9.2} r={5.2} />
+        <Path d="M9.9 7.2a3 3 0 0 1 1.6-1.1" opacity={0.5} />
         <Path d="M12 14.4V20.5M9.8 20.5h4.4" />
       </G>
     </Svg>

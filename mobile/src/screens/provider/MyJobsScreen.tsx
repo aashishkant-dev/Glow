@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Animated, Pressable, RefreshControl, SectionList, StyleSheet, Text, View } from 'react-native';
+import { Animated, Pressable, RefreshControl, ScrollView, SectionList, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -197,7 +197,7 @@ function PayoutBadge({ job }: { job: Booking }) {
   const released = job.paymentStatus === 'RELEASED';
   return (
     <View style={payoutStyles.badge}>
-      <Text style={payoutStyles.net}>You earned ${job.providerPayout.toFixed(2)}</Text>
+      <Text style={payoutStyles.net}>You earned ${job.providerPayout.toFixed(0)}</Text>
       {released
         ? <View style={payoutStyles.released}><Text style={payoutStyles.releasedTxt}>Released</Text></View>
         : <View style={payoutStyles.pending}><Text style={payoutStyles.pendingTxt}>Pending</Text></View>}
@@ -410,7 +410,12 @@ export function MyJobsScreen() {
         </View>
 
         {/* ── Filter chips ── */}
-        <View style={styles.filterRow}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          style={{ width: '100%', marginTop: Spacing.md }}
+          contentContainerStyle={styles.filterRow}
+        >
           {JOB_FILTERS.map(f => {
             const active = filter === f.key;
             const c = filterCounts[f.key];
@@ -429,7 +434,7 @@ export function MyJobsScreen() {
               </Pressable>
             );
           })}
-        </View>
+        </ScrollView>
       </View>
 
       {/* ── Active job hero ── */}
@@ -515,7 +520,7 @@ const styles = StyleSheet.create({
     marginTop: Spacing.sm,
   },
   // Filter chips
-  filterRow: { flexDirection: 'row', gap: 8, marginTop: Spacing.md },
+  filterRow: { flexDirection: 'row', gap: 8, paddingRight: 16 },
   filterPill: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
     paddingHorizontal: 13, paddingVertical: 7, borderRadius: 20,

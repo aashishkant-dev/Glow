@@ -316,3 +316,28 @@ export function CameraIcon({ size = 18, color = '#fff' }: P) {
     </Svg>
   );
 }
+
+export function HeartIcon({ size = 24, color = '#000', filled = false }: P) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path
+        d="M12 20.2 5.2 13.6a4.9 4.9 0 0 1 0-7 4.7 4.7 0 0 1 6.6 0l.2.2.2-.2a4.7 4.7 0 0 1 6.6 0 4.9 4.9 0 0 1 0 7z"
+        stroke={color} strokeWidth={1.6} strokeLinecap="round" strokeLinejoin="round"
+        fill={filled ? color : 'none'}
+      />
+    </Svg>
+  );
+}
+
+export function CompassIcon({ size = 24, color = '#000', filled = false }: P) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Circle cx="12" cy="12" r="8.6" stroke={color} strokeWidth={1.6} fill={filled ? color + '22' : 'none'} />
+      <Path
+        d="m15.4 8.6-1.9 4.9-4.9 1.9 1.9-4.9z"
+        stroke={color} strokeWidth={1.5} strokeLinejoin="round"
+        fill={filled ? color : 'none'}
+      />
+    </Svg>
+  );
+}

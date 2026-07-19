@@ -1,3 +1,8 @@
+/**
+ * Artist profile — Airbnb-inspired: huge photography, highlight chips, one
+ * premium Glow Trust card (never an admin checklist), signature packages,
+ * full-bleed portfolio, warm reviews, a single Book CTA.
+ */
 import React, { useEffect, useState } from 'react';
 import { Image } from 'expo-image';
 import {
@@ -6,6 +11,7 @@ import {
   FlatList,
   NativeScrollEvent,
   NativeSyntheticEvent,
+  Platform,
   Pressable,
   ScrollView,
   StyleSheet,
@@ -16,22 +22,22 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { apiGetProviderPublicProfile, ProviderPublicProfile } from '../../api/client';
-import { Colors } from '../../utils/colors';
-import { CloseCircleIcon } from '../../components/TabIcons';
-import { ShieldCheckIcon } from '../../components/CareIcons';
+import { Colors, Fonts } from '../../utils/colors';
+import { CloseCircleIcon, StarIcon, CheckCircleIcon, ChevronForwardIcon } from '../../components/TabIcons';
+import { ShieldCheckIcon, CheckDecagramIcon } from '../../components/CareIcons';
+import { GlowMark } from '../../components/GlowLogo';
+import { ServiceIcon } from '../../components/ServiceIcon';
+import { tapLight } from '../../utils/haptics';
 
 const { width: SCREEN_W } = Dimensions.get('window');
-const PHOTO_H = 300;
+const PHOTO_H = 380;
 
-function StarDisplay({ rating, size = 14 }: { rating: number; size?: number }) {
-  const full  = Math.floor(rating);
-  const half  = rating - full >= 0.5 ? 1 : 0;
-  const empty = 5 - full - half;
+function StarRow({ rating, size = 14 }: { rating: number; size?: number }) {
   return (
     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 2 }}>
-      {Array.from({ length: full  }).map((_, i) => <Text key={`f${i}`} style={{ fontSize: size, color: '#F59E0B' }}>★</Text>)}
-      {half === 1 && <Text style={{ fontSize: size, color: '#F59E0B' }}>⯨</Text>}
-      {Array.from({ length: empty }).map((_, i) => <Text key={`e${i}`} style={{ fontSize: size, color: '#D1D5DB' }}>★</Text>)}
+      {[1, 2, 3, 4, 5].map(i => (
+        <StarIcon key={i} size={size} color={i <= Math.round(rating) ? Colors.gold : Colors.systemGray4} filled={i <= Math.round(rating)} />
+      ))}
     </View>
   );
 }
@@ -43,8 +49,11 @@ function PhotoCarousel({ photos, name, photoUrl }: { photos: string[]; name: str
 
   if (slides.length === 0) {
     return (
-      <View style={[styles.carouselContainer, { backgroundColor: Colors.brand, alignItems: 'center', justifyContent: 'center' }]}>
-        <Text style={{ color: '#fff', fontSize: 64, fontWeight: '800', opacity: 0.5 }}>{initials}</Text>
+      <View style={[styles.carouselContainer, styles.carouselFallback]}>
+        {Platform.OS === 'web' && (
+          <View style={[StyleSheet.absoluteFill, { background: 'linear-gradient(160deg, #E9A0B1, #A34D63)' } as any]} />
+        )}
+        <Text style={styles.fallbackInitials}>{initials}</Text>
       </View>
     );
   }
@@ -52,7 +61,7 @@ function PhotoCarousel({ photos, name, photoUrl }: { photos: string[]; name: str
     return (
       <View style={styles.carouselContainer}>
         <Image source={{ uri: slides[0] }} style={styles.carouselImage} contentFit="cover" cachePolicy="memory-disk" />
-        <LinearGradient colors={['transparent', 'rgba(0,0,0,0.6)']} style={styles.carouselGradient} />
+        <LinearGradient colors={['transparent', 'rgba(20,8,12,0.72)']} style={styles.carouselGradient} />
       </View>
     );
   }
@@ -71,14 +80,11 @@ function PhotoCarousel({ photos, name, photoUrl }: { photos: string[]; name: str
           <Image source={{ uri: item }} style={{ width: SCREEN_W, height: PHOTO_H }} contentFit="cover" cachePolicy="memory-disk" />
         )}
       />
-      <LinearGradient colors={['transparent', 'rgba(0,0,0,0.6)']} style={styles.carouselGradient} />
+      <LinearGradient colors={['transparent', 'rgba(20,8,12,0.72)']} style={styles.carouselGradient} pointerEvents="none" />
       <View style={styles.dotRow}>
         {slides.map((_, i) => (
           <View key={i} style={[styles.dot, i === active && styles.dotActive]} />
         ))}
-      </View>
-      <View style={styles.photoBadge}>
-        <Text style={styles.photoBadgeText}>📷 {active + 1} / {slides.length}</Text>
       </View>
     </View>
   );
@@ -89,291 +95,389 @@ export function ProviderPublicProfileScreen() {
   const insets = useSafeAreaInsets();
   const route  = useRoute<any>();
   const { providerId } = route.params ?? {};
-  const [provider,     setProvider]     = useState<ProviderPublicProfile | null>(null);
+  const [provider, setProvider] = useState<ProviderPublicProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
 
   useEffect(() => {
-    if (!providerId) { setError('No Provider ID provided'); setLoading(false); return; }
+    if (!providerId) { setError('No artist selected'); setLoading(false); return; }
     apiGetProviderPublicProfile(providerId)
       .then(res => setProvider(res.provider))
-      .catch(err => setError(err.message ?? 'Could not load Provider profile'))
+      .catch(err => setError(err.message ?? 'Could not load this artist'))
       .finally(() => setLoading(false));
   }, [providerId]);
 
+  function book(serviceType?: string) {
+    if (!provider) return;
+    tapLight();
+    nav.navigate('NewBooking', {
+      bookingMode: 'scheduled',
+      providerId: provider.id,
+      ...(serviceType ? { serviceType } : null),
+      _t: Date.now(),
+    });
+  }
+
+  if (loading) {
+    return (
+      <View style={[styles.centered, { paddingTop: insets.top + 60 }]}>
+        <ActivityIndicator color={Colors.brand} size="large" />
+        <Text style={styles.loadingText}>Loading profile…</Text>
+      </View>
+    );
+  }
+  if (error || !provider) {
+    return (
+      <View style={[styles.centered, { paddingTop: insets.top + 60 }]}>
+        <CloseCircleIcon size={32} color={Colors.systemRed} />
+        <Text style={styles.errorText}>{error || 'Profile not found'}</Text>
+        <Pressable onPress={() => nav.goBack()} style={styles.retryBtn}>
+          <Text style={styles.retryBtnText}>Go Back</Text>
+        </Pressable>
+      </View>
+    );
+  }
+
+  const p = provider;
+  const rating = Number(p.rating) || 0;
+  const fromPrice = p.services?.length ? Math.min(...p.services.map(s => s.price)) : p.hourlyRate;
+
+  // Highlight chips — every one backed by a real profile field.
+  const highlights: string[] = [];
+  if (rating >= 4.8 && p.ratingCount >= 5) highlights.push('Top Rated');
+  if (p.completedBookings > 0) highlights.push(`${p.completedBookings} ${p.completedBookings === 1 ? 'session' : 'sessions'}`);
+  if ((p.experienceYears ?? 0) > 0) highlights.push(`${p.experienceYears} yrs experience`);
+  highlights.push('Travels to you');
+  if (p.policeCheckCleared) highlights.push('Background checked');
+
+  const trustRows: string[] = [
+    'Identity verified by Glow',
+    ...(p.policeCheckCleared ? ['Background checked'] : []),
+    ...(p.qualificationType ? [`${p.qualificationType} — certificate verified`] : []),
+    ...(p.photos.length > 0 ? ['Portfolio reviewed'] : []),
+    ...(p.firstAidCertified ? ['First aid certified'] : []),
+  ];
+
   return (
     <View style={{ flex: 1, backgroundColor: Colors.systemGroupedBackground }}>
-      {loading ? (
-        <View style={[styles.centered, { paddingTop: insets.top + 60 }]}>
-          <ActivityIndicator color={Colors.brand} size="large" />
-          <Text style={styles.loadingText}>Loading profile…</Text>
-        </View>
-      ) : error || !provider ? (
-        <View style={[styles.centered, { paddingTop: insets.top + 60 }]}>
-          <CloseCircleIcon size={32} color={Colors.systemRed} />
-          <Text style={styles.errorText}>{error || 'Profile not found'}</Text>
-          <Pressable onPress={() => nav.goBack()} style={styles.retryBtn}>
-            <Text style={styles.retryBtnText}>Go Back</Text>
+      <ScrollView
+        style={{ flex: 1 }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 118 }}
+        showsVerticalScrollIndicator={false}
+      >
+        {/* ── Hero ── */}
+        <View>
+          <PhotoCarousel photos={p.photos ?? []} name={p.name} photoUrl={p.photoUrl} />
+          <Pressable style={[styles.floatBack, { top: insets.top + 8 }]} onPress={() => nav.goBack()} hitSlop={12}>
+            <Text style={styles.floatBackText}>‹</Text>
           </Pressable>
+          <View style={styles.nameOverlay}>
+            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
+              <Text style={styles.overlayName}>{p.name}</Text>
+              {p.policeCheckCleared && <CheckDecagramIcon size={18} color={Colors.gold} />}
+            </View>
+            <Text style={styles.overlayQual}>
+              {p.specialties.length ? p.specialties.slice(0, 2).join(' · ') : p.qualificationType}
+            </Text>
+            {rating > 0 && (
+              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 5 }}>
+                <StarRow rating={rating} size={13} />
+                <Text style={styles.overlayRating}>{rating.toFixed(1)} · {p.ratingCount} reviews</Text>
+              </View>
+            )}
+          </View>
         </View>
-      ) : (
-        <>
-          <ScrollView
-            style={{ flex: 1 }}
-            contentContainerStyle={{ paddingBottom: insets.bottom + 110 }}
-            showsVerticalScrollIndicator={false}
-          >
-            {/* Photo carousel hero */}
-            <View>
-              <PhotoCarousel photos={provider.photos ?? []} name={provider.name} photoUrl={provider.photoUrl} />
-              {/* Floating back */}
-              <Pressable style={[styles.floatBack, { top: insets.top + 8 }]} onPress={() => nav.goBack()} hitSlop={12}>
-                <Text style={styles.floatBackText}>‹</Text>
-              </Pressable>
-              {/* Name + rating overlay */}
-              <View style={styles.nameOverlay}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
-                  <Text style={styles.overlayName}>{provider.name}</Text>
-                  {provider.policeCheckCleared && (
-                    <View style={styles.verifiedBadge}>
-                      <ShieldCheckIcon size={11} color="#166534" />
-                      <Text style={styles.verifiedBadgeText}> Verified</Text>
-                    </View>
-                  )}
-                </View>
-                <Text style={styles.overlayQual}>{provider.qualificationType}</Text>
-                {(provider.rating ?? 0) > 0 && (
-                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 3 }}>
-                    <StarDisplay rating={provider.rating} size={13} />
-                    <Text style={styles.overlayRating}>{provider.rating.toFixed(1)} · {provider.ratingCount} reviews</Text>
-                  </View>
-                )}
+
+        {/* ── Highlights ── */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ width: '100%' }} contentContainerStyle={styles.highlightRow}>
+          {highlights.map(h => (
+            <View key={h} style={styles.highlightChip}>
+              <Text style={styles.highlightText}>{h}</Text>
+            </View>
+          ))}
+        </ScrollView>
+
+        {/* ── About ── */}
+        {!!p.bio && (
+          <View style={styles.section}>
+            <Text style={styles.bioText}>{p.bio}</Text>
+          </View>
+        )}
+
+        {/* ── Glow Trust — one premium card, never an admin checklist ── */}
+        <View style={styles.section}>
+          <View style={styles.trustCard}>
+            {Platform.OS === 'web' && (
+              <View style={[StyleSheet.absoluteFill, { background: 'linear-gradient(140deg, #3B1520 0%, #8E4257 100%)', borderRadius: 26 } as any]} />
+            )}
+            <View style={styles.trustGlow} pointerEvents="none" />
+            <View style={styles.trustHeader}>
+              <GlowMark size={30} petal="#FFFFFF" petalInner="rgba(255,255,255,0.4)" core={Colors.gold} />
+              <View>
+                <Text style={styles.trustTitle}>Glow Trust</Text>
+                <Text style={styles.trustSub}>Glow Certified Artist</Text>
+              </View>
+              <View style={styles.trustBadge}>
+                <ShieldCheckIcon size={13} color={Colors.gold} />
               </View>
             </View>
-
-            {/* Stats */}
-            <View style={styles.statsRow}>
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{provider.completedBookings}</Text>
-                <Text style={styles.statLabel}>Sessions</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{provider.rating > 0 ? provider.rating.toFixed(1) : '—'}</Text>
-                <Text style={styles.statLabel}>Rating</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={styles.statValue}>{provider.experienceYears ?? 0}yr</Text>
-                <Text style={styles.statLabel}>Experience</Text>
-              </View>
-              <View style={styles.statDivider} />
-              <View style={styles.statItem}>
-                <Text style={[styles.statValue, { color: '#22C55E', fontSize: 18 }]}>
-                  {provider.policeCheckCleared ? '✓' : '—'}
-                </Text>
-                <Text style={styles.statLabel}>Police</Text>
-              </View>
+            <View style={styles.trustRows}>
+              {trustRows.map(r => (
+                <View key={r} style={styles.trustRow}>
+                  <CheckCircleIcon size={15} color={Colors.gold} />
+                  <Text style={styles.trustRowText}>{r}</Text>
+                </View>
+              ))}
             </View>
-
-            {/* Bio */}
-            {!!provider.bio && (
-              <View style={styles.section}>
-                <Text style={styles.sectionLabel}>ABOUT</Text>
-                <View style={styles.card}>
-                  <Text style={styles.bioText}>{provider.bio}</Text>
-                </View>
-              </View>
+            {p.completedBookings > 0 && (
+              <Text style={styles.trustFooter}>
+                Trusted by Glow · {p.completedBookings} happy {p.completedBookings === 1 ? 'client' : 'clients'}
+              </Text>
             )}
+          </View>
+        </View>
 
-            {/* Specialties */}
-            {provider.specialties.length > 0 && (
-              <View style={styles.section}>
-                <Text style={styles.sectionLabel}>SPECIALTIES</Text>
-                <View style={styles.card}>
-                  <View style={styles.tagRow}>
-                    {provider.specialties.map(sp => (
-                      <View key={sp} style={styles.tag}>
-                        <Text style={styles.tagText}>{sp}</Text>
-                      </View>
-                    ))}
-                  </View>
-                </View>
-              </View>
-            )}
-
-            {/* Certifications */}
-            <View style={styles.section}>
-              <Text style={styles.sectionLabel}>CERTIFICATIONS</Text>
-              <View style={styles.card}>
-                {[
-                  { label: 'Police Check Cleared', ok: provider.policeCheckCleared },
-                  { label: 'Provider Certificate',       ok: true },
-                  { label: 'First Aid / CPR',       ok: provider.firstAidCertified },
-                ].map(c => (
-                  <View key={c.label} style={styles.certItem}>
-                    <View style={[styles.certIcon, { backgroundColor: c.ok ? '#DCFCE7' : '#F3F4F6' }]}>
-                      <Text style={{ fontSize: 12, color: c.ok ? '#166534' : '#9CA3AF', fontWeight: '700' }}>
-                        {c.ok ? '✓' : '✕'}
-                      </Text>
-                    </View>
-                    <Text style={[styles.certLabel, !c.ok && { color: '#9CA3AF' }]}>{c.label}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-
-            {/* Credentials */}
-            {(!!provider.collegeName || !!provider.licenseNumber) && (
-              <View style={styles.section}>
-                <Text style={styles.sectionLabel}>CREDENTIALS</Text>
-                <View style={styles.card}>
-                  <View style={styles.credRow}>
-                    <Text style={styles.credLabel}>Qualification</Text>
-                    <Text style={styles.credValue}>{provider.qualificationType}</Text>
-                  </View>
-                  {!!provider.collegeName && (
-                    <View style={[styles.credRow, styles.credBorder]}>
-                      <Text style={styles.credLabel}>College / Training</Text>
-                      <Text style={styles.credValue}>{provider.collegeName}</Text>
-                    </View>
-                  )}
-                  {!!provider.licenseNumber && (
-                    <View style={[styles.credRow, styles.credBorder]}>
-                      <Text style={styles.credLabel}>Registration #</Text>
-                      <Text style={styles.credValue}>{provider.licenseNumber}</Text>
-                    </View>
-                  )}
-                </View>
-              </View>
-            )}
-
-            {/* Reviews */}
-            <View style={styles.section}>
-              <Text style={styles.sectionLabel}>REVIEWS ({provider.recentRatings.length})</Text>
-              {provider.recentRatings.length === 0 ? (
-                <View style={styles.card}>
-                  <Text style={{ fontSize: 14, color: Colors.secondaryLabel, textAlign: 'center', paddingVertical: 8 }}>
-                    No reviews yet — be the first!
+        {/* ── Signature packages ── */}
+        {p.services?.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Signature packages</Text>
+            {p.services.map(s => (
+              <Pressable
+                key={s.name}
+                style={({ pressed }) => [styles.pkgRow, pressed && { backgroundColor: Colors.brandLight }]}
+                onPress={() => book(s.name)}
+              >
+                <ServiceIcon serviceType={s.name} size={20} bubbleSize={44} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.pkgName}>{s.name}</Text>
+                  <Text style={styles.pkgMeta}>
+                    {s.durationMin ? `${Math.round(s.durationMin / 60 * 10) / 10}h session` : 'Session length varies'}
                   </Text>
                 </View>
-              ) : (
-                provider.recentRatings.map(r => (
-                  <View key={r.id} style={styles.reviewCard}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <View style={styles.reviewAvatar}>
-                          <Text style={styles.reviewAvatarText}>{r.customerName[0]}</Text>
-                        </View>
-                        <Text style={{ fontSize: 13, fontWeight: '700', color: Colors.label }}>{r.customerName}</Text>
-                      </View>
-                      <StarDisplay rating={r.rating} size={13} />
-                    </View>
-                    {!!r.comment && <Text style={styles.reviewComment}>{r.comment}</Text>}
-                    <Text style={styles.reviewDate}>
-                      {new Date(r.createdAt).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}
-                    </Text>
-                  </View>
-                ))
-              )}
-            </View>
-          </ScrollView>
-
-          {/* Fixed bottom Book CTA */}
-          <View style={[styles.bottomCTA, { paddingBottom: insets.bottom + 12 }]}>
-            <View style={styles.priceLine}>
-              {provider.services?.length > 0 ? (
-                <Text style={styles.priceText}>From ${Math.min(...provider.services.map(s => s.price))}</Text>
-              ) : (
-                <Text style={styles.priceText}>Pricing available on request</Text>
-              )}
-              {provider.priceNegotiable && (
-                <Text style={[styles.minText, { color: '#16A34A', fontWeight: '700' }]}> · Negotiable</Text>
-              )}
-            </View>
-            <Pressable
-              style={({ pressed }) => [styles.bookBtn, pressed && { opacity: 0.88, transform: [{ scale: 0.97 }] }]}
-              onPress={() => nav.navigate('NewBooking', { bookingMode: 'scheduled', providerId: provider.id })}
-            >
-              <LinearGradient colors={[Colors.brand, Colors.brandDark]} style={styles.bookBtnGrad}>
-                <Text style={styles.bookBtnText}>Book {provider.name.split(' ')[0]} →</Text>
-              </LinearGradient>
-            </Pressable>
+                <Text style={styles.pkgPrice}>${Math.round(s.price)}</Text>
+                <ChevronForwardIcon size={16} color={Colors.tertiaryLabel} />
+              </Pressable>
+            ))}
+            {p.priceNegotiable && (
+              <Text style={styles.negotiable}>Prices are open to discussion for larger events</Text>
+            )}
           </View>
-        </>
-      )}
+        )}
+
+        {/* ── Portfolio — huge images, no thumbnails ── */}
+        {p.photos.length > 1 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Portfolio</Text>
+            {p.photos.slice(0, 6).map((uri, i) => (
+              <Image
+                key={`${uri}-${i}`}
+                source={{ uri }}
+                style={styles.portfolioImage}
+                contentFit="cover"
+                cachePolicy="memory-disk"
+                transition={200}
+              />
+            ))}
+          </View>
+        )}
+
+        {/* ── Specialties ── */}
+        {p.specialties.length > 0 && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Specialties</Text>
+            <View style={styles.tagRow}>
+              {p.specialties.map(sp => (
+                <View key={sp} style={styles.tag}>
+                  <Text style={styles.tagText}>{sp}</Text>
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
+        {/* ── Reviews ── */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Reviews</Text>
+          {rating > 0 && (
+            <View style={styles.ratingSummary}>
+              <Text style={styles.ratingBig}>{rating.toFixed(1)}</Text>
+              <View>
+                <StarRow rating={rating} size={16} />
+                <Text style={styles.ratingCount}>{p.ratingCount} client {p.ratingCount === 1 ? 'review' : 'reviews'}</Text>
+              </View>
+            </View>
+          )}
+          {p.recentRatings.length === 0 ? (
+            <View style={styles.emptyReviews}>
+              <Text style={styles.emptyReviewsText}>No reviews yet — be the first ✨</Text>
+            </View>
+          ) : (
+            p.recentRatings.map(r => (
+              <View key={r.id} style={styles.reviewCard}>
+                <View style={styles.reviewHead}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
+                    <View style={styles.reviewAvatar}>
+                      <Text style={styles.reviewAvatarText}>{r.customerName[0]}</Text>
+                    </View>
+                    <View>
+                      <Text style={styles.reviewName}>{r.customerName}</Text>
+                      <Text style={styles.reviewDate}>
+                        {new Date(r.createdAt).toLocaleDateString('en-CA', { month: 'short', year: 'numeric' })}
+                      </Text>
+                    </View>
+                  </View>
+                  <StarRow rating={r.rating} size={12} />
+                </View>
+                {!!r.comment && <Text style={styles.reviewComment}>{r.comment}</Text>}
+              </View>
+            ))
+          )}
+        </View>
+      </ScrollView>
+
+      {/* ── One Book CTA ── */}
+      <View style={[styles.bottomCTA, { paddingBottom: insets.bottom + 12 }]}>
+        <View style={{ flex: 1 }}>
+          {fromPrice != null ? (
+            <>
+              <Text style={styles.priceText}>From ${Math.round(fromPrice)}</Text>
+              <Text style={styles.priceSub}>complete look</Text>
+            </>
+          ) : (
+            <Text style={styles.priceText}>Custom pricing</Text>
+          )}
+        </View>
+        <Pressable
+          style={({ pressed }) => [styles.bookBtn, pressed && { opacity: 0.9, transform: [{ scale: 0.97 }] }]}
+          onPress={() => book()}
+        >
+          <Text style={styles.bookBtnText}>Book {p.name.split(' ')[0]}</Text>
+        </Pressable>
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
-  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12 },
-  loadingText: { fontSize: 15, color: Colors.secondaryLabel, marginTop: 8 },
-  errorText: { fontSize: 15, color: Colors.systemRed, textAlign: 'center' },
-  retryBtn: { backgroundColor: Colors.brand, borderRadius: 12, paddingVertical: 12, paddingHorizontal: 24, marginTop: 8 },
-  retryBtnText: { color: '#fff', fontWeight: '700', fontSize: 15 },
+  centered: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 24, gap: 12, backgroundColor: Colors.systemGroupedBackground },
+  loadingText: { fontSize: 15, color: Colors.secondaryLabel, marginTop: 8, fontFamily: Fonts.regular },
+  errorText: { fontSize: 15, color: Colors.systemRed, textAlign: 'center', fontFamily: Fonts.regular },
+  retryBtn: { backgroundColor: Colors.brand, borderRadius: 100, paddingVertical: 12, paddingHorizontal: 26, marginTop: 8 },
+  retryBtnText: { color: '#fff', fontFamily: Fonts.semibold, fontSize: 15 },
 
   carouselContainer: { width: SCREEN_W, height: PHOTO_H, overflow: 'hidden' },
   carouselImage: { width: SCREEN_W, height: PHOTO_H },
-  carouselGradient: { position: 'absolute', left: 0, right: 0, bottom: 0, height: PHOTO_H * 0.6 },
-  dotRow: { position: 'absolute', bottom: 60, alignSelf: 'center', flexDirection: 'row', gap: 5 },
-  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.4)' },
+  carouselGradient: { position: 'absolute', left: 0, right: 0, bottom: 0, height: PHOTO_H * 0.55 },
+  carouselFallback: { backgroundColor: Colors.brand, alignItems: 'center', justifyContent: 'center' },
+  fallbackInitials: { color: 'rgba(255,255,255,0.75)', fontSize: 68, fontFamily: Fonts.bold },
+  dotRow: { position: 'absolute', bottom: 14, alignSelf: 'center', flexDirection: 'row', gap: 5 },
+  dot: { width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.45)' },
   dotActive: { backgroundColor: '#fff', width: 18, borderRadius: 3 },
-  photoBadge: { position: 'absolute', top: 12, right: 12, backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 10, paddingHorizontal: 10, paddingVertical: 4 },
-  photoBadgeText: { color: '#fff', fontSize: 11, fontWeight: '600' },
 
-  floatBack: { position: 'absolute', left: 16, width: 38, height: 38, borderRadius: 19, backgroundColor: 'rgba(0,0,0,0.35)', alignItems: 'center', justifyContent: 'center' },
-  floatBackText: { color: '#fff', fontSize: 22, fontWeight: '700', marginTop: -2 },
+  floatBack: {
+    position: 'absolute', left: 16, width: 40, height: 40, borderRadius: 20,
+    backgroundColor: 'rgba(20,8,12,0.4)', alignItems: 'center', justifyContent: 'center',
+  },
+  floatBackText: { color: '#fff', fontSize: 24, fontFamily: Fonts.semibold, marginTop: -2 },
 
-  nameOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 20, paddingBottom: 16, paddingTop: 12 },
-  overlayName: { fontSize: 24, fontWeight: '800', color: '#fff', letterSpacing: -0.3 },
-  overlayQual: { fontSize: 13, color: 'rgba(255,255,255,0.82)', marginTop: 2 },
-  overlayRating: { fontSize: 12, color: 'rgba(255,255,255,0.9)', fontWeight: '600' },
+  nameOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 24, paddingBottom: 26 },
+  overlayName: { fontSize: 30, fontFamily: Fonts.bold, color: '#fff', letterSpacing: -0.6 },
+  overlayQual: { fontSize: 14, color: 'rgba(255,255,255,0.88)', marginTop: 3, fontFamily: Fonts.regular },
+  overlayRating: { fontSize: 12.5, color: 'rgba(255,255,255,0.92)', fontFamily: Fonts.medium },
 
-  verifiedBadge: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#DCFCE7', borderRadius: 8, paddingHorizontal: 7, paddingVertical: 2 },
-  verifiedBadgeText: { fontSize: 11, color: '#166534', fontWeight: '700' },
+  highlightRow: { paddingHorizontal: 24, gap: 8, paddingVertical: 18 },
+  highlightChip: {
+    backgroundColor: '#fff', borderRadius: 100,
+    borderWidth: 1, borderColor: Colors.separator,
+    paddingHorizontal: 14, paddingVertical: 8,
+  },
+  highlightText: { fontSize: 12.5, fontFamily: Fonts.medium, color: Colors.label },
 
-  statsRow: {
-    flexDirection: 'row', backgroundColor: '#fff',
-    marginHorizontal: 16, marginTop: 16, borderRadius: 18, paddingVertical: 14,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.07, shadowRadius: 8, elevation: 3,
+  section: { paddingHorizontal: 24, marginBottom: 26 },
+  sectionTitle: { fontSize: 20, fontFamily: Fonts.semibold, color: Colors.label, letterSpacing: -0.4, marginBottom: 14 },
+
+  bioText: { fontSize: 15, color: Colors.label, lineHeight: 24, fontFamily: Fonts.regular },
+
+  trustCard: {
+    backgroundColor: '#3B1520', borderRadius: 26, padding: 22, overflow: 'hidden',
+    shadowColor: '#3B1520', shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.3, shadowRadius: 22, elevation: 7,
+  },
+  trustGlow: {
+    position: 'absolute', top: -60, right: -40,
+    width: 180, height: 180, borderRadius: 90,
+    backgroundColor: 'rgba(212,175,55,0.16)',
+  },
+  trustHeader: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  trustTitle: { color: '#fff', fontSize: 19, fontFamily: Fonts.bold, letterSpacing: -0.3 },
+  trustSub: { color: 'rgba(255,255,255,0.75)', fontSize: 12, marginTop: 1, fontFamily: Fonts.regular },
+  trustBadge: {
+    marginLeft: 'auto',
+    width: 32, height: 32, borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.12)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  trustRows: { marginTop: 18, gap: 11 },
+  trustRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  trustRowText: { color: 'rgba(255,255,255,0.94)', fontSize: 14, fontFamily: Fonts.regular },
+  trustFooter: {
+    color: Colors.gold, fontSize: 12.5, fontFamily: Fonts.medium,
+    marginTop: 18, letterSpacing: 0.2,
+  },
+
+  pkgRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 13,
+    backgroundColor: '#fff', borderRadius: 20, padding: 14,
+    borderWidth: 1, borderColor: Colors.separator, marginBottom: 10,
+  },
+  pkgName: { fontSize: 15, fontFamily: Fonts.semibold, color: Colors.label },
+  pkgMeta: { fontSize: 12, color: Colors.secondaryLabel, marginTop: 2, fontFamily: Fonts.regular },
+  pkgPrice: { fontSize: 16, fontFamily: Fonts.bold, color: Colors.brandDeep },
+  negotiable: { fontSize: 12.5, color: Colors.secondaryLabel, marginTop: 4, fontFamily: Fonts.regular },
+
+  portfolioImage: {
+    width: '100%', height: 260, borderRadius: 24, marginBottom: 12,
+    backgroundColor: Colors.brandLight,
+  },
+
+  tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  tag: { backgroundColor: Colors.brandLight, borderRadius: 100, paddingHorizontal: 13, paddingVertical: 7 },
+  tagText: { fontSize: 12.5, color: Colors.brandDark, fontFamily: Fonts.semibold },
+
+  ratingSummary: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 16 },
+  ratingBig: { fontSize: 44, fontFamily: Fonts.bold, color: Colors.label, letterSpacing: -1 },
+  ratingCount: { fontSize: 12.5, color: Colors.secondaryLabel, marginTop: 4, fontFamily: Fonts.regular },
+
+  emptyReviews: {
+    backgroundColor: '#fff', borderRadius: 18, padding: 20,
+    borderWidth: 1, borderColor: Colors.separator, alignItems: 'center',
+  },
+  emptyReviewsText: { fontSize: 13.5, color: Colors.secondaryLabel, fontFamily: Fonts.regular },
+
+  reviewCard: {
+    backgroundColor: '#fff', borderRadius: 18, padding: 16, marginBottom: 10,
     borderWidth: 1, borderColor: Colors.separator,
   },
-  statItem: { flex: 1, alignItems: 'center' },
-  statValue: { fontSize: 20, fontWeight: '800', color: Colors.brand },
-  statLabel: { fontSize: 10, color: Colors.secondaryLabel, marginTop: 2, fontWeight: '600', textTransform: 'uppercase' },
-  statDivider: { width: 1, backgroundColor: Colors.separator, alignSelf: 'stretch' },
+  reviewHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
+  reviewAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: Colors.brandLight, alignItems: 'center', justifyContent: 'center' },
+  reviewAvatarText: { color: Colors.brandDark, fontSize: 14, fontFamily: Fonts.bold },
+  reviewName: { fontSize: 13.5, fontFamily: Fonts.semibold, color: Colors.label },
+  reviewDate: { fontSize: 11, color: Colors.tertiaryLabel, marginTop: 1, fontFamily: Fonts.regular },
+  reviewComment: { fontSize: 14, color: Colors.label, lineHeight: 21, fontFamily: Fonts.regular },
 
-  section: { paddingHorizontal: 16, marginBottom: 4 },
-  sectionLabel: { fontSize: 11, fontWeight: '700', color: Colors.secondaryLabel, letterSpacing: 0.8, textTransform: 'uppercase', paddingHorizontal: 4, marginBottom: 8, marginTop: 20 },
-  card: { backgroundColor: '#fff', borderRadius: 16, padding: 16, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 2, borderWidth: 1, borderColor: Colors.separator },
-
-  bioText: { fontSize: 14, color: '#374151', lineHeight: 22 },
-
-  tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
-  tag: { backgroundColor: Colors.brandLight, borderRadius: 8, paddingHorizontal: 11, paddingVertical: 6 },
-  tagText: { fontSize: 12, color: Colors.brandDark, fontWeight: '700' },
-
-  certItem: { flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 },
-  certIcon: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
-  certLabel: { fontSize: 14, color: '#374151', fontWeight: '500' },
-
-  credRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 },
-  credBorder: { borderTopWidth: 1, borderTopColor: Colors.separator },
-  credLabel: { fontSize: 13, color: Colors.secondaryLabel, fontWeight: '500' },
-  credValue: { fontSize: 14, color: Colors.label, fontWeight: '700', flexShrink: 1, textAlign: 'right', marginLeft: 12 },
-
-  reviewCard: { backgroundColor: '#fff', borderRadius: 14, padding: 14, marginBottom: 8, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1, borderWidth: 1, borderColor: Colors.separator },
-  reviewAvatar: { width: 28, height: 28, borderRadius: 14, backgroundColor: Colors.brand, alignItems: 'center', justifyContent: 'center' },
-  reviewAvatarText: { color: '#fff', fontSize: 12, fontWeight: '700' },
-  reviewComment: { fontSize: 14, color: '#374151', lineHeight: 20, marginBottom: 4 },
-  reviewDate: { fontSize: 11, color: Colors.tertiaryLabel },
-
-  bottomCTA: { position: 'absolute', bottom: 0, left: 0, right: 0, backgroundColor: '#fff', paddingHorizontal: 20, paddingTop: 14, borderTopWidth: 1, borderTopColor: Colors.separator, shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.1, shadowRadius: 12, elevation: 12 },
-  priceLine: { flexDirection: 'row', alignItems: 'baseline', gap: 6, marginBottom: 10 },
-  priceText: { fontSize: 22, fontWeight: '800', color: Colors.label },
-  minText: { fontSize: 13, color: Colors.secondaryLabel },
-  bookBtn: { borderRadius: 16, overflow: 'hidden', shadowColor: Colors.brand, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 10, elevation: 6 },
-  bookBtnGrad: { paddingVertical: 18, alignItems: 'center' },
-  bookBtnText: { color: '#fff', fontSize: 17, fontWeight: '800', letterSpacing: 0.2 },
+  bottomCTA: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    flexDirection: 'row', alignItems: 'center', gap: 16,
+    backgroundColor: '#fff', paddingHorizontal: 24, paddingTop: 14,
+    borderTopWidth: 1, borderTopColor: Colors.separator,
+    shadowColor: '#000', shadowOffset: { width: 0, height: -4 }, shadowOpacity: 0.08, shadowRadius: 12, elevation: 12,
+  },
+  priceText: { fontSize: 21, fontFamily: Fonts.bold, color: Colors.label, letterSpacing: -0.4 },
+  priceSub: { fontSize: 12, color: Colors.secondaryLabel, fontFamily: Fonts.regular },
+  bookBtn: {
+    backgroundColor: Colors.brand, borderRadius: 100,
+    paddingVertical: 16, paddingHorizontal: 34,
+    shadowColor: Colors.brand, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 6,
+  },
+  bookBtnText: { color: '#fff', fontSize: 16, fontFamily: Fonts.semibold, letterSpacing: 0.2 },
 });

@@ -14,7 +14,7 @@ export const API_BASE: string = (() => {
   return url;
 })();
 
-type Method = 'GET' | 'POST' | 'PATCH' | 'DELETE';
+type Method = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE';
 
 // No-op warmup — kept so import sites don't break
 export async function warmBackend(): Promise<void> {}
@@ -130,6 +130,12 @@ export function apiSubmitProviderOnboarding(payload: {
   priceNegotiable?: boolean;
 }) {
   return request<{ message: string }>('POST', '/auth/provider-profile', payload);
+}
+
+export function apiSetProviderServices(services: { name: string; price: number; durationMin?: number }[]) {
+  return request<{ services: { name: string; price: number; durationMin: number; active: boolean }[] }>(
+    'PUT', '/services', { services },
+  );
 }
 
 export function apiUpdateProviderPricing(payload: {

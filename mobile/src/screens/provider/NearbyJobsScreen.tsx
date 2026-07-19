@@ -117,7 +117,7 @@ function WebLeafletMap({ center, jobs, onJobPress, onAcceptJob, filterText }: We
       if (!lat || !lng) return;
       // No client info in the open-pool map: just the pay pill (privacy-safe).
       const jobIcon = L.divIcon({
-        html: `<div style="background:${Colors.brandDark};color:#fff;border-radius:10px;padding:5px 10px;font-size:13px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.3)">$${job.totalPrice}</div>`,
+        html: `<div style="background:${Colors.brandDark};color:#fff;border-radius:10px;padding:5px 10px;font-size:13px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.3)">$${fmt(job.totalPrice)}</div>`,
         className: '', iconAnchor: [0, 0],
       });
       const marker = L.marker([lat, lng], { icon: jobIcon }).addTo(mapRef.current);
@@ -126,7 +126,7 @@ function WebLeafletMap({ center, jobs, onJobPress, onAcceptJob, filterText }: We
           <span style="width:9px;height:9px;border-radius:50%;background:${Colors.brand};display:inline-block"></span>
           <span style="font-size:16px;font-weight:800;color:#0F172A">${job.serviceType}</span>
         </div>
-        <div style="font-size:14px;color:#555;margin-bottom:2px">$${job.totalPrice} · ${job.hours}h</div>
+        <div style="font-size:14px;color:#555;margin-bottom:2px">$${fmt(job.totalPrice)} · ${job.hours}h</div>
         <div style="font-size:12px;color:#888">${new Date(job.scheduledAt).toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})}</div>
         <button class="cn-detail-btn" id="detail-${job._id}">View Details</button>
       </div>`;
@@ -218,7 +218,7 @@ function JobActions({
           ? <ActivityIndicator color="#fff" size="small" />
           : <>
               <Text style={actionStyles.acceptText}>Accept</Text>
-              <Text style={actionStyles.acceptAmt}>${job.totalPrice}</Text>
+              <Text style={actionStyles.acceptAmt}>${fmt(job.totalPrice)}</Text>
             </>}
       </Pressable>
     </View>
@@ -445,7 +445,7 @@ function OpenJobCard({ job, isNew, onPress }: { job: any; isNew: boolean; onPres
         </View>
         <Text style={openCardStyles.dateTime}>{dateStr} · {timeStr}{area ? ` · ${area}` : ''}</Text>
         <View style={openCardStyles.payRow}>
-          <Text style={openCardStyles.price}>${job.totalPrice}</Text>
+          <Text style={openCardStyles.price}>${fmt(job.totalPrice)}</Text>
           <View style={openCardStyles.sessionChip}>
             <ClockIcon size={12} color={Colors.brandDeep} />
             <Text style={openCardStyles.sessionChipText}>{job.hours}h session</Text>
@@ -529,7 +529,7 @@ function ProfileBoostBanner({ prominent, onPress }: { prominent: boolean; onPres
     >
       <MedalIcon size={16} color={Colors.brand} />
       <Text style={boostStyles.slimText} numberOfLines={1}>
-        Add certifications to your profile to get more jobs
+        Add certifications for more jobs
       </Text>
       <Text style={boostStyles.slimCta}>Improve</Text>
     </Pressable>
@@ -607,6 +607,10 @@ const pendingStyles = StyleSheet.create({
   stepLabelDone: { color: Colors.brand },
   contact: { fontSize: 12, color: Colors.tertiaryLabel },
 });
+
+// Payouts come from the backend as Decimal (e.g. 9.84 after commission) —
+// always round for display so job cards show whole-dollar amounts.
+const fmt = (n: number | undefined | null) => Math.round(n ?? 0);
 
 // ── Main screen ───────────────────────────────────────────────────────────────
 export function NearbyJobsScreen() {
@@ -722,9 +726,9 @@ export function NearbyJobsScreen() {
     };
 
     if (Platform.OS === 'web') {
-      if (confirm(`Accept ${job.serviceType} — $${job.totalPrice}?`)) doAccept();
+      if (confirm(`Accept ${job.serviceType} — $${fmt(job.totalPrice)}?`)) doAccept();
     } else {
-      Alert.alert('Accept Job', `${job.serviceType} · $${job.totalPrice} · ${job.hours}h`, [
+      Alert.alert('Accept Job', `${job.serviceType} · $${fmt(job.totalPrice)} · ${job.hours}h`, [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Accept', style: 'default', onPress: doAccept },
       ]);
@@ -769,7 +773,7 @@ export function NearbyJobsScreen() {
   // the Requests inbox, not here. So the whole filtered list is the open jobs.
   const openJobs = filtered as any[];
 
-  const potentialEarnings = filtered.reduce((s, j) => s + (j.totalPrice ?? 0), 0);
+  const potentialEarnings = filtered.reduce((s, j) => s + (Number(j.totalPrice) ?? 0), 0);
   // Prefer the Provider's real GPS; fall back to the first open job; only then the
   // regional centre. Avoids parking the map on a default city when the device
   // actually knows where the Provider is.
@@ -859,7 +863,7 @@ export function NearbyJobsScreen() {
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={styles.statNum}>${potentialEarnings}</Text>
+            <Text style={styles.statNum}>${Math.round(potentialEarnings)}</Text>
             <Text style={styles.statLabel}>Potential</Text>
           </View>
           <View style={styles.statDivider} />
@@ -897,23 +901,23 @@ export function NearbyJobsScreen() {
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View style={styles.headerRow}>
-          <View>
-            <Text style={styles.headerTitle}>Fresh requests</Text>
-            <Text style={styles.headerSub}>Clients near you are ready to glow</Text>
+          <View style={{ marginRight: 8 }}>
+            <Text style={styles.headerTitle} numberOfLines={1}>Fresh requests</Text>
+            <Text style={styles.headerSub} numberOfLines={1}>Clients near you are ready to glow</Text>
           </View>
-          <View style={styles.headerRight}>
-            {activeTab === 'new' && (
-              <Pressable style={styles.toggleBtn} onPress={() => setViewMode(v => v === 'list' ? 'map' : 'list')}>
-                {viewMode === 'list' ? <MapIcon size={15} color="#fff" /> : <ListIcon size={15} color="#fff" />}
-                <Text style={styles.toggleBtnText}>{viewMode === 'list' ? 'Map' : 'List'}</Text>
-              </Pressable>
-            )}
-            <Pressable style={styles.gpsBadge} onPress={requestLocation}>
-              <RadioOnIcon size={12} color={rawCoords ? '#34D399' : '#FCD34D'} />
-              <Text style={styles.gpsBadgeText}>{rawCoords ? 'Live GPS' : DEFAULT_REGION_NAME}</Text>
+          {activeTab === 'new' && (
+            <Pressable style={styles.toggleBtn} onPress={() => setViewMode(v => v === 'list' ? 'map' : 'list')}>
+              {viewMode === 'list' ? <MapIcon size={15} color="#fff" /> : <ListIcon size={15} color="#fff" />}
+              <Text style={styles.toggleBtnText}>{viewMode === 'list' ? 'Map' : 'List'}</Text>
             </Pressable>
-          </View>
+          )}
         </View>
+        <Pressable style={styles.gpsBadge} onPress={requestLocation}>
+          <RadioOnIcon size={12} color={rawCoords ? '#34D399' : '#FCD34D'} />
+          <Text style={styles.gpsBadgeText} numberOfLines={1}>
+            {rawCoords ? 'Live GPS' : DEFAULT_REGION_NAME}
+          </Text>
+        </Pressable>
         {/* Tab bar */}
         <View style={styles.tabBar}>
           {(['new', 'upcoming', 'past'] as const).map(tab => {
@@ -964,7 +968,7 @@ export function NearbyJobsScreen() {
                     lat: job.lat ?? 0,
                     lng: job.lng ?? 0,
                     color: Colors.brand,
-                    label: `${job.serviceType} · $${job.totalPrice} · ${job.hours}h`,
+                    label: `${job.serviceType} · $${fmt(job.totalPrice)} · ${job.hours}h`,
                   } as OSMMarker))}
               />
               <View style={styles.mapOverlay}>
@@ -1073,7 +1077,7 @@ export function NearbyJobsScreen() {
                       <Text style={styles.myJobClient}>{(job as any).customer?.name ?? 'Customer'}</Text>
                     </View>
                     <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                      <Text style={styles.myJobEarn}>${job.totalPrice}</Text>
+                      <Text style={styles.myJobEarn}>${fmt(job.totalPrice)}</Text>
                       <View style={[styles.myJobBadge, {
                         backgroundColor: job.status === 'COMPLETED' ? 'rgba(34,197,94,0.15)' : 'rgba(14,165,111,0.15)',
                       }]}>
@@ -1101,7 +1105,7 @@ export function NearbyJobsScreen() {
           <View style={styles.declineCard}>
             <Text style={styles.declineTitle}>Decline this request?</Text>
             <Text style={styles.declineSub}>
-              {declineJob?.serviceType} · ${declineJob?.totalPrice}. The client sees your reason and can pick another Provider.
+              {declineJob?.serviceType} · ${fmt(declineJob?.totalPrice)}. The client sees your reason and can pick another Provider.
             </Text>
             <View style={styles.reasonChips}>
               {DECLINE_REASONS.map(r => (
@@ -1147,7 +1151,6 @@ const styles = StyleSheet.create({
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   headerTitle: { ...Typography.title2, color: '#fff' },
   headerSub: { ...Typography.footnote, color: 'rgba(255,255,255,0.75)', marginTop: 2 },
-  headerRight: { flexDirection: 'row', alignItems: 'center', gap: 8 },
 
   toggleBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
@@ -1161,6 +1164,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.15)',
     paddingHorizontal: 10, paddingVertical: 6,
     borderRadius: Radius.full,
+    alignSelf: 'flex-start',
+    marginTop: 10,
   },
   gpsBadgeText: { fontSize: 12, fontWeight: '600', color: '#fff' },
 

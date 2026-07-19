@@ -2,12 +2,14 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import React, { useEffect, useRef } from 'react';
 import { addTapListener } from '../utils/notifications';
-import { Platform, Text, View } from 'react-native';
+import { Platform, View } from 'react-native';
 import { useAuth } from '../context/AuthContext';
 import { BookingDetailScreen } from '../screens/customer/BookingDetailScreen';
 import { BookingsScreen } from '../screens/customer/BookingsScreen';
 import { CreateBookingScreen } from '../screens/customer/CreateBookingScreen';
 import { HomeScreen } from '../screens/customer/HomeScreen';
+import { ExploreScreen } from '../screens/customer/ExploreScreen';
+import { SavedScreen } from '../screens/customer/SavedScreen';
 import { TrackingScreen } from '../screens/customer/TrackingScreen';
 import { HelpScreen } from '../screens/shared/HelpScreen';
 import { ProfileScreen } from '../screens/shared/ProfileScreen';
@@ -15,13 +17,16 @@ import { ChatScreen } from '../screens/shared/ChatScreen';
 import { NotificationsScreen } from '../screens/shared/NotificationsScreen';
 import { ProviderPublicProfileScreen } from '../screens/customer/ProviderPublicProfileScreen';
 import { Colors } from '../utils/colors';
-import { apiMyBookings, Booking } from '../api/client';
+import { Booking } from '../api/client';
 import { joinUserRoom } from '../utils/socket';
-import { HomeIcon, CalendarIcon, PlusIcon } from '../components/TabIcons';
+import { HomeIcon, CompassIcon, HeartIcon } from '../components/TabIcons';
+import { ProfileIcon } from '../components/CareIcons';
 
 export type CustomerStackParams = {
   Home: undefined;
   CreateBooking: { reassignBookingId?: string; serviceType?: string; _t?: number } | undefined;
+  NewBooking: { reassignBookingId?: string; serviceType?: string; bookingMode?: string; providerId?: string; _t?: number } | undefined;
+  Bookings: undefined;
   BookingDetail: { booking: Booking };
   Help: undefined;
   Profile: undefined;
@@ -64,26 +69,26 @@ function CustomerMessageListener() {
 
   // New-message notifications are now handled centrally in ChatUnreadContext via the
   // global `message-notification` socket event (banner + bell + system/local notif).
-  // Listening here too produced double banners and only worked when an active booking
-  // existed — so this duplicate per-booking `new-message` listener was removed.
 
   return null;
 }
 
+/**
+ * Concierge IA: Home · Explore · Saved · Profile. Booking is never a tab —
+ * it opens from Glow Match, occasion cards, look sheets and artist profiles
+ * as the full-screen `NewBooking` stack route.
+ */
 function HomeTabs() {
   return (
-    // `overflow: visible` here used to let horizontal ScrollViews inside any
-    // tab (occasion/category/trending rows) leak past the viewport edge on
-    // web — RN Web needs a clipping ancestor for those rows to scroll
-    // instead of overflowing. The floating tab bar is `position: absolute`
-    // so it still renders outside this box regardless of the clip.
+    // `overflow: hidden` gives RN Web a clipping ancestor so horizontal rows
+    // scroll instead of bleeding past the viewport. The floating tab bar is
+    // `position: absolute` so it still renders outside this box.
     <View style={{ flex: 1, overflow: 'hidden' }}>
     <Tab.Navigator
       screenOptions={{
         headerShown: false,
         tabBarActiveTintColor: ACTIVE,
         tabBarInactiveTintColor: INACTIVE,
-        // Show labels (Home / My Bookings) to match the Provider tab bar layout.
         tabBarShowLabel: true,
         tabBarLabelStyle: { fontSize: 10.5, fontFamily: 'Inter_500Medium', marginTop: 2 },
         // Floating iOS-style pill bar — detached from the screen edges with a
@@ -107,63 +112,51 @@ function HomeTabs() {
           shadowRadius: 30,
           elevation: 12,
           overflow: 'visible',
+          // Explicit low zIndex: on web, RN Navigation mounts the tab bar as a
+          // later DOM sibling of screen content, so it paints over full-screen
+          // overlays (LocationPrompt, GlowSheet) despite their own higher
+          // zIndex — zIndex only ranks siblings within the same stacking context.
+          zIndex: 5,
         },
       }}
     >
-      {/* ── Tab 1: Home ── */}
       <Tab.Screen
         name="HomeTab"
         component={HomeScreen}
         options={{
           tabBarLabel: 'Home',
-          // Match the Provider tab bar: plain icon (no pill background) so both sides
-          // look identical + smooth. filled gives a subtle active-state cue.
           tabBarIcon: ({ focused }) => (
             <HomeIcon size={24} color={focused ? ACTIVE : INACTIVE} filled={focused} />
           ),
         }}
       />
-
-      {/* ── Tab 2: New Booking FAB (centre) ── */}
       <Tab.Screen
-        name="NewBooking"
-        component={CreateBookingScreen}
+        name="ExploreTab"
+        component={ExploreScreen}
         options={{
-          // Booking flow is full-screen: the floating pill bar was covering the
-          // flow's own Continue/Confirm bottom bar, making booking impossible.
-          tabBarStyle: { display: 'none' },
-          tabBarLabel: () => null,
-          tabBarIcon: () => (
-            <View style={{
-              width: 62, height: 62,
-              borderRadius: 31,
-              backgroundColor: ACTIVE,
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginTop: -28,
-              marginBottom: 2,
-              shadowColor: ACTIVE,
-              shadowOffset: { width: 0, height: 8 },
-              shadowOpacity: 0.5,
-              shadowRadius: 18,
-              elevation: 14,
-              borderWidth: 3,
-              borderColor: '#fff',
-            }}>
-              <PlusIcon size={28} color="#fff" />
-            </View>
+          tabBarLabel: 'Explore',
+          tabBarIcon: ({ focused }) => (
+            <CompassIcon size={24} color={focused ? ACTIVE : INACTIVE} filled={focused} />
           ),
         }}
       />
-
-      {/* ── Tab 3: My Bookings ── */}
       <Tab.Screen
-        name="BookingsTab"
-        component={BookingsScreen}
+        name="SavedTab"
+        component={SavedScreen}
         options={{
-          tabBarLabel: 'Bookings',
+          tabBarLabel: 'Saved',
           tabBarIcon: ({ focused }) => (
-            <CalendarIcon size={24} color={focused ? ACTIVE : INACTIVE} filled={focused} />
+            <HeartIcon size={24} color={focused ? ACTIVE : INACTIVE} filled={focused} />
+          ),
+        }}
+      />
+      <Tab.Screen
+        name="ProfileTab"
+        component={ProfileScreen}
+        options={{
+          tabBarLabel: 'Profile',
+          tabBarIcon: ({ focused }) => (
+            <ProfileIcon size={24} color={focused ? ACTIVE : INACTIVE} />
           ),
         }}
       />
@@ -184,7 +177,12 @@ export function CustomerNavigator() {
       }}
     >
       <Stack.Screen name="Home" component={HomeTabs} options={{ headerShown: false }} />
+      {/* Booking flow lives in the stack (full-screen, covers the tab bar). The
+          route keeps the historical name `NewBooking` — every entry point
+          (Glow Match, occasion cards, look sheets, artist profiles) targets it. */}
+      <Stack.Screen name="NewBooking" component={CreateBookingScreen} options={{ headerShown: false }} />
       <Stack.Screen name="CreateBooking" component={CreateBookingScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Bookings" component={BookingsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="BookingDetail" component={BookingDetailScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Help" component={HelpScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Profile" component={ProfileScreen} options={{ headerShown: false }} />

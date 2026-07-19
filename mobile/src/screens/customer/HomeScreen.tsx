@@ -13,70 +13,78 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { CalendarSVGIcon, StarIcon, SearchIcon } from '../../components/TabIcons';
+import { StarIcon, CalendarIcon, CameraIcon } from '../../components/TabIcons';
 import { GlowLogo, GlowMark } from '../../components/GlowLogo';
 import {
   apiMyBookings,
   apiPublicCatalog,
   apiPublicProviders,
   Booking,
-  CatalogService,
   PublicProviderCard,
 } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useLocation } from '../../context/LocationContext';
 import { Colors, Fonts } from '../../utils/colors';
-import { ServiceIcon } from '../../components/ServiceIcon';
-import { BellIcon, PinIcon, CheckDecagramIcon } from '../../components/CareIcons';
-import { SparkleIcon } from '../../components/BeautyIcons';
-import { BookingCard } from '../../components/BookingCard';
-import { BookingCardSkeleton } from '../../components/SkeletonLoader';
+import { BellIcon, CheckDecagramIcon } from '../../components/CareIcons';
+import {
+  SparkleIcon, CrownIcon, LipstickIcon, HennaIcon, MirrorIcon, FacialIcon, ScissorsIcon,
+} from '../../components/BeautyIcons';
 import { StatusBadge } from '../../components/StatusBadge';
 import { LocationPrompt } from '../../components/LocationPrompt';
+import { GlowSheet } from '../../components/GlowSheet';
+import { GlowMatchSheet } from '../../components/GlowMatchSheet';
+import { LookSheet } from '../../components/LookSheet';
+import { LookTile } from '../../components/LookTile';
+import { LOOKS, Look } from '../../data/looks';
 import { Storage } from '../../utils/storage';
 import { useChatUnread } from '../../context/ChatUnreadContext';
+import { tapLight } from '../../utils/haptics';
 
-const SERVICES = [
-  { id: '1',  name: 'Makeup' },
-  { id: '2',  name: 'Bridal Makeup' },
-  { id: '3',  name: 'Party Makeup' },
-  { id: '4',  name: 'Threading' },
-  { id: '5',  name: 'Hair Styling' },
-  { id: '6',  name: 'Hair Coloring' },
-  { id: '7',  name: 'Facial' },
-  { id: '8',  name: 'Waxing' },
-  { id: '9',  name: 'Nails' },
-  { id: '10', name: 'Mehendi' },
-  { id: '11', name: 'Massage' },
+type IconComp = (p: { size?: number; color?: string }) => React.ReactElement;
+
+/**
+ * Occasion-first home. Nobody wakes up wanting "a makeup artist" — they have
+ * a wedding next week, a date tonight. Every card answers that moment and
+ * lands in the booking flow with the right service already chosen.
+ */
+const OCCASIONS: {
+  id: string; name: string; sub: string; Icon: IconComp;
+  serviceType: string | null; // null → opens a role picker (Wedding)
+  tint: string; big?: boolean;
+}[] = [
+  { id: 'wedding',    name: 'Wedding',       sub: 'Your big day, handled',   Icon: CrownIcon,    serviceType: null,            tint: '#FCECEF', big: true },
+  { id: 'engagement', name: 'Engagement',    sub: 'Ring-light ready',        Icon: SparkleIcon,  serviceType: 'Bridal Makeup', tint: '#F6EBC9' },
+  { id: 'reception',  name: 'Reception',     sub: 'Second-look sparkle',     Icon: MirrorIcon,   serviceType: 'Party Makeup',  tint: '#FCECEF' },
+  { id: 'party',      name: 'Party',         sub: 'Full glam night',         Icon: SparkleIcon,  serviceType: 'Party Makeup',  tint: '#FCECEF' },
+  { id: 'date',       name: 'Date Night',    sub: 'Soft & radiant',          Icon: LipstickIcon, serviceType: 'Makeup',        tint: '#F6EBC9' },
+  { id: 'birthday',   name: 'Birthday',      sub: 'Main-character glow',     Icon: SparkleIcon,  serviceType: 'Party Makeup',  tint: '#FCECEF' },
+  { id: 'festival',   name: 'Festival',      sub: 'Mehendi & shimmer',       Icon: HennaIcon,    serviceType: 'Mehendi',       tint: '#F6EBC9' },
+  { id: 'office',     name: 'Office Event',  sub: 'Polished, not loud',      Icon: MirrorIcon,   serviceType: 'Makeup',        tint: '#FCECEF' },
+  { id: 'photoshoot', name: 'Photoshoot',    sub: 'Camera-proof finish',     Icon: CameraIcon as IconComp, serviceType: 'Makeup', tint: '#F6EBC9' },
+  { id: 'graduation', name: 'Graduation',    sub: 'Cap-and-gown glam',       Icon: CrownIcon,    serviceType: 'Party Makeup',  tint: '#FCECEF' },
+  { id: 'everyday',   name: 'Everyday Glow', sub: 'Skin-first beauty',       Icon: FacialIcon,   serviceType: 'Facial',        tint: '#F6EBC9' },
 ];
 
-// Occasion-first browsing — how women actually shop beauty: by moment, not by
-// service taxonomy. Each maps to the closest bookable service.
-const OCCASIONS: { id: string; name: string; sub: string; service: string; tint: string }[] = [
-  { id: 'wedding',  name: 'Wedding',       sub: 'Bridal glam',        service: 'Bridal Makeup', tint: '#FCECEF' },
-  { id: 'party',    name: 'Party night',   sub: 'Full glam look',     service: 'Party Makeup',  tint: '#F6EBC9' },
-  { id: 'date',     name: 'Date night',    sub: 'Soft & radiant',     service: 'Makeup',        tint: '#FCECEF' },
-  { id: 'festival', name: 'Festival',      sub: 'Mehendi & more',     service: 'Mehendi',       tint: '#F6EBC9' },
-  { id: 'everyday', name: 'Everyday glow', sub: 'Skin-first beauty',  service: 'Facial',        tint: '#FCECEF' },
-  { id: 'metime',   name: 'Me-time',       sub: 'Relax & recharge',   service: 'Massage',       tint: '#F6EBC9' },
-];
-
-// Editorial inspiration tiles — designer photography drops in here later
-// (see brand asset list); until then soft duotone canvases.
-const INSPO: { id: string; title: string; tag: string; service: string; from: string; to: string }[] = [
-  { id: 'softglam', title: 'Soft glam is in',      tag: 'TREND',  service: 'Makeup',        from: '#E9A0B1', to: '#A34D63' },
-  { id: 'bridal',   title: 'Wedding season looks', tag: 'EDIT',   service: 'Bridal Makeup', from: '#D4AF37', to: '#A3812A' },
-  { id: 'nails',    title: 'Nail art we love',     tag: 'LOVED',  service: 'Nails',         from: '#D97A91', to: '#7E3B4D' },
-  { id: 'hair',     title: 'Effortless waves',     tag: 'HOW-TO', service: 'Hair Styling',  from: '#C4667E', to: '#8E4257' },
+/** Wedding roles — the only occasion that earns a follow-up question. */
+const WEDDING_ROLES: { label: string; sub: string; serviceType: string; Icon: IconComp }[] = [
+  { label: 'Bride',                  sub: 'Full bridal glam',        serviceType: 'Bridal Makeup', Icon: CrownIcon },
+  { label: 'Bridesmaid',             sub: 'Party-perfect glam',      serviceType: 'Party Makeup',  Icon: SparkleIcon },
+  { label: 'Mother of the Bride',    sub: 'Elegant & timeless',      serviceType: 'Makeup',        Icon: MirrorIcon },
+  { label: 'Guest Makeup',           sub: 'Celebration-ready',       serviceType: 'Makeup',        Icon: LipstickIcon },
+  { label: 'Reception',              sub: 'Evening second look',     serviceType: 'Party Makeup',  Icon: SparkleIcon },
+  { label: 'Engagement Ceremony',    sub: 'Soft bridal glow',        serviceType: 'Bridal Makeup', Icon: SparkleIcon },
+  { label: 'Hair Styling',           sub: 'Updos, waves & more',     serviceType: 'Hair Styling',  Icon: ScissorsIcon },
+  { label: 'Saree Draping & Jewelry', sub: 'Set to perfection',      serviceType: 'Bridal Makeup', Icon: CrownIcon },
+  { label: 'Mehendi',                sub: 'Bridal henna',            serviceType: 'Mehendi',       Icon: HennaIcon },
 ];
 
 const ACTIVE_STATUSES = new Set(['REQUESTED', 'ACCEPTED', 'ON_MY_WAY', 'STARTED']);
 
-function formatDate(iso: string, locale: string) {
-  return new Date(iso).toLocaleDateString(locale, { weekday: 'short', month: 'short', day: 'numeric' });
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
-function formatTime(iso: string, locale: string) {
-  return new Date(iso).toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit', hour12: true });
+function formatTime(iso: string) {
+  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
 }
 
 /** Press-scale wrapper — every touch feels alive. */
@@ -99,7 +107,7 @@ function Touch({ children, onPress, style }: { children: React.ReactNode; onPres
 function ArtistCard({ artist, onPress }: { artist: PublicProviderCard; onPress: () => void }) {
   const initial = artist.name?.[0]?.toUpperCase() ?? '?';
   return (
-    <Touch onPress={onPress} style={styles.artistCardWrap}>
+    <Touch onPress={onPress}>
       <View style={styles.artistCard}>
         <View style={styles.artistCanvas}>
           {artist.photoUrl ? (
@@ -125,9 +133,7 @@ function ArtistCard({ artist, onPress }: { artist: PublicProviderCard; onPress: 
             </Text>
             {artist.ratingCount > 0 && <Text style={styles.artistRatingCount}>({artist.ratingCount})</Text>}
             <View style={styles.metaDot} />
-            <Text style={styles.artistVisits}>
-              {artist.completedVisits} visits
-            </Text>
+            <Text style={styles.artistVisits}>{artist.completedVisits} visits</Text>
           </View>
         </View>
       </View>
@@ -138,25 +144,25 @@ function ArtistCard({ artist, onPress }: { artist: PublicProviderCard; onPress: 
 export function HomeScreen() {
   const { user, photoUri } = useAuth();
   const { requestLocation, permissionStatus } = useLocation();
-  const nav       = useNavigation<any>();
-  const insets    = useSafeAreaInsets();
-  const [bookings,      setBookings]      = useState<Booking[]>([]);
-  const [loading,       setLoading]       = useState(true);
-  const [refreshing,    setRefreshing]    = useState(false);
+  const nav    = useNavigation<any>();
+  const insets = useSafeAreaInsets();
+  const [bookings,   setBookings]   = useState<Booking[]>([]);
+  const [refreshing, setRefreshing] = useState(false);
   const [showIOSHint, setShowIOSHint] = useState(false);
   const [showLocationPrompt, setShowLocationPrompt] = useState(false);
   const [locationPromptedBefore, setLocationPromptedBefore] = useState(true);
-  const [popularServices, setPopularServices] = useState<CatalogService[]>([]);
   const [artists, setArtists] = useState<PublicProviderCard[]>([]);
-  const [specialtyFilter, setSpecialtyFilter] = useState<string>('All');
+  const [catalogPrices, setCatalogPrices] = useState<Record<string, number>>({});
+  const [showMatch, setShowMatch] = useState(false);
+  const [showWeddingRoles, setShowWeddingRoles] = useState(false);
+  const [openLook, setOpenLook] = useState<Look | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fadeIn = useRef(new Animated.Value(0)).current;
 
   const { notifications } = useChatUnread();
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  const activeBooking  = bookings.find(b => ACTIVE_STATUSES.has(b.status));
-  const recentBookings = bookings.filter(b => !ACTIVE_STATUSES.has(b.status)).slice(0, 3);
+  const activeBooking = bookings.find(b => ACTIVE_STATUSES.has(b.status));
 
   useEffect(() => {
     Animated.timing(fadeIn, { toValue: 1, duration: 600, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
@@ -198,24 +204,22 @@ export function HomeScreen() {
 
   const load = useCallback(async (showRefresh = false) => {
     if (showRefresh) setRefreshing(true);
-    else setLoading(true);
     try {
       const { bookings: data } = await apiMyBookings(true);
       setBookings(data.sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime()));
     } catch {}
-    setLoading(false);
     setRefreshing(false);
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
 
-  // Public catalog + artist directory — cached server-side.
+  // Public catalog (live look prices) + artist directory — cached server-side.
   useEffect(() => {
     apiPublicCatalog()
       .then(({ categories }) => {
-        const all = categories.flatMap(c => c.services);
-        const popular = all.filter(s => s.popular);
-        setPopularServices((popular.length ? popular : all).slice(0, 8));
+        const map: Record<string, number> = {};
+        categories.flatMap(c => c.services).forEach(s => { map[s.name] = s.basePrice; });
+        setCatalogPrices(map);
       })
       .catch(() => {});
     apiPublicProviders()
@@ -223,21 +227,15 @@ export function HomeScreen() {
       .catch(() => {});
   }, []);
 
-  // Browse artists by their niche: chips from the specialties artists actually
-  // have, list re-ordered by rating within the chosen specialty.
-  const specialtyChips = React.useMemo(() => {
-    const counts = new Map<string, number>();
-    artists.forEach(a => a.specialties.forEach(s => counts.set(s, (counts.get(s) ?? 0) + 1)));
-    const top = [...counts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 6).map(([s]) => s);
-    return ['All', ...top];
-  }, [artists]);
+  const topArtists = React.useMemo(
+    () => [...artists].sort((a, b) => (Number(b.rating) || 0) - (Number(a.rating) || 0)).slice(0, 8),
+    [artists],
+  );
 
-  const filteredArtists = React.useMemo(() => {
-    const pool = specialtyFilter === 'All'
-      ? artists
-      : artists.filter(a => a.specialties.includes(specialtyFilter));
-    return [...pool].sort((a, b) => (Number(b.rating) || 0) - (Number(a.rating) || 0)).slice(0, 8);
-  }, [artists, specialtyFilter]);
+  const trendingLooks = React.useMemo(
+    () => [...LOOKS].sort((a, b) => Number(!!b.tall) - Number(!!a.tall)).slice(0, 6),
+    [],
+  );
 
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return;
@@ -264,7 +262,12 @@ export function HomeScreen() {
 
   function dismissIOSHint() { Storage.saveInstallDismissed(); setShowIOSHint(false); }
 
-  const locale    = 'en-US';
+  function openOccasion(o: typeof OCCASIONS[number]) {
+    tapLight();
+    if (o.serviceType === null) { setShowWeddingRoles(true); return; }
+    nav.navigate('NewBooking', { serviceType: o.serviceType, bookingMode: 'scheduled', _t: Date.now() });
+  }
+
   const firstName = user?.name?.split(' ')[0] ?? 'there';
   const hour      = new Date().getHours();
   const greeting  = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
@@ -291,6 +294,13 @@ export function HomeScreen() {
           <View style={[styles.topBar, { paddingTop: insets.top + 14 }]}>
             <GlowLogo size={34} showWordmark variant="onLight" />
             <View style={styles.topActions}>
+              <Pressable
+                style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.7 }]}
+                onPress={() => nav.navigate('Bookings')}
+                accessibilityLabel="My bookings"
+              >
+                <CalendarIcon size={18} color={Colors.label} />
+              </Pressable>
               <Pressable style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.7 }]} onPress={() => nav.navigate('Notifications')}>
                 <BellIcon size={18} color={Colors.label} />
                 {unreadCount > 0 && (
@@ -301,7 +311,7 @@ export function HomeScreen() {
               </Pressable>
               <Pressable
                 style={({ pressed }) => [styles.avatarBtn, pressed && { opacity: 0.88, transform: [{ scale: 0.96 }] }]}
-                onPress={() => nav.navigate('Profile')}
+                onPress={() => nav.navigate('ProfileTab')}
                 accessibilityLabel="Open profile"
                 accessibilityRole="button"
               >
@@ -310,69 +320,19 @@ export function HomeScreen() {
                 ) : (
                   <Text style={styles.avatarText}>{user?.name?.[0]?.toUpperCase() ?? '?'}</Text>
                 )}
-                {/* Soft rose ring + gold dot make the profile entry obvious */}
-                <View style={styles.avatarRing} pointerEvents="none" />
                 <View style={styles.avatarDot} pointerEvents="none" />
               </Pressable>
             </View>
           </View>
 
-          {/* ── Greeting — editorial two-tone with gold period ── */}
+          {/* ── The one question this screen answers ── */}
           <View style={styles.greetingBlock}>
-            <Text style={styles.greetingEyebrow}>{greeting}</Text>
+            <Text style={styles.greetingEyebrow}>{greeting}, {firstName} ✨</Text>
             <Text style={styles.greetingMain}>
-              {firstName}
-              <Text style={styles.greetingDot}>.</Text>
+              What are we{'\n'}getting ready for
+              <Text style={styles.greetingDot}>?</Text>
             </Text>
-            <Text style={styles.greetingSub}>Time for a little self-care ✨</Text>
           </View>
-
-          {/* ── Search ── */}
-          <Touch style={styles.searchWrap} onPress={() => nav.navigate('NewBooking', { bookingMode: 'scheduled', _t: Date.now() })}>
-            <View style={styles.searchBar}>
-              <SearchIcon size={17} color={Colors.tertiaryLabel} />
-              <Text style={styles.searchText}>Search artists, services...</Text>
-            </View>
-          </Touch>
-
-          {/* ── Occasions — browse by moment ── */}
-          <View style={[styles.sectionHeader, { marginTop: 8 }]}>
-            <Text style={styles.sectionTitle}>What's the occasion?</Text>
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll} contentContainerStyle={styles.occRow}>
-            {OCCASIONS.map(o => (
-              <Touch key={o.id} onPress={() => nav.navigate('NewBooking', { serviceType: o.service, bookingMode: 'scheduled', _t: Date.now() })}>
-                <View style={[styles.occCard, { backgroundColor: o.tint }]}>
-                  <View style={styles.occIcon}>
-                    <ServiceIcon serviceType={o.service} size={20} color={Colors.brandDeep} bubble={false} />
-                  </View>
-                  <Text style={styles.occName}>{o.name}</Text>
-                  <Text style={styles.occSub}>{o.sub}</Text>
-                </View>
-              </Touch>
-            ))}
-          </ScrollView>
-
-          {/* ── Hero banner — book now ── */}
-          <Touch style={styles.heroWrap} onPress={() => nav.navigate('NewBooking', { bookingMode: 'ondemand', _t: Date.now() })}>
-            <View style={styles.heroBanner}>
-              {Platform.OS === 'web' && (
-                <View style={[StyleSheet.absoluteFill, { borderRadius: 28, background: 'linear-gradient(120deg, #E9A0B1 0%, #D97A91 55%, #A34D63 130%)' } as any]} />
-              )}
-              <View style={styles.heroGlow} />
-              <Text style={styles.heroKicker}>IT'S GLOW O'CLOCK</Text>
-              <Text style={styles.heroTitle}>Stunning,{'\n'}by tonight.</Text>
-              <Text style={styles.heroSub}>Artist in 2–4 hours</Text>
-              <View style={styles.heroCtaRow}>
-                <View style={styles.heroCta}>
-                  <Text style={styles.heroCtaText}>Book Your Glow</Text>
-                </View>
-                <Pressable hitSlop={8} onPress={() => nav.navigate('NewBooking', { bookingMode: 'scheduled', _t: Date.now() })}>
-                  <Text style={styles.heroAlt}>Scheduled →</Text>
-                </Pressable>
-              </View>
-            </View>
-          </Touch>
 
           {/* ── Active booking ── */}
           {activeBooking && (
@@ -385,7 +345,7 @@ export function HomeScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.activeTitle}>Active Booking</Text>
                   <Text style={styles.activeSub}>
-                    {activeBooking.serviceType} · {formatDate(activeBooking.scheduledAt, locale)} {formatTime(activeBooking.scheduledAt, locale)}
+                    {activeBooking.serviceType} · {formatDate(activeBooking.scheduledAt)} {formatTime(activeBooking.scheduledAt)}
                   </Text>
                 </View>
                 <StatusBadge status={activeBooking.status} />
@@ -393,84 +353,59 @@ export function HomeScreen() {
             </Touch>
           )}
 
-          {/* ── Categories ── */}
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.catScroll} contentContainerStyle={styles.catRow}>
-            {SERVICES.map(item => (
-              <Touch key={item.id} onPress={() => nav.navigate('NewBooking', { serviceType: item.name, bookingMode: 'scheduled', _t: Date.now() })}>
-                <View style={styles.catChip}>
-                  <View style={styles.catCircle}>
-                    <ServiceIcon serviceType={item.name} size={21} color={Colors.brandDark} bubble={false} />
+          {/* ── Occasion grid — the heart of the home screen ── */}
+          <View style={styles.occGrid}>
+            {OCCASIONS.map(o => (
+              <Touch
+                key={o.id}
+                style={o.big ? styles.occBigWrap : styles.occWrap}
+                onPress={() => openOccasion(o)}
+              >
+                <View style={[styles.occCard, { backgroundColor: o.tint }, o.big && styles.occCardBig]}>
+                  <View style={styles.occIcon}>
+                    <o.Icon size={o.big ? 24 : 20} color={Colors.brandDeep} />
                   </View>
-                  <Text style={styles.catLabel} numberOfLines={1}>{item.name}</Text>
+                  {o.big && (
+                    <View style={styles.occBigGlow} pointerEvents="none" />
+                  )}
+                  <View>
+                    <Text style={[styles.occName, o.big && styles.occNameBig]}>{o.name}</Text>
+                    <Text style={styles.occSub}>{o.sub}</Text>
+                  </View>
                 </View>
               </Touch>
             ))}
+          </View>
+
+          {/* ── Trending looks — outcomes, not services ── */}
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Trending looks</Text>
+            <Pressable onPress={() => nav.navigate('ExploreTab')}>
+              <Text style={styles.seeAll}>Explore all</Text>
+            </Pressable>
+          </View>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll} contentContainerStyle={styles.lookRow}>
+            {trendingLooks.map(look => (
+              <View key={look.id} style={{ width: 190 }}>
+                <LookTile
+                  look={look}
+                  height={150}
+                  price={catalogPrices[look.serviceType]}
+                  onPress={() => setOpenLook(look)}
+                />
+              </View>
+            ))}
           </ScrollView>
 
-          {/* ── Trending services ── */}
-          {popularServices.length > 0 && (
-            <>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Everyone's booking</Text>
-                <SparkleIcon size={16} color={Colors.gold} />
-              </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll} contentContainerStyle={styles.trendRow}>
-                {popularServices.map((svc, i) => (
-                  <Touch key={svc.id} onPress={() => nav.navigate('NewBooking', { serviceType: svc.name, bookingMode: 'scheduled', _t: Date.now() })}>
-                    <View style={[styles.trendCard, i % 2 === 1 && { backgroundColor: Colors.goldSoft }, i === 0 && styles.trendCardLead]}>
-                      <View style={styles.trendTopRow}>
-                        <View style={styles.trendIconWrap}>
-                          <ServiceIcon serviceType={svc.name} size={19} color={Colors.brandDark} bubble={false} />
-                        </View>
-                        {svc.popular && (
-                          <View style={styles.trendBadge}>
-                            <Text style={styles.trendBadgeText}>Popular</Text>
-                          </View>
-                        )}
-                      </View>
-                      <Text style={[styles.trendName, i === 0 && { color: '#fff' }]} numberOfLines={2}>
-                        {svc.name}
-                      </Text>
-                      <Text style={[styles.trendMeta, i === 0 && { color: 'rgba(255,255,255,0.85)' }]}>
-                        {svc.durationMin ? `${svc.durationMin} min · ` : ''}From ${Math.round(svc.basePrice)}
-                      </Text>
-                    </View>
-                  </Touch>
-                ))}
-              </ScrollView>
-            </>
-          )}
-
           {/* ── Top rated artists ── */}
-          {artists.length > 0 && (
+          {topArtists.length > 0 && (
             <>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Loved by clients</Text>
-                <Pressable onPress={() => nav.navigate('NewBooking', { bookingMode: 'scheduled', _t: Date.now() })}>
-                  <Text style={styles.seeAll}>See all</Text>
-                </Pressable>
+                <SparkleIcon size={16} color={Colors.gold} />
               </View>
-              {/* Niche chips — browse artists by what they're best at */}
-              {specialtyChips.length > 2 && (
-                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll} contentContainerStyle={styles.nicheRow}>
-                  {specialtyChips.map(sp => {
-                    const active = specialtyFilter === sp;
-                    return (
-                      <Pressable
-                        key={sp}
-                        style={[styles.nicheChip, active && styles.nicheChipActive]}
-                        onPress={() => setSpecialtyFilter(sp)}
-                      >
-                        <Text style={[styles.nicheChipText, active && styles.nicheChipTextActive]}>
-                          {sp}
-                        </Text>
-                      </Pressable>
-                    );
-                  })}
-                </ScrollView>
-              )}
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll} contentContainerStyle={styles.artistRow}>
-                {filteredArtists.map(a => (
+                {topArtists.map(a => (
                   <ArtistCard
                     key={a.id}
                     artist={a}
@@ -481,32 +416,7 @@ export function HomeScreen() {
             </>
           )}
 
-          {/* ── Beauty inspiration — editorial carousel ── */}
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Beauty inspiration</Text>
-            <SparkleIcon size={16} color={Colors.gold} />
-          </View>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll} contentContainerStyle={styles.inspoRow}>
-            {INSPO.map(item => (
-              <Touch key={item.id} onPress={() => nav.navigate('NewBooking', { serviceType: item.service, bookingMode: 'scheduled', _t: Date.now() })}>
-                <View style={styles.inspoCard}>
-                  {Platform.OS === 'web' ? (
-                    <View style={[StyleSheet.absoluteFill, { background: `linear-gradient(150deg, ${item.from}, ${item.to})` } as any]} />
-                  ) : (
-                    <View style={[StyleSheet.absoluteFill, { backgroundColor: item.from }]} />
-                  )}
-                  <View style={styles.inspoGlow} />
-                  <View style={styles.inspoTag}>
-                    <Text style={styles.inspoTagText}>{item.tag}</Text>
-                  </View>
-                  <Text style={styles.inspoTitle}>{item.title}</Text>
-                  <Text style={styles.inspoCta}>Book this look →</Text>
-                </View>
-              </Touch>
-            ))}
-          </ScrollView>
-
-          {/* ── Offer strip ── */}
+          {/* ── Trust strip ── */}
           <View style={styles.sectionPad}>
             <View style={styles.offerCard}>
               <View style={styles.offerIcon}>
@@ -514,41 +424,10 @@ export function HomeScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.offerTitle}>Glam that comes to you</Text>
-                <Text style={styles.offerSub}>
-                  Every artist is verified & background checked
-                </Text>
+                <Text style={styles.offerSub}>Every artist is identity-verified — gold badge means background checked</Text>
               </View>
             </View>
           </View>
-
-          {/* ── Your bookings ── */}
-          <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>Your Bookings</Text>
-            <Pressable onPress={() => nav.navigate('BookingsTab')}>
-              <Text style={styles.seeAll}>See all</Text>
-            </Pressable>
-          </View>
-
-          {loading ? (
-            <><BookingCardSkeleton /><BookingCardSkeleton /></>
-          ) : recentBookings.length === 0 ? (
-            <View style={styles.emptyState}>
-              <View style={styles.emptyArt}>
-                <GlowMark size={44} petal={Colors.brandAccent} core={Colors.gold} />
-              </View>
-              <Text style={styles.emptyTitle}>No bookings yet</Text>
-              <Text style={styles.emptySub}>Your booking history will appear here</Text>
-              <Touch onPress={() => nav.navigate('NewBooking', { _t: Date.now() })}>
-                <View style={styles.emptyCta}>
-                  <Text style={styles.emptyCtaText}>Book your first Artist</Text>
-                </View>
-              </Touch>
-            </View>
-          ) : (
-            recentBookings.map(b => (
-              <BookingCard key={b._id} booking={b} onPress={() => nav.navigate('BookingDetail', { booking: b })} />
-            ))
-          )}
 
           {showIOSHint && (
             <View style={styles.iosHint}>
@@ -569,6 +448,48 @@ export function HomeScreen() {
           </View>
         </Animated.View>
       </ScrollView>
+
+      {/* ── Find My Glow — the one primary CTA ── */}
+      <View pointerEvents="box-none" style={[styles.matchCtaWrap, { bottom: (Platform.OS === 'ios' ? 24 : 14) + 70 + 14 }]}>
+        <Touch onPress={() => { tapLight(); setShowMatch(true); }}>
+          <View style={styles.matchCta}>
+            <Text style={styles.matchCtaText}>✨ Find My Glow</Text>
+          </View>
+        </Touch>
+      </View>
+
+      {/* Wedding role picker — the only follow-up question we ever ask */}
+      <GlowSheet visible={showWeddingRoles} onClose={() => setShowWeddingRoles(false)}>
+        <Text style={styles.rolesKicker}>WEDDING</Text>
+        <Text style={styles.rolesTitle}>Who's getting ready?</Text>
+        <ScrollView bounces={false} showsVerticalScrollIndicator={false} contentContainerStyle={styles.rolesContent}>
+          {WEDDING_ROLES.map(r => (
+            <Pressable
+              key={r.label}
+              style={({ pressed }) => [styles.roleRow, pressed && styles.rolePressed]}
+              onPress={() => {
+                tapLight();
+                setShowWeddingRoles(false);
+                nav.navigate('NewBooking', { serviceType: r.serviceType, bookingMode: 'scheduled', _t: Date.now() });
+              }}
+            >
+              <View style={styles.roleIcon}><r.Icon size={19} color={Colors.brandDeep} /></View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.roleLabel}>{r.label}</Text>
+                <Text style={styles.roleSub}>{r.sub}</Text>
+              </View>
+              <Text style={styles.roleArrow}>→</Text>
+            </Pressable>
+          ))}
+        </ScrollView>
+      </GlowSheet>
+
+      <GlowMatchSheet visible={showMatch} onClose={() => setShowMatch(false)} />
+      <LookSheet
+        look={openLook}
+        priceOverride={openLook ? catalogPrices[openLook.serviceType] : undefined}
+        onClose={() => setOpenLook(null)}
+      />
       <LocationPrompt
         visible={showLocationPrompt}
         onRequest={handleLocationRequest}
@@ -581,20 +502,14 @@ export function HomeScreen() {
 
 const styles = StyleSheet.create({
   container:     { flex: 1, backgroundColor: Colors.systemGroupedBackground },
-  // Extra bottom padding so content clears the floating pill tab bar.
-  scrollContent: { paddingBottom: 130 },
+  // Extra bottom padding so content clears the floating pill bar + Find My Glow CTA.
+  scrollContent: { paddingBottom: 185 },
 
   topBar: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 24, marginBottom: 26,
   },
   topActions: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  pillBtn: {
-    paddingHorizontal: 12, paddingVertical: 7,
-    backgroundColor: '#fff', borderRadius: 12,
-    borderWidth: 1, borderColor: Colors.separator,
-  },
-  pillBtnText: { color: Colors.secondaryLabel, fontSize: 12, fontFamily: Fonts.semibold, letterSpacing: 0.4 },
   iconBtn: {
     width: 38, height: 38, borderRadius: 19,
     backgroundColor: '#fff', borderWidth: 1, borderColor: Colors.separator,
@@ -620,11 +535,6 @@ const styles = StyleSheet.create({
   },
   avatarImg: { width: 38, height: 38, borderRadius: 19 },
   avatarText: { color: Colors.brandDark, fontSize: 16, fontFamily: Fonts.bold },
-  avatarRing: {
-    position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
-    borderRadius: 21,
-    borderWidth: 0,
-  },
   avatarDot: {
     position: 'absolute', bottom: -1, right: -1,
     width: 12, height: 12, borderRadius: 6,
@@ -635,99 +545,53 @@ const styles = StyleSheet.create({
   bgField: { position: 'absolute', top: 0, left: 0, right: 0, height: 340, overflow: 'hidden' },
   bgBlob: { position: 'absolute', borderRadius: 999 },
 
-  greetingBlock: { paddingHorizontal: 24, marginBottom: 22 },
-  greetingEyebrow: { fontSize: 15, color: Colors.secondaryLabel, fontFamily: Fonts.regular, marginBottom: 2 },
-  greetingMain: { fontSize: 42, lineHeight: 48, fontFamily: Fonts.bold, color: Colors.label, letterSpacing: -1.4 },
+  greetingBlock: { paddingHorizontal: 24, marginBottom: 24 },
+  greetingEyebrow: { fontSize: 15, color: Colors.secondaryLabel, fontFamily: Fonts.regular, marginBottom: 6 },
+  greetingMain: { fontSize: 34, lineHeight: 40, fontFamily: Fonts.bold, color: Colors.label, letterSpacing: -1 },
   greetingDot: { color: Colors.gold },
-  greetingSub:  { fontSize: 15, color: Colors.secondaryLabel, marginTop: 8, fontFamily: Fonts.regular },
-
-  searchWrap: { paddingHorizontal: 24, marginBottom: 18 },
-  searchBar: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: '#fff',
-    borderWidth: 1, borderColor: Colors.separator,
-    borderRadius: 18, paddingHorizontal: 18, paddingVertical: 15,
-  },
-  searchText: { color: Colors.secondaryLabel, fontSize: 14.5, fontFamily: Fonts.regular },
-
-  heroWrap: { paddingHorizontal: 24, marginBottom: 10 },
-  heroBanner: {
-    backgroundColor: Colors.brand, borderRadius: 28, padding: 26,
-    overflow: 'hidden',
-    shadowColor: Colors.brand, shadowOffset: { width: 0, height: 14 }, shadowOpacity: 0.32, shadowRadius: 28, elevation: 8,
-  },
-  heroGlow: {
-    position: 'absolute', top: -50, right: -30,
-    width: 160, height: 160, borderRadius: 80,
-    backgroundColor: 'rgba(255,255,255,0.14)',
-  },
-  heroKicker: { color: 'rgba(255,255,255,0.92)', fontSize: 11, fontFamily: Fonts.semibold, letterSpacing: 1.4 },
-  heroTitle: { color: '#fff', fontSize: 28, lineHeight: 33, fontFamily: Fonts.bold, letterSpacing: -0.6, marginTop: 10 },
-  heroSub: { color: 'rgba(255,255,255,0.95)', fontSize: 13.5, marginTop: 8, fontFamily: Fonts.regular },
-  heroCtaRow: { flexDirection: 'row', alignItems: 'center', gap: 18, marginTop: 20 },
-  heroCta: {
-    backgroundColor: '#fff', borderRadius: 100, paddingHorizontal: 22, paddingVertical: 12,
-  },
-  heroCtaText: { color: Colors.brandDeep, fontSize: 14, fontFamily: Fonts.semibold },
-  heroAlt: { color: 'rgba(255,255,255,0.9)', fontSize: 13.5, fontFamily: Fonts.medium },
 
   sectionPad: { paddingHorizontal: 24 },
 
   activeBanner: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     backgroundColor: '#fff', borderRadius: 20, padding: 18,
-    borderWidth: 1, borderColor: Colors.separator, marginTop: 14,
+    borderWidth: 1, borderColor: Colors.separator, marginBottom: 18,
   },
   activeDot:   { width: 9, height: 9, borderRadius: 5, backgroundColor: Colors.systemGreen },
   activeTitle: { fontSize: 14, fontFamily: Fonts.semibold, color: Colors.label },
   activeSub:   { fontSize: 12.5, color: Colors.secondaryLabel, marginTop: 2, fontFamily: Fonts.regular },
 
-  // Occasion tiles
-  occRow: { paddingHorizontal: 24, gap: 12 },
-  occCard: { width: 150, borderRadius: 24, padding: 16, minHeight: 128, justifyContent: 'flex-end' },
+  // Occasion grid — two columns, Wedding full-width lead
+  occGrid: {
+    flexDirection: 'row', flexWrap: 'wrap',
+    paddingHorizontal: 24, gap: 12,
+  },
+  occWrap: { width: '47%', flexGrow: 1 },
+  occBigWrap: { width: '100%' },
+  occCard: {
+    borderRadius: 24, padding: 16, minHeight: 118,
+    justifyContent: 'space-between', overflow: 'hidden',
+  },
+  occCardBig: { minHeight: 140, padding: 20 },
+  occBigGlow: {
+    position: 'absolute', top: -46, right: -32,
+    width: 150, height: 150, borderRadius: 75,
+    backgroundColor: 'rgba(255,255,255,0.5)',
+  },
   occIcon: {
-    position: 'absolute', top: 14, left: 14,
     width: 38, height: 38, borderRadius: 19,
-    backgroundColor: 'rgba(255,255,255,0.8)',
+    backgroundColor: 'rgba(255,255,255,0.85)',
     alignItems: 'center', justifyContent: 'center',
+    marginBottom: 12,
   },
-  occName: { fontSize: 15, fontFamily: Fonts.semibold, color: Colors.label },
+  occName: { fontSize: 15.5, fontFamily: Fonts.semibold, color: Colors.label },
+  occNameBig: { fontSize: 20, letterSpacing: -0.3 },
   occSub: { fontSize: 12, color: Colors.secondaryLabel, marginTop: 2, fontFamily: Fonts.regular },
-
-  // Inspiration tiles
-  inspoRow: { paddingHorizontal: 24, gap: 12 },
-  inspoCard: {
-    width: 240, height: 150, borderRadius: 26, padding: 18,
-    overflow: 'hidden', justifyContent: 'flex-end',
-  },
-  inspoGlow: {
-    position: 'absolute', top: -40, right: -30,
-    width: 130, height: 130, borderRadius: 65,
-    backgroundColor: 'rgba(255,255,255,0.16)',
-  },
-  inspoTag: {
-    position: 'absolute', top: 14, left: 16,
-    backgroundColor: 'rgba(255,255,255,0.25)', borderRadius: 100,
-    paddingHorizontal: 10, paddingVertical: 4,
-  },
-  inspoTagText: { color: '#fff', fontSize: 9.5, fontFamily: Fonts.semibold, letterSpacing: 1 },
-  inspoTitle: { color: '#fff', fontSize: 18, fontFamily: Fonts.semibold, letterSpacing: -0.3, lineHeight: 23 },
-  inspoCta: { color: 'rgba(255,255,255,0.85)', fontSize: 12, marginTop: 5, fontFamily: Fonts.medium },
 
   // Clamps every horizontal row to the screen width on web — without an
   // explicit style, RN Web can size a ScrollView to its content instead of
   // its container, letting the row (and the page) bleed past the viewport.
   hScroll: { width: '100%' },
-  catScroll: { width: '100%', marginTop: 24 },
-  catRow: { paddingHorizontal: 24, gap: 16 },
-  catChip: { alignItems: 'center', gap: 8, width: 66 },
-  catCircle: {
-    width: 58, height: 58, borderRadius: 29,
-    backgroundColor: '#fff',
-    borderWidth: 1, borderColor: Colors.separator,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  catLabel: { fontSize: 11.5, fontFamily: Fonts.medium, color: Colors.label },
 
   sectionHeader: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
@@ -736,35 +600,9 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 21, fontFamily: Fonts.semibold, color: Colors.label, letterSpacing: -0.4 },
   seeAll: { fontSize: 13.5, fontFamily: Fonts.medium, color: Colors.brandDark },
 
-  trendRow: { paddingHorizontal: 24, gap: 12 },
-  trendCard: {
-    width: 168, borderRadius: 22, padding: 16,
-    backgroundColor: Colors.brandLight,
-  },
-  trendCardLead: { width: 205, backgroundColor: Colors.brand },
-  trendTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  trendIconWrap: {
-    width: 38, height: 38, borderRadius: 19,
-    backgroundColor: 'rgba(255,255,255,0.85)',
-    alignItems: 'center', justifyContent: 'center',
-  },
-  trendBadge: { backgroundColor: 'rgba(255,255,255,0.85)', borderRadius: 100, paddingHorizontal: 9, paddingVertical: 4 },
-  trendBadgeText: { fontSize: 9.5, fontFamily: Fonts.semibold, color: Colors.brandDeep, letterSpacing: 0.3 },
-  trendName: { fontSize: 15, fontFamily: Fonts.semibold, color: Colors.label, marginTop: 14, lineHeight: 19 },
-  trendMeta: { fontSize: 12.5, color: Colors.secondaryLabel, marginTop: 6, fontFamily: Fonts.regular },
-
-  nicheRow: { paddingHorizontal: 24, gap: 8, marginBottom: 14 },
-  nicheChip: {
-    paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 100, backgroundColor: '#fff',
-    borderWidth: 1, borderColor: Colors.separator,
-  },
-  nicheChipActive: { backgroundColor: Colors.label, borderColor: Colors.label },
-  nicheChipText: { fontSize: 12.5, fontFamily: Fonts.medium, color: Colors.secondaryLabel },
-  nicheChipTextActive: { color: '#fff' },
+  lookRow: { paddingHorizontal: 24, gap: 14 },
 
   artistRow: { paddingHorizontal: 24, gap: 14 },
-  artistCardWrap: {},
   artistCard: {
     width: 200, backgroundColor: '#fff', borderRadius: 24,
     borderWidth: 1, borderColor: Colors.separator, overflow: 'hidden',
@@ -796,21 +634,6 @@ const styles = StyleSheet.create({
   offerTitle: { fontSize: 14.5, fontFamily: Fonts.semibold, color: Colors.label },
   offerSub: { fontSize: 12.5, color: Colors.secondaryLabel, marginTop: 2, fontFamily: Fonts.regular, lineHeight: 17 },
 
-  emptyState: { alignItems: 'center', paddingVertical: 36, paddingHorizontal: 24 },
-  emptyArt: {
-    width: 84, height: 84, borderRadius: 42,
-    backgroundColor: '#fff', borderWidth: 1, borderColor: Colors.separator,
-    alignItems: 'center', justifyContent: 'center', marginBottom: 18,
-  },
-  emptyTitle: { fontSize: 17, fontFamily: Fonts.semibold, color: Colors.label, marginBottom: 6 },
-  emptySub:   { fontSize: 13.5, color: Colors.secondaryLabel, textAlign: 'center', marginBottom: 20, fontFamily: Fonts.regular },
-  emptyCta: {
-    backgroundColor: Colors.brand, borderRadius: 100,
-    paddingVertical: 14, paddingHorizontal: 28,
-    shadowColor: Colors.brand, shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.28, shadowRadius: 16, elevation: 5,
-  },
-  emptyCtaText: { color: '#fff', fontSize: 14, fontFamily: Fonts.semibold },
-
   iosHint: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     marginHorizontal: 24, marginTop: 20,
@@ -823,4 +646,41 @@ const styles = StyleSheet.create({
   footer: { alignItems: 'center', paddingVertical: 40, gap: 8 },
   footerNote: { fontSize: 12.5, color: Colors.tertiaryLabel, fontFamily: Fonts.regular },
   footerCopy: { fontSize: 11, color: Colors.systemGray3, fontFamily: Fonts.regular },
+
+  // Floating concierge CTA — sits above the pill tab bar, below sheets.
+  matchCtaWrap: {
+    position: 'absolute', left: 0, right: 0,
+    alignItems: 'center',
+    zIndex: 20,
+    ...(Platform.OS === 'android' ? { elevation: 20 } : null),
+  },
+  matchCta: {
+    backgroundColor: Colors.brand,
+    borderRadius: 100,
+    paddingVertical: 15, paddingHorizontal: 30,
+    shadowColor: Colors.brand,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.4, shadowRadius: 20, elevation: 10,
+    borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.55)',
+  },
+  matchCtaText: { color: '#fff', fontSize: 15.5, fontFamily: Fonts.semibold, letterSpacing: 0.2 },
+
+  rolesKicker: { textAlign: 'center', fontSize: 11, fontFamily: Fonts.semibold, color: Colors.brandDark, letterSpacing: 1.6, marginTop: 4 },
+  rolesTitle: { textAlign: 'center', fontSize: 24, fontFamily: Fonts.bold, color: Colors.label, letterSpacing: -0.5, marginTop: 6, marginBottom: 6 },
+  rolesContent: { padding: 20, paddingTop: 12 },
+  roleRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    backgroundColor: Colors.secondarySystemBackground,
+    borderWidth: 1, borderColor: Colors.separator,
+    borderRadius: 18, padding: 15, marginBottom: 10,
+  },
+  rolePressed: { transform: [{ scale: 0.985 }], backgroundColor: Colors.brandLight },
+  roleIcon: {
+    width: 38, height: 38, borderRadius: 19,
+    backgroundColor: '#fff', borderWidth: 1, borderColor: Colors.separator,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  roleLabel: { fontSize: 15, fontFamily: Fonts.semibold, color: Colors.label },
+  roleSub: { fontSize: 12, color: Colors.secondaryLabel, marginTop: 1, fontFamily: Fonts.regular },
+  roleArrow: { fontSize: 15, color: Colors.brandDark, fontFamily: Fonts.medium },
 });

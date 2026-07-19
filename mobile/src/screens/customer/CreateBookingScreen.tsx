@@ -1364,7 +1364,17 @@ export function CreateBookingScreen() {
         distanceKm: distMap[String(p._id)] ?? undefined,
       }));
       const sorted = [...merged].sort((a, b) => (a.distanceKm ?? 99) - (b.distanceKm ?? 99));
-      setProviders(sorted);
+      // Glow Match / artist-profile entry: a specific artist was already chosen —
+      // float them to the top and preselect so booking stays a confirm, not a search.
+      const preferId = (route.params as any)?.providerId as string | undefined;
+      const preferred = preferId ? sorted.find(p => String(p._id) === String(preferId)) : undefined;
+      if (preferred) {
+        setProviders([preferred, ...sorted.filter(p => p !== preferred)]);
+        setSelectedProvider(preferred);
+        setProviderMode('browse');
+      } else {
+        setProviders(sorted);
+      }
     }).finally(() => setLoadingProviders(false));
   }, [step]);
 
@@ -1414,7 +1424,7 @@ export function CreateBookingScreen() {
         tapSuccess();
         const okMsg = t.providerRequestedMsg(selectedProvider.name);
         if (Platform.OS === 'web') window.alert(okMsg); else Alert.alert(t.providerRequestedTitle, okMsg);
-        nav.navigate('BookingsTab');
+        nav.navigate('Bookings');
       } catch (err: any) {
         const msg = err?.message ?? t.tryAgainDefault;
         if (Platform.OS === 'web') window.alert(`${t.reassignFail}: ${msg}`); else Alert.alert(t.reassignFail, msg);

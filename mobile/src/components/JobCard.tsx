@@ -38,7 +38,7 @@ function JobCardBase({ job, onPress, actionSlot }: Props) {
           <Text style={styles.dateTime}>{dateStr} · {timeStr}</Text>
         </View>
         <View style={styles.priceWrap}>
-          <Text style={styles.price}>${job.totalPrice}</Text>
+          <Text style={styles.price}>${Math.round(Number(job.totalPrice) || 0)}</Text>
           <Text style={styles.hours}>{job.hours}h</Text>
         </View>
       </View>

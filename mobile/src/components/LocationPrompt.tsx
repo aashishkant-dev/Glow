@@ -224,7 +224,10 @@ const styles = StyleSheet.create({
     top: 0, left: 0, right: 0, bottom: 0,
     backgroundColor: 'rgba(0,0,0,0.6)',
     justifyContent: 'flex-end',
+    // Must outrank the floating tab bar (zIndex: 5) — on web, later-mounted
+    // siblings paint on top regardless of zIndex unless both are ranked.
     zIndex: 1000,
+    elevation: 1000,
   },
   sheet: {
     backgroundColor: '#fff',
@@ -267,6 +270,9 @@ const styles = StyleSheet.create({
   },
   content: {
     padding: 24,
+    // Clears the floating pill tab bar (height 70 + bottom offset up to 24)
+    // so action buttons never land underneath it.
+    paddingBottom: 40,
   },
   benefits: {
     gap: 16,

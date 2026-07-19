@@ -222,6 +222,16 @@ export function BookingsScreen() {
         locations={[0, 0.5, 1]}
         style={[styles.header, { paddingTop: insets.top + 16 }]}
       >
+        {/* Bookings is a stack route now (not a tab) — needs its own back. */}
+        {nav.canGoBack() && (
+          <Pressable
+            onPress={() => nav.goBack()}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginBottom: 10, alignSelf: 'flex-start' }}
+          >
+            <Text style={{ color: 'rgba(255,255,255,0.92)', fontSize: 15, fontWeight: '600' }}>‹ Back</Text>
+          </Pressable>
+        )}
         <Text style={styles.headerTitle}>My Bookings</Text>
         <Text style={styles.headerSub}>
           {liveCount > 0 ? `${liveCount} in progress` : awaitingCount > 0 ? `${awaitingCount} awaiting Artist` : 'No active sessions'}

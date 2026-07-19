@@ -10,7 +10,8 @@ import { HelpScreen } from '../screens/shared/HelpScreen';
 import { ProfileScreen } from '../screens/shared/ProfileScreen';
 import { Colors } from '../utils/colors';
 import { Booking } from '../api/client';
-import { HospitalIcon, NoteIcon, ProfileIcon } from '../components/CareIcons';
+import { NoteIcon, ProfileIcon } from '../components/CareIcons';
+import { HomeIcon } from '../components/TabIcons';
 
 type IconComp = (p: { size?: number; color?: string }) => React.ReactElement;
 
@@ -24,17 +25,17 @@ export type HomeCareStackParams = {
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator<HomeCareStackParams>();
 
-const GREEN = '#0D6B47';
+const BRAND = Colors.brand;
 
 interface TabIconProps { label: string; Icon: IconComp; focused: boolean }
 
 function TabIcon({ Icon, focused, label }: TabIconProps) {
   return (
     <View style={tabStyles.iconWrap}>
-      <View style={[tabStyles.iconBubble, focused && { backgroundColor: GREEN + '18' }]}>
-        <Icon size={20} color={focused ? GREEN : Colors.systemGray2} />
+      <View style={[tabStyles.iconBubble, focused && { backgroundColor: BRAND + '18' }]}>
+        <Icon size={20} color={focused ? BRAND : Colors.systemGray2} />
       </View>
-      <Text style={[tabStyles.label, { color: focused ? GREEN : Colors.systemGray2 }]}>{label}</Text>
+      <Text style={[tabStyles.label, { color: focused ? BRAND : Colors.systemGray2 }]}>{label}</Text>
     </View>
   );
 }
@@ -52,7 +53,7 @@ function HomeCareTabNavigator() {
       screenOptions={{
         headerShown: false,
         tabBarShowLabel: false,
-        tabBarActiveTintColor: GREEN,
+        tabBarActiveTintColor: BRAND,
         tabBarInactiveTintColor: Colors.systemGray2,
         tabBarStyle: {
           borderTopColor: 'transparent',
@@ -71,7 +72,7 @@ function HomeCareTabNavigator() {
       <Tab.Screen
         name="CareHubTab"
         component={HomeCareHomeScreen}
-        options={{ tabBarIcon: ({ focused }) => <TabIcon Icon={HospitalIcon} label="Care Hub" focused={focused} /> }}
+        options={{ tabBarIcon: ({ focused }) => <TabIcon Icon={HomeIcon} label="Home" focused={focused} /> }}
       />
       <Tab.Screen
         name="NewCaseTab"
@@ -81,10 +82,10 @@ function HomeCareTabNavigator() {
           tabBarIcon: () => (
             <View style={{
               width: 58, height: 58, borderRadius: 29,
-              backgroundColor: GREEN,
+              backgroundColor: BRAND,
               alignItems: 'center', justifyContent: 'center',
               marginTop: -24,
-              shadowColor: GREEN,
+              shadowColor: BRAND,
               shadowOffset: { width: 0, height: 6 },
               shadowOpacity: 0.45, shadowRadius: 14, elevation: 10,
               borderWidth: 3, borderColor: '#fff',
@@ -97,7 +98,7 @@ function HomeCareTabNavigator() {
       <Tab.Screen
         name="CasesTab"
         component={BookingsScreen}
-        options={{ tabBarIcon: ({ focused }) => <TabIcon Icon={NoteIcon} label="Cases" focused={focused} /> }}
+        options={{ tabBarIcon: ({ focused }) => <TabIcon Icon={NoteIcon} label="Bookings" focused={focused} /> }}
       />
       <Tab.Screen
         name="ProfileTab"
@@ -112,7 +113,7 @@ export function HomeCareNavigator() {
   return (
     <Stack.Navigator
       screenOptions={{
-        headerTintColor: GREEN,
+        headerTintColor: BRAND,
         headerBackTitle: 'Back',
         headerStyle: { backgroundColor: Colors.systemBackground },
         headerShadowVisible: false,

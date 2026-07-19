@@ -271,7 +271,7 @@ function ProviderTabs() {
   const tabBarHeight = Platform.OS === 'ios' ? 83 : 68;
 
   return (
-    <View style={{ flex: 1 }}>
+    <View style={{ flex: 1, overflow: 'hidden' as const }}>
       <Tab.Navigator
         screenOptions={{
           headerShown: false,
@@ -298,6 +298,9 @@ function ProviderTabs() {
             elevation: 10,
             borderTopLeftRadius: 32,
             borderTopRightRadius: 32,
+            // Without this, the rounded top corners clip the center FAB
+            // (marginTop: -24) that's meant to poke up above the bar.
+            overflow: 'visible',
           },
         }}
       >

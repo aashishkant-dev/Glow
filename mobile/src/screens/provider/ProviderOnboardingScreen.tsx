@@ -18,7 +18,7 @@ import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import * as ImagePicker from 'expo-image-picker';
-import { apiSubmitProviderOnboarding, apiUploadDocument } from '../../api/client';
+import { apiSubmitProviderOnboarding, apiSetProviderServices, apiUploadDocument } from '../../api/client';
 import { DocumentIcon } from '../../components/TabIcons';
 import { useAuth } from '../../context/AuthContext';
 import { Colors } from '../../utils/colors';
@@ -31,7 +31,6 @@ const BRAND_SOFT = '#FDF2F4';
 const GREEN      = '#059669';
 const GREEN_SOFT = '#ECFDF5';
 const NAVY       = '#9C5560';
-const NAVY_MID   = '#B76E79';
 const SURFACE    = '#FFFFFF';
 const BG         = '#F0F4F8';
 const TEXT       = '#0F172A';
@@ -187,6 +186,20 @@ export function ProviderOnboardingScreen() {
         pricingModel:      'PER_SERVICE',
         priceNegotiable,
       });
+      // Persist the per-service menu typed in step 4. This was the bug: prices
+      // were captured in state but never sent, so every artist fell back to the
+      // hourly default. Profile is already saved above, so a price failure
+      // warns instead of blocking the flow — prices can be re-set from Profile.
+      const services = Object.entries(servicePrices)
+        .map(([name, v]) => ({ name, price: Number(String(v).replace(/[^0-9.]/g, '')) }))
+        .filter(s => s.name && Number.isFinite(s.price) && s.price > 0);
+      if (services.length > 0) {
+        try {
+          await apiSetProviderServices(services);
+        } catch (e: any) {
+          Alert.alert('Prices not saved', 'Your profile was saved, but service prices could not be. You can set them later from your profile.');
+        }
+      }
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       setStep(5);
     } catch (e: any) {
@@ -310,9 +323,8 @@ export function ProviderOnboardingScreen() {
           keyboardShouldPersistTaps="handled"
         >
           {/* ── Header ── */}
-          {/* Clearly green (not the near-black dark green) so it reads on-brand. */}
           <LinearGradient
-            colors={[GREEN, NAVY_MID]}
+            colors={[BRAND_DARK, BRAND]}
             style={[styles.header, { paddingTop: insets.top + 24 }]}
           >
             <View style={styles.headerBadge}>
@@ -335,7 +347,7 @@ export function ProviderOnboardingScreen() {
             {step === 1 && (
               <>
                 <Text style={styles.sectionTitle}>Your Qualification</Text>
-                <Text style={styles.sectionSub}>Select your primary healthcare credential.</Text>
+                <Text style={styles.sectionSub}>Select your primary beauty specialty.</Text>
 
                 <View style={styles.qualGrid}>
                   {QUAL_TYPES.map(q => {
@@ -357,23 +369,23 @@ export function ProviderOnboardingScreen() {
                   })}
                 </View>
 
-                <Text style={styles.fieldLabel}>REGISTRATION NUMBER <Text style={styles.optional}>(Optional)</Text></Text>
+                <Text style={styles.fieldLabel}>CERTIFICATION NUMBER <Text style={styles.optional}>(Optional)</Text></Text>
                 <TextInput
                   style={styles.input}
                   value={licenseNum}
                   onChangeText={setLicenseNum}
-                  placeholder="e.g. Provider123456"
+                  placeholder="e.g. CERT123456"
                   placeholderTextColor="#94A3B8"
                   autoCapitalize="characters"
                   returnKeyType="next"
                 />
 
-                <Text style={styles.fieldLabel}>ISSUING COLLEGE <Text style={styles.optional}>(Optional)</Text></Text>
+                <Text style={styles.fieldLabel}>ISSUING ACADEMY <Text style={styles.optional}>(Optional)</Text></Text>
                 <TextInput
                   style={styles.input}
                   value={college}
                   onChangeText={setCollege}
-                  placeholder="e.g. Cambrian College"
+                  placeholder="e.g. Blanche Macdonald Centre"
                   placeholderTextColor="#94A3B8"
                   autoCapitalize="words"
                   returnKeyType="next"
@@ -399,7 +411,7 @@ export function ProviderOnboardingScreen() {
                 <Text style={styles.sectionTitle}>Specialties & Languages</Text>
                 <Text style={styles.sectionSub}>Select everything that applies to your practice.</Text>
 
-                <Text style={styles.fieldLabel}>CARE SPECIALTIES</Text>
+                <Text style={styles.fieldLabel}>BEAUTY SPECIALTIES</Text>
                 <View style={styles.chipGrid}>
                   {SPECIALTY_OPTIONS.map(s => {
                     const active = specialties.includes(s);
@@ -574,7 +586,7 @@ export function ProviderOnboardingScreen() {
                 <View style={styles.verifyChecklist}>
                   {[
                     'Government-issued photo ID',
-                    'Healthcare credential & registration',
+                    'Beauty certification & registration',
                     'Criminal record / vulnerable sector check',
                   ].map(item => (
                     <View key={item} style={styles.verifyCheckRow}>
@@ -679,7 +691,7 @@ export function ProviderOnboardingScreen() {
             accessibilityRole="button"
           >
             <LinearGradient
-              colors={step === 4 ? [GREEN, GREEN] : [BRAND_DARK, BRAND]}
+              colors={[BRAND_DARK, BRAND]}
               start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
               style={styles.nextBtnGrad}
             >

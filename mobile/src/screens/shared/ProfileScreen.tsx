@@ -47,7 +47,7 @@ import * as Linking from 'expo-linking';
 import Constants from 'expo-constants';
 import { useAuth } from '../../context/AuthContext';
 import { useLocation } from '../../context/LocationContext';
-import { apiGetProfile, apiSetPublicProfile, apiUpdateProfile, apiUploadPhoto, UserProfile } from '../../api/client';
+import { apiGetProfile, apiGetMyDocuments, apiSetPublicProfile, apiUpdateProfile, apiUploadPhoto, UserProfile } from '../../api/client';
 import { Storage } from '../../utils/storage';
 import { Colors, Fonts } from '../../utils/colors';
 import { GlowMark } from '../../components/GlowLogo';
@@ -203,6 +203,9 @@ export function ProfileScreen() {
   const [publicProfile,  setPublicProfile]  = useState(true);
   const [publicSaving,   setPublicSaving]   = useState(false);
   const [galleryPhotos,   setGalleryPhotos]   = useState<string[]>([]);
+  // Police check is optional — track whether the artist submitted one so the
+  // profile can show Cleared / Under review / Add instead of a false "Cleared".
+  const [policeDoc, setPoliceDoc] = useState<'none' | 'submitted' | 'approved'>('none');
   const [galleryUploading, setGalleryUploading] = useState(false);
 
   const LANGUAGE_OPTIONS = ['English', 'French', 'Hindi', 'Nepali', 'Spanish', 'Mandarin', 'Punjabi', 'Arabic'];
@@ -314,6 +317,14 @@ export function ProfileScreen() {
       }
     }).catch(() => {});
     Storage.getDocuments().then(d => setDocCount(d.length));
+    if (user?.role === 'Provider') {
+      apiGetMyDocuments().then(({ documents }) => {
+        const police = documents.filter(d => d.docType === 'police_check');
+        if (police.some(d => d.status === 'APPROVED')) setPoliceDoc('approved');
+        else if (police.some(d => d.status === 'PENDING')) setPoliceDoc('submitted');
+        else setPoliceDoc('none');
+      }).catch(() => {});
+    }
   }, [token]);
 
   async function compressAndSave(asset: ImagePicker.ImagePickerAsset) {
@@ -546,7 +557,7 @@ export function ProfileScreen() {
     <View style={styles.container}>
       <ScrollView
         style={styles.scroll}
-        contentContainerStyle={{ paddingBottom: insets.bottom + 48 }}
+        contentContainerStyle={{ paddingBottom: insets.bottom + 130 }}
         showsVerticalScrollIndicator={false}
       >
         {/* ── Soft blush hero ──────────────────────────────────────── */}
@@ -938,29 +949,48 @@ export function ProfileScreen() {
                   </View>
                   <Divider />
 
-                  {/* Verification grid — 4 even cells */}
+                  {/* Verification grid — 4 even cells. Police check is OPTIONAL:
+                      it only reads "Cleared" when actually verified (admin flag or
+                      approved document), "Under review" once submitted, and offers
+                      "Add" otherwise — admin approval alone never implies it. */}
                   <View style={styles.checkGrid}>
-                    {([
-                      // Once admin approves the Provider, their documents are verified —
-                      // so all these read "Cleared" (no more stuck First Aid Pending).
-                      { Icon: MedicalBagIcon,         label: 'First Aid',  ok: providerP.approvedByAdmin || !!providerP.certifications?.includes('firstAid') },
-                      { Icon: ShieldCheckIcon,        label: 'Police',     ok: providerP.approvedByAdmin || !!providerP.policeCheckCleared },
-                      { Icon: CardAccountDetailsIcon, label: 'ID',         ok: providerP.approvedByAdmin },
-                      { Icon: CheckDecagramIcon,      label: 'Approved',   ok: providerP.approvedByAdmin },
-                    ] as const).map(item => (
-                      <View key={item.label} style={styles.checkCell}>
-                        <View style={[styles.checkIconWrap, item.ok ? styles.checkIconOk : styles.checkIconPending]}>
-                          {item.ok
-                            ? <item.Icon size={22} color="#C4667E" />
-                            : <ClockIcon size={22} color="#D4AF37" />
-                          }
-                        </View>
-                        <Text style={styles.checkLabel} numberOfLines={1}>{item.label}</Text>
-                        <Text style={[styles.checkStatus, { color: item.ok ? '#C4667E' : '#D4AF37' }]}>
-                          {item.ok ? 'Cleared' : 'Pending'}
-                        </Text>
-                      </View>
-                    ))}
+                    {(() => {
+                      const policeCleared = !!providerP.policeCheckCleared || policeDoc === 'approved';
+                      const policeStatus = policeCleared ? 'Cleared' : policeDoc === 'submitted' ? 'In review' : 'Add ›';
+                      const items: {
+                        Icon: typeof ShieldCheckIcon; label: string; ok: boolean;
+                        status: string; onPress?: () => void;
+                      }[] = [
+                        { Icon: MedicalBagIcon,         label: 'First Aid', ok: providerP.approvedByAdmin || !!providerP.certifications?.includes('firstAid'), status: providerP.approvedByAdmin ? 'Cleared' : 'Pending' },
+                        {
+                          Icon: ShieldCheckIcon, label: 'Police', ok: policeCleared, status: policeStatus,
+                          onPress: !policeCleared && policeDoc === 'none'
+                            ? () => nav.navigate('ProviderDocuments')
+                            : undefined,
+                        },
+                        { Icon: CardAccountDetailsIcon, label: 'ID',       ok: providerP.approvedByAdmin, status: providerP.approvedByAdmin ? 'Cleared' : 'Pending' },
+                        { Icon: CheckDecagramIcon,      label: 'Approved', ok: providerP.approvedByAdmin, status: providerP.approvedByAdmin ? 'Cleared' : 'Pending' },
+                      ];
+                      return items.map(item => (
+                        <Pressable
+                          key={item.label}
+                          style={styles.checkCell}
+                          disabled={!item.onPress}
+                          onPress={item.onPress}
+                        >
+                          <View style={[styles.checkIconWrap, item.ok ? styles.checkIconOk : styles.checkIconPending]}>
+                            {item.ok
+                              ? <item.Icon size={22} color="#C4667E" />
+                              : <ClockIcon size={22} color="#D4AF37" />
+                            }
+                          </View>
+                          <Text style={styles.checkLabel} numberOfLines={1}>{item.label}</Text>
+                          <Text style={[styles.checkStatus, { color: item.ok ? '#C4667E' : '#D4AF37' }]}>
+                            {item.status}
+                          </Text>
+                        </Pressable>
+                      ));
+                    })()}
                   </View>
                 </>
               ) : (
@@ -1100,7 +1130,7 @@ export function ProfileScreen() {
                 </View>
                 <Text style={styles.quickActionLabel}>Book Now</Text>
               </Pressable>
-              <Pressable style={({ pressed }) => [styles.quickAction, pressed && { opacity: 0.82 }]} onPress={() => nav.navigate('BookingsTab')}>
+              <Pressable style={({ pressed }) => [styles.quickAction, pressed && { opacity: 0.82 }]} onPress={() => nav.navigate('Bookings')}>
                 <View style={[styles.quickActionIcon, { backgroundColor: '#FCECEF' }]}>
                   <NoteIcon size={22} color={BRAND} />
                 </View>
@@ -1152,8 +1182,8 @@ export function ProfileScreen() {
             <Text style={styles.sectionLabel}>Trust & Safety</Text>
             <View style={styles.card}>
               {([
-                { Icon: ShieldCheckIcon,        label: 'Police Checked',  desc: 'All Providers pass criminal record check',
-                  detail: 'Every Provider on Glow must submit a valid Criminal Record Check (Vulnerable Sector) before they can accept bookings. Our team verifies each document and re-checks it on renewal. Providers who can’t clear a police check are never matched with clients.' },
+                { Icon: ShieldCheckIcon,        label: 'Background Checked', desc: 'Verified badge on cleared artists',
+                  detail: 'Artists can submit a Criminal Record Check for verification. Our team reviews each document, and artists who clear it carry a gold verified badge on their profile — look for it when you book. Artists without the badge have not completed a background check.' },
                 { Icon: CardAccountDetailsIcon, label: 'ID Verified',     desc: 'Government-issued ID confirmed',
                   detail: 'We confirm each Provider’s identity against a government-issued photo ID (driver’s licence, passport or provincial ID). The name on file must match their banking and certification documents, so you always know exactly who is coming to your home.' },
                 { Icon: AccountCheckIcon,       label: 'Admin Approved',  desc: 'Manually reviewed by our team',
@@ -1492,7 +1522,7 @@ const styles = StyleSheet.create({
     letterSpacing: -0.6, marginBottom: 14,
     textShadowColor: 'rgba(163,77,99,0.45)',
     textShadowOffset: { width: 0, height: 2 },
-    shadowRadius: 10,
+    textShadowRadius: 10,
   },
   heroChipRow: {
     flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center',

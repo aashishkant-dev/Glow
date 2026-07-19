@@ -39,6 +39,8 @@ import {
   WaxIcon,
   LotusIcon,
   CrownIcon,
+  PedicureIcon,
+  SpaBloomIcon,
 } from './BeautyIcons';
 export * from './BeautyIcons';
 
@@ -520,6 +522,9 @@ export const SERVICE_ICON_MAP: Record<string, ServiceIconComponent> = {
   'Facial':        FacialIcon,
   'Waxing':        WaxIcon,
   'Nails':         NailIcon,
+  'Manicure':      NailIcon,
+  'Pedicure':      PedicureIcon,
   'Mehendi':       HennaIcon,
   'Massage':       LotusIcon,
+  'Spa':           SpaBloomIcon,
 };
