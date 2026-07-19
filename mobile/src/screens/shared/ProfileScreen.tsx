@@ -51,6 +51,7 @@ import { apiGetProfile, apiSetPublicProfile, apiUpdateProfile, apiUploadPhoto, U
 import { Storage } from '../../utils/storage';
 import { Colors, Fonts } from '../../utils/colors';
 import { GlowMark } from '../../components/GlowLogo';
+import { DEFAULT_REGION_NAME } from '../../utils/region';
 
 // ── Design tokens — soft beauty / girly palette ────────────────────────────────
 // Soft blush hero, warm cream bg, rose + gold accents. No healthcare navy/gray.
@@ -1033,8 +1034,7 @@ export function ProfileScreen() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.navCardTitle}>My Pricing</Text>
                   <Text style={styles.navCardSub}>
-                    {providerP?.pricingModel === 'PER_SERVICE' ? 'Per-service pricing' : `Rs ${providerP?.hourlyRate ?? 25}/hr`}
-                    {providerP?.priceNegotiable ? ' · Negotiable' : ''}
+                    Per-service pricing{providerP?.priceNegotiable ? ' · Negotiable' : ''}
                   </Text>
                 </View>
               </View>
@@ -1042,9 +1042,7 @@ export function ProfileScreen() {
               {/* Pricing model badge */}
               <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
                 <View style={{ backgroundColor: '#DCFCE7', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }}>
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#166534' }}>
-                    {providerP?.pricingModel === 'PER_SERVICE' ? 'Per Service' : 'Hourly Rate'}
-                  </Text>
+                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#166534' }}>Per Service</Text>
                 </View>
                 {providerP?.priceNegotiable && (
                   <View style={{ backgroundColor: '#FEF3C7', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }}>
@@ -1052,15 +1050,6 @@ export function ProfileScreen() {
                   </View>
                 )}
               </View>
-
-              {providerP?.pricingModel === 'HOURLY' && (
-                <View style={{ marginTop: 12, padding: 14, backgroundColor: '#F8FAFC', borderRadius: 12 }}>
-                  <Text style={{ fontSize: 28, fontWeight: '800', color: '#1F1215' }}>
-                    Rs {providerP?.hourlyRate ?? 25}
-                  </Text>
-                  <Text style={{ fontSize: 13, color: '#64748B', marginTop: 2 }}>per hour · 3hr minimum</Text>
-                </View>
-              )}
             </View>
           </View>
         )}
@@ -1222,14 +1211,14 @@ export function ProfileScreen() {
             />
             <Divider />
             <InfoRow
-              glyph="cellphone" label="Call Us" value="+977-1-4XXXXXX"
+              glyph="cellphone" label="Call Us" value="+1 (647) 620-9243"
               valueColor="#C4667E"
-              onPress={() => Linking.openURL('tel:+97714000000')}
+              onPress={() => Linking.openURL('tel:+16476209243')}
             />
             <Divider />
-            <InfoRow glyph="clock-outline" label="Hours" value="9 AM – 8 PM NPT" />
+            <InfoRow glyph="clock-outline" label="Hours" value="24/7" />
             <Divider />
-            <InfoRow glyph="translate" label="Languages" value="English · Nepali · Hindi" />
+            <InfoRow glyph="translate" label="Languages" value="English" />
           </View>
         </View>
 
@@ -1239,7 +1228,7 @@ export function ProfileScreen() {
           <View style={styles.card}>
             <InfoRow glyph="package-variant" label="Version" value={`v${appVersion}`} />
             <Divider />
-            <InfoRow glyph="map" label="Region" value="Kathmandu Valley, Nepal 🇳🇵" />
+            <InfoRow glyph="map" label="Region" value={DEFAULT_REGION_NAME} />
             <Divider />
             <InfoRow glyph="map-marker" label="Coverage" value="15 km radius" />
           </View>
@@ -1289,7 +1278,7 @@ export function ProfileScreen() {
         </View>
 
         <Text style={styles.footer}>
-          © {new Date().getFullYear()} Glow · Beauty, on demand{'\n'}Kathmandu, Nepal 🇳🇵
+          © {new Date().getFullYear()} Glow · Beauty, on demand{'\n'}{DEFAULT_REGION_NAME}
         </Text>
       </ScrollView>
 

@@ -17,7 +17,6 @@ import {
 } from '@expo-google-fonts/inter';
 import { Poppins_300Light, Poppins_500Medium } from '@expo-google-fonts/poppins';
 import { AuthProvider } from './src/context/AuthContext';
-import { LangProvider } from './src/context/LangContext';
 // Side-effect import: registers the background-location TaskManager task at the
 // top level so it's defined before the OS can invoke it (incl. headless relaunch).
 import './src/services/backgroundLocation';
@@ -73,16 +72,14 @@ function App() {
   return (
     <ErrorBoundary>
     <SafeAreaProvider>
-      <LangProvider>
-        <AuthProvider>
-          <NavigationContainer ref={navigationRef} documentTitle={{ formatter: () => 'Glow' }}>
-            <View style={styles.root}>
-              <StatusBar style="dark" />
-              <RootNavigator />
-            </View>
-          </NavigationContainer>
-        </AuthProvider>
-      </LangProvider>
+      <AuthProvider>
+        <NavigationContainer ref={navigationRef} documentTitle={{ formatter: () => 'Glow' }}>
+          <View style={styles.root}>
+            <StatusBar style="dark" />
+            <RootNavigator />
+          </View>
+        </NavigationContainer>
+      </AuthProvider>
     </SafeAreaProvider>
     </ErrorBoundary>
   );

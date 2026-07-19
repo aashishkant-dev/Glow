@@ -11,7 +11,6 @@ import { Colors } from '../../utils/colors';
 import { StatusBadge } from '../../components/StatusBadge';
 import { NoteIcon, EarningsIcon, ClockIcon, KeyIcon, PhoneMobileIcon } from '../../components/CareIcons';
 import { CheckCircleIcon, HourglassIcon } from '../../components/TabIcons';
-import { useT } from '../../context/LangContext';
 
 type IconComp = (p: { size?: number; color?: string }) => React.ReactElement;
 
@@ -97,21 +96,26 @@ function paymentLabel(b: Booking): { key: PayKey; tone: PayTone } | null {
   return null;
 }
 
-const SECTION_TITLE_KEYS: Record<SectionKey, 'sectionInProgress' | 'sectionAwaiting' | 'sectionToday' | 'sectionTomorrow' | 'sectionThisWeek' | 'sectionLater' | 'sectionCompleted' | 'sectionCancelled'> = {
-  inProgress: 'sectionInProgress',
-  awaiting:   'sectionAwaiting',
-  today:      'sectionToday',
-  tomorrow:   'sectionTomorrow',
-  thisWeek:   'sectionThisWeek',
-  later:      'sectionLater',
-  completed:  'sectionCompleted',
-  cancelled:  'sectionCancelled',
+const SECTION_TITLES: Record<SectionKey, string> = {
+  inProgress: 'In Progress',
+  awaiting:   'Awaiting Artist',
+  today:      'Today',
+  tomorrow:   'Tomorrow',
+  thisWeek:   'This Week',
+  later:      'Later',
+  completed:  'Completed',
+  cancelled:  'Cancelled',
+};
+
+const PAY_LABELS: Record<PayKey, string> = {
+  payPaid:     'Paid',
+  payEscrow:   'Pay after visit',
+  payAwaiting: 'Awaiting Artist',
 };
 
 export function BookingsScreen() {
   const nav    = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const t      = useT('bookings');
   const [bookings,          setBookings]          = useState<Booking[]>([]);
   const [filter,            setFilter]            = useState<Filter>('ACTIVE');
   const [loading,           setLoading]           = useState(true);
@@ -197,10 +201,10 @@ export function BookingsScreen() {
   const statsHeader = !loading && bookings.length > 0 ? (
     <View style={styles.statsCard}>
       {([
-        [NoteIcon, String(bookings.length),              t.statBookings],
-        [CheckCircleIcon, String(completedBookings.length), t.statCompleted],
-        [EarningsIcon, `$${totalSpent}`,                    t.statSpent],
-        [ClockIcon, `${totalHours}h`,                        t.statHours],
+        [NoteIcon, String(bookings.length),              'Bookings'],
+        [CheckCircleIcon, String(completedBookings.length), 'Completed'],
+        [EarningsIcon, `$${totalSpent}`,                    'Spent'],
+        [ClockIcon, `${totalHours}h`,                        'Hours'],
       ] as [IconComp, string, string][]).map(([Icon, val, label]) => (
         <View key={label} style={styles.statCell}>
           <View style={styles.statCellIcon}><Icon size={18} color={Colors.brand} /></View>
@@ -218,15 +222,15 @@ export function BookingsScreen() {
         locations={[0, 0.5, 1]}
         style={[styles.header, { paddingTop: insets.top + 16 }]}
       >
-        <Text style={styles.headerTitle}>{t.title}</Text>
+        <Text style={styles.headerTitle}>My Bookings</Text>
         <Text style={styles.headerSub}>
-          {liveCount > 0 ? t.subLiveCount(liveCount) : awaitingCount > 0 ? t.subAwaiting(awaitingCount) : t.subNone}
+          {liveCount > 0 ? `${liveCount} in progress` : awaitingCount > 0 ? `${awaitingCount} awaiting Artist` : 'No active sessions'}
         </Text>
 
         <View style={styles.filterRow}>
           {FILTER_KEYS.map(key => {
             const active = filter === key;
-            const label = key === 'ACTIVE' ? t.filterActive : key === 'UPCOMING' ? t.filterUpcoming : t.filterPast;
+            const label = key === 'ACTIVE' ? 'Active' : key === 'UPCOMING' ? 'Upcoming' : 'Past';
             const count = key === 'ACTIVE' ? liveCount + awaitingCount
                         : key === 'UPCOMING' ? upcomingCount
                         : null;
@@ -261,7 +265,7 @@ export function BookingsScreen() {
           >
             <View style={styles.activeDot} />
             <View style={{ flex: 1 }}>
-              <Text style={styles.activeBannerTitle}>{t.activeBannerTitle}</Text>
+              <Text style={styles.activeBannerTitle}>Active Booking</Text>
               <Text style={styles.activeBannerSub}>{active.serviceType}</Text>
             </View>
             <StatusBadge status={active.status} />
@@ -274,9 +278,9 @@ export function BookingsScreen() {
       {showInstallBanner && (
         <View style={styles.installBanner}>
           <View style={{ marginRight: 8 }}><PhoneMobileIcon size={18} color="#fff" /></View>
-          <Text style={styles.installBannerText}>{t.installBanner}</Text>
+          <Text style={styles.installBannerText}>Add Glow to your home screen</Text>
           <Pressable onPress={handleInstall} style={styles.installBannerBtn}>
-            <Text style={styles.installBannerBtnText}>{t.installBtn}</Text>
+            <Text style={styles.installBannerBtnText}>Install</Text>
           </Pressable>
           <Pressable onPress={() => setShowInstallBanner(false)} style={styles.installBannerDismiss} hitSlop={10}>
             <Text style={styles.installBannerDismissText}>✕</Text>
@@ -287,7 +291,7 @@ export function BookingsScreen() {
       {/* iOS install hint */}
       {showIOSHint && !showInstallBanner && (
         <View style={styles.iosHint}>
-          <Text style={styles.iosHintText}>{t.iosHint}</Text>
+          <Text style={styles.iosHintText}>Tap Share ⎙ → "Add to Home Screen" to install the app</Text>
           <Pressable onPress={() => setShowIOSHint(false)} style={styles.installBannerDismiss} hitSlop={10}>
             <Text style={styles.installBannerDismissText}>✕</Text>
           </Pressable>
@@ -311,7 +315,7 @@ export function BookingsScreen() {
         }
         renderSectionHeader={({ section }) => (
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>{t[SECTION_TITLE_KEYS[(section as Section).title]]}</Text>
+            <Text style={styles.sectionTitle}>{SECTION_TITLES[(section as Section).title]}</Text>
             <View style={styles.sectionTagPill}>
               <Text style={styles.sectionTagText}>{(section as any).tag}</Text>
             </View>
@@ -323,21 +327,21 @@ export function BookingsScreen() {
               <NoteIcon size={40} color={Colors.tertiaryLabel} />
             </View>
             <Text style={styles.emptyTitle}>
-              {filter === 'ACTIVE' ? t.emptyActiveTitle  :
-               filter === 'UPCOMING' ? t.emptyUpcomingTitle :
-               t.emptyPastTitle}
+              {filter === 'ACTIVE' ? 'No active sessions'  :
+               filter === 'UPCOMING' ? 'No upcoming sessions' :
+               'No past bookings'}
             </Text>
             <Text style={styles.emptySub}>
-              {filter === 'ACTIVE' ? t.emptyActiveSub :
-               filter === 'UPCOMING' ? t.emptyUpcomingSub :
-               t.emptyPastSub}
+              {filter === 'ACTIVE' ? 'Live and pending sessions show up here.' :
+               filter === 'UPCOMING' ? "Accepted sessions show up here once your Artist confirms." :
+               'Completed and cancelled sessions appear here.'}
             </Text>
             {filter !== 'PAST' && (
               <Pressable
                 style={({ pressed }) => [styles.bookNowBtn, pressed && { opacity: 0.85 }]}
                 onPress={() => nav.navigate('NewBooking')}
               >
-                <Text style={styles.bookNowBtnText}>{t.bookArtist}</Text>
+                <Text style={styles.bookNowBtnText}>Book an Artist →</Text>
               </Pressable>
             )}
           </View>
@@ -358,7 +362,7 @@ export function BookingsScreen() {
                     ? <Text style={[styles.payTagText, styles.payTextReleased]}>✓</Text>
                     : <HourglassIcon size={12} color={Colors.secondaryLabel} />}
                 <Text style={[styles.payTagText, pay.tone === 'released' ? styles.payTextReleased : pay.tone === 'escrow' ? styles.payTextEscrow : styles.payTextPending]}>
-                  {t[pay.key]}
+                  {PAY_LABELS[pay.key]}
                 </Text>
               </View>
             )}
@@ -367,7 +371,7 @@ export function BookingsScreen() {
                 style={({ pressed }) => [styles.reBookBtn, pressed && { opacity: 0.82 }]}
                 onPress={() => nav.navigate('NewBooking')}
               >
-                <Text style={styles.reBookBtnText}>{t.bookAgain}</Text>
+                <Text style={styles.reBookBtnText}>Book Again</Text>
               </Pressable>
             )}
           </View>
@@ -428,7 +432,7 @@ const styles = StyleSheet.create({
   },
   installBannerText: { flex: 1, color: '#fff', fontSize: 13, fontWeight: '600' },
   installBannerBtn: {
-    backgroundColor: Colors.systemBlue, borderRadius: 8,
+    backgroundColor: Colors.brand, borderRadius: 8,
     paddingHorizontal: 14, paddingVertical: 7,
   },
   installBannerBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
@@ -436,10 +440,10 @@ const styles = StyleSheet.create({
   installBannerDismissText: { color: 'rgba(255,255,255,0.5)', fontSize: 16 },
   iosHint: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: '#F0F7FF', paddingHorizontal: 16, paddingVertical: 12,
-    borderBottomWidth: 1, borderBottomColor: '#BFDBFE',
+    backgroundColor: Colors.brandLight, paddingHorizontal: 16, paddingVertical: 12,
+    borderBottomWidth: 1, borderBottomColor: Colors.separator,
   },
-  iosHintText: { flex: 1, color: '#1E40AF', fontSize: 13, fontWeight: '500' },
+  iosHintText: { flex: 1, color: Colors.brandDark, fontSize: 13, fontWeight: '500' },
 
   statsCard: {
     flexDirection: 'row', marginHorizontal: 16, marginTop: 16, marginBottom: 4,
@@ -455,12 +459,12 @@ const styles = StyleSheet.create({
 
   reBookBtn: {
     marginHorizontal: 16, marginTop: -6, marginBottom: 12,
-    backgroundColor: '#EFF6FF', borderRadius: 12,
+    backgroundColor: Colors.brandLight, borderRadius: 12,
     paddingVertical: 10, alignItems: 'center',
-    borderWidth: 1, borderColor: '#BFDBFE',
+    borderWidth: 1, borderColor: Colors.separator,
     borderTopWidth: 0, borderTopLeftRadius: 0, borderTopRightRadius: 0,
   },
-  reBookBtnText: { fontSize: 13, fontWeight: '700', color: Colors.systemBlue },
+  reBookBtnText: { fontSize: 13, fontWeight: '700', color: Colors.brandDark },
   payTag: { alignSelf: 'flex-start', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4, marginTop: -2, marginBottom: 10, marginLeft: 16 },
   payEscrow:   { backgroundColor: '#FEF3C7' },
   payReleased: { backgroundColor: Colors.brandLight },
@@ -479,7 +483,7 @@ const styles = StyleSheet.create({
   emptyTitle: { fontSize: 18, fontWeight: '800', color: Colors.label, marginBottom: 8 },
   emptySub: { fontSize: 14, color: Colors.secondaryLabel, textAlign: 'center', lineHeight: 21, marginBottom: 20 },
   bookNowBtn: {
-    backgroundColor: Colors.systemBlue, borderRadius: 14,
+    backgroundColor: Colors.brand, borderRadius: 14,
     paddingVertical: 14, paddingHorizontal: 28,
   },
   bookNowBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },

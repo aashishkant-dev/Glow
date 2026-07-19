@@ -24,7 +24,6 @@ import {
   PublicProviderCard,
 } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
-import { useLang, useT } from '../../context/LangContext';
 import { useLocation } from '../../context/LocationContext';
 import { Colors, Fonts } from '../../utils/colors';
 import { ServiceIcon } from '../../components/ServiceIcon';
@@ -38,39 +37,37 @@ import { Storage } from '../../utils/storage';
 import { useChatUnread } from '../../context/ChatUnreadContext';
 
 const SERVICES = [
-  { id: '1',  en: 'Makeup',        fr: 'Maquillage' },
-  { id: '2',  en: 'Bridal Makeup', fr: 'Maquillage de mariée' },
-  { id: '3',  en: 'Party Makeup',  fr: 'Maquillage de soirée' },
-  { id: '4',  en: 'Threading',     fr: 'Épilation au fil' },
-  { id: '5',  en: 'Hair Styling',  fr: 'Coiffure' },
-  { id: '6',  en: 'Hair Coloring', fr: 'Coloration' },
-  { id: '7',  en: 'Facial',        fr: 'Soin du visage' },
-  { id: '8',  en: 'Waxing',        fr: 'Épilation à la cire' },
-  { id: '9',  en: 'Nails',         fr: 'Ongles' },
-  { id: '10', en: 'Mehendi',       fr: 'Mehendi' },
-  { id: '11', en: 'Massage',       fr: 'Massage' },
+  { id: '1',  name: 'Makeup' },
+  { id: '2',  name: 'Bridal Makeup' },
+  { id: '3',  name: 'Party Makeup' },
+  { id: '4',  name: 'Threading' },
+  { id: '5',  name: 'Hair Styling' },
+  { id: '6',  name: 'Hair Coloring' },
+  { id: '7',  name: 'Facial' },
+  { id: '8',  name: 'Waxing' },
+  { id: '9',  name: 'Nails' },
+  { id: '10', name: 'Mehendi' },
+  { id: '11', name: 'Massage' },
 ];
-
-const FR_SERVICE_NAMES: Record<string, string> = Object.fromEntries(SERVICES.map(s => [s.en, s.fr]));
 
 // Occasion-first browsing — how women actually shop beauty: by moment, not by
 // service taxonomy. Each maps to the closest bookable service.
-const OCCASIONS: { id: string; en: string; fr: string; subEn: string; subFr: string; service: string; tint: string }[] = [
-  { id: 'wedding',  en: 'Wedding',       fr: 'Mariage',        subEn: 'Bridal glam',        subFr: 'Glam de mariée',   service: 'Bridal Makeup', tint: '#FCECEF' },
-  { id: 'party',    en: 'Party night',   fr: 'Soirée',         subEn: 'Full glam look',     subFr: 'Look glamour',     service: 'Party Makeup',  tint: '#F6EBC9' },
-  { id: 'date',     en: 'Date night',    fr: 'Rendez-vous',    subEn: 'Soft & radiant',     subFr: 'Douce & radieuse', service: 'Makeup',        tint: '#FCECEF' },
-  { id: 'festival', en: 'Festival',      fr: 'Festival',       subEn: 'Mehendi & more',     subFr: 'Mehendi & plus',   service: 'Mehendi',       tint: '#F6EBC9' },
-  { id: 'everyday', en: 'Everyday glow', fr: 'Éclat quotidien', subEn: 'Skin-first beauty', subFr: 'Peau éclatante',   service: 'Facial',        tint: '#FCECEF' },
-  { id: 'metime',   en: 'Me-time',       fr: 'Moment à moi',   subEn: 'Relax & recharge',   subFr: 'Détente totale',   service: 'Massage',       tint: '#F6EBC9' },
+const OCCASIONS: { id: string; name: string; sub: string; service: string; tint: string }[] = [
+  { id: 'wedding',  name: 'Wedding',       sub: 'Bridal glam',        service: 'Bridal Makeup', tint: '#FCECEF' },
+  { id: 'party',    name: 'Party night',   sub: 'Full glam look',     service: 'Party Makeup',  tint: '#F6EBC9' },
+  { id: 'date',     name: 'Date night',    sub: 'Soft & radiant',     service: 'Makeup',        tint: '#FCECEF' },
+  { id: 'festival', name: 'Festival',      sub: 'Mehendi & more',     service: 'Mehendi',       tint: '#F6EBC9' },
+  { id: 'everyday', name: 'Everyday glow', sub: 'Skin-first beauty',  service: 'Facial',        tint: '#FCECEF' },
+  { id: 'metime',   name: 'Me-time',       sub: 'Relax & recharge',   service: 'Massage',       tint: '#F6EBC9' },
 ];
 
 // Editorial inspiration tiles — designer photography drops in here later
 // (see brand asset list); until then soft duotone canvases.
-const INSPO: { id: string; en: string; fr: string; tagEn: string; tagFr: string; service: string; from: string; to: string }[] = [
-  { id: 'softglam', en: 'Soft glam is in',        fr: 'Le soft glam',          tagEn: 'TREND',  tagFr: 'TENDANCE', service: 'Makeup',        from: '#E9A0B1', to: '#A34D63' },
-  { id: 'bridal',   en: 'Wedding season looks',   fr: 'Looks de mariage',      tagEn: 'EDIT',   tagFr: 'ÉDITO',    service: 'Bridal Makeup', from: '#D4AF37', to: '#A3812A' },
-  { id: 'nails',    en: 'Nail art we love',       fr: "Nail art qu'on adore",  tagEn: 'LOVED',  tagFr: 'COUP DE ♥', service: 'Nails',        from: '#D97A91', to: '#7E3B4D' },
-  { id: 'hair',     en: 'Effortless waves',       fr: 'Ondulations naturelles', tagEn: 'HOW-TO', tagFr: 'TUTO',    service: 'Hair Styling',  from: '#C4667E', to: '#8E4257' },
+const INSPO: { id: string; title: string; tag: string; service: string; from: string; to: string }[] = [
+  { id: 'softglam', title: 'Soft glam is in',      tag: 'TREND',  service: 'Makeup',        from: '#E9A0B1', to: '#A34D63' },
+  { id: 'bridal',   title: 'Wedding season looks', tag: 'EDIT',   service: 'Bridal Makeup', from: '#D4AF37', to: '#A3812A' },
+  { id: 'nails',    title: 'Nail art we love',     tag: 'LOVED',  service: 'Nails',         from: '#D97A91', to: '#7E3B4D' },
+  { id: 'hair',     title: 'Effortless waves',     tag: 'HOW-TO', service: 'Hair Styling',  from: '#C4667E', to: '#8E4257' },
 ];
 
 const ACTIVE_STATUSES = new Set(['REQUESTED', 'ACCEPTED', 'ON_MY_WAY', 'STARTED']);
@@ -99,7 +96,7 @@ function Touch({ children, onPress, style }: { children: React.ReactNode; onPres
 }
 
 /** Editorial artist card — soft rose canvas, avatar, gold-verified. */
-function ArtistCard({ artist, locale, onPress }: { artist: PublicProviderCard; locale: string; onPress: () => void }) {
+function ArtistCard({ artist, onPress }: { artist: PublicProviderCard; onPress: () => void }) {
   const initial = artist.name?.[0]?.toUpperCase() ?? '?';
   return (
     <Touch onPress={onPress} style={styles.artistCardWrap}>
@@ -124,12 +121,12 @@ function ArtistCard({ artist, locale, onPress }: { artist: PublicProviderCard; l
           <View style={styles.artistMetaRow}>
             <StarIcon size={12} color={Colors.gold} filled />
             <Text style={styles.artistRatingNum}>
-              {artist.rating != null ? Number(artist.rating).toFixed(1) : (locale.startsWith('fr') ? 'Nouveau' : 'New')}
+              {artist.rating != null ? Number(artist.rating).toFixed(1) : 'New'}
             </Text>
             {artist.ratingCount > 0 && <Text style={styles.artistRatingCount}>({artist.ratingCount})</Text>}
             <View style={styles.metaDot} />
             <Text style={styles.artistVisits}>
-              {artist.completedVisits} {locale.startsWith('fr') ? 'visites' : 'visits'}
+              {artist.completedVisits} visits
             </Text>
           </View>
         </View>
@@ -143,7 +140,6 @@ export function HomeScreen() {
   const { requestLocation, permissionStatus } = useLocation();
   const nav       = useNavigation<any>();
   const insets    = useSafeAreaInsets();
-  const { lang, setLang } = useLang();
   const [bookings,      setBookings]      = useState<Booking[]>([]);
   const [loading,       setLoading]       = useState(true);
   const [refreshing,    setRefreshing]    = useState(false);
@@ -159,7 +155,6 @@ export function HomeScreen() {
   const { notifications } = useChatUnread();
   const unreadCount = notifications.filter(n => !n.read).length;
 
-  const t              = useT('home');
   const activeBooking  = bookings.find(b => ACTIVE_STATUSES.has(b.status));
   const recentBookings = bookings.filter(b => !ACTIVE_STATUSES.has(b.status)).slice(0, 3);
 
@@ -269,10 +264,10 @@ export function HomeScreen() {
 
   function dismissIOSHint() { Storage.saveInstallDismissed(); setShowIOSHint(false); }
 
-  const locale    = lang === 'fr' ? 'fr-CA' : 'en-CA';
-  const firstName = user?.name?.split(' ')[0] ?? (lang === 'fr' ? 'là' : 'there');
+  const locale    = 'en-US';
+  const firstName = user?.name?.split(' ')[0] ?? 'there';
   const hour      = new Date().getHours();
-  const greeting  = t.greeting(hour);
+  const greeting  = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
 
   return (
     <View style={styles.container}>
@@ -296,9 +291,6 @@ export function HomeScreen() {
           <View style={[styles.topBar, { paddingTop: insets.top + 14 }]}>
             <GlowLogo size={34} showWordmark variant="onLight" />
             <View style={styles.topActions}>
-              <Pressable style={({ pressed }) => [styles.pillBtn, pressed && { opacity: 0.7 }]} onPress={() => setLang(lang === 'en' ? 'fr' : 'en')}>
-                <Text style={styles.pillBtnText}>{lang === 'en' ? 'FR' : 'EN'}</Text>
-              </Pressable>
               <Pressable style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.7 }]} onPress={() => nav.navigate('Notifications')}>
                 <BellIcon size={18} color={Colors.label} />
                 {unreadCount > 0 && (
@@ -332,20 +324,20 @@ export function HomeScreen() {
               {firstName}
               <Text style={styles.greetingDot}>.</Text>
             </Text>
-            <Text style={styles.greetingSub}>{t.readySub}</Text>
+            <Text style={styles.greetingSub}>Time for a little self-care ✨</Text>
           </View>
 
           {/* ── Search ── */}
           <Touch style={styles.searchWrap} onPress={() => nav.navigate('NewBooking', { bookingMode: 'scheduled', _t: Date.now() })}>
             <View style={styles.searchBar}>
               <SearchIcon size={17} color={Colors.tertiaryLabel} />
-              <Text style={styles.searchText}>{t.searchPlaceholder}</Text>
+              <Text style={styles.searchText}>Search artists, services...</Text>
             </View>
           </Touch>
 
           {/* ── Occasions — browse by moment ── */}
           <View style={[styles.sectionHeader, { marginTop: 8 }]}>
-            <Text style={styles.sectionTitle}>{t.occasionTitle}</Text>
+            <Text style={styles.sectionTitle}>What's the occasion?</Text>
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll} contentContainerStyle={styles.occRow}>
             {OCCASIONS.map(o => (
@@ -354,8 +346,8 @@ export function HomeScreen() {
                   <View style={styles.occIcon}>
                     <ServiceIcon serviceType={o.service} size={20} color={Colors.brandDeep} bubble={false} />
                   </View>
-                  <Text style={styles.occName}>{lang === 'fr' ? o.fr : o.en}</Text>
-                  <Text style={styles.occSub}>{lang === 'fr' ? o.subFr : o.subEn}</Text>
+                  <Text style={styles.occName}>{o.name}</Text>
+                  <Text style={styles.occSub}>{o.sub}</Text>
                 </View>
               </Touch>
             ))}
@@ -368,15 +360,15 @@ export function HomeScreen() {
                 <View style={[StyleSheet.absoluteFill, { borderRadius: 28, background: 'linear-gradient(120deg, #E9A0B1 0%, #D97A91 55%, #A34D63 130%)' } as any]} />
               )}
               <View style={styles.heroGlow} />
-              <Text style={styles.heroKicker}>{lang === 'fr' ? "C'EST L'HEURE DE BRILLER" : "IT'S GLOW O'CLOCK"}</Text>
-              <Text style={styles.heroTitle}>{lang === 'fr' ? 'Sublime,\ndès ce soir.' : 'Stunning,\nby tonight.'}</Text>
-              <Text style={styles.heroSub}>{t.onDemandSub}</Text>
+              <Text style={styles.heroKicker}>IT'S GLOW O'CLOCK</Text>
+              <Text style={styles.heroTitle}>Stunning,{'\n'}by tonight.</Text>
+              <Text style={styles.heroSub}>Artist in 2–4 hours</Text>
               <View style={styles.heroCtaRow}>
                 <View style={styles.heroCta}>
-                  <Text style={styles.heroCtaText}>{t.bookNow}</Text>
+                  <Text style={styles.heroCtaText}>Book Your Glow</Text>
                 </View>
                 <Pressable hitSlop={8} onPress={() => nav.navigate('NewBooking', { bookingMode: 'scheduled', _t: Date.now() })}>
-                  <Text style={styles.heroAlt}>{t.scheduledTitle} →</Text>
+                  <Text style={styles.heroAlt}>Scheduled →</Text>
                 </Pressable>
               </View>
             </View>
@@ -391,7 +383,7 @@ export function HomeScreen() {
               <View style={styles.activeBanner}>
                 <Animated.View style={[styles.activeDot, { transform: [{ scale: pulseAnim }] }]} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.activeTitle}>{t.activeBooking}</Text>
+                  <Text style={styles.activeTitle}>Active Booking</Text>
                   <Text style={styles.activeSub}>
                     {activeBooking.serviceType} · {formatDate(activeBooking.scheduledAt, locale)} {formatTime(activeBooking.scheduledAt, locale)}
                   </Text>
@@ -404,12 +396,12 @@ export function HomeScreen() {
           {/* ── Categories ── */}
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.catScroll} contentContainerStyle={styles.catRow}>
             {SERVICES.map(item => (
-              <Touch key={item.id} onPress={() => nav.navigate('NewBooking', { serviceType: item.en, bookingMode: 'scheduled', _t: Date.now() })}>
+              <Touch key={item.id} onPress={() => nav.navigate('NewBooking', { serviceType: item.name, bookingMode: 'scheduled', _t: Date.now() })}>
                 <View style={styles.catChip}>
                   <View style={styles.catCircle}>
-                    <ServiceIcon serviceType={item.en} size={21} color={Colors.brandDark} bubble={false} />
+                    <ServiceIcon serviceType={item.name} size={21} color={Colors.brandDark} bubble={false} />
                   </View>
-                  <Text style={styles.catLabel} numberOfLines={1}>{lang === 'fr' ? item.fr : item.en}</Text>
+                  <Text style={styles.catLabel} numberOfLines={1}>{item.name}</Text>
                 </View>
               </Touch>
             ))}
@@ -419,7 +411,7 @@ export function HomeScreen() {
           {popularServices.length > 0 && (
             <>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>{lang === 'fr' ? 'Tout le monde réserve' : "Everyone's booking"}</Text>
+                <Text style={styles.sectionTitle}>Everyone's booking</Text>
                 <SparkleIcon size={16} color={Colors.gold} />
               </View>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll} contentContainerStyle={styles.trendRow}>
@@ -432,15 +424,15 @@ export function HomeScreen() {
                         </View>
                         {svc.popular && (
                           <View style={styles.trendBadge}>
-                            <Text style={styles.trendBadgeText}>{lang === 'fr' ? 'Populaire' : 'Popular'}</Text>
+                            <Text style={styles.trendBadgeText}>Popular</Text>
                           </View>
                         )}
                       </View>
                       <Text style={[styles.trendName, i === 0 && { color: '#fff' }]} numberOfLines={2}>
-                        {lang === 'fr' ? (FR_SERVICE_NAMES[svc.name] ?? svc.name) : svc.name}
+                        {svc.name}
                       </Text>
                       <Text style={[styles.trendMeta, i === 0 && { color: 'rgba(255,255,255,0.85)' }]}>
-                        {svc.durationMin ? `${svc.durationMin} min · ` : ''}{t.from} ${Math.round(svc.basePrice)}
+                        {svc.durationMin ? `${svc.durationMin} min · ` : ''}From ${Math.round(svc.basePrice)}
                       </Text>
                     </View>
                   </Touch>
@@ -453,9 +445,9 @@ export function HomeScreen() {
           {artists.length > 0 && (
             <>
               <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>{lang === 'fr' ? 'Adorées des clientes' : 'Loved by clients'}</Text>
+                <Text style={styles.sectionTitle}>Loved by clients</Text>
                 <Pressable onPress={() => nav.navigate('NewBooking', { bookingMode: 'scheduled', _t: Date.now() })}>
-                  <Text style={styles.seeAll}>{t.seeAll}</Text>
+                  <Text style={styles.seeAll}>See all</Text>
                 </Pressable>
               </View>
               {/* Niche chips — browse artists by what they're best at */}
@@ -470,7 +462,7 @@ export function HomeScreen() {
                         onPress={() => setSpecialtyFilter(sp)}
                       >
                         <Text style={[styles.nicheChipText, active && styles.nicheChipTextActive]}>
-                          {sp === 'All' ? (lang === 'fr' ? 'Toutes' : 'All') : sp}
+                          {sp}
                         </Text>
                       </Pressable>
                     );
@@ -482,7 +474,6 @@ export function HomeScreen() {
                   <ArtistCard
                     key={a.id}
                     artist={a}
-                    locale={locale}
                     onPress={() => nav.navigate('ProviderPublicProfile', { providerId: a.id, providerName: a.name })}
                   />
                 ))}
@@ -492,7 +483,7 @@ export function HomeScreen() {
 
           {/* ── Beauty inspiration — editorial carousel ── */}
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>{t.inspirationTitle}</Text>
+            <Text style={styles.sectionTitle}>Beauty inspiration</Text>
             <SparkleIcon size={16} color={Colors.gold} />
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll} contentContainerStyle={styles.inspoRow}>
@@ -506,10 +497,10 @@ export function HomeScreen() {
                   )}
                   <View style={styles.inspoGlow} />
                   <View style={styles.inspoTag}>
-                    <Text style={styles.inspoTagText}>{lang === 'fr' ? item.tagFr : item.tagEn}</Text>
+                    <Text style={styles.inspoTagText}>{item.tag}</Text>
                   </View>
-                  <Text style={styles.inspoTitle}>{lang === 'fr' ? item.fr : item.en}</Text>
-                  <Text style={styles.inspoCta}>{lang === 'fr' ? 'Réserver ce look →' : 'Book this look →'}</Text>
+                  <Text style={styles.inspoTitle}>{item.title}</Text>
+                  <Text style={styles.inspoCta}>Book this look →</Text>
                 </View>
               </Touch>
             ))}
@@ -522,9 +513,9 @@ export function HomeScreen() {
                 <SparkleIcon size={18} color={Colors.gold} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.offerTitle}>{lang === 'fr' ? 'Le glam vient à vous' : 'Glam that comes to you'}</Text>
+                <Text style={styles.offerTitle}>Glam that comes to you</Text>
                 <Text style={styles.offerSub}>
-                  {lang === 'fr' ? 'Chaque artiste est vérifiée et assurée' : 'Every artist is verified & background checked'}
+                  Every artist is verified & background checked
                 </Text>
               </View>
             </View>
@@ -532,9 +523,9 @@ export function HomeScreen() {
 
           {/* ── Your bookings ── */}
           <View style={styles.sectionHeader}>
-            <Text style={styles.sectionTitle}>{t.recentTitle}</Text>
+            <Text style={styles.sectionTitle}>Your Bookings</Text>
             <Pressable onPress={() => nav.navigate('BookingsTab')}>
-              <Text style={styles.seeAll}>{t.seeAll}</Text>
+              <Text style={styles.seeAll}>See all</Text>
             </Pressable>
           </View>
 
@@ -545,11 +536,11 @@ export function HomeScreen() {
               <View style={styles.emptyArt}>
                 <GlowMark size={44} petal={Colors.brandAccent} core={Colors.gold} />
               </View>
-              <Text style={styles.emptyTitle}>{t.emptyTitle}</Text>
-              <Text style={styles.emptySub}>{t.emptySub}</Text>
+              <Text style={styles.emptyTitle}>No bookings yet</Text>
+              <Text style={styles.emptySub}>Your booking history will appear here</Text>
               <Touch onPress={() => nav.navigate('NewBooking', { _t: Date.now() })}>
                 <View style={styles.emptyCta}>
-                  <Text style={styles.emptyCtaText}>{t.bookFirst}</Text>
+                  <Text style={styles.emptyCtaText}>Book your first Artist</Text>
                 </View>
               </Touch>
             </View>
@@ -562,9 +553,7 @@ export function HomeScreen() {
           {showIOSHint && (
             <View style={styles.iosHint}>
               <Text style={styles.iosHintText}>
-                {lang === 'fr'
-                  ? "Appuyez sur Partager puis « Ajouter à l'écran d'accueil »"
-                  : 'Tap Share → "Add to Home Screen" to install'}
+                Tap Share → "Add to Home Screen" to install
               </Text>
               <Pressable onPress={dismissIOSHint} style={{ padding: 4 }} hitSlop={12}>
                 <Text style={styles.iosHintDismiss}>✕</Text>
@@ -575,9 +564,7 @@ export function HomeScreen() {
           {/* ── Footer ── */}
           <View style={styles.footer}>
             <GlowMark size={26} petal={Colors.opaqueSeparator} core={Colors.opaqueSeparator} />
-            <Text style={styles.footerNote}>
-              {lang === 'fr' ? 'Beauté à domicile · Kathmandu, Népal' : 'Beauty at your doorstep · Kathmandu, Nepal 🇳🇵'}
-            </Text>
+            <Text style={styles.footerNote}>Beauty at your doorstep</Text>
             <Text style={styles.footerCopy}>© {new Date().getFullYear()} Glow</Text>
           </View>
         </Animated.View>

@@ -164,7 +164,7 @@ export function LocationPrompt({ onRequest, onSkip, onManualAddress, visible, is
                   style={styles.manualInput}
                   value={manualAddress}
                   onChangeText={setManualAddress}
-                  placeholder="e.g. 840 Notre Dame Ave, Sudbury, ON P3A 2T4"
+                  placeholder="e.g. 123 Main St, City, Province, Postal Code"
                   placeholderTextColor="#aaa"
                   autoCapitalize="words"
                   returnKeyType="done"

@@ -28,6 +28,7 @@ import { ServiceIcon } from '../../components/ServiceIcon';
 import { PulseIcon, PinIcon, MedalIcon, ProfileIcon, BellIcon, ShieldCheckIcon, ClockIcon } from '../../components/CareIcons';
 import { Radius, Spacing, Typography } from '../../utils/theme';
 import { OSMMap, OSMMarker } from '../../components/OSMMap';
+import { DEFAULT_REGION, DEFAULT_REGION_NAME } from '../../utils/region';
 
 // Module-level ref so ProviderNavigator can read the current pending job count for the tab badge
 export const pendingJobsCount = { current: 0 };
@@ -158,7 +159,7 @@ function WebLeafletMap({ center, jobs, onJobPress, onAcceptJob, filterText }: We
 }
 
 type ViewMode = 'list' | 'map';
-const SUDBURY_CENTER = { latitude: 46.4917, longitude: -80.9930 };
+const REGION_CENTER = { latitude: DEFAULT_REGION.lat, longitude: DEFAULT_REGION.lng };
 
 function getDistanceKm(lat1: number, lon1: number, lat2: number, lon2: number): number {
   const R = 6371;
@@ -775,7 +776,7 @@ export function NearbyJobsScreen() {
   const firstJob = filtered.find(j => j.lat != null && j.lng != null);
   const mapCenter = rawCoords
     ?? (firstJob ? { lat: firstJob.lat!, lng: firstJob.lng! } : null)
-    ?? { lat: SUDBURY_CENTER.latitude, lng: SUDBURY_CENTER.longitude };
+    ?? { lat: REGION_CENTER.latitude, lng: REGION_CENTER.longitude };
   const newJobsCount = jobs.filter(j => j.status === 'REQUESTED').length;
   const upcomingJobs = myJobs.filter(j => ['ACCEPTED', 'ON_MY_WAY', 'STARTED'].includes(j.status));
   const pastJobs = myJobs.filter(j => j.status === 'COMPLETED');
@@ -863,8 +864,8 @@ export function NearbyJobsScreen() {
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={styles.statNum}>$25/hr</Text>
-            <Text style={styles.statLabel}>Rate</Text>
+            <Text style={styles.statNum}>${filtered.length > 0 ? Math.round(potentialEarnings / filtered.length) : 0}</Text>
+            <Text style={styles.statLabel}>Avg. Job</Text>
           </View>
         </View>
       )}
@@ -909,7 +910,7 @@ export function NearbyJobsScreen() {
             )}
             <Pressable style={styles.gpsBadge} onPress={requestLocation}>
               <RadioOnIcon size={12} color={rawCoords ? '#34D399' : '#FCD34D'} />
-              <Text style={styles.gpsBadgeText}>{rawCoords ? 'Live GPS' : 'Sudbury'}</Text>
+              <Text style={styles.gpsBadgeText}>{rawCoords ? 'Live GPS' : DEFAULT_REGION_NAME}</Text>
             </Pressable>
           </View>
         </View>

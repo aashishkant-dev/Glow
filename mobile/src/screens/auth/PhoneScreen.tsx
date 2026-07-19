@@ -21,6 +21,7 @@ import { SparkleIcon, MirrorIcon, CrownIcon } from '../../components/BeautyIcons
 import { apiLogin } from '../../api/client';
 import { Colors, Fonts } from '../../utils/colors';
 import { GlowLogo, GlowMark, GlowTagline } from '../../components/GlowLogo';
+import { DEFAULT_REGION_NAME } from '../../utils/region';
 
 type Role = 'CUSTOMER' | 'Provider' | 'SALON';
 
@@ -336,7 +337,7 @@ export function PhoneScreen() {
 
           <View style={styles.footerMark}>
             <GlowMark size={22} petal={Colors.opaqueSeparator} core={Colors.opaqueSeparator} />
-            <Text style={styles.copyright}>© {new Date().getFullYear()} Glow · Greater Sudbury, ON</Text>
+            <Text style={styles.copyright}>© {new Date().getFullYear()} Glow · {DEFAULT_REGION_NAME}</Text>
           </View>
         </ScrollView>
       </KeyboardAvoidingView>

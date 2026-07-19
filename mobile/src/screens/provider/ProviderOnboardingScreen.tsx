@@ -147,9 +147,7 @@ export function ProviderOnboardingScreen() {
   const [driversLic, setDriversLic] = useState(false);
   const [ownCar, setOwnCar]         = useState(false);
 
-  // Step 4 — Pricing
-  const [pricingModel, setPricingModel]       = useState<'PER_SERVICE' | 'HOURLY'>('HOURLY');
-  const [hourlyRate, setHourlyRate]           = useState('25');
+  // Step 4 — Pricing (per-service only — every Artist prices their own menu)
   const [servicePrices, setServicePrices]     = useState<Record<string, string>>({});
   const [priceNegotiable, setPriceNegotiable] = useState(false);
 
@@ -186,8 +184,7 @@ export function ProviderOnboardingScreen() {
         firstAidCertified: firstAid,
         driversLicense:    driversLic,
         ownTransportation: ownCar,
-        pricingModel,
-        hourlyRate:        pricingModel === 'HOURLY' ? Number(hourlyRate) || 25 : undefined,
+        pricingModel:      'PER_SERVICE',
         priceNegotiable,
       });
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
@@ -495,98 +492,41 @@ export function ProviderOnboardingScreen() {
             {step === 4 && (
               <>
                 <Text style={styles.sectionTitle}>Set Your Prices</Text>
-                <Text style={styles.sectionSub}>How would you like to charge for your services? You can change this later from your profile.</Text>
+                <Text style={styles.sectionSub}>Set a price for each service you offer. Clients see the exact amount before booking. You can change this later from your profile.</Text>
 
-                {/* Pricing model toggle */}
-                <View style={{ flexDirection: 'row', gap: 12, marginBottom: 20 }}>
-                  {[
-                    { key: 'HOURLY' as const, label: 'Hourly Rate', desc: 'One rate for all services', icon: '⏰' },
-                    { key: 'PER_SERVICE' as const, label: 'Per Service', desc: 'Different price per service', icon: '💫' },
-                  ].map(m => {
-                    const active = pricingModel === m.key;
-                    return (
-                      <Pressable
-                        key={m.key}
-                        style={[styles.qualCard, { width: '47%' }, active && { borderColor: GREEN, borderLeftColor: GREEN, backgroundColor: GREEN + '0D' }]}
-                        onPress={() => {
-                          if (Platform.OS !== 'web') Haptics.selectionAsync();
-                          setPricingModel(m.key);
-                        }}
-                      >
-                        {active && <View style={[styles.qualActiveDot, { backgroundColor: GREEN }]} />}
-                        <Text style={{ fontSize: 22, marginBottom: 4 }}>{m.icon}</Text>
-                        <Text style={[styles.qualLabel, active && { color: GREEN }]}>{m.label}</Text>
-                        <Text style={styles.qualDesc}>{m.desc}</Text>
-                      </Pressable>
-                    );
-                  })}
-                </View>
-
-                {/* Hourly rate input */}
-                {pricingModel === 'HOURLY' && (
-                  <>
-                    <Text style={styles.fieldLabel}>HOURLY RATE (Rs)</Text>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                      <Text style={{ fontSize: 20, fontWeight: '800', color: GREEN }}>Rs</Text>
-                      <TextInput
-                        style={[styles.input, { flex: 1 }]}
-                        value={hourlyRate}
-                        onChangeText={setHourlyRate}
-                        placeholder="25"
-                        placeholderTextColor="#94A3B8"
-                        keyboardType="number-pad"
-                        maxLength={5}
-                        returnKeyType="done"
-                      />
-                      <Text style={{ fontSize: 14, color: '#64748B', fontWeight: '600' }}>/hour</Text>
-                    </View>
-                    <View style={[styles.infoBox, { marginTop: 14 }]}>
-                      <Text style={styles.infoBoxIcon}>💡</Text>
-                      <Text style={styles.infoBoxText}>
-                        Clients will see your hourly rate and the total estimated cost based on session duration.
-                      </Text>
-                    </View>
-                  </>
-                )}
-
-                {/* Per-service price inputs */}
-                {pricingModel === 'PER_SERVICE' && (
-                  <>
-                    <Text style={styles.fieldLabel}>SERVICE PRICES (Rs)</Text>
-                    {specialties.length === 0 ? (
-                      <View style={[styles.infoBox, { backgroundColor: '#FEF3C7', borderColor: '#FCD34D' }]}>
-                        <Text style={styles.infoBoxIcon}>⚠️</Text>
-                        <Text style={[styles.infoBoxText, { color: '#92400E' }]}>
-                          No specialties selected yet. Go back to Step 2 to select specialties, then set prices for each.
-                        </Text>
+                <Text style={styles.fieldLabel}>SERVICE PRICES ($)</Text>
+                {specialties.length === 0 ? (
+                  <View style={[styles.infoBox, { backgroundColor: '#FEF3C7', borderColor: '#FCD34D' }]}>
+                    <Text style={styles.infoBoxIcon}>⚠️</Text>
+                    <Text style={[styles.infoBoxText, { color: '#92400E' }]}>
+                      No specialties selected yet. Go back to Step 2 to select specialties, then set prices for each.
+                    </Text>
+                  </View>
+                ) : (
+                  specialties.map(s => (
+                    <View key={s} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
+                      <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: TEXT }}>{s}</Text>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                        <Text style={{ fontSize: 16, fontWeight: '800', color: GREEN }}>$</Text>
+                        <TextInput
+                          style={[styles.input, { width: 90, textAlign: 'right' }]}
+                          value={servicePrices[s] || ''}
+                          onChangeText={v => setServicePrices(prev => ({ ...prev, [s]: v }))}
+                          placeholder="—"
+                          placeholderTextColor="#CBD5E1"
+                          keyboardType="number-pad"
+                          maxLength={5}
+                        />
                       </View>
-                    ) : (
-                      specialties.map(s => (
-                        <View key={s} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                          <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: TEXT }}>{s}</Text>
-                          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                            <Text style={{ fontSize: 16, fontWeight: '800', color: GREEN }}>Rs</Text>
-                            <TextInput
-                              style={[styles.input, { width: 90, textAlign: 'right' }]}
-                              value={servicePrices[s] || ''}
-                              onChangeText={v => setServicePrices(prev => ({ ...prev, [s]: v }))}
-                              placeholder="—"
-                              placeholderTextColor="#CBD5E1"
-                              keyboardType="number-pad"
-                              maxLength={5}
-                            />
-                          </View>
-                        </View>
-                      ))
-                    )}
-                    <View style={[styles.infoBox, { marginTop: 6 }]}>
-                      <Text style={styles.infoBoxIcon}>💡</Text>
-                      <Text style={styles.infoBoxText}>
-                        Set a fixed price for each service. Clients see the exact amount before booking.
-                      </Text>
                     </View>
-                  </>
+                  ))
                 )}
+                <View style={[styles.infoBox, { marginTop: 6 }]}>
+                  <Text style={styles.infoBoxIcon}>💡</Text>
+                  <Text style={styles.infoBoxText}>
+                    Set a fixed price for each service. Clients see the exact amount before booking.
+                  </Text>
+                </View>
 
                 {/* Negotiable toggle */}
                 <View style={[styles.card, { marginTop: 20 }]}>

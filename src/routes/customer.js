@@ -107,10 +107,13 @@ function haversineKm(lat1, lng1, lat2, lng2) {
 }
 
 // Service-region default — used ONLY as a last-resort map centre when neither the
-// user nor a Provider has shared real GPS. Configurable via env so it isn't a magic
-// Sudbury literal scattered across the file. NEVER used to fabricate a distance.
-const REGION_LAT = parseFloat(process.env.DEFAULT_REGION_LAT) || 46.4917;
-const REGION_LNG = parseFloat(process.env.DEFAULT_REGION_LNG) || -80.9930;
+// user nor a Provider has shared real GPS. Fully env-driven per deployment (set
+// DEFAULT_REGION_LAT/LNG for your launch city on Railway) — no city is hardcoded
+// here. Falls back to 0,0 (null island) if unset, which is intentionally useless
+// as a map centre so a missing env var is obvious rather than silently pointing
+// at some other product's city. NEVER used to fabricate a distance.
+const REGION_LAT = parseFloat(process.env.DEFAULT_REGION_LAT) || 0;
+const REGION_LNG = parseFloat(process.env.DEFAULT_REGION_LNG) || 0;
 // True only when a stored coordinate pair is real (not the 0/null "unknown" sentinel).
 const hasRealCoords = (lat, lng) => lat != null && lng != null && (lat !== 0 || lng !== 0);
 

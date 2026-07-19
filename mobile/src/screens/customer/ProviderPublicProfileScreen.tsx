@@ -282,10 +282,10 @@ export function ProviderPublicProfileScreen() {
           {/* Fixed bottom Book CTA */}
           <View style={[styles.bottomCTA, { paddingBottom: insets.bottom + 12 }]}>
             <View style={styles.priceLine}>
-              {provider.pricingModel === 'PER_SERVICE' && provider.services?.length > 0 ? (
-                <Text style={styles.priceText}>From Rs {Math.min(...provider.services.map(s => s.price))}</Text>
+              {provider.services?.length > 0 ? (
+                <Text style={styles.priceText}>From ${Math.min(...provider.services.map(s => s.price))}</Text>
               ) : (
-                <Text style={styles.priceText}>Rs {provider.hourlyRate ?? 25} / hr</Text>
+                <Text style={styles.priceText}>Pricing available on request</Text>
               )}
               {provider.priceNegotiable && (
                 <Text style={[styles.minText, { color: '#16A34A', fontWeight: '700' }]}> · Negotiable</Text>

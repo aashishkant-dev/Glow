@@ -28,7 +28,6 @@ import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { tapImpact } from '../../utils/haptics';
 import { apiGetProfile, apiMyJobs, apiToggleAvailability, apiGetMyDocuments, apiGetRequests, Booking, UserProfile } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
-import { useLang, useT } from '../../context/LangContext';
 import { useLocation } from '../../context/LocationContext';
 import { useChatUnread } from '../../context/ChatUnreadContext';
 import { Colors, Fonts } from '../../utils/colors';
@@ -88,8 +87,6 @@ export function ProviderDashboardScreen() {
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { requestLocation, permissionStatus } = useLocation();
-  const { lang, setLang } = useLang();
-  const t = useT('providerDashboard');
   const [showLocationPrompt, setShowLocationPrompt] = useState(false);
   // Auto-dismiss once granted (e.g. user enabled in iOS Settings and returned).
   useEffect(() => {
@@ -275,12 +272,6 @@ export function ProviderDashboardScreen() {
               <Text style={styles.heroName} numberOfLines={1}>{firstName}</Text>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-              <Pressable
-                style={styles.heroBtn}
-                onPress={() => setLang(lang === 'en' ? 'fr' : 'en')}
-              >
-                <Text style={styles.heroBtnText}>{lang === 'en' ? 'FR' : 'EN'}</Text>
-              </Pressable>
               <Pressable style={styles.heroBtn} onPress={() => nav.navigate('Notifications')}>
                 <BellIcon size={18} color={Colors.label} />
                 {unreadCount > 0 && (
@@ -309,7 +300,7 @@ export function ProviderDashboardScreen() {
                 </Text>
               </View>
               <Text style={styles.heroToggleSub}>
-                {isOnline ? t.onlineSub : t.offlineSub}
+                {isOnline ? "You're online · Accepting jobs" : 'Go online to start accepting jobs'}
               </Text>
             </View>
             <Pressable
@@ -324,8 +315,8 @@ export function ProviderDashboardScreen() {
           {/* Stat grid — 2×2 metric cards */}
           <View style={styles.statGrid}>
             {([
-              [`$${todayEarnings.toFixed(0)}`, t.today,   Colors.label],
-              [`$${weekEarnings.toFixed(0)}`,  t.thisWeek, Colors.label],
+              [`$${todayEarnings.toFixed(0)}`, 'Today',     Colors.label],
+              [`$${weekEarnings.toFixed(0)}`,  'This Week', Colors.label],
               [(profile?.rating ?? 0) > 0 ? `${profile?.rating?.toFixed(1)} ★` : '—', 'Rating', Colors.gold],
               [String((profile as any)?.totalSessions ?? jobs.filter(j => j.status === 'COMPLETED').length), 'Sessions', Colors.label],
             ] as [string, string, string][]).map(([value, label, color]) => (
@@ -340,7 +331,7 @@ export function ProviderDashboardScreen() {
         {/* ── Weekly earnings card — floating over hero, mockup-style bars ── */}
         <View style={styles.earnCard}>
           <View style={styles.earnCardTop}>
-            <Text style={styles.earnCardLabel}>{t.thisWeek}</Text>
+            <Text style={styles.earnCardLabel}>This Week</Text>
             <Text style={styles.earnCardValue}>${weekEarnings.toFixed(0)}</Text>
           </View>
           <View style={styles.earnBars}>
@@ -371,7 +362,7 @@ export function ProviderDashboardScreen() {
                     />
                   </View>
                   <Text style={styles.earnBarLabel}>
-                    {d.toLocaleDateString(lang === 'fr' ? 'fr-CA' : 'en-CA', { weekday: 'narrow' })}
+                    {d.toLocaleDateString('en-CA', { weekday: 'narrow' })}
                   </Text>
                 </View>
               ));
@@ -442,7 +433,7 @@ export function ProviderDashboardScreen() {
 
         {/* ── Quick Actions ── */}
         <View style={styles.quickWrap}>
-          <Text style={styles.sectionTitle}>{t.quickActions}</Text>
+          <Text style={styles.sectionTitle}>Quick Actions</Text>
           <View style={styles.quickGrid}>
             {([
               { Icon: FindJobsIcon,  label: 'Find Jobs', sub: 'Browse open jobs', color: Colors.brand,        bg: Colors.brandLight,  go: () => nav.navigate('ProviderHome', { screen: 'NearbyJobs' }) },
@@ -490,8 +481,8 @@ export function ProviderDashboardScreen() {
           <View style={styles.pendingBanner}>
             <HourglassIcon size={20} color="#92400E" />
             <View style={{ flex: 1 }}>
-              <Text style={styles.pendingBannerTitle}>{t.pendingTitle}</Text>
-              <Text style={styles.pendingBannerSub}>{t.pendingSub}</Text>
+              <Text style={styles.pendingBannerTitle}>Awaiting Admin Approval</Text>
+              <Text style={styles.pendingBannerSub}>Your credentials are under review. You'll receive jobs once approved.</Text>
             </View>
           </View>
         )}
@@ -501,9 +492,9 @@ export function ProviderDashboardScreen() {
 
         {/* ── Recent Jobs section ── */}
         <View style={styles.sectionHeader}>
-          <Text style={styles.sectionTitle}>{t.recentJobs}</Text>
+          <Text style={styles.sectionTitle}>Recent Jobs</Text>
           <Pressable onPress={() => nav.navigate('MyJobs')}>
-            <Text style={styles.seeAllLink}>{t.seeAll} →</Text>
+            <Text style={styles.seeAllLink}>See All →</Text>
           </Pressable>
         </View>
 

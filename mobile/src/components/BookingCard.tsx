@@ -35,7 +35,7 @@ function BookingCardBase({ booking, onPress, showProvider = true }: Props) {
           )}
         </View>
         <View style={styles.right}>
-          <Text style={styles.price}>Rs {booking.totalPrice}</Text>
+          <Text style={styles.price}>${booking.totalPrice}</Text>
           <StatusBadge status={booking.status} size="sm" />
         </View>
       </View>

@@ -26,6 +26,7 @@ import { ProviderProfileCard } from '../../components/ProviderProfileCard';
 import { RatingModal } from '../../components/RatingModal';
 
 import { OSMMap, OSMMarker } from '../../components/OSMMap';
+import { DEFAULT_REGION_NAME } from '../../utils/region';
 
 declare global { interface Window { L: any } }
 
@@ -165,7 +166,7 @@ export function TrackingScreen() {
       // No hardcoded city fallback — if the booking has no coords we just don't
       // center on a fake location. A missing bookingLocation means there's
       // nothing real to show; the map stays at a neutral world view rather than
-      // lying with a Sudbury pin.
+      // lying with a made-up pin.
       const center = bookingLocation
         ? [bookingLocation.lat, bookingLocation.lng]
         : null;
@@ -528,7 +529,7 @@ export function TrackingScreen() {
                     <View style={styles.bookingDetailLeft}>
                       <Text style={styles.detailLabel}>Location</Text>
                     </View>
-                    <Text style={[styles.detailValue, { flex: 0, maxWidth: '50%' }]} numberOfLines={1}>{booking.address || 'Greater Sudbury, ON'}</Text>
+                    <Text style={[styles.detailValue, { flex: 0, maxWidth: '50%' }]} numberOfLines={1}>{booking.address || DEFAULT_REGION_NAME}</Text>
                   </View>
                   <View style={styles.bookingDetailRow}>
                     <View style={styles.bookingDetailLeft}>

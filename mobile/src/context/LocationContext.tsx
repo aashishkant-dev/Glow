@@ -10,6 +10,7 @@ import { Alert, AppState, Linking, Platform } from 'react-native';
 import * as Location from 'expo-location';
 import { apiUpdateMyLocation } from '../api/client';
 import { Storage } from '../utils/storage';
+import { DEFAULT_REGION } from '../utils/region';
 
 export interface Coords {
   lat: number;
@@ -28,7 +29,6 @@ interface LocationContextValue {
   requestLocation: () => Promise<void>;
 }
 
-const SUDBURY: Coords = { lat: 46.4917, lng: -80.9930 };
 const REFRESH_MS = 5 * 60 * 1000; // 5 minutes
 
 const LocationContext = createContext<LocationContextValue | undefined>(undefined);
@@ -263,8 +263,8 @@ export function useLocation(): LocationContextValue {
   return ctx;
 }
 
-/** Returns coords or Sudbury fallback — never null. */
+/** Returns coords or the default-region fallback — never null. */
 export function useCoordsOrFallback(): Coords {
   const { coords } = useLocation();
-  return coords ?? SUDBURY;
+  return coords ?? DEFAULT_REGION;
 }

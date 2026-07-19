@@ -21,6 +21,7 @@ import { CheckCircleIcon } from '../../components/TabIcons';
 import {
   ShieldCheckIcon, MedalIcon, MedicalBagIcon, CardAccountDetailsIcon, NoteIcon,
 } from '../../components/CareIcons';
+import { DEFAULT_REGION_NAME } from '../../utils/region';
 
 // ── Document types required from Providers ─────────────────────────────────────────
 const DOC_TYPES: {
@@ -463,7 +464,7 @@ export function ProviderDocumentsScreen() {
         </View>
 
         <Text style={styles.footer}>
-          © {new Date().getFullYear()} Glow · Greater Sudbury, ON
+          © {new Date().getFullYear()} Glow · {DEFAULT_REGION_NAME}
         </Text>
       </ScrollView>
     </View>

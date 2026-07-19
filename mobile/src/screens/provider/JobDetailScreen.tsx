@@ -205,8 +205,6 @@ export function JobDetailScreen() {
     prevStatusRef.current = job.status;
   }, [job, providerRated]);
 
-  const hourlyRate = job && job.hours > 0 ? Math.round((job.totalPrice ?? 0) / job.hours) : 25;
-
   const completedItems = checklist.filter(item => item.completed).length;
   const allItemsCompleted = completedItems === checklist.length;
 
@@ -371,7 +369,7 @@ export function JobDetailScreen() {
               <ServiceIcon serviceType={job.serviceType} size={32} color="rgba(255,255,255,0.95)" bubble={false} />
               {/* Total earnings large */}
               <Text style={styles.heroEarnings}>${job.totalPrice ?? '—'}</Text>
-              <Text style={styles.heroRate}>{job.hours}h · ${hourlyRate}/hr</Text>
+              <Text style={styles.heroRate}>{job.hours}h session</Text>
             </View>
           </View>
         </View>

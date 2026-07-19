@@ -3,7 +3,6 @@ import {
   ActivityIndicator, Alert, Dimensions, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet,
   Text, TextInput, View,
 } from 'react-native';
-import { useT, useLang } from '../../context/LangContext';
 import { ArrowBackIcon, LocationIcon, CallIcon, ChatIcon, NavigateIcon, CheckCircleIcon } from '../../components/TabIcons';
 // Brand SVG icons (no emoji) — BellIcon for the help header, EmailIcon/ClockIcon for support rows.
 import { BellIcon, EmailIcon, ClockIcon } from '../../components/CareIcons';
@@ -74,9 +73,7 @@ export function BookingDetailScreen() {
   const route  = useRoute<any>();
   const nav    = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const t      = useT('bookingDetail');
-  const { lang } = useLang();
-  const locale = lang === 'fr' ? 'fr-CA' : 'en-CA';
+  const locale = 'en-CA';
 
   // Screen can be opened two ways:
   //   1. From a list — full `booking` object passed in params (instant render).
@@ -215,7 +212,7 @@ export function BookingDetailScreen() {
       } else {
         serviceMarkerRef.current = L.marker([serviceLat, serviceLng], { icon: serviceIcon })
           .addTo(map)
-          .bindPopup(`<b>${t.serviceLocationPopup}</b>`);
+          .bindPopup(`<b>Service location</b>`);
       }
       map.setView([serviceLat, serviceLng], map.getZoom() || 14);
       setTimeout(() => leafletMapRef.current?.invalidateSize(), 250);
@@ -229,7 +226,7 @@ export function BookingDetailScreen() {
     return (
       <View style={[styles.container, { alignItems: 'center', justifyContent: 'center' }]}>
         <ActivityIndicator color={Colors.brand} size="large" />
-        <Text style={{ marginTop: 12, color: Colors.secondaryLabel, fontSize: 14 }}>{t.loading}</Text>
+        <Text style={{ marginTop: 12, color: Colors.secondaryLabel, fontSize: 14 }}>Loading booking…</Text>
       </View>
     );
   }
@@ -252,19 +249,19 @@ export function BookingDetailScreen() {
         }
         setBooking(res.booking);
       } catch (e: any) {
-        Alert.alert(t.cancelFailTitle, e.message || t.cancelFailDefault);
+        Alert.alert('Cancel Failed', e.message || 'Please try again.');
       }
       setCancelling(false);
     };
 
     if (Platform.OS === 'web') {
-      if (window.confirm(t.cancelConfirmWeb)) doCancel();
+      if (window.confirm('Cancel this booking? This cannot be undone.')) doCancel();
     } else {
       confirmAction({
-        title: t.cancelAlertTitle,
-        message: t.cancelAlertMsg,
-        confirmLabel: t.cancelAlertConfirm,
-        cancelLabel: t.cancelAlertKeep,
+        title: 'Cancel Booking',
+        message: 'Are you sure you want to cancel? This cannot be undone.',
+        confirmLabel: 'Cancel Booking',
+        cancelLabel: 'Keep Booking',
         destructive: true,
         onConfirm: doCancel,
       });
@@ -273,9 +270,9 @@ export function BookingDetailScreen() {
 
   async function handleTip() {
     if (Platform.OS === 'web') {
-      window.alert(t.tipComingSoonWeb);
+      window.alert('Online tipping coming soon! Please e-transfer your Artist directly.');
     } else {
-      Alert.alert('Coming Soon', t.tipComingSoon);
+      Alert.alert('Coming Soon', 'Online tipping will be available in a future update.');
     }
   }
 
@@ -292,7 +289,7 @@ export function BookingDetailScreen() {
         <Pressable style={styles.backButton} onPress={() => nav.goBack()}>
           <View style={styles.backButtonPill}>
             <ArrowBackIcon size={20} color="#fff" />
-            <Text style={styles.backButtonText}>{t.backLabel}</Text>
+            <Text style={styles.backButtonText}>Bookings</Text>
           </View>
         </Pressable>
       </View>
@@ -322,21 +319,21 @@ export function BookingDetailScreen() {
                 style={styles.mapFill}
                 center={{ lat: serviceLat, lng: serviceLng }}
                 zoom={15}
-                markers={[{ lat: serviceLat, lng: serviceLng, kind: 'care', label: t.serviceLocationPopup }]}
+                markers={[{ lat: serviceLat, lng: serviceLng, kind: 'care', label: 'Service location' }]}
               />
             )}
 
             {/* "Open in Maps" — top-right, never overlaps the bottom-right +/- zoom. */}
             <Pressable style={styles.openMapPill} onPress={openMaps}>
               <NavigateIcon size={14} color="#fff" />
-              <Text style={styles.openMapPillText}>{t.openInMaps}</Text>
+              <Text style={styles.openMapPillText}>Open in Maps</Text>
             </Pressable>
           </View>
         ) : (
           <View style={[styles.mapCardTop, styles.mapPlaceholder, { height: MAP_CARD_H }]}>
             <LocationIcon size={30} color={Colors.brand} />
-            <Text style={styles.mapPlaceholderText}>{booking.address || t.serviceLocationPlaceholder}</Text>
-            <Text style={styles.mapPlaceholderSub}>{t.mapUnavailable}</Text>
+            <Text style={styles.mapPlaceholderText}>{booking.address || 'Service location on file'}</Text>
+            <Text style={styles.mapPlaceholderSub}>Map preview unavailable for this address</Text>
           </View>
         )}
 
@@ -346,7 +343,7 @@ export function BookingDetailScreen() {
         {/* ── Provider / Searching card — first thing visible when scrolling ── */}
         {booking.provider ? (
           <View style={[styles.section, styles.sectionTop]}>
-            <Text style={styles.sectionLabel}>{t.yourCaregiver}</Text>
+            <Text style={styles.sectionLabel}>YOUR ARTIST</Text>
             <Pressable
               onPress={() => nav.navigate('ProviderPublicProfile', {
                 providerId: (booking.provider as any)?._id ?? (booking.provider as any)?.id,
@@ -376,7 +373,7 @@ export function BookingDetailScreen() {
                 {booking.provider.phone && (
                   <Pressable style={[styles.providerActionBtn, styles.providerActionBtnGreen]} onPress={callProvider}>
                     <CallIcon size={18} color="#fff" />
-                    <Text style={styles.providerActionBtnText}>{t.callArtist}</Text>
+                    <Text style={styles.providerActionBtnText}>Call Artist</Text>
                   </Pressable>
                 )}
                 <Pressable
@@ -389,7 +386,7 @@ export function BookingDetailScreen() {
                   })}
                 >
                   <ChatIcon size={18} color="#fff" />
-                  <Text style={styles.providerActionBtnText}>{t.message}</Text>
+                  <Text style={styles.providerActionBtnText}>Message</Text>
                 </Pressable>
               </View>
             )}
@@ -399,17 +396,17 @@ export function BookingDetailScreen() {
             <View style={styles.liveCard}>
               <View style={styles.liveCardHeader}>
                 <View style={styles.liveDot} />
-                <Text style={styles.liveCardTitle}>{t.findingArtist}{'.'.repeat(dotCount)}</Text>
+                <Text style={styles.liveCardTitle}>Finding your Artist{'.'.repeat(dotCount)}</Text>
               </View>
               <Text style={styles.liveCardDesc}>
-                {t.findingDesc}
+                Matching you with a verified beauty artist near you. This usually takes under 2 minutes.
               </Text>
               <View style={styles.liveSteps}>
                 {[
-                  { label: t.stepReceived, done: true },
-                  { label: t.stepMatching, done: booking.status !== 'REQUESTED', active: booking.status === 'REQUESTED' },
-                  { label: t.stepConfirmed, done: ['ACCEPTED','STARTED','COMPLETED'].includes(booking.status) },
-                  { label: t.stepInProgress, done: ['STARTED','COMPLETED'].includes(booking.status) },
+                  { label: 'Booking received', done: true },
+                  { label: 'Matching nearby Artists', done: booking.status !== 'REQUESTED', active: booking.status === 'REQUESTED' },
+                  { label: 'Artist confirmed', done: ['ACCEPTED','STARTED','COMPLETED'].includes(booking.status) },
+                  { label: 'Glam in progress', done: ['STARTED','COMPLETED'].includes(booking.status) },
                 ].map((step, i) => (
                   <View key={i} style={styles.liveStep}>
                     <View style={[styles.liveStepDot, step.done ? styles.liveStepDone : step.active ? styles.liveStepActive : styles.liveStepPending]} />
@@ -428,7 +425,7 @@ export function BookingDetailScreen() {
                     _t: Date.now(),
                   })}
                 >
-                  <Text style={styles.chooseArtistBtnText}>{t.chooseArtist}</Text>
+                  <Text style={styles.chooseArtistBtnText}>Choose an Artist →</Text>
                 </Pressable>
               )}
             </View>
@@ -445,7 +442,7 @@ export function BookingDetailScreen() {
               <StatusBadge status={booking.status} size="md" />
               <Text style={styles.heroService}>{booking.serviceType}</Text>
               <Text style={styles.heroPrice}>${booking.totalPrice?.toFixed(0) ?? '—'}</Text>
-              <Text style={styles.heroPay}>{t.privatePay}</Text>
+              <Text style={styles.heroPay}>Private pay · Secured</Text>
             </View>
           </View>
           <View style={styles.refPill}>
@@ -470,8 +467,8 @@ export function BookingDetailScreen() {
                 <Text style={styles.cancelledIcon}>✕</Text>
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.cancelledTitle}>{t.cancelledTitle}</Text>
-                <Text style={styles.cancelledDesc}>{t.cancelledDesc}</Text>
+                <Text style={styles.cancelledTitle}>Booking Cancelled</Text>
+                <Text style={styles.cancelledDesc}>This booking was cancelled and is no longer active.</Text>
               </View>
             </View>
           </View>
@@ -481,21 +478,21 @@ export function BookingDetailScreen() {
         {isActive && (
           <View style={styles.liveIndicator}>
             <View style={styles.liveDot} />
-            <Text style={styles.liveIndicatorText}>{t.liveIndicator}</Text>
+            <Text style={styles.liveIndicatorText}>Live · updates every 6s</Text>
           </View>
         )}
 
         {/* Details */}
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>{t.sectionDetails}</Text>
+          <Text style={styles.sectionLabel}>DETAILS</Text>
           <View style={styles.card}>
             {([
-              [t.detailDate,      formatDate(booking.scheduledAt, locale)],
-              [t.detailStartTime, formatTime(booking.scheduledAt, locale)],
-              [t.detailDuration,  t.durationHours(booking.hours ?? 0)],
-              [t.detailAddress,   booking.address || t.addressOnFile],
-              [t.detailPayment,   booking.paymentStatus],
-              [t.detailTotal,     `$${booking.totalPrice?.toFixed(0) ?? '—'}`],
+              ['Date',       formatDate(booking.scheduledAt, locale)],
+              ['Start Time', formatTime(booking.scheduledAt, locale)],
+              ['Duration',   `${booking.hours ?? 0} hour${(booking.hours ?? 0) > 1 ? 's' : ''}`],
+              ['Address',    booking.address || 'Address on file'],
+              ['Payment',    booking.paymentStatus],
+              ['Total',      `$${booking.totalPrice?.toFixed(0) ?? '—'}`],
             ] as [string, string][]).map(([label, value], i, arr) => (
               <View key={label}>
                 <View style={styles.detailRow}>
@@ -511,7 +508,7 @@ export function BookingDetailScreen() {
         {/* Notes */}
         {booking.notes ? (
           <View style={styles.section}>
-            <Text style={styles.sectionLabel}>{t.sectionNotes}</Text>
+            <Text style={styles.sectionLabel}>SPECIAL INSTRUCTIONS</Text>
             <View style={styles.card}>
               <Text style={styles.notesText}>{booking.notes}</Text>
             </View>
@@ -521,14 +518,14 @@ export function BookingDetailScreen() {
         {/* Address link when no coords */}
         {lat === 0 && (
           <View style={styles.section}>
-            <Text style={styles.sectionLabel}>{t.sectionCareLocation}</Text>
+            <Text style={styles.sectionLabel}>SERVICE LOCATION</Text>
             <Pressable style={styles.mapCard} onPress={openMaps}>
               <View style={styles.mapNoCoords}>
                 <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6 }}>
                   <LocationIcon size={16} color={Colors.label} />
-                  <Text style={styles.mapNoCoordsText}>{booking.address || t.addressOnFile}</Text>
+                  <Text style={styles.mapNoCoordsText}>{booking.address || 'Address on file'}</Text>
                 </View>
-                <Text style={styles.mapOpenBtnText}>{t.openInMapsArrow}</Text>
+                <Text style={styles.mapOpenBtnText}>Open in Maps →</Text>
               </View>
             </Pressable>
           </View>
@@ -545,7 +542,7 @@ export function BookingDetailScreen() {
               })}
             >
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                <Text style={styles.trackBtnText}>{t.trackBtn}</Text>
+                <Text style={styles.trackBtnText}>Track Your Artist</Text>
                 <NavigateIcon size={16} color="#fff" />
               </View>
             </Pressable>
@@ -560,7 +557,7 @@ export function BookingDetailScreen() {
               onPress={cancelBooking}
               disabled={cancelling}
             >
-              <Text style={styles.cancelBtnText}>{cancelling ? t.cancelling : t.cancelBtn}</Text>
+              <Text style={styles.cancelBtnText}>{cancelling ? 'Cancelling...' : 'Cancel Booking'}</Text>
             </Pressable>
           </View>
         )}
@@ -572,7 +569,7 @@ export function BookingDetailScreen() {
               style={({ pressed }) => [styles.reBookBtn, pressed && { opacity: 0.88, transform: [{ scale: 0.99 }] }]}
               onPress={() => nav.navigate('NewBooking')}
             >
-              <Text style={styles.reBookBtnText}>{t.bookAgain}</Text>
+              <Text style={styles.reBookBtnText}>Book This Again →</Text>
             </Pressable>
           </View>
         )}
@@ -584,7 +581,7 @@ export function BookingDetailScreen() {
             style={styles.rateBtn}
             onPress={() => setShowRateModal(true)}
           >
-            <Text style={styles.rateBtnText}>{t.rateArtist}</Text>
+            <Text style={styles.rateBtnText}>★ Rate Your Artist</Text>
           </Pressable>
         )}
 
@@ -592,7 +589,7 @@ export function BookingDetailScreen() {
           <View style={styles.section}>
             <View style={styles.ratedBanner}>
               <Text style={styles.ratedIcon}>★</Text>
-              <Text style={styles.ratedText}>{t.ratingSubmitted}</Text>
+              <Text style={styles.ratedText}>Rating submitted! Thank you for your feedback.</Text>
             </View>
           </View>
         )}
@@ -600,10 +597,10 @@ export function BookingDetailScreen() {
         {/* Tip prompt */}
         {rated && !tipSent && booking?.status === 'COMPLETED' && (
           <View style={styles.section}>
-            <Text style={styles.sectionLabel}>{t.tipSection}</Text>
+            <Text style={styles.sectionLabel}>LEAVE A TIP</Text>
             <View style={styles.card}>
-              <Text style={styles.tipPrompt}>{t.tipPrompt}</Text>
-              <Text style={styles.tipSub}>{t.tipSub}</Text>
+              <Text style={styles.tipPrompt}>Want to tip your Artist?</Text>
+              <Text style={styles.tipSub}>100% goes directly to your Artist</Text>
               <View style={styles.tipAmounts}>
                 {[5, 10, 20].map(amt => (
                   <Pressable
@@ -621,7 +618,7 @@ export function BookingDetailScreen() {
                 style={styles.tipInput}
                 value={tipAmount}
                 onChangeText={setTipAmount}
-                placeholder={t.tipCustom}
+                placeholder="Custom amount ($)"
                 keyboardType="decimal-pad"
                 placeholderTextColor="#8E8E93"
               />
@@ -631,11 +628,11 @@ export function BookingDetailScreen() {
                 disabled={!tipAmount || tipSending}
               >
                 <Text style={styles.tipSendBtnText}>
-                  {tipSending ? t.tipSending : t.tipSend(tipAmount || '0')}
+                  {tipSending ? 'Processing...' : `Send $${tipAmount || '0'} Tip`}
                 </Text>
               </Pressable>
               <Pressable onPress={() => setTipSent(true)} style={styles.tipSkip}>
-                <Text style={styles.tipSkipText}>{t.tipNoThanks}</Text>
+                <Text style={styles.tipSkipText}>No thanks</Text>
               </Pressable>
             </View>
           </View>
@@ -645,7 +642,7 @@ export function BookingDetailScreen() {
           <View style={styles.section}>
             <View style={[styles.ratedBanner, { backgroundColor: '#F0FDF4' }]}>
               <CheckCircleIcon size={20} color={Colors.onlineGreen} />
-              <Text style={[styles.ratedText, { color: Colors.onlineGreen }]}>{t.tipSent}</Text>
+              <Text style={[styles.ratedText, { color: Colors.onlineGreen }]}>Tip sent! Thank you for your generosity.</Text>
             </View>
           </View>
         )}
@@ -654,7 +651,7 @@ export function BookingDetailScreen() {
         <View style={styles.section}>
           <View style={styles.helpHeaderRow}>
             <BellIcon size={15} color={Colors.secondaryLabel} />
-            <Text style={[styles.sectionLabel, { marginTop: 0, marginBottom: 0 }]}>{t.helpSection}</Text>
+            <Text style={[styles.sectionLabel, { marginTop: 0, marginBottom: 0 }]}>NEED HELP?</Text>
           </View>
           <View style={styles.card}>
             <Pressable
@@ -665,8 +662,8 @@ export function BookingDetailScreen() {
                 <EmailIcon size={18} color={Colors.label} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.supportLabel}>{t.emailSupport}</Text>
-                <Text style={styles.supportSub}>{t.supportSub}</Text>
+                <Text style={styles.supportLabel}>Email Support</Text>
+                <Text style={styles.supportSub}>support@glow.app · 24/7</Text>
               </View>
               <Text style={styles.supportChevron}>›</Text>
             </Pressable>
@@ -679,8 +676,8 @@ export function BookingDetailScreen() {
                 <CallIcon size={18} color={Colors.label} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.supportLabel}>{t.callSupport}</Text>
-                <Text style={styles.supportSub}>{t.callSupportSub}</Text>
+                <Text style={styles.supportLabel}>Call Support</Text>
+                <Text style={styles.supportSub}>+1 (647) 620-9243 · 24/7</Text>
               </View>
               <Text style={styles.supportChevron}>›</Text>
             </Pressable>
@@ -690,22 +687,22 @@ export function BookingDetailScreen() {
                 <ClockIcon size={18} color={Colors.label} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.supportLabel}>{t.supportHours}</Text>
-                <Text style={styles.supportSub}>{t.supportLang}</Text>
+                <Text style={styles.supportLabel}>Support Hours</Text>
+                <Text style={styles.supportSub}>English & Français · 24/7</Text>
               </View>
             </View>
           </View>
         </View>
 
           <View style={{ paddingHorizontal: 20, paddingTop: 4 }}>
-            <Text style={styles.bookingId}>{t.bookingRef(bookingRef)}</Text>
+            <Text style={styles.bookingId}>{`Booking Reference: ${bookingRef}`}</Text>
           </View>
         </View>{/* end contentSurface */}
       </ScrollView>
       </KeyboardAvoidingView>
       <RatingModal
         visible={showRateModal}
-        title={t.ratingModalTitle}
+        title="How was your session?"
         subtitle={`Rate ${booking?.provider?.name ?? 'your Provider'} for ${booking?.serviceType ?? 'the session'}`}
         onSubmit={async (rating, comment) => {
           try {

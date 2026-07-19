@@ -59,6 +59,9 @@ jobs:
         env:
           CI: true
           EXPO_PUBLIC_API_URL: https://glow-backend-production-ae1e.up.railway.app
+          EXPO_PUBLIC_REGION_LAT: 46.4917
+          EXPO_PUBLIC_REGION_LNG: -80.9930
+          EXPO_PUBLIC_REGION_NAME: Greater Sudbury, ON
 
       - name: Assert native bundle points at Glow, not CareNearby
         run: |
@@ -130,6 +133,9 @@ jobs:
           # deploy is visible on plain refresh. Remove once the UI stabilizes.
           NO_SW: 1
           EXPO_PUBLIC_API_URL: https://glow-backend-production-ae1e.up.railway.app
+          EXPO_PUBLIC_REGION_LAT: 46.4917
+          EXPO_PUBLIC_REGION_LNG: -80.9930
+          EXPO_PUBLIC_REGION_NAME: Greater Sudbury, ON
 
       - name: Assert deployable bundle
         working-directory: mobile

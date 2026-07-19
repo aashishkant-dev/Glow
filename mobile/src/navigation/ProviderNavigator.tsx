@@ -24,6 +24,7 @@ import { Booking, apiNearbyJobs, apiMyJobs, apiGetRequests } from '../api/client
 import { getSocket, joinBookingRoom, joinUserRoom } from '../utils/socket';
 import { HomeIcon, BriefcaseIcon, SearchJobsIcon } from '../components/TabIcons';
 import { useNavigation } from '@react-navigation/native';
+import { DEFAULT_REGION_NAME } from '../utils/region';
 
 export type PROVIDERStackParams = {
   ProviderHome: undefined;
@@ -145,7 +146,7 @@ function ProviderJobNotifier() {
           if (Platform.OS === 'web' && typeof window !== 'undefined' && 'Notification' in window) {
             if (Notification.permission === 'granted') {
               new Notification(`New job nearby — $${j.totalPrice}`, {
-                body: `${j.serviceType} · ${j.hours}h · ${j.address || 'Greater Sudbury'}`,
+                body: `${j.serviceType} · ${j.hours}h · ${j.address || DEFAULT_REGION_NAME}`,
                 icon: '/icon-192.png',
                 tag: `job-${j._id}`,
               });
@@ -156,7 +157,7 @@ function ProviderJobNotifier() {
           // Native push notification
           scheduleLocal(
             `New job nearby — $${j.totalPrice}`,
-            `${j.serviceType} · ${j.hours}h · ${j.address || 'Greater Sudbury'}`,
+            `${j.serviceType} · ${j.hours}h · ${j.address || DEFAULT_REGION_NAME}`,
             { type: 'job', bookingId: j._id },
           );
           // Tab title badge

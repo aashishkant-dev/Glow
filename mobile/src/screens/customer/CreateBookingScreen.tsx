@@ -29,7 +29,7 @@ import { PinIcon, SearchIcon, CreditCardIcon, KeyIcon } from '../../components/C
 import { apiCreateBooking, apiGetAvailableProviders, apiNearbyProviders, AvailableProvider } from '../../api/client';
 import { useCoordsOrFallback, useLocation } from '../../context/LocationContext';
 import { OSMMap, OSMMarker } from '../../components/OSMMap';
-import { useT, useLang } from '../../context/LangContext';
+import { DEFAULT_REGION, DEFAULT_REGION_NAME } from '../../utils/region';
 
 // ─── Brand tokens ───────────────────────────────────────────────────────────────
 const BRAND_DARK  = Colors.brandDark;
@@ -64,20 +64,6 @@ const SERVICES = [
   'Massage',
 ];
 
-const SERVICE_LABELS_FR: Record<string, string> = {
-  'Makeup':        'Maquillage',
-  'Bridal Makeup': 'Maquillage de mariée',
-  'Party Makeup':  'Maquillage de soirée',
-  'Threading':     'Épilation au fil',
-  'Hair Styling':  'Coiffure',
-  'Hair Coloring': 'Coloration',
-  'Facial':        'Soin du visage',
-  'Waxing':        'Épilation à la cire',
-  'Nails':         'Ongles',
-  'Mehendi':       'Mehendi',
-  'Massage':       'Massage',
-};
-
 const HOURS_OPTIONS = [1, 2, 3, 4, 5];
 const START_HOURS   = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 
@@ -108,32 +94,39 @@ function addDays(date: Date, n: number) {
 type Step = 1 | 2 | 3 | 4;
 
 // ─── Provider pricing helpers ──────────────────────────────────────────────
-function providerHourlyRate(provider: { pricingModel?: string; hourlyRate?: number } | null): number {
-  if (provider?.pricingModel === 'PER_SERVICE') return provider.hourlyRate ?? 25;
-  return provider?.hourlyRate ?? 25;
-}
+// Per-service catalog pricing is the primary (and normally only) model — every
+// bookable service has a real price from the platform catalog or the Artist's
+// own per-service rate. FALLBACK_RATE only applies if somehow neither exists
+// (e.g. a brand-new Artist profile with no catalog match yet); it is a last
+// resort, not a pricing model.
+const FALLBACK_RATE = 40;
 
-function providerServicePrice(provider: { pricingModel?: string; hourlyRate?: number; services?: { name: string; price: number }[] } | null, serviceType: string): number | null {
-  if (provider?.pricingModel === 'PER_SERVICE' && provider.services) {
-    const svc = provider.services.find(s => s.name === serviceType);
-    if (svc && svc.price > 0) return svc.price;
-  }
+function providerServicePrice(provider: { services?: { name: string; price: number }[] } | null, serviceType: string): number | null {
+  const svc = provider?.services?.find(s => s.name === serviceType);
+  if (svc && svc.price > 0) return svc.price;
   return null;
 }
 
+function providerHourlyRate(provider: { services?: { name: string; price: number }[] } | null, serviceType?: string): number {
+  if (serviceType) {
+    const svcPrice = providerServicePrice(provider, serviceType);
+    if (svcPrice != null) return svcPrice;
+  }
+  return FALLBACK_RATE;
+}
+
 function calcTotalPrice(
-  provider: { pricingModel?: string; hourlyRate?: number; services?: { name: string; price: number }[] } | null,
+  provider: { services?: { name: string; price: number }[] } | null,
   serviceType: string,
   hours: number,
   numSessions: number,
 ): number {
   const svcPrice = providerServicePrice(provider, serviceType);
   if (svcPrice != null) return svcPrice * numSessions;
-  return providerHourlyRate(provider) * hours * numSessions;
+  return FALLBACK_RATE * hours * numSessions;
 }
 
-const DAYS_HEADER_EN = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
-const DAYS_HEADER_FR = ['Lun', 'Mar', 'Mer', 'Jeu', 'Ven', 'Sam', 'Dim'];
+const DAYS_HEADER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
 
 // ─── Calendar helpers ────────────────────────────────────────────────────────────
 function getMonthGrid(year: number, month: number): (Date | null)[][] {
@@ -152,14 +145,119 @@ function getMonthGrid(year: number, month: number): (Date | null)[][] {
   return weeks;
 }
 
-const MONTH_NAMES_EN = [
+const MONTH_NAMES = [
   'January','February','March','April','May','June',
   'July','August','September','October','November','December',
 ];
-const MONTH_NAMES_FR = [
-  'Janvier','Février','Mars','Avril','Mai','Juin',
-  'Juillet','Août','Septembre','Octobre','Novembre','Décembre',
-];
+
+// English copy for this screen (i18n removed — Glow is English-only).
+const t = {
+  headerTitle:            'Book an Artist',
+  backBtn:                '‹ Back',
+  stepService:            'Service',
+  stepDateTime:           'Date & Time',
+  stepChooseArtist:       'Choose Artist',
+  stepConfirm:            'Confirm',
+  sectionCareType:        'Which service would you like?',
+  sectionLength:          'Session length',
+  sessionLengthSub:       'Minimum 3 hours',
+  sectionAddress:         'Service address',
+  addressSub:             'Where should the Artist come? Include a postal code so we can map it.',
+  addressPlaceholder:     'e.g. 123 Main St',
+  streetPlaceholder:      'Street address',
+  unitPlaceholder:        'Floor / Apt (optional)',
+  postalPlaceholder:      'Postal code (optional)',
+  cityPlaceholder:        'City',
+  sectionDates:           'Select date(s)',
+  datesSub:               'Tap to pick up to 7 dates · starts tomorrow',
+  todayNotBookable:       "Today can't be booked — bookings start tomorrow at the earliest.",
+  sectionStartTime:       'Start time',
+  chooseArtist:           'Choose your Artist',
+  nearMe:                 'Near Me',
+  browseProfiles:         'Browse Profiles',
+  findingArtists:         'Finding available Artists…',
+  noArtistsNearby:        'No Artists available right now.',
+  tryAgain:               'Try again soon or contact us.',
+  browseAll:              'Browse all Artists →',
+  noArtistsNearbyMap:     'No Artists available nearby',
+  noArtistsNearbyMapSub:  'Try again soon or browse profiles below.',
+  viewProfile:            'View Profile',
+  select:                 'Select',
+  selected:               '✓ Selected',
+  available:              'Available',
+  sectionConfirm:         'Confirm your booking',
+  confirmService:         'Service',
+  confirmDuration:        'Duration',
+  confirmDurationVal:     (n: number) => `${n} hour${n > 1 ? 's' : ''}`,
+  confirmWhen:            'When',
+  confirmWhenOnDemand:    'Today · As soon as possible',
+  confirmDates:           'Date(s)',
+  confirmStartTime:       'Start time',
+  confirmAddress:         'Address',
+  confirmEstTotal:        'Est. total',
+  confirmDays:            (n: number) => `· ${n} day${n > 1 ? 's' : ''}`,
+  paymentSection:         'Payment',
+  payDebitCredit:         'Debit / Credit',
+  payInterac:             'Interac',
+  payInteracSub:          'Pay app',
+  escrowTitle:            'Pay after your visit',
+  escrowText:             'No charge in the app. You pay your Artist directly after the visit — Interac e-Transfer or cash.',
+  confirmNote:            'Your Artist receives a request notification. Booking moves to Upcoming once they accept.',
+  continueBtn:            'Continue',
+  continueWith:           (name: string) => `Continue with ${name}`,
+  confirmBtn:             (amt: number) => `Confirm · $${amt} est.`,
+  collapseList:           'Collapse Artist list',
+  expandList:             'Expand Artist list',
+  providerAvailableNearby: (n: number) => `${n} Artist${n !== 1 ? 's' : ''} available nearby`,
+  seeAll:                 'See all',
+  collapse:               'Collapse',
+  maxDatesAlert:          'Select up to 7 dates per booking.',
+  maxDatesAlertTitle:     'Max 7 dates',
+  providerRequestedTitle: 'Artist Requested',
+  providerRequestedMsg:   (name: string) => `Request sent to ${name}. You'll be notified when they accept.`,
+  reassignFail:           'Failed',
+  bookingFailed:          'Booking Failed',
+  partialSuccess:         'Partial Success',
+  partialMsg:             (ok: number, fail: number) => `${ok} booking${ok !== 1 ? 's' : ''} created. ${fail} date${fail !== 1 ? 's' : ''} failed — please try booking those separately.`,
+  tryAgainDefault:        'Please try again.',
+  aboutSection:           'About',
+  certificationsSection:  'Certifications',
+  credentialsSection:     'Credentials',
+  specialtiesSection:     'Specialties',
+  certPoliceCheck:        'Police Check Cleared',
+  certArtist:             'Artist Certificate',
+  certFirstAid:           'First Aid / CPR',
+  credQualification:      'Qualification',
+  credCollege:            'College',
+  credRegistration:       'Registration #',
+  showLess:               'Show less',
+  readMore:               'Read more',
+  availableRate:          'Available now',
+  selectForBooking:       (name: string) => `Select ${name.split(' ')[0]} for this booking`,
+  youPin:                 'You',
+  seeAllCollapse:         'Collapse',
+  sortBy:                 'Sort',
+  sortDistance:           'Distance',
+  sortRating:             'Rating',
+  sortPrice:              'Price',
+  sortExperience:         'Experience',
+  filterBtn:              'Filters',
+  filtersActive:          (n: number) => `${n} filter${n !== 1 ? 's' : ''} active`,
+  filtersTitle:           'Filters',
+  filterVerifiedOnly:     'Verified only',
+  filterServiceType:      'Service type',
+  filterExperience:       'Experience level',
+  filterExp0to2:          '0–2 years',
+  filterExp2to5:          '2–5 years',
+  filterExp5plus:         '5+ years',
+  filterMinRating:        'Minimum rating',
+  filterApply:            'Apply',
+  filterClear:            'Clear filters',
+  resultsCount:           (n: number) => `${n} Artist${n !== 1 ? 's' : ''} match your filters`,
+  respondsWithin:         'Responds in <1 hour',
+  cancellationPolicy:     '24h free cancellation',
+};
+type CreateBookingCopy = typeof t;
 
 // ─── Star rating display ─────────────────────────────────────────────────────────
 function StarRating({ rating, size = 13 }: { rating: number; size?: number }) {
@@ -226,31 +324,26 @@ function ProviderAvatar({
 }
 
 // ─── Provider Profile Modal (defined outside parent — no remount issue) ───────────────
-type CreateBookingT = (typeof import('../../i18n/strings').strings)['en']['createBooking'];
-
 function ProviderProfileModal({
   provider,
   visible,
   onClose,
   onSelect,
-  t,
 }: {
   provider: AvailableProvider | null;
   visible: boolean;
   onClose: () => void;
   onSelect: (p: AvailableProvider) => void;
-  t: CreateBookingT;
 }) {
   const insets = useSafeAreaInsets();
-  const { lang: modalLang } = useLang();
   const [bioExpanded, setBioExpanded] = useState(false);
 
   if (!provider) return null;
 
   const certItems = [
-    { label: t.certPoliceCheck, ok: !!provider.policeCheckCleared },
-    { label: t.certArtist,         ok: true /* all on platform have Provider cert */ },
-    { label: t.certFirstAid,    ok: !!provider.firstAidCertified },
+    { label: 'Police Check Cleared', ok: !!provider.policeCheckCleared },
+    { label: 'Artist Certificate',   ok: true /* all on platform have Provider cert */ },
+    { label: 'First Aid / CPR',      ok: !!provider.firstAidCertified },
   ];
 
   const modalContent = (
@@ -289,7 +382,7 @@ function ProviderProfileModal({
             )}
             {(provider.experienceYears ?? 0) > 0 && (
               <Text style={modalStyles.statText}>
-                · {provider.experienceYears} {modalLang === 'fr' ? `an${(provider.experienceYears ?? 0) > 1 ? 's' : ''} d'exp.` : `yr${(provider.experienceYears ?? 0) !== 1 ? 's' : ''} exp`}
+                · {provider.experienceYears} {`yr${(provider.experienceYears ?? 0) !== 1 ? 's' : ''} exp`}
               </Text>
             )}
             {provider.distanceKm != null && (
@@ -306,7 +399,7 @@ function ProviderProfileModal({
         {/* Bio */}
         {!!provider.bio && (
           <View style={modalStyles.section}>
-            <Text style={modalStyles.sectionTitle}>{t.aboutSection}</Text>
+            <Text style={modalStyles.sectionTitle}>About</Text>
             <Text
               style={modalStyles.bioText}
               numberOfLines={bioExpanded ? undefined : 4}
@@ -316,7 +409,7 @@ function ProviderProfileModal({
             {(provider.bio?.length ?? 0) > 160 && (
               <Pressable onPress={() => setBioExpanded(e => !e)}>
                 <Text style={modalStyles.readMore}>
-                  {bioExpanded ? t.showLess : t.readMore}
+                  {bioExpanded ? 'Show less' : 'Read more'}
                 </Text>
               </Pressable>
             )}
@@ -325,7 +418,7 @@ function ProviderProfileModal({
 
         {/* Certifications */}
         <View style={modalStyles.section}>
-          <Text style={modalStyles.sectionTitle}>{t.certificationsSection}</Text>
+          <Text style={modalStyles.sectionTitle}>Certifications</Text>
           {certItems.map(c => (
             <View key={c.label} style={modalStyles.certItem}>
               <View style={[modalStyles.certIcon, { backgroundColor: c.ok ? '#DCFCE7' : '#F3F4F6' }]}>
@@ -343,20 +436,20 @@ function ProviderProfileModal({
         {/* Credentials */}
         {(!!provider.collegeName || !!provider.licenseNumber) && (
           <View style={modalStyles.section}>
-            <Text style={modalStyles.sectionTitle}>{t.credentialsSection}</Text>
+            <Text style={modalStyles.sectionTitle}>Credentials</Text>
             <View style={modalStyles.certItem}>
-              <Text style={[modalStyles.certLabel, { color: '#6B7280' }]}>{t.credQualification}</Text>
+              <Text style={[modalStyles.certLabel, { color: '#6B7280' }]}>Qualification</Text>
               <Text style={[modalStyles.certLabel, { marginLeft: 'auto', fontWeight: '700' }]}>{provider.qualificationType}</Text>
             </View>
             {!!provider.collegeName && (
               <View style={modalStyles.certItem}>
-                <Text style={[modalStyles.certLabel, { color: '#6B7280' }]}>{t.credCollege}</Text>
+                <Text style={[modalStyles.certLabel, { color: '#6B7280' }]}>College</Text>
                 <Text style={[modalStyles.certLabel, { marginLeft: 'auto', fontWeight: '700', flexShrink: 1, textAlign: 'right' }]} numberOfLines={1}>{provider.collegeName}</Text>
               </View>
             )}
             {!!provider.licenseNumber && (
               <View style={modalStyles.certItem}>
-                <Text style={[modalStyles.certLabel, { color: '#6B7280' }]}>{t.credRegistration}</Text>
+                <Text style={[modalStyles.certLabel, { color: '#6B7280' }]}>Registration #</Text>
                 <Text style={[modalStyles.certLabel, { marginLeft: 'auto', fontWeight: '700' }]}>{provider.licenseNumber}</Text>
               </View>
             )}
@@ -366,7 +459,7 @@ function ProviderProfileModal({
         {/* Specialties */}
         {(provider.specialties ?? []).length > 0 && (
           <View style={modalStyles.section}>
-            <Text style={modalStyles.sectionTitle}>{t.specialtiesSection}</Text>
+            <Text style={modalStyles.sectionTitle}>Specialties</Text>
             <View style={modalStyles.tagRow}>
               {(provider.specialties ?? []).map(sp => (
                 <View key={sp} style={modalStyles.tag}>
@@ -380,7 +473,7 @@ function ProviderProfileModal({
         {/* Availability */}
         <View style={[modalStyles.section, { flexDirection: 'row', alignItems: 'center', gap: 8 }]}>
           <View style={modalStyles.availDot} />
-          <Text style={modalStyles.availText}>{t.availableRate}</Text>
+          <Text style={modalStyles.availText}>Available now</Text>
         </View>
       </ScrollView>
 
@@ -397,7 +490,7 @@ function ProviderProfileModal({
           start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
           style={modalStyles.cta}
         >
-          <Text style={modalStyles.ctaText}>{t.selectForBooking(provider.name)}</Text>
+          <Text style={modalStyles.ctaText}>{`Select ${provider.name.split(' ')[0]} for this booking`}</Text>
         </LinearGradient>
       </Pressable>
     </View>
@@ -449,10 +542,11 @@ function loadLeaflet(): Promise<void> {
 
 
 // Deterministic jitter for Providers without coordinates (same logic as before)
-// Service region centre (Kathmandu, Nepal) — the map's home when neither the
-// user nor a Provider has a real GPS fix, so we never fall back to a world view.
-const REGION_LAT = 27.7172;
-const REGION_LNG = 85.3240;
+// Service region centre — the map's home when neither the user nor a Provider
+// has a real GPS fix, so we never fall back to a world view. Shared with every
+// other screen via utils/region.ts (env-driven, not hardcoded to one city).
+const REGION_LAT = DEFAULT_REGION.lat;
+const REGION_LNG = DEFAULT_REGION.lng;
 
 // A coordinate pair is "real" only when it isn't the 0/0 (or null) sentinel. The
 // backend sends 0,0 — and sometimes the region centre — for Providers who haven't shared
@@ -517,7 +611,7 @@ function makeProviderPinHTML(name: string, isSelected: boolean, rate: number = 2
     `<div style="position:relative;display:flex;flex-direction:column;align-items:center;cursor:pointer;">` +
       pulse +
       `<div style="width:${size}px;height:${size}px;border-radius:${size / 2}px;background:${bg};border:2.5px solid ${border};display:flex;align-items:center;justify-content:center;font-size:${isSelected ? 15 : 13}px;font-weight:800;color:${fg};box-shadow:0 3px 10px rgba(0,0,0,0.18);">${initial}</div>` +
-      `<div style="font-size:9px;font-weight:700;color:${isSelected ? Colors.brandDark : Colors.brand};margin-top:2px;">Rs ${rate}</div>` +
+      `<div style="font-size:9px;font-weight:700;color:${isSelected ? Colors.brandDark : Colors.brand};margin-top:2px;">$${rate}</div>` +
       `<div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid ${border};margin-top:0;"></div>` +
     `</div>`
   );
@@ -544,13 +638,14 @@ function GeoMapWeb({
   const infoProviderRef      = useRef<any>(null); // tracks current info card DOM element
   const [infoProvider, setInfoProvider] = useState<AvailableProvider | null>(null);
 
-  // Real user coords only — no Sudbury default. When absent we center on the
-  // Providers themselves (or a neutral view) and skip the "You" pin entirely so we
-  // never drop a fake marker at the city centre.
+  // Real user coords only — no hardcoded city default. When absent we center on
+  // the Providers themselves (or a neutral view) and skip the "You" pin entirely
+  // so we never drop a fake marker at the city centre.
   const hasUserCoords = hasRealCoord(userLat, userLng);
   const firstProvider = providers.find(p => hasRealCoord((p as any).lat, (p as any).lng)) as any;
-  // Centre priority: real user GPS → first Provider with real coords → Sudbury region.
-  // Never null, so the map can't fall back to the [20,0] zoom-2 world view.
+  // Centre priority: real user GPS → first Provider with real coords → configured
+  // default region (utils/region.ts). Never null, so the map can't fall back to
+  // the [20,0] zoom-2 world view.
   const uLat = hasUserCoords ? (userLat as number) : (firstProvider ? firstProvider.lat : REGION_LAT);
   const uLng = hasUserCoords ? (userLng as number) : (firstProvider ? firstProvider.lng : REGION_LNG);
 
@@ -646,18 +741,16 @@ function GeoMapWeb({
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [providers, selectedId, uLat, uLng]);
 
-  const tMap = useT('createBooking');
-  const { lang: mapLang } = useLang();
   // Empty state
   if (providers.length === 0) {
     return (
       <View style={[geoMapStyles.container, { alignItems: 'center', justifyContent: 'center' }]}>
         <View style={{ marginBottom: 8 }}><SearchIcon size={28} color={Colors.brand} /></View>
         <Text style={{ fontSize: 14, fontWeight: '700', color: Colors.brandDark, textAlign: 'center' }}>
-          {tMap.noArtistsNearbyMap}
+          No Artists available nearby
         </Text>
         <Text style={{ fontSize: 12, color: '#5A5A5A', marginTop: 4, textAlign: 'center', paddingHorizontal: 24 }}>
-          {tMap.noArtistsNearbyMapSub}
+          Try again soon or browse profiles below.
         </Text>
       </View>
     );
@@ -726,7 +819,7 @@ function GeoMapWeb({
               )}
               {(infoProvider.experienceYears ?? 0) > 0 && (
                 <Text style={{ fontSize: 10, color: '#6B7280' }}>
-                  {infoProvider.experienceYears} {mapLang === 'fr' ? `an${(infoProvider.experienceYears ?? 0) > 1 ? 's' : ''}` : `yr${(infoProvider.experienceYears ?? 0) !== 1 ? 's' : ''}`}
+                  {infoProvider.experienceYears} {`yr${(infoProvider.experienceYears ?? 0) !== 1 ? 's' : ''}`}
                 </Text>
               )}
               {infoProvider.distanceKm != null && (
@@ -740,7 +833,7 @@ function GeoMapWeb({
             style={geoMapStyles.infoSelectBtn}
             onPress={(e) => { e.stopPropagation?.(); onPinPress(infoProvider); setInfoProvider(null); }}
           >
-            <Text style={geoMapStyles.infoSelectText}>{tMap.select} →</Text>
+            <Text style={geoMapStyles.infoSelectText}>Select →</Text>
           </Pressable>
         </Pressable>
       )}
@@ -770,8 +863,6 @@ function BrowseProviderCard({
   onSelect: () => void;
   onViewProfile: () => void;
 }) {
-  const tCard = useT('createBooking');
-  const { lang: cardLang } = useLang();
   return (
     <View style={[styles.providerBrowseCard, selected && styles.providerCardSelected]}>
       {/* Top row */}
@@ -794,9 +885,7 @@ function BrowseProviderCard({
           <Text style={styles.providerQual}>{provider.qualificationType}</Text>
           {(provider.experienceYears ?? 0) > 0 && (
             <Text style={styles.providerExp}>
-              {cardLang === 'fr'
-                ? `${provider.experienceYears} an${(provider.experienceYears ?? 0) > 1 ? 's' : ''} d'exp.`
-                : `${provider.experienceYears} yr${(provider.experienceYears ?? 0) !== 1 ? 's' : ''} experience`}
+              {`${provider.experienceYears} yr${(provider.experienceYears ?? 0) !== 1 ? 's' : ''} experience`}
             </Text>
           )}
           <View style={styles.providerMetaRow}>
@@ -809,7 +898,6 @@ function BrowseProviderCard({
                 </Text>
               </View>
             )}
-            <Text style={styles.providerRate}>{tCard.hrMinimum}</Text>
           </View>
         </View>
       </View>
@@ -817,12 +905,12 @@ function BrowseProviderCard({
       {/* Cert badges */}
       <View style={styles.certRow}>
         {provider.policeCheckCleared && (
-          <View style={styles.certBadge}><Text style={styles.certBadgeText}>✓ {tCard.certPoliceCheck}</Text></View>
+          <View style={styles.certBadge}><Text style={styles.certBadgeText}>✓ Police Check Cleared</Text></View>
         )}
         {provider.firstAidCertified && (
-          <View style={styles.certBadge}><Text style={styles.certBadgeText}>✓ {tCard.certFirstAid}</Text></View>
+          <View style={styles.certBadge}><Text style={styles.certBadgeText}>✓ First Aid / CPR</Text></View>
         )}
-        <View style={styles.certBadge}><Text style={styles.certBadgeText}>✓ {tCard.certArtist}</Text></View>
+        <View style={styles.certBadge}><Text style={styles.certBadgeText}>✓ Artist Certificate</Text></View>
       </View>
 
       {/* Specialties */}
@@ -841,14 +929,14 @@ function BrowseProviderCard({
 
       {/* Trust/policy line — response time + cancellation policy build confidence pre-tap */}
       <Text style={styles.policyLine}>
-        {tCard.respondsWithin} · {tCard.cancellationPolicy}
+        Responds in &lt;1 hour · 24h free cancellation
       </Text>
 
       {/* Bottom row: availability + actions */}
       <View style={styles.cardBottomRow}>
         <View style={styles.availRow}>
           <View style={styles.availDot} />
-          <Text style={styles.availText}>{tCard.available}</Text>
+          <Text style={styles.availText}>Available</Text>
           {provider.distanceKm != null && (
             <Text style={styles.providerDistanceBrowse}>{provider.distanceKm} km</Text>
           )}
@@ -858,14 +946,14 @@ function BrowseProviderCard({
             style={({ pressed }) => [styles.ghostBtn, pressed && { opacity: 0.7 }]}
             onPress={onViewProfile}
           >
-            <Text style={styles.ghostBtnText}>{tCard.viewProfile}</Text>
+            <Text style={styles.ghostBtnText}>View Profile</Text>
           </Pressable>
           <Pressable
             style={({ pressed }) => [styles.selectBtn, selected && styles.selectBtnSelected, pressed && { opacity: 0.85 }]}
             onPress={onSelect}
           >
             <Text style={[styles.selectBtnText, selected && styles.selectBtnTextSelected]}>
-              {selected ? tCard.selected : tCard.select}
+              {selected ? '✓ Selected' : 'Select'}
             </Text>
           </Pressable>
         </View>
@@ -888,7 +976,6 @@ function NearMeProviderCard({
   onViewProfile: () => void;
   fullWidth?: boolean;
 }) {
-  const tNear = useT('createBooking');
   return (
     <Pressable
       style={({ pressed }) => [nearStyles.card, fullWidth && { width: '100%' }, selected && nearStyles.cardSelected, pressed && { opacity: 0.92 }]}
@@ -914,11 +1001,11 @@ function NearMeProviderCard({
             <Text style={nearStyles.name} numberOfLines={1}>{provider.name}</Text>
             {selected && (
               <View style={nearStyles.selectedBadge}>
-                <Text style={nearStyles.selectedBadgeText}>{tNear.selected}</Text>
+                <Text style={nearStyles.selectedBadgeText}>✓ Selected</Text>
               </View>
             )}
           </View>
-          <Text style={nearStyles.qual} numberOfLines={1}>{provider.qualificationType ?? 'Personal Support Worker'}</Text>
+          <Text style={nearStyles.qual} numberOfLines={1}>{provider.qualificationType ?? 'Beauty Artist'}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 5, flexWrap: 'wrap' }}>
             {provider.distanceKm != null && (
               <View style={nearStyles.distBadge}>
@@ -932,7 +1019,7 @@ function NearMeProviderCard({
                 <Text style={nearStyles.ratingText}>★ {provider.rating.toFixed(1)}</Text>
               </View>
             )}
-            <Text style={nearStyles.rate}>Rs {providerHourlyRate(provider)}/hr</Text>
+            <Text style={nearStyles.rate}>From ${providerHourlyRate(provider)}</Text>
           </View>
           {(provider.specialties ?? []).length > 0 && (
             <View style={{ flexDirection: 'row', gap: 5, marginTop: 6, flexWrap: 'wrap' }}>
@@ -951,14 +1038,14 @@ function NearMeProviderCard({
           onPress={e => { e.stopPropagation(); onViewProfile(); }}
           hitSlop={8}
         >
-          <Text style={nearStyles.profileBtnText}>{tNear.viewProfile}</Text>
+          <Text style={nearStyles.profileBtnText}>View Profile</Text>
         </Pressable>
         <Pressable
           style={({ pressed }) => [nearStyles.selectBtn, selected && nearStyles.selectBtnSel, pressed && { opacity: 0.85 }]}
           onPress={e => { e.stopPropagation(); onSelect(); }}
         >
           <Text style={[nearStyles.selectBtnText, selected && nearStyles.selectBtnTextSel]}>
-            {selected ? '✓' : tNear.select}
+            {selected ? '✓' : 'Select'}
           </Text>
         </Pressable>
       </View>
@@ -984,7 +1071,7 @@ function FiltersModal({
 }: {
   visible: boolean;
   onClose: () => void;
-  t: CreateBookingT;
+  t: CreateBookingCopy;
   services: string[];
   filterVerifiedOnly: boolean;
   setFilterVerifiedOnly: (v: boolean) => void;
@@ -1102,11 +1189,7 @@ function FiltersModal({
 export function CreateBookingScreen() {
   const nav    = useNavigation<any>();
   const insets = useSafeAreaInsets();
-  const t      = useT('createBooking');
-  const { lang } = useLang();
-  const locale = lang === 'fr' ? 'fr-CA' : 'en-CA';
-  const MONTH_NAMES = lang === 'fr' ? MONTH_NAMES_FR : MONTH_NAMES_EN;
-  const DAYS_HEADER = lang === 'fr' ? DAYS_HEADER_FR : DAYS_HEADER_EN;
+  const locale = 'en-CA';
   const STEP_LABELS_SCHEDULED = [t.stepService, t.stepDateTime, t.stepChooseArtist, t.stepConfirm];
   const STEP_LABELS_ONDEMAND  = [t.stepService, t.stepChooseArtist, t.stepConfirm];
   // `coords` keeps a fallback so the nearby-Provider search still returns local
@@ -1127,7 +1210,9 @@ export function CreateBookingScreen() {
   // geocodable address (incl. postal code) instead of a single short free-text line.
   const [street,        setStreet]        = useState('');
   const [unit,          setUnit]          = useState('');
-  const [city,          setCity]          = useState('Kathmandu');
+  // No default city — a stale hardcoded city name here would silently submit
+  // the wrong address if a customer didn't notice and overwrite it.
+  const [city,          setCity]          = useState('');
   const [postal,        setPostal]        = useState('');
   const [geocoding,     setGeocoding]     = useState(false);
   // Combined, human-readable address string sent to the backend + shown on the booking.
@@ -1726,7 +1811,7 @@ export function CreateBookingScreen() {
                         styles.serviceCardLabel,
                         active && { color: accent, fontWeight: '800' },
                       ]}>
-                        {lang === 'fr' ? (SERVICE_LABELS_FR[s] ?? s) : s}
+                        {s}
                       </Text>
                       {active && (
                         <View style={[styles.serviceCheck, { backgroundColor: accent }]}>
@@ -1750,7 +1835,7 @@ export function CreateBookingScreen() {
                       onPress={() => { tapLight(); setHours(h); }}
                     >
                       <Text style={[styles.chipText, hours === h && styles.chipTextActive]}>{h}h</Text>
-                      <Text style={[styles.chipSub, hours === h && { color: '#fff' }]}>Rs {chipPrice}</Text>
+                      <Text style={[styles.chipSub, hours === h && { color: '#fff' }]}>${chipPrice}</Text>
                     </Pressable>
                   );
                 })}
@@ -2022,7 +2107,7 @@ export function CreateBookingScreen() {
               </View>
 
               <View style={styles.confirmCard}>
-                <ConfirmRow label={t.confirmService}  value={lang === 'fr' ? (SERVICE_LABELS_FR[serviceType] ?? serviceType) : serviceType} />
+                <ConfirmRow label={t.confirmService}  value={serviceType} />
                 <ConfirmRow label={t.confirmDuration} value={t.confirmDurationVal(hours)} />
                 {bookingMode === 'ondemand' ? (
                   <ConfirmRow label={t.confirmWhen} value={t.confirmWhenOnDemand} />
@@ -2038,7 +2123,7 @@ export function CreateBookingScreen() {
                   <Text style={styles.confirmLabel}>{t.confirmEstTotal}</Text>
                   <View style={{ flex: 1, alignItems: 'flex-end' }}>
                     <Text style={[styles.confirmValue, styles.confirmValueBold]}>
-                      Rs {calcTotalPrice(selectedProvider, serviceType, hours, bookingMode === 'ondemand' ? 1 : Math.max(selectedDates.length, 1))}
+                      ${calcTotalPrice(selectedProvider, serviceType, hours, bookingMode === 'ondemand' ? 1 : Math.max(selectedDates.length, 1))}
                     </Text>
                     {bookingMode === 'scheduled' && selectedDates.length > 1 && (
                       <Text style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>
@@ -2100,14 +2185,14 @@ export function CreateBookingScreen() {
             <Text style={styles.ctaHint}>
               {step === 1
                 ? (!serviceType
-                    ? (lang === 'fr' ? 'Choisissez un type de soin' : 'Choose a type of care')
+                    ? 'Choose a service'
                     : street.trim().length <= 2
-                      ? (lang === 'fr' ? 'Entrez votre adresse (rue)' : 'Enter your street address')
-                      : (lang === 'fr' ? 'Entrez votre code postal (ex. P3A 2T4)' : 'Enter your postal code (e.g. P3A 2T4)'))
+                      ? 'Enter your street address'
+                      : 'Enter your postal code (e.g. P3A 2T4)')
                 : step === 2
-                  ? (lang === 'fr' ? 'Choisissez au moins une date' : 'Pick at least one date')
+                  ? 'Pick at least one date'
                   : step === 3
-                    ? (lang === 'fr' ? 'Touchez « Choisir » sur un préposé' : 'Tap "Select" on a Provider to continue')
+                    ? 'Tap "Select" on an Artist to continue'
                     : ''}
             </Text>
           )}
@@ -2150,7 +2235,6 @@ export function CreateBookingScreen() {
         visible={profileVisible}
         onClose={() => setProfileVisible(false)}
         onSelect={handleSelectFromModal}
-        t={t}
       />
 
       {/* ── Filters Modal (Browse Profiles) ── */}

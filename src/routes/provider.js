@@ -169,11 +169,14 @@ router.get(
         });
       }
 
-      // Region centre (env-configurable, not a magic Sudbury literal) used ONLY to
-      // build the job-search bounding box when the Provider hasn't shared GPS yet — so
-      // Find Jobs isn't empty. Real coords are preferred whenever available.
-      const REGION_LAT = parseFloat(process.env.DEFAULT_REGION_LAT) || 46.4917;
-      const REGION_LNG = parseFloat(process.env.DEFAULT_REGION_LNG) || -80.9930;
+      // Region centre — fully env-driven per deployment (DEFAULT_REGION_LAT/LNG),
+      // used ONLY to build the job-search bounding box when the Provider hasn't
+      // shared GPS yet, so Find Jobs isn't empty. Real coords are always preferred.
+      // Falls back to 0,0 if unset — deliberately useless as a real map centre so
+      // a missing env var is obvious in production rather than silently defaulting
+      // to some other product's city.
+      const REGION_LAT = parseFloat(process.env.DEFAULT_REGION_LAT) || 0;
+      const REGION_LNG = parseFloat(process.env.DEFAULT_REGION_LNG) || 0;
       const providerLat = (providerUser?.lat && providerUser.lat !== 0) ? providerUser.lat : REGION_LAT;
       const providerLng = (providerUser?.lng && providerUser.lng !== 0) ? providerUser.lng : REGION_LNG;
 
