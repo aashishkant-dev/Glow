@@ -23,7 +23,11 @@ async function verifyGoogleIdToken(idToken) {
   const payload = ticket.getPayload();
   return {
     sub:     payload.sub,
-    email:   payload.email,
+    // Normalize like every other email-based auth path in this codebase
+    // (register-email/login-email/forgot-password all run .normalizeEmail()).
+    // Google emails are almost always already lowercase, but this keeps
+    // account matching/creation consistent if that ever isn't the case.
+    email:   payload.email ? payload.email.toLowerCase().trim() : payload.email,
     name:    payload.name,
     picture: payload.picture,
   };
