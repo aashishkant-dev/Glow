@@ -25,18 +25,18 @@ import { Colors } from '../../utils/colors';
 import { ShieldCheckIcon, KeyIcon } from '../../components/CareIcons';
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
-const BRAND      = '#B76E79';
-const BRAND_DARK = '#9C5560';
-const BRAND_SOFT = '#FDF2F4';
-const GREEN      = '#059669';
+const BRAND      = Colors.brand;
+const BRAND_DARK = Colors.brandDark;
+const BRAND_SOFT = Colors.brandLight;
+const GREEN      = Colors.trustGreen;
 const GREEN_SOFT = '#ECFDF5';
-const NAVY       = '#9C5560';
-const SURFACE    = '#FFFFFF';
-const BG         = '#F0F4F8';
-const TEXT       = '#0F172A';
-const MUTED      = '#475569';
-const BORDER     = '#E2E8F0';
-const DANGER     = '#DC2626';
+const NAVY       = Colors.brandDeep;
+const SURFACE    = Colors.systemBackground;
+const BG         = Colors.systemGroupedBackground;
+const TEXT       = Colors.label;
+const MUTED      = Colors.secondaryLabel;
+const BORDER     = Colors.separator;
+const DANGER     = Colors.systemRed;
 
 // ── Qualification types ────────────────────────────────────────────────────────
 const QUAL_TYPES = [
@@ -561,40 +561,26 @@ export function ProviderOnboardingScreen() {
               </>
             )}
 
-            {/* ── STEP 5: Documents ── */}
+            {/* ── STEP 5: Account Created + Documents ── */}
             {step === 5 && (
               <>
-                <Text style={styles.sectionTitle}>Identity Verification</Text>
+                {/* "You're in!" celebration banner */}
+                <View style={styles.celebrationCard}>
+                  <View style={styles.celebrationIcon}>
+                    <Text style={{ fontSize: 36 }}>🎉</Text>
+                  </View>
+                  <Text style={styles.celebrationTitle}>You're in!</Text>
+                  <Text style={styles.celebrationSub}>
+                    Your account is created and your profile is live. Upload your documents below to get verified faster — or skip for now and do it later.
+                  </Text>
+                </View>
+
+                <Text style={styles.sectionTitle}>Upload Documents</Text>
                 <Text style={styles.sectionSub}>
-                  Photos of your credentials. Required items are marked{' '}
+                  Required items are marked{' '}
                   <Text style={{ color: DANGER, fontWeight: '700' }}>*</Text>
                   . You can add more from your profile later.
                 </Text>
-
-                {/* KYC-style security assurance */}
-                <View style={styles.secureBanner}>
-                  <View style={styles.secureBannerIcon}><ShieldCheckIcon size={22} color={Colors.brand} /></View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.secureBannerTitle}>Bank-level encryption</Text>
-                    <Text style={styles.secureBannerText}>
-                      Your documents are encrypted and reviewed only by our verification team. We never share them with clients.
-                    </Text>
-                  </View>
-                </View>
-
-                {/* Verification checklist — what we confirm */}
-                <View style={styles.verifyChecklist}>
-                  {[
-                    'Government-issued photo ID',
-                    'Beauty certification & registration',
-                    'Criminal record / vulnerable sector check',
-                  ].map(item => (
-                    <View key={item} style={styles.verifyCheckRow}>
-                      <View style={styles.verifyCheckDot}><Text style={styles.verifyCheckTick}>✓</Text></View>
-                      <Text style={styles.verifyCheckText}>{item}</Text>
-                    </View>
-                  ))}
-                </View>
 
                 {STEP4_DOCS.map(doc => {
                   const ds = docStates[doc.id];
@@ -621,19 +607,16 @@ export function ProviderOnboardingScreen() {
                         </View>
                       </View>
 
-                      {/* Error */}
                       {ds.error && (
                         <View style={styles.errorBox}>
                           <Text style={styles.errorText}>{ds.error}</Text>
                         </View>
                       )}
 
-                      {/* Preview */}
                       {ds.uri && !isLoading && (
                         <Image source={{ uri: ds.uri }} style={styles.docPreview} contentFit="cover" cachePolicy="memory-disk" />
                       )}
 
-                      {/* Upload button */}
                       <Pressable
                         style={[
                           styles.uploadBtn,
@@ -642,16 +625,12 @@ export function ProviderOnboardingScreen() {
                         ]}
                         onPress={() => uploadDoc(doc)}
                         disabled={isLoading}
-                        accessibilityLabel={`Upload ${doc.label}`}
-                        accessibilityRole="button"
                       >
                         {isLoading
                           ? (
                             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
                               <ActivityIndicator size="small" color={isDone ? GREEN : '#fff'} />
-                              <Text style={[styles.uploadBtnText, isDone && styles.uploadBtnTextReplace]}>
-                                Uploading…
-                              </Text>
+                              <Text style={[styles.uploadBtnText, isDone && styles.uploadBtnTextReplace]}>Uploading…</Text>
                             </View>
                           )
                           : (
@@ -665,12 +644,13 @@ export function ProviderOnboardingScreen() {
                   );
                 })}
 
-                <View style={styles.infoBox}>
-                  <View style={styles.infoBoxIcon}><KeyIcon size={18} color={Colors.secondaryLabel} /></View>
-                  <Text style={styles.infoBoxText}>
-                    Documents are stored securely and only viewed by our verification team.
-                  </Text>
-                </View>
+                {/* "Skip for now" button */}
+                <Pressable
+                  style={({ pressed }) => [styles.skipBtn, pressed && { opacity: 0.7 }]}
+                  onPress={finishOnboarding}
+                >
+                  <Text style={styles.skipBtnText}>Skip for now</Text>
+                </Pressable>
               </>
             )}
 
@@ -912,4 +892,45 @@ const styles = StyleSheet.create({
   nextBtn: { flex: 1, height: 52, borderRadius: 14, overflow: 'hidden', minHeight: 44 },
   nextBtnGrad: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   nextBtnText: { color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: -0.2 },
+
+  celebrationCard: {
+    backgroundColor: Colors.brandLight,
+    borderRadius: 20,
+    padding: 28,
+    alignItems: 'center',
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: '#A7F3D0',
+  },
+  celebrationIcon: {
+    width: 64,
+    height: 64,
+    borderRadius: 32,
+    backgroundColor: '#DCFCE7',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 14,
+  },
+  celebrationTitle: {
+    fontSize: 24,
+    fontWeight: '800',
+    color: Colors.label,
+    marginBottom: 8,
+  },
+  celebrationSub: {
+    fontSize: 14,
+    color: Colors.secondaryLabel,
+    textAlign: 'center',
+    lineHeight: 21,
+  },
+  skipBtn: {
+    paddingVertical: 16,
+    alignItems: 'center',
+    marginTop: 12,
+  },
+  skipBtnText: {
+    fontSize: 15,
+    fontWeight: '600',
+    color: Colors.secondaryLabel,
+  },
 });

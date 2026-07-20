@@ -84,10 +84,21 @@ export function PhoneScreen() {
   const ctaScale = useRef(new Animated.Value(1)).current;
   const heroFade = useRef(new Animated.Value(0)).current;
 
+  // Google.useAuthRequest's internal useMemo throws synchronously (invariantClientId)
+  // if the platform-relevant client ID is missing — e.g. a build without
+  // EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB set. That crash previously took down this whole
+  // screen on mount. The hook always falls back to `clientId` when the platform-specific
+  // id is unset, so passing a non-empty placeholder there keeps the hook from throwing;
+  // `googleConfigured` gates the button so the placeholder is never actually used to
+  // start a real auth flow.
+  const googleConfigured = Platform.OS === 'web'
+    ? !!process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB
+    : !!(process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS || process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID);
   const [, googleResponse, promptGoogleAsync] = Google.useAuthRequest({
     iosClientId:     process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS,
     androidClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID,
     webClientId:     process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB,
+    clientId:        'google-auth-not-configured',
   });
 
   useEffect(() => {
@@ -435,12 +446,12 @@ export function PhoneScreen() {
             {authMode === 'google' && (
               <View style={{ paddingVertical: 8 }}>
                 <Pressable
-                  style={[styles.ctaBtn, { backgroundColor: '#fff', borderWidth: 1.5, borderColor: Colors.separator }]}
-                  onPress={() => promptGoogleAsync()}
-                  disabled={loading}
+                  style={[styles.ctaBtn, { backgroundColor: '#fff', borderWidth: 1.5, borderColor: Colors.separator }, !googleConfigured && styles.ctaBtnDisabled]}
+                  onPress={() => googleConfigured && promptGoogleAsync()}
+                  disabled={loading || !googleConfigured}
                 >
                   <Text style={[styles.ctaBtnText, { color: Colors.label }]}>
-                    {loading ? 'Signing in…' : 'Continue with Google'}
+                    {loading ? 'Signing in…' : googleConfigured ? 'Continue with Google' : 'Google sign-in unavailable'}
                   </Text>
                 </Pressable>
                 <Text style={styles.disclaimer}>Google sign-in is for customers only. Artists sign up with a phone number.</Text>

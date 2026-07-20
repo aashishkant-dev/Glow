@@ -908,6 +908,9 @@ export interface PublicProviderCard {
   languages: string[];
   policeCheckCleared: boolean;
   firstAidCertified: boolean;
+  startingPrice?: number;
+  lat?: number;
+  lng?: number;
 }
 
 export function apiPublicProviders() {

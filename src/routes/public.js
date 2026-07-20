@@ -37,13 +37,15 @@ router.get('/providers', async (_req, res) => {
           providerProfile: { approvedByAdmin: true, publicProfile: true },
         },
         orderBy: [{ rating: 'desc' }, { ratingCount: 'desc' }],
-        take: 12,
+        take: 50,
         select: {
           id: true,
           name: true,
           photoUrl: true,
           rating: true,
           ratingCount: true,
+          lat: true,
+          lng: true,
           providerProfile: {
             select: {
               qualificationType: true,
@@ -54,6 +56,10 @@ router.get('/providers', async (_req, res) => {
               policeCheckCleared: true,
               firstAidCertified: true,
               photoUrl: true,
+              services: {
+                where: { active: true },
+                select: { id: true, name: true, price: true, active: true },
+              },
             },
           },
           _count: {
@@ -87,6 +93,9 @@ router.get('/providers', async (_req, res) => {
           languages: u.providerProfile?.languages || ['English'],
           policeCheckCleared: !!u.providerProfile?.policeCheckCleared,
           firstAidCertified: !!u.providerProfile?.firstAidCertified,
+          startingPrice: Math.min(...(u.providerProfile?.services?.filter(s => s.active).map(s => Number(s.price)) || [0]).filter(p => p > 0)),
+          lat: u.lat,
+          lng: u.lng,
         })),
       };
       await cacheSet(CACHE_KEY, payload, 3600);

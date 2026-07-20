@@ -32,6 +32,31 @@ import { OSMMap, OSMMarker } from '../../components/OSMMap';
 import { DEFAULT_REGION, DEFAULT_REGION_NAME } from '../../utils/region';
 import { VerifyPhoneSheet } from '../../components/VerifyPhoneSheet';
 import { useAuth } from '../../context/AuthContext';
+import { SEED_ARTISTS } from '../../data/seedArtists';
+
+// Seed artists (Explore's curated showcase) shown as pickable cards here too, so
+// the booking flow doesn't look empty before real Providers are onboarded — but
+// they carry no real backend account, so handleBook blocks submitting against
+// them (see the seed-id guard there) rather than letting checkout fail confusingly.
+const SEED_AS_AVAILABLE_PROVIDERS: AvailableProvider[] = SEED_ARTISTS.map(s => ({
+  _id: s.id,
+  name: s.name,
+  rating: s.rating ?? 0,
+  ratingCount: s.ratingCount,
+  lat: 0,
+  lng: 0,
+  qualificationType: s.qualificationType,
+  photoUrl: s.photoUrl,
+  experienceYears: s.experienceYears,
+  specialties: s.specialties,
+  bio: s.bio,
+  approvedByAdmin: true,
+  policeCheckCleared: s.policeCheckCleared,
+  firstAidCertified: s.firstAidCertified,
+  available: true,
+  hasLocation: false,
+  online: false,
+}));
 
 // ─── Brand tokens ───────────────────────────────────────────────────────────────
 const BRAND_DARK  = Colors.brandDark;
@@ -1368,16 +1393,19 @@ export function CreateBookingScreen() {
         distanceKm: distMap[String(p._id)] ?? undefined,
       }));
       const sorted = [...merged].sort((a, b) => (a.distanceKm ?? 99) - (b.distanceKm ?? 99));
+      // Seed artists trail real Providers — they're a demo showcase, never the
+      // default/preselected choice, and never eligible for the preferId float below.
+      const withSeed = [...sorted, ...SEED_AS_AVAILABLE_PROVIDERS];
       // Glow Match / artist-profile entry: a specific artist was already chosen —
       // float them to the top and preselect so booking stays a confirm, not a search.
       const preferId = (route.params as any)?.providerId as string | undefined;
       const preferred = preferId ? sorted.find(p => String(p._id) === String(preferId)) : undefined;
       if (preferred) {
-        setProviders([preferred, ...sorted.filter(p => p !== preferred)]);
+        setProviders([preferred, ...withSeed.filter(p => p !== preferred)]);
         setSelectedProvider(preferred);
         setProviderMode('browse');
       } else {
-        setProviders(sorted);
+        setProviders(withSeed);
       }
     }).finally(() => setLoadingProviders(false));
   }, [step]);
@@ -1416,6 +1444,15 @@ export function CreateBookingScreen() {
 
   async function handleBook() {
     if (!selectedProvider) return;
+
+    // Seed/demo artists (Explore's curated showcase) have no real backend account —
+    // submitting a booking against one would fail server-side. Block early with a
+    // clear message instead of letting the user hit a confusing checkout error.
+    if (String(selectedProvider._id).startsWith('seed-')) {
+      const msg = 'This is a demo artist — booking isn\'t available for them yet. Please choose another artist.';
+      if (Platform.OS === 'web') window.alert(msg); else Alert.alert('Demo Artist', msg);
+      return;
+    }
 
     if (!user?.phoneVerified) {
       setShowVerifySheet(true);

@@ -411,7 +411,7 @@ export function EarningsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F1F5F4' },
+  container: { flex: 1, backgroundColor: Colors.systemGroupedBackground },
 
   hero: { paddingHorizontal: 20, paddingBottom: 24 },
   heroBack: { alignSelf: 'flex-start', marginBottom: 12, padding: 4 },
@@ -468,7 +468,7 @@ const styles = StyleSheet.create({
   modalSub: { fontSize: 13, color: Colors.secondaryLabel, lineHeight: 19, marginBottom: 16 },
   modalInput: {
     borderWidth: 1, borderColor: Colors.separator, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 14,
-    fontSize: 16, color: Colors.label, backgroundColor: '#F1F5F4',
+    fontSize: 16, color: Colors.label, backgroundColor: Colors.systemGroupedBackground,
   },
   modalBtnRow: { flexDirection: 'row', gap: 12, marginTop: 18 },
   modalBtn: { flex: 1, borderRadius: 12, paddingVertical: 14, alignItems: 'center' },
@@ -541,7 +541,7 @@ const styles = StyleSheet.create({
   jobIconWrap: {
     width: 44, height: 44, borderRadius: 12,
     backgroundColor: '#ECFDF5', alignItems: 'center', justifyContent: 'center',
-    borderWidth: 1, borderColor: '#FDE68A',
+    borderWidth: 1, borderColor: Colors.goldSoft,
   },
   jobIcon: { fontSize: 22 },
   jobService: { fontSize: 14, fontWeight: '700', color: Colors.label },

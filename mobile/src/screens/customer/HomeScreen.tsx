@@ -365,7 +365,7 @@ export function HomeScreen() {
               >
                 <View style={[styles.occCard, { backgroundColor: o.tint }, o.big && styles.occCardBig]}>
                   <View style={styles.occIcon}>
-                    <o.Icon size={o.big ? 24 : 20} color={Colors.brandDeep} />
+                    <o.Icon size={o.big ? 24 : 20} color="#fff" />
                   </View>
                   {o.big && (
                     <View style={styles.occBigGlow} pointerEvents="none" />
@@ -581,6 +581,11 @@ const styles = StyleSheet.create({
   occCard: {
     borderRadius: 24, padding: 16, minHeight: 118,
     justifyContent: 'space-between', overflow: 'hidden',
+    // A real border + shadow so the card reads as a distinct surface against the
+    // near-white page background — the previous borderless pale-tint-on-near-white
+    // card was almost impossible to make out (tint and page bg were both ~#FFF9F8).
+    borderWidth: 1, borderColor: 'rgba(0,0,0,0.06)',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 1,
   },
   occCardBig: { minHeight: 140, padding: 20 },
   occBigGlow: {
@@ -590,7 +595,10 @@ const styles = StyleSheet.create({
   },
   occIcon: {
     width: 38, height: 38, borderRadius: 19,
-    backgroundColor: 'rgba(255,255,255,0.85)',
+    // Solid brandDeep fill (was translucent white, which barely lifted off the
+    // equally-pale card tint). brandDeep + white icon measures 5.5:1 contrast
+    // (WCAG AA pass); the mid-tone `brand` shade only reached 2.9:1 against white.
+    backgroundColor: Colors.brandDeep,
     alignItems: 'center', justifyContent: 'center',
     marginBottom: 12,
   },
@@ -599,7 +607,9 @@ const styles = StyleSheet.create({
 
   occName: { fontSize: 15.5, fontFamily: Fonts.semibold, color: Colors.label },
   occNameBig: { fontSize: 20, letterSpacing: -0.3 },
-  occSub: { fontSize: 12, color: Colors.secondaryLabel, marginTop: 2, fontFamily: Fonts.regular },
+  // Darker than secondaryLabel — that token read as washed-out gray on the pale
+  // tinted cards; label-adjacent weight keeps the subtitle legible at a glance.
+  occSub: { fontSize: 12.5, color: Colors.label, opacity: 0.72, marginTop: 2, fontFamily: Fonts.medium },
 
   // Clamps every horizontal row to the screen width on web — without an
   // explicit style, RN Web can size a ScrollView to its content instead of

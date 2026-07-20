@@ -587,3 +587,19 @@ describe('POST /auth/reset-password', () => {
     expect(res.status).toBe(400);
   });
 });
+
+// ── GET /public/providers ────────────────────────────────────────────────────
+describe('GET /public/providers', () => {
+  it('returns 200 with a providers array', async () => {
+    const res = await request(app).get('/public/providers');
+    expect(res.status).toBe(200);
+    expect(Array.isArray(res.body.providers)).toBe(true);
+  });
+
+  it('returns a total count', async () => {
+    const res = await request(app).get('/public/providers');
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('total');
+    expect(typeof res.body.total).toBe('number');
+  });
+});

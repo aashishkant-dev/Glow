@@ -522,8 +522,45 @@ export function ProviderDashboardScreen() {
           <View style={styles.emptyState}>
             <BriefcaseIcon size={36} color={Colors.systemGray3} />
             <Text style={styles.emptyText}>No recent jobs. Go online to find work nearby.</Text>
+            <Pressable
+              style={({ pressed }) => [styles.browseBtn, pressed && { opacity: 0.85 }]}
+              onPress={() => nav.navigate('ProviderHome', { screen: 'NearbyJobs' })}
+            >
+              <Text style={styles.browseBtnText}>Browse nearby jobs</Text>
+            </Pressable>
           </View>
         )}
+
+        {/* ── How Clients See You ── */}
+        {profile && (
+          <View style={styles.previewSection}>
+            <Text style={styles.sectionTitle}>HOW CLIENTS SEE YOU</Text>
+            <View style={styles.previewCard}>
+              <View style={styles.previewRow}>
+                {photoUri ? (
+                  <Image source={{ uri: photoUri }} style={styles.previewAvatar} contentFit="cover" cachePolicy="memory-disk" />
+                ) : (
+                  <View style={[styles.previewAvatar, { backgroundColor: Colors.brandLight, alignItems: 'center', justifyContent: 'center' }]}>
+                    <Text style={{ fontSize: 20, fontFamily: Fonts.bold, color: Colors.brandDark }}>
+                      {user?.name?.[0]?.toUpperCase() ?? '?'}
+                    </Text>
+                  </View>
+                )}
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.previewName} numberOfLines={1}>{profile.name}</Text>
+                  <Text style={styles.previewSpec} numberOfLines={1}>
+                    {profile.providerProfile?.specialties?.[0] ?? 'Beauty Professional'}
+                  </Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 4 }}>
+                    <Text style={styles.previewRating}>★ {(profile.rating ?? 0).toFixed(1)}</Text>
+                    <Text style={styles.previewReviews}>({profile.ratingCount ?? 0})</Text>
+                  </View>
+                </View>
+              </View>
+            </View>
+          </View>
+        )}
+
       </ScrollView>
 
       <LocationPrompt
@@ -777,4 +814,61 @@ const styles = StyleSheet.create({
   docOkIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: Colors.brandLight, alignItems: 'center', justifyContent: 'center' },
   docOkTitle: { fontSize: 14, fontWeight: '700', color: Colors.label },
   docOkSub: { fontSize: 12, color: Colors.secondaryLabel, marginTop: 2 },
+
+  browseBtn: {
+    backgroundColor: Colors.brand,
+    borderRadius: 14,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
+    marginTop: 12,
+  },
+  browseBtnText: {
+    color: '#fff',
+    fontSize: 14,
+    fontFamily: Fonts.semibold,
+  },
+  previewSection: {
+    paddingHorizontal: 16,
+    marginTop: 22,
+    marginBottom: 12,
+  },
+  previewCard: {
+    backgroundColor: Colors.cardBackground,
+    borderRadius: Radius.lg,
+    padding: 16,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  previewRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 14,
+  },
+  previewAvatar: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    overflow: 'hidden',
+  },
+  previewName: {
+    fontSize: 16,
+    fontFamily: Fonts.semibold,
+    color: Colors.label,
+  },
+  previewSpec: {
+    fontSize: 13,
+    fontFamily: Fonts.regular,
+    color: Colors.secondaryLabel,
+    marginTop: 2,
+  },
+  previewRating: {
+    fontSize: 14,
+    fontFamily: Fonts.semibold,
+    color: Colors.gold,
+  },
+  previewReviews: {
+    fontSize: 12,
+    fontFamily: Fonts.regular,
+    color: Colors.tertiaryLabel,
+  },
 });
