@@ -218,6 +218,59 @@ describe('POST /bookings — input validation', () => {
   });
 });
 
+describe('POST /auth/send-verify-otp', () => {
+  it('requires authentication', async () => {
+    const res = await request(app).post('/auth/send-verify-otp').send({});
+    expect(res.status).toBe(401);
+  });
+});
+
+describe('POST /auth/verify-phone', () => {
+  it('requires authentication', async () => {
+    const res = await request(app).post('/auth/verify-phone').send({ otp: '123456' });
+    expect(res.status).toBe(401);
+  });
+
+  it('rejects malformed otp', async () => {
+    const token = jwt.sign({ userId: 'user1', role: 'CUSTOMER' }, JWT_SECRET, { algorithm: 'HS256' });
+    mockFindUnique.mockResolvedValue({ id: 'user1', phone: '+14165550100', role: 'CUSTOMER', deletedAt: null });
+    const res = await request(app)
+      .post('/auth/verify-phone')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ otp: '12' });
+    expect(res.status).toBe(400);
+  });
+
+  it('rejects when account has no phone and none was supplied', async () => {
+    const token = jwt.sign({ userId: 'user2', role: 'CUSTOMER' }, JWT_SECRET, { algorithm: 'HS256' });
+    mockFindUnique.mockResolvedValue({ id: 'user2', phone: null, role: 'CUSTOMER', deletedAt: null });
+    const res = await request(app)
+      .post('/auth/verify-phone')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ otp: '123456' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/phone/i);
+  });
+});
+
+describe('POST /bookings — phoneVerified gate', () => {
+  it('blocks booking creation when phone is unverified', async () => {
+    const token = jwt.sign({ userId: 'user3', role: 'CUSTOMER' }, JWT_SECRET, { algorithm: 'HS256' });
+    mockFindUnique.mockResolvedValue({
+      id: 'user3', role: 'CUSTOMER', phone: '+14165550100', phoneVerified: false, deletedAt: null,
+    });
+    const res = await request(app)
+      .post('/bookings')
+      .set('Authorization', `Bearer ${token}`)
+      .send({
+        serviceType: 'Makeup', hours: 1,
+        scheduledAt: new Date(Date.now() + 3600_000).toISOString(),
+      });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('PHONE_NOT_VERIFIED');
+  });
+});
+
 // ── Security headers ──────────────────────────────────────────────────────────
 describe('Security headers', () => {
   it('X-Content-Type-Options: nosniff', async () => {

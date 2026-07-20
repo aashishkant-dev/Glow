@@ -296,6 +296,9 @@ router.post(
   validate,
   async (req, res) => {
     try {
+      if (!req.user.phoneVerified) {
+        return res.status(403).json({ error: 'PHONE_NOT_VERIFIED' });
+      }
       const { serviceType, hours, scheduledAt, notes, providerId, proposedPrice } = req.body;
 
       const scheduledDate = new Date(scheduledAt);

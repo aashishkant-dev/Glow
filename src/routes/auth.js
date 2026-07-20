@@ -146,6 +146,97 @@ router.post(
   }
 );
 
+// ── POST /auth/send-verify-otp ───────────────────────────────────────────────
+// Sends an OTP to the authenticated user's own phone, for the verify-at-booking
+// flow (Part 1 of the 2026-07-20 auth redesign). Requires the account to already
+// have a phone on file — accounts without one (Google/email signups) collect a
+// phone via /auth/verify-phone's optional `phone` field instead, and this route
+// isn't called for them until after that phone is set.
+router.post('/send-verify-otp', authenticate, async (req, res) => {
+  try {
+    if (!req.user.phone) {
+      return res.status(400).json({ error: 'No phone on file. Provide one via /auth/verify-phone.' });
+    }
+    if (isDemoPhone(req.user.phone)) {
+      return res.json({ message: 'OTP sent' }); // demo account skips real Twilio, same as login used to
+    }
+    try {
+      await generateOTP(req.user.phone);
+    } catch (err) {
+      if (err.status === 429) return res.status(429).json({ error: err.message });
+      console.error('[OTP] send-verify-otp failed:', err);
+      return res.status(500).json({ error: 'Failed to send OTP. Please try again.' });
+    }
+    res.json({ message: 'OTP sent' });
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// ── POST /auth/verify-phone ──────────────────────────────────────────────────
+// Marks the authenticated user's phone verified. If they had no phone yet
+// (Google/email signup), `phone` must be supplied and gets set + normalized here.
+router.post(
+  '/verify-phone',
+  authenticate,
+  [
+    body('otp').trim().isLength({ min: 6, max: 6 }).withMessage('otp must be exactly 6 digits').isNumeric().withMessage('otp must be numeric'),
+    body('phone').optional().trim().notEmpty(),
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      const { otp } = req.body;
+      let phone = req.user.phone;
+
+      if (!phone) {
+        if (!req.body.phone) {
+          return res.status(400).json({ error: 'phone is required — this account has none on file yet.' });
+        }
+        phone = normalizePhone(req.body.phone);
+        const existing = await prisma.user.findUnique({ where: { phone } });
+        if (existing && existing.id !== req.user.id) {
+          return res.status(409).json({ error: 'That phone number is already registered to another account.' });
+        }
+      }
+
+      if (isDemoPhone(phone)) {
+        const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+        if (!checkDemoRateLimit(String(ip).split(',')[0].trim())) {
+          return res.status(429).json({ error: 'Too many attempts. Try again later.' });
+        }
+        if (otp !== DEMO_OTP) return res.status(400).json({ error: 'Invalid code' });
+      } else {
+        const result = await verifyOTP(phone, otp);
+        if (!result.valid) {
+          return res.status(400).json({ error: result.error });
+        }
+      }
+
+      const updated = await prisma.user.update({
+        where: { id: req.user.id },
+        data:  { phone, phoneVerified: true },
+      });
+
+      res.json({
+        user: {
+          id:                 updated.id,
+          name:               updated.name,
+          role:               updated.role,
+          phone:              updated.phone,
+          photoUrl:           updated.photoUrl || null,
+          onboardingComplete: updated.onboardingComplete,
+          phoneVerified:      updated.phoneVerified,
+        },
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
 // ── POST /auth/provider-profile ─────────────────────────────────────────────────────
 router.post(
   '/provider-profile',
