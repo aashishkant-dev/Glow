@@ -19,7 +19,7 @@ import * as Haptics from 'expo-haptics';
 import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
 import { ShieldCheckIcon, CheckDecagramIcon } from '../../components/CareIcons';
-import { SparkleIcon, MirrorIcon, CrownIcon } from '../../components/BeautyIcons';
+import { MirrorIcon, CrownIcon } from '../../components/BeautyIcons';
 import { apiLogin, apiGoogleSignIn, apiRegisterEmail, apiLoginEmail, apiForgotPassword } from '../../api/client';
 import { Colors, Fonts } from '../../utils/colors';
 import { GlowLogo, GlowMark, GlowTagline } from '../../components/GlowLogo';
@@ -29,11 +29,6 @@ import { useAuth } from '../../context/AuthContext';
 WebBrowser.maybeCompleteAuthSession();
 
 type Role = 'CUSTOMER' | 'Provider' | 'SALON';
-
-const MAIN_ROLES: { key: Role; label: string; sub: string; Icon: React.ComponentType<{ size?: number; color?: string }>; color: string }[] = [
-  { key: 'CUSTOMER', label: 'Book beauty', sub: 'Makeup, hair, nails & more — at home or in the salon', Icon: SparkleIcon, color: Colors.brand },
-  { key: 'Provider', label: "I'm an artist", sub: 'Grow your business — find clients & earn', Icon: MirrorIcon, color: Colors.gold },
-];
 
 /** Slow-drifting soft glow blob — pure Animated, works on web + native. */
 function GlowParticle({ size, x, y, delay, color }: { size: number; x: number; y: number; delay: number; color: string }) {
@@ -75,7 +70,11 @@ export function PhoneScreen() {
   const [role,    setRole]    = useState<Role>('CUSTOMER');
   const [loading, setLoading] = useState(false);
   const [ageConfirmed, setAgeConfirmed] = useState(false);
-  const [authMode, setAuthMode] = useState<'phone' | 'google' | 'email'>('phone');
+  // Customers land on Google/Email by default — phone is reachable only via the
+  // "I'm an artist" link below, since Providers still onboard (and verify) by
+  // phone. Customers who don't use Google/Email get their phone collected and
+  // verified later, at first-booking-confirm (VerifyPhoneSheet), not at login.
+  const [authMode, setAuthMode] = useState<'phone' | 'google' | 'email'>('google');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
@@ -233,11 +232,6 @@ export function PhoneScreen() {
     setLoading(false);
   }
 
-  function selectRole(r: Role) {
-    if (Platform.OS !== 'web') Haptics.selectionAsync();
-    setRole(r);
-  }
-
   function pressCta(pressed: boolean) {
     Animated.spring(ctaScale, { toValue: pressed ? 0.96 : 1, useNativeDriver: true, speed: 40, bounciness: 6 }).start();
   }
@@ -273,28 +267,38 @@ export function PhoneScreen() {
 
           {/* ── Form card ── */}
           <View style={styles.formCard}>
-            {/* Auth mode toggle */}
-            <View style={[styles.segment, { marginBottom: 14 }]}>
-              {[{ label: 'Phone', value: 'phone' as const }, { label: 'Google', value: 'google' as const }, { label: 'Email', value: 'email' as const }].map(t => (
-                <Pressable
-                  key={t.label}
-                  style={[styles.segmentBtn, authMode === t.value && styles.segmentBtnActive]}
-                  onPress={() => {
-                    if (Platform.OS !== 'web') Haptics.selectionAsync();
-                    setAuthMode(t.value);
-                    setForgotMode(false);
-                    setForgotSent(false);
-                  }}
-                >
-                  <Text style={[styles.segmentText, authMode === t.value && styles.segmentTextActive]}>
-                    {t.label}
-                  </Text>
-                </Pressable>
-              ))}
-            </View>
+            {/* Auth mode toggle — customers pick Google or Email. Phone is reached
+                only via the "I'm an artist" link, not this toggle. */}
+            {authMode !== 'phone' && (
+              <View style={[styles.segment, { marginBottom: 14 }]}>
+                {[{ label: 'Google', value: 'google' as const }, { label: 'Email', value: 'email' as const }].map(t => (
+                  <Pressable
+                    key={t.label}
+                    style={[styles.segmentBtn, authMode === t.value && styles.segmentBtnActive]}
+                    onPress={() => {
+                      if (Platform.OS !== 'web') Haptics.selectionAsync();
+                      setAuthMode(t.value);
+                      setForgotMode(false);
+                      setForgotSent(false);
+                    }}
+                  >
+                    <Text style={[styles.segmentText, authMode === t.value && styles.segmentTextActive]}>
+                      {t.label}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+            )}
 
             {authMode === 'phone' && (
               <>
+                <Pressable
+                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 }}
+                  onPress={() => { setAuthMode('google'); setRole('CUSTOMER'); }}
+                >
+                  <Text style={{ fontSize: 14, color: Colors.brandDark }}>← Back to Google / Email</Text>
+                </Pressable>
+
                 {/* Segmented control */}
                 <View style={styles.segment}>
                   {[{ label: 'New here', value: true }, { label: 'Returning', value: false }].map(t => (
@@ -353,33 +357,18 @@ export function PhoneScreen() {
                   </View>
                 </View>
 
-                {/* Role selection */}
+                {/* Phone signup is reached only via "I'm an artist" (role is preset to
+                    Provider on entry), so there's no role picker here anymore — the
+                    old Customer/Artist choice moved to the top-level Google/Email vs.
+                    phone split. "Returning" phone logins still work for any existing
+                    role (customer accounts created before this change included). */}
                 {isNewUser && (
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>I'm here to</Text>
-                    <View style={styles.roleRow}>
-                      {MAIN_ROLES.map(r => {
-                        const selected = role === r.key;
-                        return (
-                          <Pressable
-                            key={r.key}
-                            style={[styles.roleCard, selected && styles.roleCardSelected]}
-                            onPress={() => selectRole(r.key)}
-                          >
-                            <View style={[styles.roleIconWrap, selected && { backgroundColor: Colors.brandLight }]}>
-                              <r.Icon size={20} color={selected ? Colors.brand : Colors.secondaryLabel} />
-                            </View>
-                            <Text style={[styles.roleLabel, selected && { color: Colors.label }]}>{r.label}</Text>
-                            <Text style={styles.roleSub} numberOfLines={2}>{r.sub}</Text>
-                            {selected && (
-                              <View style={styles.roleCheck}>
-                                <Text style={styles.roleCheckText}>✓</Text>
-                              </View>
-                            )}
-                          </Pressable>
-                        );
-                      })}
+                  <View style={[styles.roleCard, styles.roleCardSelected, { marginBottom: 18 }]}>
+                    <View style={[styles.roleIconWrap, { backgroundColor: Colors.brandLight }]}>
+                      <MirrorIcon size={20} color={Colors.brand} />
                     </View>
+                    <Text style={[styles.roleLabel, { color: Colors.label }]}>Signing up as an artist</Text>
+                    <Text style={styles.roleSub}>Grow your business — find clients & earn</Text>
                   </View>
                 )}
 
@@ -553,6 +542,23 @@ export function PhoneScreen() {
                   <Text style={styles.agreeLink}>Back to sign in</Text>
                 </Pressable>
               </View>
+            )}
+
+            {/* Artist entry — the only door into phone signup, since Providers
+                still onboard by phone (needed for SMS job dispatch). */}
+            {authMode !== 'phone' && !forgotMode && (
+              <Pressable
+                style={({ pressed }) => [styles.salonBtn, pressed && { opacity: 0.8 }]}
+                onPress={() => { setAuthMode('phone'); setIsNewUser(true); setRole('Provider'); }}
+                disabled={loading}
+              >
+                <MirrorIcon size={18} color={Colors.gold} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.salonTitle}>I'm an artist</Text>
+                  <Text style={styles.salonSub}>Sign up with your phone number to grow your business</Text>
+                </View>
+                <Text style={styles.salonArrow}>→</Text>
+              </Pressable>
             )}
           </View>
 
