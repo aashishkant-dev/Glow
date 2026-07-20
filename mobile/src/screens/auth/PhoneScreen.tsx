@@ -93,7 +93,12 @@ export function PhoneScreen() {
   const googleConfigured = Platform.OS === 'web'
     ? !!process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB
     : !!(process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS || process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID);
-  const [, googleResponse, promptGoogleAsync] = Google.useAuthRequest({
+  // useAuthRequest (not useIdTokenAuthRequest) defaults to ResponseType.Token on
+  // web — an access token, not an ID token. Our backend (verifyGoogleIdToken)
+  // needs an ID token, so the sign-in silently produced nothing to send it after
+  // Google granted access. useIdTokenAuthRequest requests ResponseType.IdToken on
+  // web, which is what actually gets read below via googleResponse.params.id_token.
+  const [, googleResponse, promptGoogleAsync] = Google.useIdTokenAuthRequest({
     iosClientId:     process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS,
     androidClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID,
     webClientId:     process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB,
