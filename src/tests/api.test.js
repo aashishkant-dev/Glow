@@ -139,19 +139,10 @@ describe('POST /auth/login', () => {
   });
 });
 
-describe('POST /auth/verify', () => {
-  it('rejects missing fields', async () => {
+describe('POST /auth/verify (removed)', () => {
+  it('no longer exists — replaced by /auth/verify-phone', async () => {
     const res = await request(app).post('/auth/verify').send({});
-    expect(res.status).toBe(400);
-    expect(res.body).toHaveProperty('errors');
-  });
-
-  it('rejects OTP shorter than 6 digits', async () => {
-    const res = await request(app)
-      .post('/auth/verify')
-      .send({ phone: '+12505550000', otp: '123' });
-    expect(res.status).toBe(400);
-    expect(res.body).toHaveProperty('errors');
+    expect(res.status).toBe(404);
   });
 });
 
