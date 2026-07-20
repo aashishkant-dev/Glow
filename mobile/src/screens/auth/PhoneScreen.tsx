@@ -300,22 +300,9 @@ export function PhoneScreen() {
                 </Pressable>
 
                 {/* Segmented control */}
-                <View style={styles.segment}>
-                  {[{ label: 'New here', value: true }, { label: 'Returning', value: false }].map(t => (
-                    <Pressable
-                      key={t.label}
-                      style={[styles.segmentBtn, isNewUser === t.value && styles.segmentBtnActive]}
-                      onPress={() => {
-                        if (Platform.OS !== 'web') Haptics.selectionAsync();
-                        setIsNewUser(t.value);
-                      }}
-                    >
-                      <Text style={[styles.segmentText, isNewUser === t.value && styles.segmentTextActive]}>
-                        {t.label}
-                      </Text>
-                    </Pressable>
-                  ))}
-                </View>
+                {/* New here/Returning toggle hidden while phone signup is disabled
+                    (per request) — this entry point is login-only for existing
+                    accounts, isNewUser stays false, no path to phone signup here. */}
 
                 {/* Name */}
                 {isNewUser && (
@@ -443,7 +430,7 @@ export function PhoneScreen() {
                     {loading ? 'Signing in…' : googleConfigured ? 'Continue with Google' : 'Google sign-in unavailable'}
                   </Text>
                 </Pressable>
-                <Text style={styles.disclaimer}>Google sign-in is for customers only. Artists sign up with a phone number.</Text>
+                <Text style={styles.disclaimer}>Google sign-in is for customers only.</Text>
               </View>
             )}
 
@@ -544,20 +531,17 @@ export function PhoneScreen() {
               </View>
             )}
 
-            {/* Artist entry — the only door into phone signup, since Providers
-                still onboard by phone (needed for SMS job dispatch). */}
+            {/* Artist signup entry removed for now (per request). A quiet, login-only
+                link stays so existing phone-signed-up accounts (customers and
+                artists alike) aren't locked out — it opens phone mode already on
+                Returning, with no path back to New-here/artist signup from here. */}
             {authMode !== 'phone' && !forgotMode && (
               <Pressable
-                style={({ pressed }) => [styles.salonBtn, pressed && { opacity: 0.8 }]}
-                onPress={() => { setAuthMode('phone'); setIsNewUser(true); setRole('Provider'); }}
+                style={{ marginTop: 16, alignItems: 'center' }}
+                onPress={() => { setAuthMode('phone'); setIsNewUser(false); }}
                 disabled={loading}
               >
-                <MirrorIcon size={18} color={Colors.gold} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.salonTitle}>I'm an artist</Text>
-                  <Text style={styles.salonSub}>Sign up with your phone number to grow your business</Text>
-                </View>
-                <Text style={styles.salonArrow}>→</Text>
+                <Text style={styles.agreeLink}>Sign in with phone instead</Text>
               </Pressable>
             )}
           </View>

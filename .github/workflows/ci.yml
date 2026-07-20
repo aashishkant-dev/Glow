@@ -136,6 +136,12 @@ jobs:
           EXPO_PUBLIC_REGION_LAT: 46.4917
           EXPO_PUBLIC_REGION_LNG: -80.9930
           EXPO_PUBLIC_REGION_NAME: Greater Sudbury, ON
+          # Google Sign-In client IDs — Expo inlines EXPO_PUBLIC_* at build time (this
+          # step), not at Vercel deploy time (the prebuilt dist/ is only uploaded, never
+          # rebuilt there) — these MUST be set here or the button silently disables.
+          EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB: ${{ secrets.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB }}
+          EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS: ${{ secrets.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS }}
+          EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID: ${{ secrets.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID }}
 
       - name: Assert deployable bundle
         working-directory: mobile
