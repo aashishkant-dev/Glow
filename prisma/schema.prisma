@@ -126,12 +126,16 @@ model User {
   id                 String    @id @default(cuid())
   role               UserRole
   name               String
-  phone              String    @unique
-  email              String?
+  phone              String?   @unique
+  email              String?   @unique
   address            String?
   gender             Gender?
   preferredLanguage  String    @default("English")
   dateOfBirth        DateTime?
+
+  phoneVerified      Boolean   @default(false)
+  googleId           String?   @unique
+  passwordHash       String?
 
   // Location stored as flat lat/lng (no GeoJSON in Postgres — use PostGIS via raw SQL when needed)
   lat                Float     @default(0)
