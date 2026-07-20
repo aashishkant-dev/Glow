@@ -65,8 +65,6 @@ router.post(
 
       let user = await prisma.user.findUnique({ where: { phone } });
 
-      // A deleted account can't log back in (the number is freed for a brand-new
-      // signup, but the anonymized old row must never re-authenticate).
       if (user && user.deletedAt) {
         return res.status(403).json({ error: 'This account has been deleted.' });
       }
@@ -88,15 +86,10 @@ router.post(
       }
 
       if (!user) {
-        // Auto-provision the reviewer demo account on first login so Apple/Google
-        // never hit the "name + role required" wall.
         if (isDemoPhone(phone)) {
-          // Honor the role the reviewer picked (defaults to CUSTOMER). A demo
-          // Provider is pre-onboarded + pre-approved so reviewers see the real Provider
-          // experience instead of the onboarding/pending-approval walls.
           const demoRole = role === 'Provider' ? 'Provider' : 'CUSTOMER';
           user = await prisma.user.create({
-            data: { phone, name: 'App Reviewer', role: demoRole, onboardingComplete: demoRole === 'Provider' },
+            data: { phone, name: 'App Reviewer', role: demoRole, onboardingComplete: demoRole === 'Provider', phoneVerified: true },
           });
           if (demoRole === 'Provider') {
             await prisma.providerProfile.create({
@@ -114,29 +107,38 @@ router.post(
           });
         }
 
-        // Create an empty Provider profile so admin can approve later
-        // (demo branch above already created its own, pre-approved)
         if (role === 'Provider' && !isDemoPhone(phone)) {
           await prisma.providerProfile.create({ data: { userId: user.id } });
         }
       }
 
-      // Demo reviewer number: skip Twilio entirely — the fixed code is accepted
-      // in /verify below.
-      if (isDemoPhone(phone)) {
-        return res.json({ message: 'OTP sent', phone });
+      const token = jwt.sign(
+        { userId: user.id, role: user.role },
+        JWT_SECRET,
+        { expiresIn: '30d', algorithm: 'HS256' }
+      );
+
+      let onboardingComplete = user.onboardingComplete;
+      if (user.role === 'Provider' && !onboardingComplete) {
+        const profile = await prisma.providerProfile.findUnique({ where: { userId: user.id } });
+        onboardingComplete = !!(profile && (
+          profile.licenseNumber ||
+          (Array.isArray(profile.submittedDocuments) && profile.submittedDocuments.length > 0)
+        ));
       }
 
-      try {
-        await generateOTP(phone);
-      } catch (err) {
-        // Only throws on cooldown (429) or DB failure (500); SMS errors are handled inside generateOTP
-        if (err.status === 429) return res.status(429).json({ error: err.message });
-        console.error('[OTP] generateOTP failed:', err);
-        return res.status(500).json({ error: 'Failed to send OTP. Please try again.' });
-      }
-
-      res.json({ message: 'OTP sent', phone });
+      res.json({
+        token,
+        user: {
+          id:                 user.id,
+          name:               user.name,
+          role:               user.role,
+          phone:              user.phone,
+          photoUrl:           user.photoUrl || null,
+          onboardingComplete,
+          phoneVerified:      user.phoneVerified,
+        },
+      });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Server error' });

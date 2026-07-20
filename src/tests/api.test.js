@@ -115,6 +115,28 @@ describe('POST /auth/login', () => {
     expect(res.status).toBe(400);
     expect(res.body).toHaveProperty('errors');
   });
+
+  it('rejects a new user missing name and role', async () => {
+    mockFindUnique.mockResolvedValueOnce(null); // no existing user
+    const res = await request(app)
+      .post('/auth/login')
+      .send({ phone: '4165550100' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/name and role/i);
+  });
+
+  it('returns a token directly for a known user, no OTP round trip', async () => {
+    mockFindUnique.mockResolvedValueOnce({
+      id: 'user1', phone: '+14165550100', name: 'Test User', role: 'CUSTOMER',
+      photoUrl: '', onboardingComplete: true, phoneVerified: false, deletedAt: null,
+    });
+    const res = await request(app)
+      .post('/auth/login')
+      .send({ phone: '4165550100' });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('token');
+    expect(res.body.user).toMatchObject({ id: 'user1', phoneVerified: false });
+  });
 });
 
 describe('POST /auth/verify', () => {
