@@ -97,6 +97,10 @@ jest.mock('../utils/googleAuth', () => ({
 }));
 const { verifyGoogleIdToken } = require('../utils/googleAuth');
 
+jest.mock('../utils/email', () => ({
+  sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
+}));
+
 const app = require('../app');
 
 // ── Health ────────────────────────────────────────────────────────────────────
@@ -434,5 +438,61 @@ describe('POST /auth/google', () => {
       where: { id: 'active-user-1' },
       data:  { googleId: 'g-789' },
     });
+  });
+});
+
+describe('POST /auth/register-email', () => {
+  it('rejects a short password', async () => {
+    const res = await request(app)
+      .post('/auth/register-email')
+      .send({ email: 'a@b.com', password: 'short', name: 'A B' });
+    expect(res.status).toBe(400);
+  });
+
+  it('creates a new customer account', async () => {
+    mockFindUnique.mockResolvedValueOnce(null); // no existing user with this email
+    const res = await request(app)
+      .post('/auth/register-email')
+      .send({ email: 'new@example.com', password: 'longenoughpassword', name: 'New Person' });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('token');
+  });
+
+  it('rejects an email that already has a password set', async () => {
+    mockFindUnique.mockResolvedValueOnce({ id: 'u1', email: 'dup@example.com', passwordHash: 'somehash' });
+    const res = await request(app)
+      .post('/auth/register-email')
+      .send({ email: 'dup@example.com', password: 'longenoughpassword', name: 'Dup' });
+    expect(res.status).toBe(409);
+  });
+});
+
+describe('POST /auth/login-email', () => {
+  it('returns generic error for unknown email', async () => {
+    mockFindUnique.mockResolvedValueOnce(null);
+    const res = await request(app)
+      .post('/auth/login-email')
+      .send({ email: 'ghost@example.com', password: 'whatever123' });
+    expect(res.status).toBe(401);
+    expect(res.body.error).toMatch(/invalid email or password/i);
+  });
+});
+
+describe('POST /auth/forgot-password', () => {
+  it('returns 200 even for unknown email (no enumeration)', async () => {
+    mockFindUnique.mockResolvedValueOnce(null);
+    const res = await request(app)
+      .post('/auth/forgot-password')
+      .send({ email: 'ghost@example.com' });
+    expect(res.status).toBe(200);
+  });
+});
+
+describe('POST /auth/reset-password', () => {
+  it('rejects an invalid token', async () => {
+    const res = await request(app)
+      .post('/auth/reset-password')
+      .send({ token: 'not-a-real-token', newPassword: 'longenoughpassword' });
+    expect(res.status).toBe(400);
   });
 });
