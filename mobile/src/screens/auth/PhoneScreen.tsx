@@ -16,13 +16,17 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
+import * as Google from 'expo-auth-session/providers/google';
+import * as WebBrowser from 'expo-web-browser';
 import { ShieldCheckIcon, CheckDecagramIcon } from '../../components/CareIcons';
 import { SparkleIcon, MirrorIcon, CrownIcon } from '../../components/BeautyIcons';
-import { apiLogin } from '../../api/client';
+import { apiLogin, apiGoogleSignIn, apiRegisterEmail, apiLoginEmail, apiForgotPassword } from '../../api/client';
 import { Colors, Fonts } from '../../utils/colors';
 import { GlowLogo, GlowMark, GlowTagline } from '../../components/GlowLogo';
 import { DEFAULT_REGION_NAME } from '../../utils/region';
 import { useAuth } from '../../context/AuthContext';
+
+WebBrowser.maybeCompleteAuthSession();
 
 type Role = 'CUSTOMER' | 'Provider' | 'SALON';
 
@@ -71,8 +75,27 @@ export function PhoneScreen() {
   const [role,    setRole]    = useState<Role>('CUSTOMER');
   const [loading, setLoading] = useState(false);
   const [ageConfirmed, setAgeConfirmed] = useState(false);
+  const [authMode, setAuthMode] = useState<'phone' | 'google' | 'email'>('phone');
+  const [email, setEmail] = useState('');
+  const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
+  const [forgotMode, setForgotMode] = useState(false);
+  const [forgotSent, setForgotSent] = useState(false);
   const ctaScale = useRef(new Animated.Value(1)).current;
   const heroFade = useRef(new Animated.Value(0)).current;
+
+  const [, googleResponse, promptGoogleAsync] = Google.useAuthRequest({
+    iosClientId:     process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS,
+    androidClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID,
+    webClientId:     process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB,
+  });
+
+  useEffect(() => {
+    if (googleResponse?.type === 'success') {
+      const idToken = googleResponse.authentication?.idToken || (googleResponse.params as any)?.id_token;
+      if (idToken) googleSignIn(idToken);
+    }
+  }, [googleResponse]);
 
   useEffect(() => {
     Animated.timing(heroFade, { toValue: 1, duration: 700, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
@@ -142,6 +165,63 @@ export function PhoneScreen() {
     setLoading(false);
   }
 
+  async function googleSignIn(idToken: string) {
+    setLoading(true);
+    try {
+      const { token, user } = await apiGoogleSignIn({ idToken });
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await signIn(token, {
+        id: user.id, name: user.name, phone: user.phone ?? undefined,
+        role: user.role as 'CUSTOMER' | 'Provider' | 'ADMIN' | 'SALON',
+        onboardingComplete: user.onboardingComplete,
+      });
+    } catch (e: any) {
+      const msg = e.message || 'Google sign-in failed. Please try again.';
+      if (Platform.OS === 'web') alert(msg); else Alert.alert('Error', msg);
+    }
+    setLoading(false);
+  }
+
+  async function emailAuth() {
+    if (!email.includes('@')) {
+      if (Platform.OS === 'web') alert('Enter a valid email.'); else Alert.alert('Email Required', 'Enter a valid email.');
+      return;
+    }
+    if (password.length < 8) {
+      if (Platform.OS === 'web') alert('Password must be at least 8 characters.'); else Alert.alert('Password Too Short', 'Password must be at least 8 characters.');
+      return;
+    }
+    setLoading(true);
+    try {
+      const { token, user } = isNewUser
+        ? await apiRegisterEmail({ email: email.trim(), password, name: name.trim() || 'Glow User' })
+        : await apiLoginEmail({ email: email.trim(), password });
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await signIn(token, {
+        id: user.id, name: user.name, phone: user.phone ?? undefined,
+        role: user.role as 'CUSTOMER' | 'Provider' | 'ADMIN' | 'SALON',
+        onboardingComplete: user.onboardingComplete,
+      });
+    } catch (e: any) {
+      const msg = e.message || 'Failed to sign in. Please try again.';
+      if (Platform.OS === 'web') alert(msg); else Alert.alert('Error', msg);
+    }
+    setLoading(false);
+  }
+
+  async function sendForgotPassword() {
+    if (!email.includes('@')) return;
+    setLoading(true);
+    try {
+      await apiForgotPassword({ email: email.trim() });
+      setForgotSent(true);
+    } catch (e: any) {
+      const msg = e.message || 'Failed to send reset email.';
+      if (Platform.OS === 'web') alert(msg); else Alert.alert('Error', msg);
+    }
+    setLoading(false);
+  }
+
   function selectRole(r: Role) {
     if (Platform.OS !== 'web') Haptics.selectionAsync();
     setRole(r);
@@ -182,150 +262,286 @@ export function PhoneScreen() {
 
           {/* ── Form card ── */}
           <View style={styles.formCard}>
-            {/* Segmented control */}
-            <View style={styles.segment}>
-              {[{ label: 'New here', value: true }, { label: 'Returning', value: false }].map(t => (
+            {/* Auth mode toggle */}
+            <View style={[styles.segment, { marginBottom: 14 }]}>
+              {[{ label: 'Phone', value: 'phone' as const }, { label: 'Google', value: 'google' as const }, { label: 'Email', value: 'email' as const }].map(t => (
                 <Pressable
                   key={t.label}
-                  style={[styles.segmentBtn, isNewUser === t.value && styles.segmentBtnActive]}
+                  style={[styles.segmentBtn, authMode === t.value && styles.segmentBtnActive]}
                   onPress={() => {
                     if (Platform.OS !== 'web') Haptics.selectionAsync();
-                    setIsNewUser(t.value);
+                    setAuthMode(t.value);
+                    setForgotMode(false);
+                    setForgotSent(false);
                   }}
                 >
-                  <Text style={[styles.segmentText, isNewUser === t.value && styles.segmentTextActive]}>
+                  <Text style={[styles.segmentText, authMode === t.value && styles.segmentTextActive]}>
                     {t.label}
                   </Text>
                 </Pressable>
               ))}
             </View>
 
-            {/* Name */}
-            {isNewUser && (
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>Full name</Text>
-                <TextInput
-                  style={styles.textInput}
-                  value={name}
-                  onChangeText={v => setName(formatName(v))}
-                  placeholder="Your name"
-                  placeholderTextColor={Colors.tertiaryLabel}
-                  autoCapitalize="words"
-                  autoCorrect={false}
-                  returnKeyType="next"
-                />
+            {authMode === 'phone' && (
+              <>
+                {/* Segmented control */}
+                <View style={styles.segment}>
+                  {[{ label: 'New here', value: true }, { label: 'Returning', value: false }].map(t => (
+                    <Pressable
+                      key={t.label}
+                      style={[styles.segmentBtn, isNewUser === t.value && styles.segmentBtnActive]}
+                      onPress={() => {
+                        if (Platform.OS !== 'web') Haptics.selectionAsync();
+                        setIsNewUser(t.value);
+                      }}
+                    >
+                      <Text style={[styles.segmentText, isNewUser === t.value && styles.segmentTextActive]}>
+                        {t.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
+
+                {/* Name */}
+                {isNewUser && (
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Full name</Text>
+                    <TextInput
+                      style={styles.textInput}
+                      value={name}
+                      onChangeText={v => setName(formatName(v))}
+                      placeholder="Your name"
+                      placeholderTextColor={Colors.tertiaryLabel}
+                      autoCapitalize="words"
+                      autoCorrect={false}
+                      returnKeyType="next"
+                    />
+                  </View>
+                )}
+
+                {/* Phone */}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Phone number</Text>
+                  <View style={styles.phoneRow}>
+                    <View style={styles.countryBadge}>
+                      <Text style={styles.countryFlag}>🇨🇦</Text>
+                      <Text style={styles.countryCode}>+1</Text>
+                    </View>
+                    <TextInput
+                      style={[styles.textInput, styles.phoneInput]}
+                      value={phone}
+                      onChangeText={handlePhoneChange}
+                      onBlur={() => setPhone(formatPhone(phone))}
+                      placeholder="416-555-0100"
+                      placeholderTextColor={Colors.tertiaryLabel}
+                      keyboardType="phone-pad"
+                      maxLength={12}
+                      returnKeyType="done"
+                      onSubmitEditing={() => login(role)}
+                    />
+                  </View>
+                </View>
+
+                {/* Role selection */}
+                {isNewUser && (
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>I'm here to</Text>
+                    <View style={styles.roleRow}>
+                      {MAIN_ROLES.map(r => {
+                        const selected = role === r.key;
+                        return (
+                          <Pressable
+                            key={r.key}
+                            style={[styles.roleCard, selected && styles.roleCardSelected]}
+                            onPress={() => selectRole(r.key)}
+                          >
+                            <View style={[styles.roleIconWrap, selected && { backgroundColor: Colors.brandLight }]}>
+                              <r.Icon size={20} color={selected ? Colors.brand : Colors.secondaryLabel} />
+                            </View>
+                            <Text style={[styles.roleLabel, selected && { color: Colors.label }]}>{r.label}</Text>
+                            <Text style={styles.roleSub} numberOfLines={2}>{r.sub}</Text>
+                            {selected && (
+                              <View style={styles.roleCheck}>
+                                <Text style={styles.roleCheckText}>✓</Text>
+                              </View>
+                            )}
+                          </Pressable>
+                        );
+                      })}
+                    </View>
+                  </View>
+                )}
+
+                {/* Age confirmation */}
+                {isNewUser && (
+                  <Pressable
+                    style={styles.checkboxRow}
+                    onPress={() => {
+                      if (Platform.OS !== 'web') Haptics.selectionAsync();
+                      setAgeConfirmed(!ageConfirmed);
+                    }}
+                  >
+                    <View style={[styles.checkbox, ageConfirmed && styles.checkboxChecked]}>
+                      {ageConfirmed && <Text style={styles.checkboxCheck}>✓</Text>}
+                    </View>
+                    <Text style={styles.checkboxLabel}>I confirm I'm 18 or older</Text>
+                  </Pressable>
+                )}
+
+                {/* Terms */}
+                {isNewUser && (
+                  <Text style={styles.agreeText}>
+                    By continuing you agree to our{' '}
+                    <Text style={styles.agreeLink} onPress={() => Linking.openURL('https://ca.glow.app/terms')}>Terms</Text>
+                    {' '}and{' '}
+                    <Text style={styles.agreeLink} onPress={() => Linking.openURL('https://ca.glow.app/privacy')}>Privacy Policy</Text>.
+                  </Text>
+                )}
+
+                {/* CTA */}
+                <Animated.View style={{ transform: [{ scale: ctaScale }] }}>
+                  <Pressable
+                    style={[styles.ctaBtn, !isFormValid() && styles.ctaBtnDisabled]}
+                    onPress={() => login(role)}
+                    onPressIn={() => pressCta(true)}
+                    onPressOut={() => pressCta(false)}
+                    disabled={!isFormValid() || loading}
+                  >
+                    <Text style={styles.ctaBtnText}>{loading ? 'Sending…' : 'Continue'}</Text>
+                    {!loading && <Text style={styles.ctaArrowText}>→</Text>}
+                  </Pressable>
+                </Animated.View>
+
+                <Text style={styles.disclaimer}>Standard message and data rates may apply.</Text>
+
+                {/* Salon & Business — quiet secondary */}
+                {isNewUser && (
+                  <Pressable
+                    style={({ pressed }) => [styles.salonBtn, pressed && { opacity: 0.8 }]}
+                    onPress={() => login('SALON')}
+                    disabled={loading}
+                  >
+                    <CrownIcon size={18} color={Colors.gold} />
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.salonTitle}>Salon &amp; Business</Text>
+                      <Text style={styles.salonSub}>Book artists for your salon, event or team</Text>
+                    </View>
+                    <Text style={styles.salonArrow}>→</Text>
+                  </Pressable>
+                )}
+              </>
+            )}
+
+            {authMode === 'google' && (
+              <View style={{ paddingVertical: 8 }}>
+                <Pressable
+                  style={[styles.ctaBtn, { backgroundColor: '#fff', borderWidth: 1.5, borderColor: Colors.separator }]}
+                  onPress={() => promptGoogleAsync()}
+                  disabled={loading}
+                >
+                  <Text style={[styles.ctaBtnText, { color: Colors.label }]}>
+                    {loading ? 'Signing in…' : 'Continue with Google'}
+                  </Text>
+                </Pressable>
+                <Text style={styles.disclaimer}>Google sign-in is for customers only. Artists sign up with a phone number.</Text>
               </View>
             )}
 
-            {/* Phone */}
-            <View style={styles.inputGroup}>
-              <Text style={styles.inputLabel}>Phone number</Text>
-              <View style={styles.phoneRow}>
-                <View style={styles.countryBadge}>
-                  <Text style={styles.countryFlag}>🇨🇦</Text>
-                  <Text style={styles.countryCode}>+1</Text>
+            {authMode === 'email' && !forgotMode && (
+              <View>
+                <View style={styles.segment}>
+                  {[{ label: 'New here', value: true }, { label: 'Returning', value: false }].map(t => (
+                    <Pressable
+                      key={t.label}
+                      style={[styles.segmentBtn, isNewUser === t.value && styles.segmentBtnActive]}
+                      onPress={() => { if (Platform.OS !== 'web') Haptics.selectionAsync(); setIsNewUser(t.value); }}
+                    >
+                      <Text style={[styles.segmentText, isNewUser === t.value && styles.segmentTextActive]}>{t.label}</Text>
+                    </Pressable>
+                  ))}
                 </View>
-                <TextInput
-                  style={[styles.textInput, styles.phoneInput]}
-                  value={phone}
-                  onChangeText={handlePhoneChange}
-                  onBlur={() => setPhone(formatPhone(phone))}
-                  placeholder="416-555-0100"
-                  placeholderTextColor={Colors.tertiaryLabel}
-                  keyboardType="phone-pad"
-                  maxLength={12}
-                  returnKeyType="done"
-                  onSubmitEditing={() => login(role)}
-                />
+                {isNewUser && (
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>Full name</Text>
+                    <TextInput
+                      style={styles.textInput}
+                      value={name}
+                      onChangeText={v => setName(formatName(v))}
+                      placeholder="Your name"
+                      placeholderTextColor={Colors.tertiaryLabel}
+                      autoCapitalize="words"
+                    />
+                  </View>
+                )}
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Email</Text>
+                  <TextInput
+                    style={styles.textInput}
+                    value={email}
+                    onChangeText={setEmail}
+                    placeholder="you@example.com"
+                    placeholderTextColor={Colors.tertiaryLabel}
+                    autoCapitalize="none"
+                    keyboardType="email-address"
+                    autoCorrect={false}
+                  />
+                </View>
+                <View style={styles.inputGroup}>
+                  <Text style={styles.inputLabel}>Password</Text>
+                  <View style={styles.phoneRow}>
+                    <TextInput
+                      style={[styles.textInput, { flex: 1 }]}
+                      value={password}
+                      onChangeText={setPassword}
+                      placeholder="At least 8 characters"
+                      placeholderTextColor={Colors.tertiaryLabel}
+                      secureTextEntry={!showPassword}
+                      autoCapitalize="none"
+                      autoCorrect={false}
+                    />
+                    <Pressable style={styles.countryBadge} onPress={() => setShowPassword(s => !s)}>
+                      <Text style={styles.countryCode}>{showPassword ? 'Hide' : 'Show'}</Text>
+                    </Pressable>
+                  </View>
+                </View>
+                <Pressable style={[styles.ctaBtn, (!email.includes('@') || password.length < 8) && styles.ctaBtnDisabled]} onPress={emailAuth} disabled={loading || !email.includes('@') || password.length < 8}>
+                  <Text style={styles.ctaBtnText}>{loading ? 'Please wait…' : isNewUser ? 'Create account' : 'Sign in'}</Text>
+                </Pressable>
+                {!isNewUser && (
+                  <Pressable style={{ marginTop: 14, alignItems: 'center' }} onPress={() => setForgotMode(true)}>
+                    <Text style={styles.agreeLink}>Forgot password?</Text>
+                  </Pressable>
+                )}
               </View>
-            </View>
+            )}
 
-            {/* Role selection */}
-            {isNewUser && (
-              <View style={styles.inputGroup}>
-                <Text style={styles.inputLabel}>I'm here to</Text>
-                <View style={styles.roleRow}>
-                  {MAIN_ROLES.map(r => {
-                    const selected = role === r.key;
-                    return (
-                      <Pressable
-                        key={r.key}
-                        style={[styles.roleCard, selected && styles.roleCardSelected]}
-                        onPress={() => selectRole(r.key)}
-                      >
-                        <View style={[styles.roleIconWrap, selected && { backgroundColor: Colors.brandLight }]}>
-                          <r.Icon size={20} color={selected ? Colors.brand : Colors.secondaryLabel} />
-                        </View>
-                        <Text style={[styles.roleLabel, selected && { color: Colors.label }]}>{r.label}</Text>
-                        <Text style={styles.roleSub} numberOfLines={2}>{r.sub}</Text>
-                        {selected && (
-                          <View style={styles.roleCheck}>
-                            <Text style={styles.roleCheckText}>✓</Text>
-                          </View>
-                        )}
-                      </Pressable>
-                    );
-                  })}
-                </View>
+            {authMode === 'email' && forgotMode && (
+              <View>
+                {forgotSent ? (
+                  <Text style={styles.disclaimer}>If an account exists for that email, a reset link has been sent. Check your inbox.</Text>
+                ) : (
+                  <>
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Email</Text>
+                      <TextInput
+                        style={styles.textInput}
+                        value={email}
+                        onChangeText={setEmail}
+                        placeholder="you@example.com"
+                        placeholderTextColor={Colors.tertiaryLabel}
+                        autoCapitalize="none"
+                        keyboardType="email-address"
+                      />
+                    </View>
+                    <Pressable style={[styles.ctaBtn, !email.includes('@') && styles.ctaBtnDisabled]} onPress={sendForgotPassword} disabled={loading || !email.includes('@')}>
+                      <Text style={styles.ctaBtnText}>{loading ? 'Sending…' : 'Send reset link'}</Text>
+                    </Pressable>
+                  </>
+                )}
+                <Pressable style={{ marginTop: 14, alignItems: 'center' }} onPress={() => { setForgotMode(false); setForgotSent(false); }}>
+                  <Text style={styles.agreeLink}>Back to sign in</Text>
+                </Pressable>
               </View>
-            )}
-
-            {/* Age confirmation */}
-            {isNewUser && (
-              <Pressable
-                style={styles.checkboxRow}
-                onPress={() => {
-                  if (Platform.OS !== 'web') Haptics.selectionAsync();
-                  setAgeConfirmed(!ageConfirmed);
-                }}
-              >
-                <View style={[styles.checkbox, ageConfirmed && styles.checkboxChecked]}>
-                  {ageConfirmed && <Text style={styles.checkboxCheck}>✓</Text>}
-                </View>
-                <Text style={styles.checkboxLabel}>I confirm I'm 18 or older</Text>
-              </Pressable>
-            )}
-
-            {/* Terms */}
-            {isNewUser && (
-              <Text style={styles.agreeText}>
-                By continuing you agree to our{' '}
-                <Text style={styles.agreeLink} onPress={() => Linking.openURL('https://ca.glow.app/terms')}>Terms</Text>
-                {' '}and{' '}
-                <Text style={styles.agreeLink} onPress={() => Linking.openURL('https://ca.glow.app/privacy')}>Privacy Policy</Text>.
-              </Text>
-            )}
-
-            {/* CTA */}
-            <Animated.View style={{ transform: [{ scale: ctaScale }] }}>
-              <Pressable
-                style={[styles.ctaBtn, !isFormValid() && styles.ctaBtnDisabled]}
-                onPress={() => login(role)}
-                onPressIn={() => pressCta(true)}
-                onPressOut={() => pressCta(false)}
-                disabled={!isFormValid() || loading}
-              >
-                <Text style={styles.ctaBtnText}>{loading ? 'Sending…' : 'Continue'}</Text>
-                {!loading && <Text style={styles.ctaArrowText}>→</Text>}
-              </Pressable>
-            </Animated.View>
-
-            <Text style={styles.disclaimer}>We'll text you a verification code. Standard rates may apply.</Text>
-
-            {/* Salon & Business — quiet secondary */}
-            {isNewUser && (
-              <Pressable
-                style={({ pressed }) => [styles.salonBtn, pressed && { opacity: 0.8 }]}
-                onPress={() => login('SALON')}
-                disabled={loading}
-              >
-                <CrownIcon size={18} color={Colors.gold} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.salonTitle}>Salon &amp; Business</Text>
-                  <Text style={styles.salonSub}>Book artists for your salon, event or team</Text>
-                </View>
-                <Text style={styles.salonArrow}>→</Text>
-              </Pressable>
             )}
           </View>
 
