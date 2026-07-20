@@ -93,7 +93,15 @@ router.get('/providers', async (_req, res) => {
           languages: u.providerProfile?.languages || ['English'],
           policeCheckCleared: !!u.providerProfile?.policeCheckCleared,
           firstAidCertified: !!u.providerProfile?.firstAidCertified,
-          startingPrice: Math.min(...(u.providerProfile?.services?.filter(s => s.active).map(s => Number(s.price)) || [0]).filter(p => p > 0)),
+          startingPrice: (() => {
+            const prices = (u.providerProfile?.services || [])
+              .filter(s => s.active)
+              .map(s => Number(s.price))
+              .filter(p => Number.isFinite(p) && p > 0);
+            // Math.min(...[]) is Infinity, not null — an empty price list must render
+            // as "no price yet" on the card, never "From $Infinity".
+            return prices.length > 0 ? Math.min(...prices) : null;
+          })(),
           lat: u.lat,
           lng: u.lng,
         })),
