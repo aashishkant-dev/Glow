@@ -370,11 +370,8 @@ router.post(
   async (req, res) => {
     try {
       const user = await prisma.user.findUnique({ where: { email: req.body.email } });
-      if (!user || !user.passwordHash) {
+      if (!user || !user.passwordHash || user.deletedAt) {
         return res.status(401).json({ error: 'Invalid email or password.' });
-      }
-      if (user.deletedAt) {
-        return res.status(403).json({ error: 'This account has been deleted.' });
       }
       const match = await bcrypt.compare(req.body.password, user.passwordHash);
       if (!match) {
