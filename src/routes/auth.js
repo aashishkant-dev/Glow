@@ -6,6 +6,7 @@ const { body } = require('express-validator');
 const jwt     = require('jsonwebtoken');
 const prisma  = require('../lib/prisma');
 const { generateOTP, verifyOTP } = require('../utils/otp');
+const { verifyGoogleIdToken } = require('../utils/googleAuth');
 const validate         = require('../middleware/validate');
 const { authenticate } = require('../middleware/auth');
 const { cacheDel } = require('../utils/cache');
@@ -228,6 +229,77 @@ router.post(
           photoUrl:           updated.photoUrl || null,
           onboardingComplete: updated.onboardingComplete,
           phoneVerified:      updated.phoneVerified,
+        },
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+// ── POST /auth/google ────────────────────────────────────────────────────────
+// Google Sign-In for customers only — Providers still onboard via phone since
+// they need document verification regardless of how they authenticate.
+router.post(
+  '/google',
+  [body('idToken').trim().notEmpty().withMessage('idToken is required')],
+  validate,
+  async (req, res) => {
+    try {
+      let payload;
+      try {
+        payload = await verifyGoogleIdToken(req.body.idToken);
+      } catch (err) {
+        return res.status(401).json({ error: 'Invalid Google token' });
+      }
+
+      let user = await prisma.user.findUnique({ where: { googleId: payload.sub } });
+
+      if (!user && payload.email) {
+        // Link to an existing phone/email account with the same email rather
+        // than creating a duplicate.
+        const existingByEmail = await prisma.user.findUnique({ where: { email: payload.email } });
+        if (existingByEmail) {
+          user = await prisma.user.update({
+            where: { id: existingByEmail.id },
+            data:  { googleId: payload.sub },
+          });
+        }
+      }
+
+      if (!user) {
+        user = await prisma.user.create({
+          data: {
+            googleId: payload.sub,
+            email:    payload.email,
+            name:     payload.name || 'Glow User',
+            role:     'CUSTOMER',
+            photoUrl: payload.picture || '',
+          },
+        });
+      }
+
+      if (user.deletedAt) {
+        return res.status(403).json({ error: 'This account has been deleted.' });
+      }
+
+      const token = jwt.sign(
+        { userId: user.id, role: user.role },
+        JWT_SECRET,
+        { expiresIn: '30d', algorithm: 'HS256' }
+      );
+
+      res.json({
+        token,
+        user: {
+          id:                 user.id,
+          name:               user.name,
+          role:               user.role,
+          phone:              user.phone,
+          photoUrl:           user.photoUrl || null,
+          onboardingComplete: user.onboardingComplete,
+          phoneVerified:      user.phoneVerified,
         },
       });
     } catch (err) {

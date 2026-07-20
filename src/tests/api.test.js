@@ -86,6 +86,11 @@ jest.mock('../lib/prisma', () => {
   return new Proxy({}, handler);
 });
 
+jest.mock('../utils/googleAuth', () => ({
+  verifyGoogleIdToken: jest.fn(),
+}));
+const { verifyGoogleIdToken } = require('../utils/googleAuth');
+
 const app = require('../app');
 
 // ── Health ────────────────────────────────────────────────────────────────────
@@ -356,5 +361,24 @@ describe('Admin routes — blocked without credentials', () => {
       const res = await request(app)[method](path);
       expect([401, 403]).toContain(res.status);
     });
+  });
+});
+
+// ── Google Sign-In ───────────────────────────────────────────────────────────
+describe('POST /auth/google', () => {
+  it('rejects missing idToken', async () => {
+    const res = await request(app).post('/auth/google').send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('creates a new customer account from a valid Google token', async () => {
+    verifyGoogleIdToken.mockResolvedValueOnce({
+      sub: 'g-123', email: 'new@example.com', name: 'New Person', picture: 'https://x/y.jpg',
+    });
+    mockFindUnique.mockResolvedValueOnce(null); // no user with this googleId
+    mockFindUnique.mockResolvedValueOnce(null); // no user with this email either
+    const res = await request(app).post('/auth/google').send({ idToken: 'fake' });
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('token');
   });
 });
