@@ -101,15 +101,47 @@ async function request<T>(method: Method, path: string, body?: object, auth = tr
 
 // ─── Auth ─────────────────────────────────────────────────────────────────────
 
-export function apiLogin(payload: { phone: string; name?: string; role?: string }) {
-  // 2 retries — login is usually the FIRST request, the one that wakes a cold backend.
-  return request<{ message: string }>('POST', '/auth/login', payload, false, 2);
+export interface AuthUser {
+  id: string;
+  name: string;
+  role: string;
+  phone: string | null;
+  photoUrl: string | null;
+  onboardingComplete: boolean;
+  phoneVerified: boolean;
 }
 
-export function apiVerify(payload: { phone: string; otp: string }) {
-  return request<{ token: string; user: { id: string; name: string; role: string; phone: string; onboardingComplete: boolean } }>(
-    'POST', '/auth/verify', payload, false,
-  );
+export function apiLogin(payload: { phone: string; name?: string; role?: string }) {
+  // 2 retries — login is usually the FIRST request, the one that wakes a cold backend.
+  return request<{ token: string; user: AuthUser }>('POST', '/auth/login', payload, false, 2);
+}
+
+export function apiSendVerifyOtp() {
+  return request<{ message: string }>('POST', '/auth/send-verify-otp');
+}
+
+export function apiVerifyPhone(payload: { otp: string; phone?: string }) {
+  return request<{ user: AuthUser }>('POST', '/auth/verify-phone', payload);
+}
+
+export function apiGoogleSignIn(payload: { idToken: string }) {
+  return request<{ token: string; user: AuthUser }>('POST', '/auth/google', payload, false, 2);
+}
+
+export function apiRegisterEmail(payload: { email: string; password: string; name: string }) {
+  return request<{ token: string; user: AuthUser }>('POST', '/auth/register-email', payload, false, 2);
+}
+
+export function apiLoginEmail(payload: { email: string; password: string }) {
+  return request<{ token: string; user: AuthUser }>('POST', '/auth/login-email', payload, false, 2);
+}
+
+export function apiForgotPassword(payload: { email: string }) {
+  return request<{ message: string }>('POST', '/auth/forgot-password', payload, false);
+}
+
+export function apiResetPassword(payload: { token: string; newPassword: string }) {
+  return request<{ message: string }>('POST', '/auth/reset-password', payload, false);
 }
 
 export function apiSubmitProviderOnboarding(payload: {
