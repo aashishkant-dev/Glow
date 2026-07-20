@@ -287,6 +287,21 @@ describe('POST /bookings — phoneVerified gate', () => {
   });
 });
 
+describe('POST /bookings/:id/reassign — phoneVerified gate', () => {
+  it('blocks reassignment when phone is unverified', async () => {
+    const token = jwt.sign({ userId: 'user4', role: 'CUSTOMER' }, JWT_SECRET, { algorithm: 'HS256' });
+    mockFindUnique.mockResolvedValue({
+      id: 'user4', role: 'CUSTOMER', phone: '+14165550100', phoneVerified: false, deletedAt: null,
+    });
+    const res = await request(app)
+      .post('/bookings/cuid_test_booking_id/reassign')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ providerId: 'cuid_test_provider_id_000000' });
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('PHONE_NOT_VERIFIED');
+  });
+});
+
 // ── Security headers ──────────────────────────────────────────────────────────
 describe('Security headers', () => {
   it('X-Content-Type-Options: nosniff', async () => {

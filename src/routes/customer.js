@@ -685,6 +685,9 @@ router.post(
   requireRole('CUSTOMER'),
   async (req, res) => {
     try {
+      if (!req.user.phoneVerified) {
+        return res.status(403).json({ error: 'PHONE_NOT_VERIFIED' });
+      }
       const bookingId = req.params.id;
       const { providerId } = req.body;
       if (!providerId || typeof providerId !== 'string' || providerId.length < 20) {
