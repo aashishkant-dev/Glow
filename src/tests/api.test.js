@@ -45,8 +45,14 @@ jest.mock('../utils/cache', () => ({
 // auth middleware calls prisma.user.findUnique — we return null by default,
 // causing authenticate() to respond 401. Tests that need an authenticated user
 // must override mockFindUnique to return a valid user object.
+//
+// mockUserUpdate captures prisma.user.update calls (e.g. Google-identity linking)
+// so tests can assert a write never happened, or inspect its arguments.
 const mockFindUnique = jest.fn().mockResolvedValue(null);
 const mockQueryRaw   = jest.fn().mockResolvedValue([{ '?column?': 1 }]);
+// Same rationale as mockFindUnique above — captures prisma.user.update calls so
+// tests can assert whether (and with what args) a User row was written to.
+const mockUserUpdate = jest.fn().mockResolvedValue({});
 
 // Jest requires mock factory variables to be prefixed with "mock" (case-insensitive)
 // when referenced from within a jest.mock() factory. The helper below is inlined
@@ -74,7 +80,7 @@ jest.mock('../lib/prisma', () => {
     get(_target, prop) {
       // auth middleware specifically uses prisma.user.findUnique —
       // mockFindUnique is allowed because it is prefixed with "mock"
-      if (prop === 'user')         return { ...mockModelStub(), findUnique: (...a) => mockFindUnique(...a) };
+      if (prop === 'user')         return { ...mockModelStub(), findUnique: (...a) => mockFindUnique(...a), update: (...a) => mockUserUpdate(...a) };
       if (prop === '$queryRaw')    return (...a) => mockQueryRaw(...a);
       if (prop === '$connect')     return () => Promise.resolve();
       if (prop === '$disconnect')  return () => Promise.resolve();
@@ -380,5 +386,53 @@ describe('POST /auth/google', () => {
     const res = await request(app).post('/auth/google').send({ idToken: 'fake' });
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('token');
+  });
+
+  it('does not link to a soft-deleted account matched by email — creates a fresh account instead', async () => {
+    mockUserUpdate.mockClear();
+    verifyGoogleIdToken.mockResolvedValueOnce({
+      sub: 'g-456', email: 'was-deleted@example.com', name: 'New Person', picture: '',
+    });
+    mockFindUnique.mockResolvedValueOnce(null); // no user with this googleId
+    mockFindUnique.mockResolvedValueOnce({      // a DELETED account has this email
+      id: 'deleted-user-1', email: 'was-deleted@example.com', googleId: null,
+      role: 'CUSTOMER', deletedAt: new Date('2026-01-01'),
+    });
+
+    const res = await request(app).post('/auth/google').send({ idToken: 'fake' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('token');
+    // Must not have linked/mutated the deleted row.
+    expect(mockUserUpdate).not.toHaveBeenCalled();
+    expect(mockUserUpdate.mock.calls.some(
+      (call) => call[0] && call[0].where && call[0].where.id === 'deleted-user-1'
+    )).toBe(false);
+  });
+
+  it('links Google identity to an existing ACTIVE account matched by email', async () => {
+    mockUserUpdate.mockClear();
+    verifyGoogleIdToken.mockResolvedValueOnce({
+      sub: 'g-789', email: 'active@example.com', name: 'Active Person', picture: '',
+    });
+    mockFindUnique.mockResolvedValueOnce(null); // no user with this googleId
+    mockFindUnique.mockResolvedValueOnce({      // an ACTIVE account has this email
+      id: 'active-user-1', email: 'active@example.com', googleId: null,
+      role: 'CUSTOMER', deletedAt: null,
+    });
+    mockUserUpdate.mockResolvedValueOnce({
+      id: 'active-user-1', email: 'active@example.com', googleId: 'g-789',
+      role: 'CUSTOMER', deletedAt: null,
+    });
+
+    const res = await request(app).post('/auth/google').send({ idToken: 'fake' });
+
+    expect(res.status).toBe(200);
+    expect(res.body).toHaveProperty('token');
+    expect(res.body.user.id).toBe('active-user-1');
+    expect(mockUserUpdate).toHaveBeenCalledWith({
+      where: { id: 'active-user-1' },
+      data:  { googleId: 'g-789' },
+    });
   });
 });

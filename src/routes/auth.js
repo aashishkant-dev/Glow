@@ -258,9 +258,13 @@ router.post(
 
       if (!user && payload.email) {
         // Link to an existing phone/email account with the same email rather
-        // than creating a duplicate.
+        // than creating a duplicate. Never link to a soft-deleted account —
+        // that would stamp this Google identity onto a dead row, and every
+        // future sign-in with it would then find the dead row via googleId
+        // and 403 forever with no way to create a fresh account. Treat a
+        // deleted match as "no matching account" and fall through to create.
         const existingByEmail = await prisma.user.findUnique({ where: { email: payload.email } });
-        if (existingByEmail) {
+        if (existingByEmail && !existingByEmail.deletedAt) {
           user = await prisma.user.update({
             where: { id: existingByEmail.id },
             data:  { googleId: payload.sub },
