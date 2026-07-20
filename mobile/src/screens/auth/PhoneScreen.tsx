@@ -22,6 +22,7 @@ import { apiLogin } from '../../api/client';
 import { Colors, Fonts } from '../../utils/colors';
 import { GlowLogo, GlowMark, GlowTagline } from '../../components/GlowLogo';
 import { DEFAULT_REGION_NAME } from '../../utils/region';
+import { useAuth } from '../../context/AuthContext';
 
 type Role = 'CUSTOMER' | 'Provider' | 'SALON';
 
@@ -62,6 +63,7 @@ function GlowParticle({ size, x, y, delay, color }: { size: number; x: number; y
 
 export function PhoneScreen() {
   const nav    = useNavigation<any>();
+  const { signIn } = useAuth();
   const insets = useSafeAreaInsets();
   const [isNewUser, setIsNewUser] = useState(true);
   const [name,    setName]    = useState('');
@@ -112,7 +114,7 @@ export function PhoneScreen() {
     return true;
   }
 
-  async function sendOTP(selectedRole: Role) {
+  async function login(selectedRole: Role) {
     if (!isPhoneValid()) return;
     if (isNewUser && name.trim().length < 2) {
       if (Platform.OS === 'web') alert('Please enter your full name before continuing.');
@@ -121,14 +123,19 @@ export function PhoneScreen() {
     }
     setLoading(true);
     try {
-      await apiLogin({
+      const { token, user } = await apiLogin({
         phone: getE164(),
         name:  isNewUser ? name.trim() : undefined,
         role:  isNewUser ? selectedRole : undefined,
       });
-      nav.navigate('OTP', { phone: getE164(), isNewUser, role: selectedRole });
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await signIn(token, {
+        id: user.id, name: user.name, phone: user.phone ?? undefined,
+        role: user.role as 'CUSTOMER' | 'Provider' | 'ADMIN' | 'SALON',
+        onboardingComplete: user.onboardingComplete,
+      });
     } catch (e: any) {
-      const msg = e.message || 'Failed to send verification code.';
+      const msg = e.message || 'Failed to sign in. Please try again.';
       if (Platform.OS === 'web') alert(msg);
       else Alert.alert('Error', msg);
     }
@@ -228,7 +235,7 @@ export function PhoneScreen() {
                   keyboardType="phone-pad"
                   maxLength={12}
                   returnKeyType="done"
-                  onSubmitEditing={() => sendOTP(role)}
+                  onSubmitEditing={() => login(role)}
                 />
               </View>
             </View>
@@ -293,7 +300,7 @@ export function PhoneScreen() {
             <Animated.View style={{ transform: [{ scale: ctaScale }] }}>
               <Pressable
                 style={[styles.ctaBtn, !isFormValid() && styles.ctaBtnDisabled]}
-                onPress={() => sendOTP(role)}
+                onPress={() => login(role)}
                 onPressIn={() => pressCta(true)}
                 onPressOut={() => pressCta(false)}
                 disabled={!isFormValid() || loading}
@@ -309,7 +316,7 @@ export function PhoneScreen() {
             {isNewUser && (
               <Pressable
                 style={({ pressed }) => [styles.salonBtn, pressed && { opacity: 0.8 }]}
-                onPress={() => sendOTP('SALON')}
+                onPress={() => login('SALON')}
                 disabled={loading}
               >
                 <CrownIcon size={18} color={Colors.gold} />

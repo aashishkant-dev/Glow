@@ -69,7 +69,7 @@ export interface StoredDocument {
 export interface StoredUser {
   id: string;
   name: string;
-  phone: string;
+  phone?: string;
   role: 'CUSTOMER' | 'Provider' | 'ADMIN' | 'SALON';
   onboardingComplete?: boolean;
   photoUrl?: string;
