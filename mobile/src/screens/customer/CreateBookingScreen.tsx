@@ -30,6 +30,8 @@ import { apiCreateBooking, apiGetAvailableProviders, apiNearbyProviders, Availab
 import { useCoordsOrFallback, useLocation } from '../../context/LocationContext';
 import { OSMMap, OSMMarker } from '../../components/OSMMap';
 import { DEFAULT_REGION, DEFAULT_REGION_NAME } from '../../utils/region';
+import { VerifyPhoneSheet } from '../../components/VerifyPhoneSheet';
+import { useAuth } from '../../context/AuthContext';
 
 // ─── Brand tokens ───────────────────────────────────────────────────────────────
 const BRAND_DARK  = Colors.brandDark;
@@ -1199,6 +1201,8 @@ export function CreateBookingScreen() {
   const coords = useCoordsOrFallback();
   const { coords: realCoords } = useLocation();
   const route  = useRoute<any>();
+  const { user } = useAuth();
+  const [showVerifySheet, setShowVerifySheet] = useState(false);
 
   const initService = route.params?.serviceType ?? '';
   const initMode    = (route.params?.bookingMode ?? 'scheduled') as 'ondemand' | 'scheduled';
@@ -1412,6 +1416,11 @@ export function CreateBookingScreen() {
 
   async function handleBook() {
     if (!selectedProvider) return;
+
+    if (!user?.phoneVerified) {
+      setShowVerifySheet(true);
+      return;
+    }
 
     // Reassign mode: client is picking a new Provider for an existing booking
     // (the first one declined). Skip create — just assign + go back.
@@ -2262,6 +2271,18 @@ export function CreateBookingScreen() {
         filterServices={filterServices}
         toggleFilterService={toggleFilterService}
         clearFilters={clearFilters}
+      />
+
+      {/* ── Phone Verification Sheet (gates first booking confirm) ── */}
+      <VerifyPhoneSheet
+        visible={showVerifySheet}
+        needsPhone={!user?.phone}
+        onClose={() => setShowVerifySheet(false)}
+        onVerified={() => {
+          setShowVerifySheet(false);
+          // Re-run the same submit function now that phoneVerified is true.
+          handleBook();
+        }}
       />
     </KeyboardAvoidingView>
   );

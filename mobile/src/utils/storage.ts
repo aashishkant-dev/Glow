@@ -70,6 +70,7 @@ export interface StoredUser {
   id: string;
   name: string;
   phone?: string;
+  phoneVerified?: boolean;
   role: 'CUSTOMER' | 'Provider' | 'ADMIN' | 'SALON';
   onboardingComplete?: boolean;
   photoUrl?: string;
