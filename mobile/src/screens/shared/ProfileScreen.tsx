@@ -1249,43 +1249,24 @@ export function ProfileScreen() {
           </View>
         )}
 
-        {/* ── Section: Customer Account Verification ───────────────── */}
-        {isCustomer && (
-          <View style={styles.sectionWrap}>
-            <Text style={styles.sectionLabel}>Account Verification</Text>
-            <View style={styles.card}>
-              <View style={styles.verifyGrid}>
-                {([
-                  { Icon: PhoneCheckIcon,  label: 'Phone\nVerified' },
-                  { Icon: AccountCheckIcon, label: 'Account\nActive' },
-                  { Icon: CreditCardIcon,  label: 'Private\nPay' },
-                  { Icon: ShieldCheckIcon, label: 'Providers\nVerified' },
-                ] as const).map(item => (
-                  <View key={item.label} style={styles.verifyCell}>
-                    <View style={styles.verifyCellIcon}>
-                      <item.Icon size={22} color={BRAND} />
-                    </View>
-                    <Text style={styles.verifyCellLabel}>{item.label}</Text>
-                  </View>
-                ))}
-              </View>
-            </View>
-          </View>
-        )}
-
         {/* ── Section: Customer Trust & Safety ─────────────────────── */}
+        {/* Note: a prior "Account Verification" grid here (Phone Verified/Account
+            Active/Private Pay/Providers Verified) was removed — it was 4 static
+            icons with no real per-user data, duplicating what phone verification
+            already shows for real in Personal Info above, and what this section
+            already explains properly with real detail. */}
         {isCustomer && (
           <View style={styles.sectionWrap}>
             <Text style={styles.sectionLabel}>Trust & Safety</Text>
             <View style={styles.card}>
               {([
-                { Icon: ShieldCheckIcon,        label: 'Background Checked', desc: 'Verified badge on cleared artists',
+                { Icon: ShieldCheckIcon,        label: 'Background Checked', desc: 'Criminal record check on file',
                   detail: 'Artists can submit a Criminal Record Check for verification. Our team reviews each document, and artists who clear it carry a gold verified badge on their profile — look for it when you book. Artists without the badge have not completed a background check.' },
-                { Icon: CardAccountDetailsIcon, label: 'ID Verified',     desc: 'Government-issued ID confirmed',
+                { Icon: CardAccountDetailsIcon, label: 'ID Verified',     desc: 'Government-issued photo ID confirmed',
                   detail: 'We confirm each Provider’s identity against a government-issued photo ID (driver’s licence, passport or provincial ID). The name on file must match their banking and certification documents, so you always know exactly who is coming to your home.' },
-                { Icon: AccountCheckIcon,       label: 'Admin Approved',  desc: 'Manually reviewed by our team',
+                { Icon: AccountCheckIcon,       label: 'Admin Approved',  desc: 'Every profile reviewed by a real person',
                   detail: 'Beyond automated checks, a Glow team member manually reviews every Provider application — credentials, experience, references and documents — before approving them. No Provider appears in the app until a human has signed off.' },
-                { Icon: StarIcon,               label: 'Rating System',   desc: '1–5 stars after every session',
+                { Icon: StarIcon,               label: 'Rating System',   desc: 'Public 1–5 star reviews after every visit',
                   detail: 'After each completed visit, clients rate their Provider from 1 to 5 stars and can leave a review. Ratings are visible on every Provider profile and we follow up on any low scores, so quality stays high across the whole network.' },
               ] as const).map((t, i) => (
                 <View key={t.label}>
@@ -1865,14 +1846,6 @@ const styles = StyleSheet.create({
     backgroundColor: ICON_BG, alignItems: 'center', justifyContent: 'center',
   },
   navCardChevronText: { fontSize: 20, color: BRAND, fontWeight: '600' },
-
-  verifyGrid: { flexDirection: 'row', justifyContent: 'space-around', paddingVertical: 10 },
-  verifyCell: { alignItems: 'center', gap: 8, flex: 1 },
-  verifyCellIcon: {
-    width: 58, height: 58, borderRadius: 22,
-    backgroundColor: ICON_BG, alignItems: 'center', justifyContent: 'center',
-  },
-  verifyCellLabel:  { fontSize: 12.5, fontWeight: '600', color: LABEL, textAlign: 'center', lineHeight: 16 },
 
   trustRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, paddingVertical: 4 },
   trustIconWrap: {
