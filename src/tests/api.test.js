@@ -20,7 +20,6 @@ process.env.NODE_ENV      = 'test';
 
 const request = require('supertest');
 const jwt     = require('jsonwebtoken');
-const bcrypt  = require('bcryptjs');
 
 const JWT_SECRET = process.env.JWT_SECRET;
 
@@ -97,10 +96,6 @@ jest.mock('../utils/googleAuth', () => ({
   verifyGoogleIdToken: jest.fn(),
 }));
 const { verifyGoogleIdToken } = require('../utils/googleAuth');
-
-jest.mock('../utils/email', () => ({
-  sendPasswordResetEmail: jest.fn().mockResolvedValue(undefined),
-}));
 
 const app = require('../app');
 
@@ -457,134 +452,17 @@ describe('POST /auth/google', () => {
   });
 });
 
-describe('POST /auth/register-email', () => {
-  it('rejects a short password', async () => {
-    const res = await request(app)
-      .post('/auth/register-email')
-      .send({ email: 'a@b.com', password: 'short', name: 'A B' });
-    expect(res.status).toBe(400);
-  });
-
-  it('creates a new customer account', async () => {
-    mockFindUnique.mockResolvedValueOnce(null); // no existing user with this email
-    const res = await request(app)
-      .post('/auth/register-email')
-      .send({ email: 'new@example.com', password: 'longenoughpassword', name: 'New Person' });
-    expect(res.status).toBe(200);
-    expect(res.body).toHaveProperty('token');
-  });
-
-  it('rejects an email that already has a password set', async () => {
-    mockFindUnique.mockResolvedValueOnce({ id: 'u1', email: 'dup@example.com', passwordHash: 'somehash' });
-    const res = await request(app)
-      .post('/auth/register-email')
-      .send({ email: 'dup@example.com', password: 'longenoughpassword', name: 'Dup' });
-    expect(res.status).toBe(409);
-  });
-});
-
-describe('POST /auth/login-email', () => {
-  it('returns generic error for unknown email', async () => {
-    mockFindUnique.mockResolvedValueOnce(null);
-    const res = await request(app)
-      .post('/auth/login-email')
-      .send({ email: 'ghost@example.com', password: 'whatever123' });
-    expect(res.status).toBe(401);
-    expect(res.body.error).toMatch(/invalid email or password/i);
-  });
-
-  // Enumeration-prevention: a real account with a wrong password must fail
-  // with the EXACT SAME status/message as an unknown email — including a
-  // deleted account, which must not be distinguishable via a different
-  // status code (this is what would have caught the old 403-for-deleted
-  // bug: a deleted account with a correct password used to get a distinct
-  // 403 "This account has been deleted." instead of collapsing into the
-  // generic 401 below).
-  it('returns the SAME generic error for a known email with the wrong password', async () => {
-    const unknownEmailRes = await (async () => {
-      mockFindUnique.mockResolvedValueOnce(null);
-      return request(app)
-        .post('/auth/login-email')
-        .send({ email: 'ghost2@example.com', password: 'whatever123' });
-    })();
-
-    const realHash = await bcrypt.hash('correct-password-123', 10);
-    mockFindUnique.mockResolvedValueOnce({
-      id: 'user-known',
-      email: 'known@example.com',
-      passwordHash: realHash,
-      deletedAt: null,
-    });
-    const wrongPasswordRes = await request(app)
-      .post('/auth/login-email')
-      .send({ email: 'known@example.com', password: 'totally-wrong-password' });
-
-    expect(wrongPasswordRes.status).toBe(401);
-    expect(wrongPasswordRes.body.error).toBe(unknownEmailRes.body.error);
-    expect(wrongPasswordRes.status).toBe(unknownEmailRes.status);
-  });
-
-  // A soft-deleted account is functionally "this login should fail" and must
-  // be indistinguishable from "wrong password" — not a separate 403.
-  it('returns the SAME generic 401 for a deleted account, not a distinct 403', async () => {
-    const realHash = await bcrypt.hash('correct-password-123', 10);
-    mockFindUnique.mockResolvedValueOnce({
-      id: 'user-deleted',
-      email: 'deleted@example.com',
-      passwordHash: realHash,
-      deletedAt: new Date(),
-    });
-    const res = await request(app)
-      .post('/auth/login-email')
-      .send({ email: 'deleted@example.com', password: 'correct-password-123' });
-
-    expect(res.status).toBe(401);
-    expect(res.body.error).toBe('Invalid email or password.');
-  });
-});
-
-describe('POST /auth/forgot-password', () => {
-  it('returns 200 even for unknown email (no enumeration)', async () => {
-    mockFindUnique.mockResolvedValueOnce(null);
-    const res = await request(app)
-      .post('/auth/forgot-password')
-      .send({ email: 'ghost@example.com' });
-    expect(res.status).toBe(200);
-  });
-
-  it('returns 200 with the same shape for a known email and actually sends the email', async () => {
-    const { sendPasswordResetEmail } = require('../utils/email');
-    sendPasswordResetEmail.mockClear();
-
-    mockFindUnique.mockResolvedValueOnce(null);
-    const unknownRes = await request(app)
-      .post('/auth/forgot-password')
-      .send({ email: 'ghost3@example.com' });
-
-    mockFindUnique.mockResolvedValueOnce({
-      id: 'user-real',
-      email: 'real@example.com',
-      passwordHash: 'somehash',
-      deletedAt: null,
-    });
-    const knownRes = await request(app)
-      .post('/auth/forgot-password')
-      .send({ email: 'real@example.com' });
-
-    expect(knownRes.status).toBe(200);
-    expect(knownRes.status).toBe(unknownRes.status);
-    expect(knownRes.body.message).toBe(unknownRes.body.message);
-    expect(sendPasswordResetEmail).toHaveBeenCalledTimes(1);
-    expect(sendPasswordResetEmail).toHaveBeenCalledWith('real@example.com', expect.stringContaining('reset-password?token='));
-  });
-});
-
-describe('POST /auth/reset-password', () => {
-  it('rejects an invalid token', async () => {
-    const res = await request(app)
-      .post('/auth/reset-password')
-      .send({ token: 'not-a-real-token', newPassword: 'longenoughpassword' });
-    expect(res.status).toBe(400);
+// Email+password login was removed — Google and phone+OTP are the only login
+// methods now. These routes must stay gone (404), not silently reappear.
+describe('Email+password routes (removed)', () => {
+  it.each([
+    '/auth/register-email',
+    '/auth/login-email',
+    '/auth/forgot-password',
+    '/auth/reset-password',
+  ])('%s no longer exists', async (path) => {
+    const res = await request(app).post(path).send({});
+    expect(res.status).toBe(404);
   });
 });
 

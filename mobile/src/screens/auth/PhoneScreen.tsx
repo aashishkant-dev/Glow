@@ -20,7 +20,7 @@ import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
 import { ShieldCheckIcon, CheckDecagramIcon } from '../../components/CareIcons';
 import { MirrorIcon, CrownIcon } from '../../components/BeautyIcons';
-import { apiLogin, apiGoogleSignIn, apiRegisterEmail, apiLoginEmail, apiForgotPassword } from '../../api/client';
+import { apiLogin, apiGoogleSignIn } from '../../api/client';
 import { Colors, Fonts } from '../../utils/colors';
 import { GlowLogo, GlowMark, GlowTagline } from '../../components/GlowLogo';
 import { DEFAULT_REGION_NAME } from '../../utils/region';
@@ -70,16 +70,11 @@ export function PhoneScreen() {
   const [role,    setRole]    = useState<Role>('CUSTOMER');
   const [loading, setLoading] = useState(false);
   const [ageConfirmed, setAgeConfirmed] = useState(false);
-  // Customers land on Google/Email by default — phone is reachable only via the
-  // "I'm an artist" link below, since Providers still onboard (and verify) by
-  // phone. Customers who don't use Google/Email get their phone collected and
-  // verified later, at first-booking-confirm (VerifyPhoneSheet), not at login.
-  const [authMode, setAuthMode] = useState<'phone' | 'google' | 'email'>('google');
-  const [email, setEmail] = useState('');
-  const [password, setPassword] = useState('');
-  const [showPassword, setShowPassword] = useState(false);
-  const [forgotMode, setForgotMode] = useState(false);
-  const [forgotSent, setForgotSent] = useState(false);
+  // Customers land on Google by default — phone is reachable only via the quiet
+  // "Sign in with phone instead" link below, for existing phone-signed-up accounts.
+  // Customers who use Google get their phone collected and verified later, at
+  // first-booking-confirm (VerifyPhoneSheet), not at login.
+  const [authMode, setAuthMode] = useState<'phone' | 'google'>('google');
   const ctaScale = useRef(new Animated.Value(1)).current;
   const heroFade = useRef(new Animated.Value(0)).current;
 
@@ -197,46 +192,6 @@ export function PhoneScreen() {
     setLoading(false);
   }
 
-  async function emailAuth() {
-    if (!email.includes('@')) {
-      if (Platform.OS === 'web') alert('Enter a valid email.'); else Alert.alert('Email Required', 'Enter a valid email.');
-      return;
-    }
-    if (password.length < 8) {
-      if (Platform.OS === 'web') alert('Password must be at least 8 characters.'); else Alert.alert('Password Too Short', 'Password must be at least 8 characters.');
-      return;
-    }
-    setLoading(true);
-    try {
-      const { token, user } = isNewUser
-        ? await apiRegisterEmail({ email: email.trim(), password, name: name.trim() || 'Glow User' })
-        : await apiLoginEmail({ email: email.trim(), password });
-      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      await signIn(token, {
-        id: user.id, name: user.name, phone: user.phone ?? undefined,
-        role: user.role as 'CUSTOMER' | 'Provider' | 'ADMIN' | 'SALON',
-        onboardingComplete: user.onboardingComplete,
-      });
-    } catch (e: any) {
-      const msg = e.message || 'Failed to sign in. Please try again.';
-      if (Platform.OS === 'web') alert(msg); else Alert.alert('Error', msg);
-    }
-    setLoading(false);
-  }
-
-  async function sendForgotPassword() {
-    if (!email.includes('@')) return;
-    setLoading(true);
-    try {
-      await apiForgotPassword({ email: email.trim() });
-      setForgotSent(true);
-    } catch (e: any) {
-      const msg = e.message || 'Failed to send reset email.';
-      if (Platform.OS === 'web') alert(msg); else Alert.alert('Error', msg);
-    }
-    setLoading(false);
-  }
-
   function pressCta(pressed: boolean) {
     Animated.spring(ctaScale, { toValue: pressed ? 0.96 : 1, useNativeDriver: true, speed: 40, bounciness: 6 }).start();
   }
@@ -272,36 +227,13 @@ export function PhoneScreen() {
 
           {/* ── Form card ── */}
           <View style={styles.formCard}>
-            {/* Auth mode toggle — customers pick Google or Email. Phone is reached
-                only via the "I'm an artist" link, not this toggle. */}
-            {authMode !== 'phone' && (
-              <View style={[styles.segment, { marginBottom: 14 }]}>
-                {[{ label: 'Google', value: 'google' as const }, { label: 'Email', value: 'email' as const }].map(t => (
-                  <Pressable
-                    key={t.label}
-                    style={[styles.segmentBtn, authMode === t.value && styles.segmentBtnActive]}
-                    onPress={() => {
-                      if (Platform.OS !== 'web') Haptics.selectionAsync();
-                      setAuthMode(t.value);
-                      setForgotMode(false);
-                      setForgotSent(false);
-                    }}
-                  >
-                    <Text style={[styles.segmentText, authMode === t.value && styles.segmentTextActive]}>
-                      {t.label}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-            )}
-
             {authMode === 'phone' && (
               <>
                 <Pressable
                   style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 }}
                   onPress={() => { setAuthMode('google'); setRole('CUSTOMER'); }}
                 >
-                  <Text style={{ fontSize: 14, color: Colors.brandDark }}>← Back to Google / Email</Text>
+                  <Text style={{ fontSize: 14, color: Colors.brandDark }}>← Back to Google</Text>
                 </Pressable>
 
                 {/* Segmented control */}
@@ -439,108 +371,11 @@ export function PhoneScreen() {
               </View>
             )}
 
-            {authMode === 'email' && !forgotMode && (
-              <View>
-                <View style={styles.segment}>
-                  {[{ label: 'New here', value: true }, { label: 'Returning', value: false }].map(t => (
-                    <Pressable
-                      key={t.label}
-                      style={[styles.segmentBtn, isNewUser === t.value && styles.segmentBtnActive]}
-                      onPress={() => { if (Platform.OS !== 'web') Haptics.selectionAsync(); setIsNewUser(t.value); }}
-                    >
-                      <Text style={[styles.segmentText, isNewUser === t.value && styles.segmentTextActive]}>{t.label}</Text>
-                    </Pressable>
-                  ))}
-                </View>
-                {isNewUser && (
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Full name</Text>
-                    <TextInput
-                      style={styles.textInput}
-                      value={name}
-                      onChangeText={v => setName(formatName(v))}
-                      placeholder="Your name"
-                      placeholderTextColor={Colors.tertiaryLabel}
-                      autoCapitalize="words"
-                    />
-                  </View>
-                )}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Email</Text>
-                  <TextInput
-                    style={styles.textInput}
-                    value={email}
-                    onChangeText={setEmail}
-                    placeholder="you@example.com"
-                    placeholderTextColor={Colors.tertiaryLabel}
-                    autoCapitalize="none"
-                    keyboardType="email-address"
-                    autoCorrect={false}
-                  />
-                </View>
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Password</Text>
-                  <View style={styles.phoneRow}>
-                    <TextInput
-                      style={[styles.textInput, { flex: 1 }]}
-                      value={password}
-                      onChangeText={setPassword}
-                      placeholder="At least 8 characters"
-                      placeholderTextColor={Colors.tertiaryLabel}
-                      secureTextEntry={!showPassword}
-                      autoCapitalize="none"
-                      autoCorrect={false}
-                    />
-                    <Pressable style={styles.countryBadge} onPress={() => setShowPassword(s => !s)}>
-                      <Text style={styles.countryCode}>{showPassword ? 'Hide' : 'Show'}</Text>
-                    </Pressable>
-                  </View>
-                </View>
-                <Pressable style={[styles.ctaBtn, (!email.includes('@') || password.length < 8) && styles.ctaBtnDisabled]} onPress={emailAuth} disabled={loading || !email.includes('@') || password.length < 8}>
-                  <Text style={styles.ctaBtnText}>{loading ? 'Please wait…' : isNewUser ? 'Create account' : 'Sign in'}</Text>
-                </Pressable>
-                {!isNewUser && (
-                  <Pressable style={{ marginTop: 14, alignItems: 'center' }} onPress={() => setForgotMode(true)}>
-                    <Text style={styles.agreeLink}>Forgot password?</Text>
-                  </Pressable>
-                )}
-              </View>
-            )}
-
-            {authMode === 'email' && forgotMode && (
-              <View>
-                {forgotSent ? (
-                  <Text style={styles.disclaimer}>If an account exists for that email, a reset link has been sent. Check your inbox.</Text>
-                ) : (
-                  <>
-                    <View style={styles.inputGroup}>
-                      <Text style={styles.inputLabel}>Email</Text>
-                      <TextInput
-                        style={styles.textInput}
-                        value={email}
-                        onChangeText={setEmail}
-                        placeholder="you@example.com"
-                        placeholderTextColor={Colors.tertiaryLabel}
-                        autoCapitalize="none"
-                        keyboardType="email-address"
-                      />
-                    </View>
-                    <Pressable style={[styles.ctaBtn, !email.includes('@') && styles.ctaBtnDisabled]} onPress={sendForgotPassword} disabled={loading || !email.includes('@')}>
-                      <Text style={styles.ctaBtnText}>{loading ? 'Sending…' : 'Send reset link'}</Text>
-                    </Pressable>
-                  </>
-                )}
-                <Pressable style={{ marginTop: 14, alignItems: 'center' }} onPress={() => { setForgotMode(false); setForgotSent(false); }}>
-                  <Text style={styles.agreeLink}>Back to sign in</Text>
-                </Pressable>
-              </View>
-            )}
-
             {/* Artist signup entry removed for now (per request). A quiet, login-only
                 link stays so existing phone-signed-up accounts (customers and
                 artists alike) aren't locked out — it opens phone mode already on
                 Returning, with no path back to New-here/artist signup from here. */}
-            {authMode !== 'phone' && !forgotMode && (
+            {authMode !== 'phone' && (
               <Pressable
                 style={{ marginTop: 16, alignItems: 'center' }}
                 onPress={() => { setAuthMode('phone'); setIsNewUser(false); }}

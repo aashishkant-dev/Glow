@@ -128,22 +128,6 @@ export function apiGoogleSignIn(payload: { idToken: string }) {
   return request<{ token: string; user: AuthUser }>('POST', '/auth/google', payload, false, 2);
 }
 
-export function apiRegisterEmail(payload: { email: string; password: string; name: string }) {
-  return request<{ token: string; user: AuthUser }>('POST', '/auth/register-email', payload, false, 2);
-}
-
-export function apiLoginEmail(payload: { email: string; password: string }) {
-  return request<{ token: string; user: AuthUser }>('POST', '/auth/login-email', payload, false, 2);
-}
-
-export function apiForgotPassword(payload: { email: string }) {
-  return request<{ message: string }>('POST', '/auth/forgot-password', payload, false);
-}
-
-export function apiResetPassword(payload: { token: string; newPassword: string }) {
-  return request<{ message: string }>('POST', '/auth/reset-password', payload, false);
-}
-
 export function apiSubmitProviderOnboarding(payload: {
   qualificationType: string;
   licenseNumber?: string;

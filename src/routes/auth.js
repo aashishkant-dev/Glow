@@ -4,11 +4,9 @@
 const express = require('express');
 const { body } = require('express-validator');
 const jwt     = require('jsonwebtoken');
-const bcrypt  = require('bcryptjs');
 const prisma  = require('../lib/prisma');
 const { generateOTP, verifyOTP } = require('../utils/otp');
 const { verifyGoogleIdToken } = require('../utils/googleAuth');
-const { sendPasswordResetEmail } = require('../utils/email');
 const validate         = require('../middleware/validate');
 const { authenticate } = require('../middleware/auth');
 const { cacheDel } = require('../utils/cache');
@@ -315,139 +313,11 @@ router.post(
   }
 );
 
-// ── POST /auth/register-email ────────────────────────────────────────────────
-router.post(
-  '/register-email',
-  [
-    body('email').trim().isEmail().withMessage('a valid email is required').normalizeEmail(),
-    body('password').isLength({ min: 8 }).withMessage('password must be at least 8 characters'),
-    body('name').trim().notEmpty().withMessage('name is required'),
-  ],
-  validate,
-  async (req, res) => {
-    try {
-      const email = req.body.email;
-      const name  = sanitizeName(req.body.name);
-
-      const existing = await prisma.user.findUnique({ where: { email } });
-      if (existing && existing.passwordHash) {
-        return res.status(409).json({ error: 'An account with this email already exists.' });
-      }
-      if (existing && !existing.passwordHash) {
-        return res.status(409).json({ error: 'This email is linked to a Google account. Use "Continue with Google" or set a password from your profile.' });
-      }
-
-      const passwordHash = await bcrypt.hash(req.body.password, 10);
-      const user = await prisma.user.create({
-        data: { email, name, passwordHash, role: 'CUSTOMER' },
-      });
-
-      const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d', algorithm: 'HS256' });
-
-      res.json({
-        token,
-        user: {
-          id: user.id, name: user.name, role: user.role, phone: user.phone,
-          photoUrl: user.photoUrl || null, onboardingComplete: user.onboardingComplete,
-          phoneVerified: user.phoneVerified,
-        },
-      });
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Server error' });
-    }
-  }
-);
-
-// ── POST /auth/login-email ───────────────────────────────────────────────────
-router.post(
-  '/login-email',
-  [
-    body('email').trim().isEmail().withMessage('a valid email is required').normalizeEmail(),
-    body('password').notEmpty().withMessage('password is required'),
-  ],
-  validate,
-  async (req, res) => {
-    try {
-      const user = await prisma.user.findUnique({ where: { email: req.body.email } });
-      if (!user || !user.passwordHash || user.deletedAt) {
-        return res.status(401).json({ error: 'Invalid email or password.' });
-      }
-      const match = await bcrypt.compare(req.body.password, user.passwordHash);
-      if (!match) {
-        return res.status(401).json({ error: 'Invalid email or password.' });
-      }
-
-      const token = jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { expiresIn: '30d', algorithm: 'HS256' });
-
-      res.json({
-        token,
-        user: {
-          id: user.id, name: user.name, role: user.role, phone: user.phone,
-          photoUrl: user.photoUrl || null, onboardingComplete: user.onboardingComplete,
-          phoneVerified: user.phoneVerified,
-        },
-      });
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Server error' });
-    }
-  }
-);
-
-// ── POST /auth/forgot-password ───────────────────────────────────────────────
-// Always returns 200 regardless of whether the email exists — prevents account
-// enumeration. The reset link is only emailed if a matching account with a
-// password actually exists.
-router.post(
-  '/forgot-password',
-  [body('email').trim().isEmail().withMessage('a valid email is required').normalizeEmail()],
-  validate,
-  async (req, res) => {
-    try {
-      const user = await prisma.user.findUnique({ where: { email: req.body.email } });
-      if (user && user.passwordHash && !user.deletedAt) {
-        const resetToken = jwt.sign({ userId: user.id, purpose: 'password-reset' }, JWT_SECRET, { expiresIn: '1h', algorithm: 'HS256' });
-        const webBase = process.env.PWA_BASE_URL || 'https://glow-app-omega.vercel.app';
-        const resetLink = `${webBase}/reset-password?token=${resetToken}`;
-        await sendPasswordResetEmail(user.email, resetLink);
-      }
-      res.json({ message: 'If an account exists for that email, a reset link has been sent.' });
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Server error' });
-    }
-  }
-);
-
-// ── POST /auth/reset-password ────────────────────────────────────────────────
-router.post(
-  '/reset-password',
-  [
-    body('token').trim().notEmpty().withMessage('token is required'),
-    body('newPassword').isLength({ min: 8 }).withMessage('newPassword must be at least 8 characters'),
-  ],
-  validate,
-  async (req, res) => {
-    try {
-      let payload;
-      try {
-        payload = jwt.verify(req.body.token, JWT_SECRET, { algorithms: ['HS256'] });
-      } catch {
-        return res.status(400).json({ error: 'This reset link is invalid or has expired.' });
-      }
-      if (payload.purpose !== 'password-reset') {
-        return res.status(400).json({ error: 'This reset link is invalid or has expired.' });
-      }
-      const passwordHash = await bcrypt.hash(req.body.newPassword, 10);
-      await prisma.user.update({ where: { id: payload.userId }, data: { passwordHash } });
-      res.json({ message: 'Password updated. You can now log in.' });
-    } catch (err) {
-      console.error(err);
-      res.status(500).json({ error: 'Server error' });
-    }
-  }
-);
+// Email+password login (register-email/login-email/forgot-password/reset-password)
+// was removed — Google and phone+OTP are the only login methods. See
+// docs/superpowers/plans (2026-07-20 auth-overhaul) for the original build; this
+// keeps User.passwordHash/email nullable/unique in the schema for any legacy rows,
+// but no route reads or writes them anymore.
 
 // ── POST /auth/provider-profile ─────────────────────────────────────────────────────
 router.post(

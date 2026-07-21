@@ -1,4 +1,4 @@
-import { NavigationContainer, LinkingOptions } from '@react-navigation/native';
+import { NavigationContainer } from '@react-navigation/native';
 import { StatusBar } from 'expo-status-bar';
 import React, { useEffect, useState } from 'react';
 import { StyleSheet, View } from 'react-native';
@@ -6,7 +6,6 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import * as Sentry from '@sentry/react-native';
 import * as Font from 'expo-font';
 import * as SplashScreen from 'expo-splash-screen';
-import * as Linking from 'expo-linking';
 import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
 import {
   Inter_300Light,
@@ -28,30 +27,6 @@ import { navigationRef } from './src/utils/navigationRef';
 import { API_BASE } from './src/api/client';
 
 SplashScreen.preventAutoHideAsync().catch(() => {});
-
-// Deep-linking config for URL-based navigation on web (and native universal
-// links, if those prefixes are ever registered). Today only one URL matters:
-// the password-reset email link, `${PWA_BASE_URL}/reset-password?token=...`.
-//
-// RootNavigator renders exactly one top-level navigator at a time (AuthNavigator
-// when logged out, or a role-specific navigator once authenticated) directly as
-// NavigationContainer's only child — there's no shared wrapper Stack around them.
-// So `config.screens` mirrors that: it's a flat map of screen name -> path,
-// regardless of which navigator happens to be mounted. Only screens that need a
-// specific URL are listed here; everything else falls back to no deep link.
-const linking: LinkingOptions<any> = {
-  prefixes: [Linking.createURL('/'), 'https://glow-app-omega.vercel.app'],
-  config: {
-    screens: {
-      ResetPassword: {
-        path: 'reset-password',
-        parse: {
-          token: (token: string) => token,
-        },
-      },
-    },
-  },
-};
 
 // Crash reporting. No-op when the DSN isn't set (e.g. local dev without a Sentry project).
 const SENTRY_DSN = process.env.EXPO_PUBLIC_SENTRY_DSN;
@@ -98,7 +73,7 @@ function App() {
     <ErrorBoundary>
     <SafeAreaProvider>
       <AuthProvider>
-        <NavigationContainer ref={navigationRef} documentTitle={{ formatter: () => 'Glow' }} linking={linking}>
+        <NavigationContainer ref={navigationRef} documentTitle={{ formatter: () => 'Glow' }}>
           <View style={styles.root}>
             <StatusBar style="dark" />
             <RootNavigator />

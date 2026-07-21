@@ -4,6 +4,7 @@
 const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const prisma = require('../lib/prisma');
+const { sendOTPSms } = require('./smsProviders');
 
 const MAX_ATTEMPTS = 5;
 
@@ -12,17 +13,12 @@ function getTTLMs() {
 }
 
 /**
- * Send OTP via Twilio SMS if credentials are configured.
- * Falls back to console.log in dev mode.
+ * Logs the OTP to console (dev always, prod only when LOG_OTP=1), then routes
+ * actual delivery to the region-appropriate SMS provider (src/utils/smsProviders).
  * NEVER throws — SMS delivery is best-effort; the OTP is already saved in DB
  * and logged to console so Railway logs always have it for dev/support use.
  */
 async function sendSMS(phone, otp) {
-  const accountSid = process.env.TWILIO_ACCOUNT_SID;
-  const authToken  = process.env.TWILIO_AUTH_TOKEN;
-  const from       = process.env.TWILIO_PHONE_NUMBER;
-
-  // OTP is logged in dev always; in production ONLY while LOG_OTP=1 is set.
   // ⚠️ LOG_OTP=1 puts live login codes for EVERY user in Railway logs — anyone
   // with log access can take over any account. Use for launch testing only,
   // then delete the variable.
@@ -30,24 +26,12 @@ async function sendSMS(phone, otp) {
     console.log(`[OTP] ${phone} → ${otp}`);
   }
 
-  if (!accountSid || !authToken || !from) {
-    console.log(`[SMS] No Twilio credentials — dev mode, OTP logged above`);
-    return;
-  }
-
   try {
-    const twilio = require('twilio')(accountSid, authToken);
-    await twilio.messages.create({
-      body: `Your Glow verification code is: ${otp}\n\nValid for 5 minutes. Do not share this code.\n\nGlow Beauty`,
-      from,
-      to: phone,
-    });
-    if (process.env.NODE_ENV !== 'production') console.log(`[SMS] Sent to ${phone}`);
+    await sendOTPSms(phone, otp);
   } catch (err) {
-    // SMS failed — OTP is still valid in DB, always log it here too for Railway support
-    console.error(`[SMS] Twilio error for ${phone} — code: ${err.code} status: ${err.status} msg: ${err.message}`);
-    if (process.env.NODE_ENV !== 'production') console.log(`[SMS] OTP still valid, use code above to authenticate`);
-    // Do NOT throw — caller gets success, user can ask for the code via support if needed
+    // Providers already catch their own errors — this is a last-resort net so a
+    // provider bug never bubbles up and fails the (already-persisted) OTP request.
+    console.error(`[SMS] unexpected error routing OTP for ${phone}:`, err.message);
   }
 }
 
