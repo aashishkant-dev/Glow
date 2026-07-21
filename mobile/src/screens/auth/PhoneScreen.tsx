@@ -18,9 +18,9 @@ import { useNavigation } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
-import { ShieldCheckIcon, CheckDecagramIcon } from '../../components/CareIcons';
+import { ShieldCheckIcon, CheckDecagramIcon, GoogleLogoIcon } from '../../components/CareIcons';
 import { MirrorIcon, CrownIcon } from '../../components/BeautyIcons';
-import { apiLogin, apiGoogleSignIn } from '../../api/client';
+import { apiLogin, apiGoogleSignIn, apiSendLoginOtp } from '../../api/client';
 import { Colors, Fonts } from '../../utils/colors';
 import { GlowLogo, GlowMark, GlowTagline } from '../../components/GlowLogo';
 import { DEFAULT_REGION_NAME } from '../../utils/region';
@@ -70,11 +70,14 @@ export function PhoneScreen() {
   const [role,    setRole]    = useState<Role>('CUSTOMER');
   const [loading, setLoading] = useState(false);
   const [ageConfirmed, setAgeConfirmed] = useState(false);
-  // Customers land on Google by default — phone is reachable only via the quiet
-  // "Sign in with phone instead" link below, for existing phone-signed-up accounts.
-  // Customers who use Google get their phone collected and verified later, at
-  // first-booking-confirm (VerifyPhoneSheet), not at login.
-  const [authMode, setAuthMode] = useState<'phone' | 'google'>('google');
+  // Phone login is a two-step flow: send an OTP to the entered number, then
+  // verify it before a token is ever issued. `otpSent` gates which step shows;
+  // `otpPhone` freezes the number the code was sent to, so editing the phone
+  // field afterward doesn't silently verify a code against a different number.
+  const [otpSent, setOtpSent] = useState(false);
+  const [otpPhone, setOtpPhone] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [sendingOtp, setSendingOtp] = useState(false);
   const ctaScale = useRef(new Animated.Value(1)).current;
   const heroFade = useRef(new Animated.Value(0)).current;
 
@@ -147,19 +150,44 @@ export function PhoneScreen() {
     return true;
   }
 
-  async function login(selectedRole: Role) {
+  // Step 1: send the OTP. `selectedRole` is captured now (before the OTP step)
+  // since the Salon & Business button skips the role picker entirely and the
+  // regular CTA needs whatever `role` was chosen — both need to reach step 2.
+  const pendingRoleRef = useRef<Role>('CUSTOMER');
+
+  async function requestOtp(selectedRole: Role) {
     if (!isPhoneValid()) return;
     if (isNewUser && name.trim().length < 2) {
       if (Platform.OS === 'web') alert('Please enter your full name before continuing.');
       else Alert.alert('Name Required', 'Please enter your full name before continuing.');
       return;
     }
+    pendingRoleRef.current = selectedRole;
+    setSendingOtp(true);
+    try {
+      await apiSendLoginOtp(getE164());
+      setOtpPhone(getE164());
+      setOtpSent(true);
+      setOtpCode('');
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      const msg = e.message || 'Could not send code. Please try again.';
+      if (Platform.OS === 'web') alert(msg);
+      else Alert.alert('Error', msg);
+    }
+    setSendingOtp(false);
+  }
+
+  // Step 2: verify the code and actually log in.
+  async function verifyOtp() {
+    if (otpCode.replace(/\D/g, '').length !== 6) return;
     setLoading(true);
     try {
       const { token, user } = await apiLogin({
-        phone: getE164(),
+        phone: otpPhone,
+        otp:   otpCode.trim(),
         name:  isNewUser ? name.trim() : undefined,
-        role:  isNewUser ? selectedRole : undefined,
+        role:  isNewUser ? pendingRoleRef.current : undefined,
       });
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await signIn(token, {
@@ -168,7 +196,7 @@ export function PhoneScreen() {
         onboardingComplete: user.onboardingComplete,
       });
     } catch (e: any) {
-      const msg = e.message || 'Failed to sign in. Please try again.';
+      const msg = e.message || 'Invalid code. Please try again.';
       if (Platform.OS === 'web') alert(msg);
       else Alert.alert('Error', msg);
     }
@@ -225,18 +253,32 @@ export function PhoneScreen() {
             </View>
           </Animated.View>
 
-          {/* ── Form card ── */}
+          {/* ── Form card ──
+              Google + phone are both always visible on one screen — no mode
+              switch/link between them. Google is customer-only and one tap;
+              phone (with name+role for new signups) sits right below it,
+              since it's the only path for artists and for anyone without a
+              Google account. */}
           <View style={styles.formCard}>
-            {authMode === 'phone' && (
-              <>
-                <Pressable
-                  style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 }}
-                  onPress={() => { setAuthMode('google'); setRole('CUSTOMER'); }}
-                >
-                  <Text style={{ fontSize: 14, color: Colors.brandDark }}>← Back to Google</Text>
-                </Pressable>
+            <Pressable
+              style={[styles.ctaBtn, styles.googleBtn, !googleConfigured && styles.ctaBtnDisabled]}
+              onPress={() => googleConfigured && promptGoogleAsync()}
+              disabled={loading || !googleConfigured}
+            >
+              <GoogleLogoIcon size={19} />
+              <Text style={[styles.ctaBtnText, { color: Colors.label }]}>
+                {loading ? 'Signing in…' : googleConfigured ? 'Continue with Google' : 'Google sign-in unavailable'}
+              </Text>
+            </Pressable>
+            <Text style={styles.disclaimer}>Google is for customers only — artists sign in with phone below.</Text>
 
-                {/* New here/Returning toggle — restored. A prior pass removed this
+            <View style={styles.orDivider}>
+              <View style={styles.orLine} />
+              <Text style={styles.orText}>or</Text>
+              <View style={styles.orLine} />
+            </View>
+
+            {/* New here/Returning toggle — restored. A prior pass removed this
                     along with the standalone "I'm an artist" entry point, which left
                     NEW phone signups (customer AND artist) with no way to enter a
                     name or pick a role — the backend correctly demanded them, but
@@ -258,172 +300,194 @@ export function PhoneScreen() {
                   ))}
                 </View>
 
-                {/* Name */}
-                {isNewUser && (
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>Full name</Text>
-                    <TextInput
-                      style={styles.textInput}
-                      value={name}
-                      onChangeText={v => setName(formatName(v))}
-                      placeholder="Your name"
-                      placeholderTextColor={Colors.tertiaryLabel}
-                      autoCapitalize="words"
-                      autoCorrect={false}
-                      returnKeyType="next"
-                    />
-                  </View>
-                )}
+                {!otpSent ? (
+                  <>
+                    {/* Name */}
+                    {isNewUser && (
+                      <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>Full name</Text>
+                        <TextInput
+                          style={styles.textInput}
+                          value={name}
+                          onChangeText={v => setName(formatName(v))}
+                          placeholder="Your name"
+                          placeholderTextColor={Colors.tertiaryLabel}
+                          autoCapitalize="words"
+                          autoCorrect={false}
+                          returnKeyType="next"
+                        />
+                      </View>
+                    )}
 
-                {/* Phone */}
-                <View style={styles.inputGroup}>
-                  <Text style={styles.inputLabel}>Phone number</Text>
-                  <View style={styles.phoneRow}>
-                    <View style={styles.countryBadge}>
-                      <Text style={styles.countryFlag}>🇨🇦</Text>
-                      <Text style={styles.countryCode}>+1</Text>
+                    {/* Phone */}
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Phone number</Text>
+                      <View style={styles.phoneRow}>
+                        <View style={styles.countryBadge}>
+                          <Text style={styles.countryFlag}>🇨🇦</Text>
+                          <Text style={styles.countryCode}>+1</Text>
+                        </View>
+                        <TextInput
+                          style={[styles.textInput, styles.phoneInput]}
+                          value={phone}
+                          onChangeText={handlePhoneChange}
+                          onBlur={() => setPhone(formatPhone(phone))}
+                          placeholder="705-555-0100"
+                          placeholderTextColor={Colors.tertiaryLabel}
+                          keyboardType="phone-pad"
+                          maxLength={12}
+                          returnKeyType="done"
+                          onSubmitEditing={() => requestOtp(role)}
+                        />
+                      </View>
                     </View>
-                    <TextInput
-                      style={[styles.textInput, styles.phoneInput]}
-                      value={phone}
-                      onChangeText={handlePhoneChange}
-                      onBlur={() => setPhone(formatPhone(phone))}
-                      placeholder="705-555-0100"
-                      placeholderTextColor={Colors.tertiaryLabel}
-                      keyboardType="phone-pad"
-                      maxLength={12}
-                      returnKeyType="done"
-                      onSubmitEditing={() => login(role)}
-                    />
-                  </View>
-                </View>
 
-                {/* Role — new phone signups can be either a customer or an artist;
-                    Google is customer-only, so phone is the ONLY path for artists to
-                    join, and must offer a real choice, not assume one. */}
-                {isNewUser && (
-                  <View style={styles.inputGroup}>
-                    <Text style={styles.inputLabel}>I'm here to</Text>
-                    <View style={styles.roleRow}>
-                      {([
-                        { key: 'CUSTOMER' as const, label: 'Book beauty', sub: 'Makeup, hair, nails & more', Icon: CrownIcon },
-                        { key: 'Provider' as const, label: "I'm an artist", sub: 'Grow your business & earn', Icon: MirrorIcon },
-                      ]).map(r => {
-                        const selected = role === r.key;
-                        return (
-                          <Pressable
-                            key={r.key}
-                            style={[styles.roleCard, selected && styles.roleCardSelected]}
-                            onPress={() => {
-                              if (Platform.OS !== 'web') Haptics.selectionAsync();
-                              setRole(r.key);
-                            }}
-                          >
-                            <View style={[styles.roleIconWrap, selected && { backgroundColor: Colors.brandLight }]}>
-                              <r.Icon size={20} color={selected ? Colors.brand : Colors.secondaryLabel} />
-                            </View>
-                            <Text style={[styles.roleLabel, selected && { color: Colors.label }]}>{r.label}</Text>
-                            <Text style={styles.roleSub} numberOfLines={2}>{r.sub}</Text>
-                            {selected && (
-                              <View style={styles.roleCheck}>
-                                <Text style={styles.roleCheckText}>✓</Text>
-                              </View>
-                            )}
-                          </Pressable>
-                        );
-                      })}
+                    {/* Role — new phone signups can be either a customer or an artist;
+                        Google is customer-only, so phone is the ONLY path for artists to
+                        join, and must offer a real choice, not assume one. */}
+                    {isNewUser && (
+                      <View style={styles.inputGroup}>
+                        <Text style={styles.inputLabel}>I'm here to</Text>
+                        <View style={styles.roleRow}>
+                          {([
+                            { key: 'CUSTOMER' as const, label: 'Book beauty', sub: 'Makeup, hair, nails & more', Icon: CrownIcon },
+                            { key: 'Provider' as const, label: "I'm an artist", sub: 'Grow your business & earn', Icon: MirrorIcon },
+                          ]).map(r => {
+                            const selected = role === r.key;
+                            return (
+                              <Pressable
+                                key={r.key}
+                                style={[styles.roleCard, selected && styles.roleCardSelected]}
+                                onPress={() => {
+                                  if (Platform.OS !== 'web') Haptics.selectionAsync();
+                                  setRole(r.key);
+                                }}
+                              >
+                                <View style={[styles.roleIconWrap, selected && { backgroundColor: Colors.brandLight }]}>
+                                  <r.Icon size={20} color={selected ? Colors.brand : Colors.secondaryLabel} />
+                                </View>
+                                <Text style={[styles.roleLabel, selected && { color: Colors.label }]}>{r.label}</Text>
+                                <Text style={styles.roleSub} numberOfLines={2}>{r.sub}</Text>
+                                {selected && (
+                                  <View style={styles.roleCheck}>
+                                    <Text style={styles.roleCheckText}>✓</Text>
+                                  </View>
+                                )}
+                              </Pressable>
+                            );
+                          })}
+                        </View>
+                      </View>
+                    )}
+
+                    {/* Age confirmation */}
+                    {isNewUser && (
+                      <Pressable
+                        style={styles.checkboxRow}
+                        onPress={() => {
+                          if (Platform.OS !== 'web') Haptics.selectionAsync();
+                          setAgeConfirmed(!ageConfirmed);
+                        }}
+                      >
+                        <View style={[styles.checkbox, ageConfirmed && styles.checkboxChecked]}>
+                          {ageConfirmed && <Text style={styles.checkboxCheck}>✓</Text>}
+                        </View>
+                        <Text style={styles.checkboxLabel}>I confirm I'm 18 or older</Text>
+                      </Pressable>
+                    )}
+
+                    {/* Terms */}
+                    {isNewUser && (
+                      <Text style={styles.agreeText}>
+                        By continuing you agree to our{' '}
+                        <Text style={styles.agreeLink} onPress={() => Linking.openURL('https://ca.glow.app/terms')}>Terms</Text>
+                        {' '}and{' '}
+                        <Text style={styles.agreeLink} onPress={() => Linking.openURL('https://ca.glow.app/privacy')}>Privacy Policy</Text>.
+                      </Text>
+                    )}
+
+                    {/* CTA — sends the OTP, doesn't log in yet */}
+                    <Animated.View style={{ transform: [{ scale: ctaScale }] }}>
+                      <Pressable
+                        style={[styles.ctaBtn, !isFormValid() && styles.ctaBtnDisabled]}
+                        onPress={() => requestOtp(role)}
+                        onPressIn={() => pressCta(true)}
+                        onPressOut={() => pressCta(false)}
+                        disabled={!isFormValid() || sendingOtp}
+                      >
+                        <Text style={styles.ctaBtnText}>{sendingOtp ? 'Sending code…' : 'Continue'}</Text>
+                        {!sendingOtp && <Text style={styles.ctaArrowText}>→</Text>}
+                      </Pressable>
+                    </Animated.View>
+
+                    <Text style={styles.disclaimer}>We'll text you a 6-digit code. Standard message and data rates may apply.</Text>
+
+                    {/* Salon & Business — quiet secondary */}
+                    {isNewUser && (
+                      <Pressable
+                        style={({ pressed }) => [styles.salonBtn, pressed && { opacity: 0.8 }]}
+                        onPress={() => requestOtp('SALON')}
+                        disabled={sendingOtp}
+                      >
+                        <CrownIcon size={18} color={Colors.gold} />
+                        <View style={{ flex: 1 }}>
+                          <Text style={styles.salonTitle}>Salon &amp; Business</Text>
+                          <Text style={styles.salonSub}>Book artists for your salon, event or team</Text>
+                        </View>
+                        <Text style={styles.salonArrow}>→</Text>
+                      </Pressable>
+                    )}
+                  </>
+                ) : (
+                  <>
+                    {/* OTP verify step */}
+                    <Pressable
+                      style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 14 }}
+                      onPress={() => { setOtpSent(false); setOtpCode(''); }}
+                      disabled={loading}
+                    >
+                      <Text style={{ fontSize: 14, color: Colors.brandDark }}>← Change number</Text>
+                    </Pressable>
+
+                    <View style={styles.inputGroup}>
+                      <Text style={styles.inputLabel}>Enter the 6-digit code</Text>
+                      <Text style={styles.otpSentTo}>Sent to +1 {phone}</Text>
+                      <TextInput
+                        style={[styles.textInput, styles.otpInput]}
+                        value={otpCode}
+                        onChangeText={v => setOtpCode(v.replace(/\D/g, '').slice(0, 6))}
+                        placeholder="123456"
+                        placeholderTextColor={Colors.tertiaryLabel}
+                        keyboardType="number-pad"
+                        maxLength={6}
+                        autoFocus
+                        returnKeyType="done"
+                        onSubmitEditing={verifyOtp}
+                      />
                     </View>
-                  </View>
+
+                    <Animated.View style={{ transform: [{ scale: ctaScale }] }}>
+                      <Pressable
+                        style={[styles.ctaBtn, otpCode.length !== 6 && styles.ctaBtnDisabled]}
+                        onPress={verifyOtp}
+                        onPressIn={() => pressCta(true)}
+                        onPressOut={() => pressCta(false)}
+                        disabled={otpCode.length !== 6 || loading}
+                      >
+                        <Text style={styles.ctaBtnText}>{loading ? 'Verifying…' : 'Verify & continue'}</Text>
+                        {!loading && <Text style={styles.ctaArrowText}>→</Text>}
+                      </Pressable>
+                    </Animated.View>
+
+                    <Pressable
+                      style={{ marginTop: 16, alignItems: 'center' }}
+                      onPress={() => requestOtp(pendingRoleRef.current)}
+                      disabled={sendingOtp || loading}
+                    >
+                      <Text style={styles.agreeLink}>{sendingOtp ? 'Resending…' : "Didn't get a code? Resend"}</Text>
+                    </Pressable>
+                  </>
                 )}
-
-                {/* Age confirmation */}
-                {isNewUser && (
-                  <Pressable
-                    style={styles.checkboxRow}
-                    onPress={() => {
-                      if (Platform.OS !== 'web') Haptics.selectionAsync();
-                      setAgeConfirmed(!ageConfirmed);
-                    }}
-                  >
-                    <View style={[styles.checkbox, ageConfirmed && styles.checkboxChecked]}>
-                      {ageConfirmed && <Text style={styles.checkboxCheck}>✓</Text>}
-                    </View>
-                    <Text style={styles.checkboxLabel}>I confirm I'm 18 or older</Text>
-                  </Pressable>
-                )}
-
-                {/* Terms */}
-                {isNewUser && (
-                  <Text style={styles.agreeText}>
-                    By continuing you agree to our{' '}
-                    <Text style={styles.agreeLink} onPress={() => Linking.openURL('https://ca.glow.app/terms')}>Terms</Text>
-                    {' '}and{' '}
-                    <Text style={styles.agreeLink} onPress={() => Linking.openURL('https://ca.glow.app/privacy')}>Privacy Policy</Text>.
-                  </Text>
-                )}
-
-                {/* CTA */}
-                <Animated.View style={{ transform: [{ scale: ctaScale }] }}>
-                  <Pressable
-                    style={[styles.ctaBtn, !isFormValid() && styles.ctaBtnDisabled]}
-                    onPress={() => login(role)}
-                    onPressIn={() => pressCta(true)}
-                    onPressOut={() => pressCta(false)}
-                    disabled={!isFormValid() || loading}
-                  >
-                    <Text style={styles.ctaBtnText}>{loading ? 'Sending…' : 'Continue'}</Text>
-                    {!loading && <Text style={styles.ctaArrowText}>→</Text>}
-                  </Pressable>
-                </Animated.View>
-
-                <Text style={styles.disclaimer}>Standard message and data rates may apply.</Text>
-
-                {/* Salon & Business — quiet secondary */}
-                {isNewUser && (
-                  <Pressable
-                    style={({ pressed }) => [styles.salonBtn, pressed && { opacity: 0.8 }]}
-                    onPress={() => login('SALON')}
-                    disabled={loading}
-                  >
-                    <CrownIcon size={18} color={Colors.gold} />
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.salonTitle}>Salon &amp; Business</Text>
-                      <Text style={styles.salonSub}>Book artists for your salon, event or team</Text>
-                    </View>
-                    <Text style={styles.salonArrow}>→</Text>
-                  </Pressable>
-                )}
-              </>
-            )}
-
-            {authMode === 'google' && (
-              <View style={{ paddingVertical: 8 }}>
-                <Pressable
-                  style={[styles.ctaBtn, { backgroundColor: '#fff', borderWidth: 1.5, borderColor: Colors.separator }, !googleConfigured && styles.ctaBtnDisabled]}
-                  onPress={() => googleConfigured && promptGoogleAsync()}
-                  disabled={loading || !googleConfigured}
-                >
-                  <Text style={[styles.ctaBtnText, { color: Colors.label }]}>
-                    {loading ? 'Signing in…' : googleConfigured ? 'Continue with Google' : 'Google sign-in unavailable'}
-                  </Text>
-                </Pressable>
-                <Text style={styles.disclaimer}>Google sign-in is for customers only.</Text>
-              </View>
-            )}
-
-            {/* Artist signup entry removed for now (per request). A quiet, login-only
-                link stays so existing phone-signed-up accounts (customers and
-                artists alike) aren't locked out — it opens phone mode already on
-                Returning, with no path back to New-here/artist signup from here. */}
-            {authMode !== 'phone' && (
-              <Pressable
-                style={{ marginTop: 16, alignItems: 'center' }}
-                onPress={() => { setAuthMode('phone'); setIsNewUser(false); }}
-                disabled={loading}
-              >
-                <Text style={styles.agreeLink}>Sign in with phone instead</Text>
-              </Pressable>
-            )}
           </View>
 
           {/* Trust row */}
@@ -486,6 +550,9 @@ const styles = StyleSheet.create({
     fontSize: 16, color: Colors.label, borderWidth: 1, borderColor: Colors.separator,
     fontFamily: Fonts.regular,
   },
+  otpSentTo: { fontSize: 12.5, color: Colors.tertiaryLabel, marginTop: -4, marginBottom: 10, fontFamily: Fonts.regular },
+  otpInput: { fontSize: 22, letterSpacing: 6, textAlign: 'center', fontFamily: Fonts.semibold },
+
   phoneRow: { flexDirection: 'row', gap: 8, alignItems: 'stretch' },
   countryBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
@@ -537,6 +604,15 @@ const styles = StyleSheet.create({
   ctaBtnDisabled: { backgroundColor: Colors.systemGray4, shadowOpacity: 0 },
   ctaBtnText: { color: '#fff', fontSize: 16.5, fontFamily: Fonts.semibold },
   ctaArrowText: { color: 'rgba(255,255,255,0.9)', fontSize: 16, fontFamily: Fonts.semibold },
+
+  googleBtn: {
+    backgroundColor: '#fff', borderWidth: 1.5, borderColor: Colors.separator,
+    shadowOpacity: 0.06,
+  },
+
+  orDivider: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 20 },
+  orLine: { flex: 1, height: 1, backgroundColor: Colors.separator },
+  orText: { fontSize: 12.5, color: Colors.tertiaryLabel, fontFamily: Fonts.medium },
 
   disclaimer: { fontSize: 11.5, color: Colors.tertiaryLabel, textAlign: 'center', marginTop: 14, lineHeight: 16, fontFamily: Fonts.regular },
 

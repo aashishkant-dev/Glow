@@ -901,7 +901,7 @@ export function ProfileScreen() {
         )}
 
         {isProvider && (
-          <View style={styles.statsBar}>
+          <View style={[styles.statsBar, styles.statsBarBelowEarnings]}>
             <View style={styles.statCell}>
               <Text style={styles.statNum}>
                 {providerSessions !== null ? String(providerSessions) : '—'}
@@ -1157,8 +1157,8 @@ export function ProfileScreen() {
                         >
                           <View style={[styles.checkIconWrap, item.ok ? styles.checkIconOk : styles.checkIconPending]}>
                             {item.ok
-                              ? <item.Icon size={22} color="#C4667E" />
-                              : <ClockIcon size={22} color="#D4AF37" />
+                              ? <item.Icon size={16} color="#C4667E" />
+                              : <ClockIcon size={16} color="#D4AF37" />
                             }
                           </View>
                           <Text style={styles.checkLabel} numberOfLines={1}>{item.label}</Text>
@@ -1979,6 +1979,11 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.cardBorder,
     marginBottom: 8,
   },
+  // Provider profile inserts the earnings card between the hero and this bar
+  // (see the earnings summary section above) — the -28 pull-up above was
+  // designed for the bar sitting directly under the hero gradient (customer
+  // profile) and was clipping into the earnings card's own bottom edge here.
+  statsBarBelowEarnings: { marginTop: 12 },
   statCell: { flex: 1, alignItems: 'center', gap: 5 },
   statNum: { fontSize: 26, fontWeight: '800', color: ROSE_DEEP, letterSpacing: -0.7 },
   statLabel: { fontSize: 12, color: LABEL, fontWeight: '600', textAlign: 'center' },
@@ -2106,16 +2111,19 @@ const styles = StyleSheet.create({
   },
   specialtyChipText: { fontSize: 13, fontWeight: '700', color: BRAND },
 
-  checkGrid: { flexDirection: 'row', gap: 10, marginTop: 10, paddingTop: 6 },
-  checkCell: { flex: 1, alignItems: 'center', gap: 6 },
+  // De-emphasized on purpose: these are background-checks, not the main content
+  // of the artist's own profile — smaller icons, lighter label weight, quieter
+  // status color than the pricing/gallery sections above.
+  checkGrid: { flexDirection: 'row', gap: 8, marginTop: 8, paddingTop: 4 },
+  checkCell: { flex: 1, alignItems: 'center', gap: 4 },
   checkIconWrap: {
-    width: 50, height: 50, borderRadius: 18,
+    width: 36, height: 36, borderRadius: 12,
     alignItems: 'center', justifyContent: 'center',
   },
   checkIconOk:      { backgroundColor: ICON_BG },
   checkIconPending: { backgroundColor: Colors.goldSoft },
-  checkLabel:  { fontSize: 12, fontWeight: '700', color: VALUE, textAlign: 'center' },
-  checkStatus: { fontSize: 11, fontWeight: '600', textAlign: 'center' },
+  checkLabel:  { fontSize: 11, fontWeight: '500', color: LABEL, textAlign: 'center' },
+  checkStatus: { fontSize: 10, fontWeight: '500', textAlign: 'center' },
 
   quickActionsGrid: { flexDirection: 'row', gap: 12 },
   quickAction: {

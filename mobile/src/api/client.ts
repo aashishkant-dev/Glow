@@ -111,7 +111,11 @@ export interface AuthUser {
   phoneVerified: boolean;
 }
 
-export function apiLogin(payload: { phone: string; name?: string; role?: string }) {
+export function apiSendLoginOtp(phone: string) {
+  return request<{ message: string }>('POST', '/auth/send-login-otp', { phone }, false, 2);
+}
+
+export function apiLogin(payload: { phone: string; otp: string; name?: string; role?: string }) {
   // 2 retries — login is usually the FIRST request, the one that wakes a cold backend.
   return request<{ token: string; user: AuthUser }>('POST', '/auth/login', payload, false, 2);
 }

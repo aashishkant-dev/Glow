@@ -50,17 +50,53 @@ function checkDemoRateLimit(ip) {
 }
 
 // ── POST /auth/login ───────────────────────────────────────────────────────────
+// ── POST /auth/send-login-otp ────────────────────────────────────────────────
+// Step 1 of phone login: send an OTP to the given number. No account is
+// created and no token is issued here — that only happens once the code is
+// verified in /auth/login below. Demo phone skips real delivery (fixed code).
+router.post(
+  '/send-login-otp',
+  [body('phone').trim().notEmpty().withMessage('phone is required')],
+  validate,
+  async (req, res) => {
+    try {
+      const phone = normalizePhone(req.body.phone);
+
+      const existing = await prisma.user.findUnique({ where: { phone } });
+      if (existing && existing.deletedAt) {
+        return res.status(403).json({ error: 'This account has been deleted.' });
+      }
+
+      if (isDemoPhone(phone)) {
+        return res.json({ message: 'OTP sent' }); // fixed DEMO_OTP, no real send
+      }
+
+      try {
+        await generateOTP(phone);
+      } catch (err) {
+        if (err.status === 429) return res.status(429).json({ error: err.message });
+        throw err;
+      }
+      res.json({ message: 'OTP sent' });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
 router.post(
   '/login',
   [
     body('phone').trim().notEmpty().withMessage('phone is required'),
+    body('otp').trim().isLength({ min: 6, max: 6 }).withMessage('otp must be exactly 6 digits').isNumeric().withMessage('otp must be numeric'),
     body('name').optional().trim().notEmpty().withMessage('name must not be blank if provided'),
     body('role').optional().isIn(['CUSTOMER', 'Provider', 'SALON']).withMessage('role must be CUSTOMER, Provider, or SALON'),
   ],
   validate,
   async (req, res) => {
     try {
-      const { phone: rawPhone, name: rawName, role } = req.body;
+      const { phone: rawPhone, otp, name: rawName, role } = req.body;
       const phone = normalizePhone(rawPhone);
       const name  = rawName ? sanitizeName(rawName) : undefined;
 
@@ -68,6 +104,23 @@ router.post(
 
       if (user && user.deletedAt) {
         return res.status(403).json({ error: 'This account has been deleted.' });
+      }
+
+      // Verify the OTP before touching the account — a wrong/missing code must
+      // never create a user or issue a token. Demo phone uses its fixed code
+      // (same bypass /auth/verify-phone already relies on) since Twilio can't
+      // reliably reach App Store/Play reviewers.
+      if (isDemoPhone(phone)) {
+        const ip = req.ip || req.headers['x-forwarded-for'] || 'unknown';
+        if (!checkDemoRateLimit(String(ip).split(',')[0].trim())) {
+          return res.status(429).json({ error: 'Too many attempts. Try again later.' });
+        }
+        if (otp !== DEMO_OTP) return res.status(400).json({ error: 'Invalid code' });
+      } else {
+        const result = await verifyOTP(phone, otp);
+        if (!result.valid) {
+          return res.status(400).json({ error: result.error });
+        }
       }
 
       // Demo phone can switch roles between logins — the single reviewer number
@@ -104,13 +157,17 @@ router.post(
             });
           }
           user = await prisma.user.create({
-            data: { phone, name, role },
+            data: { phone, name, role, phoneVerified: true },
           });
         }
 
         if (role === 'Provider' && !isDemoPhone(phone)) {
           await prisma.providerProfile.create({ data: { userId: user.id } });
         }
+      } else if (!user.phoneVerified) {
+        // Returning user whose number was never verified (pre-OTP-era accounts) —
+        // a successful OTP check here proves ownership, so mark it now.
+        user = await prisma.user.update({ where: { id: user.id }, data: { phoneVerified: true } });
       }
 
       const token = jwt.sign(

@@ -97,6 +97,12 @@ jest.mock('../utils/googleAuth', () => ({
 }));
 const { verifyGoogleIdToken } = require('../utils/googleAuth');
 
+jest.mock('../utils/otp', () => ({
+  generateOTP: jest.fn().mockResolvedValue(undefined),
+  verifyOTP:   jest.fn().mockResolvedValue({ valid: true }),
+}));
+const { verifyOTP } = require('../utils/otp');
+
 const app = require('../app');
 
 // ── Health ────────────────────────────────────────────────────────────────────
@@ -120,33 +126,69 @@ describe('404 handler', () => {
 });
 
 // ── Auth input validation ─────────────────────────────────────────────────────
-describe('POST /auth/login', () => {
+describe('POST /auth/send-login-otp', () => {
   it('rejects missing phone', async () => {
-    const res = await request(app).post('/auth/login').send({});
+    const res = await request(app).post('/auth/send-login-otp').send({});
     expect(res.status).toBe(400);
     expect(res.body).toHaveProperty('errors');
   });
 
-  it('rejects a new user missing name and role', async () => {
+  it('sends an OTP for a phone with no account yet (new signup)', async () => {
+    mockFindUnique.mockResolvedValueOnce(null);
+    const res = await request(app).post('/auth/send-login-otp').send({ phone: '4165550100' });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ message: 'OTP sent' });
+  });
+
+  it('rejects a deleted account', async () => {
+    mockFindUnique.mockResolvedValueOnce({ id: 'user1', deletedAt: new Date() });
+    const res = await request(app).post('/auth/send-login-otp').send({ phone: '4165550100' });
+    expect(res.status).toBe(403);
+  });
+});
+
+describe('POST /auth/login', () => {
+  it('rejects missing phone', async () => {
+    const res = await request(app).post('/auth/login').send({ otp: '123456' });
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('errors');
+  });
+
+  it('rejects missing/malformed otp', async () => {
+    const res = await request(app).post('/auth/login').send({ phone: '4165550100' });
+    expect(res.status).toBe(400);
+    expect(res.body).toHaveProperty('errors');
+  });
+
+  it('rejects an invalid OTP before touching the account', async () => {
+    verifyOTP.mockResolvedValueOnce({ valid: false, error: 'Invalid OTP. 4 attempts remaining.' });
+    const res = await request(app)
+      .post('/auth/login')
+      .send({ phone: '4165550100', otp: '000000', name: 'Test User', role: 'CUSTOMER' });
+    expect(res.status).toBe(400);
+    expect(res.body.error).toMatch(/invalid otp/i);
+  });
+
+  it('rejects a new user missing name and role even with a valid OTP', async () => {
     mockFindUnique.mockResolvedValueOnce(null); // no existing user
     const res = await request(app)
       .post('/auth/login')
-      .send({ phone: '4165550100' });
+      .send({ phone: '4165550100', otp: '123456' });
     expect(res.status).toBe(400);
     expect(res.body.error).toMatch(/name and role/i);
   });
 
-  it('returns a token directly for a known user, no OTP round trip', async () => {
+  it('returns a token for a known user after a valid OTP', async () => {
     mockFindUnique.mockResolvedValueOnce({
       id: 'user1', phone: '+14165550100', name: 'Test User', role: 'CUSTOMER',
-      photoUrl: '', onboardingComplete: true, phoneVerified: false, deletedAt: null,
+      photoUrl: '', onboardingComplete: true, phoneVerified: true, deletedAt: null,
     });
     const res = await request(app)
       .post('/auth/login')
-      .send({ phone: '4165550100' });
+      .send({ phone: '4165550100', otp: '123456' });
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('token');
-    expect(res.body.user).toMatchObject({ id: 'user1', phoneVerified: false });
+    expect(res.body.user).toMatchObject({ id: 'user1', phoneVerified: true });
   });
 });
 
