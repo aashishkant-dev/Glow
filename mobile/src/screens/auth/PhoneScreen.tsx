@@ -236,10 +236,27 @@ export function PhoneScreen() {
                   <Text style={{ fontSize: 14, color: Colors.brandDark }}>← Back to Google</Text>
                 </Pressable>
 
-                {/* Segmented control */}
-                {/* New here/Returning toggle hidden while phone signup is disabled
-                    (per request) — this entry point is login-only for existing
-                    accounts, isNewUser stays false, no path to phone signup here. */}
+                {/* New here/Returning toggle — restored. A prior pass removed this
+                    along with the standalone "I'm an artist" entry point, which left
+                    NEW phone signups (customer AND artist) with no way to enter a
+                    name or pick a role — the backend correctly demanded them, but
+                    nothing in the UI could satisfy that. This is the fix. */}
+                <View style={styles.segment}>
+                  {[{ label: 'New here', value: true }, { label: 'Returning', value: false }].map(t => (
+                    <Pressable
+                      key={t.label}
+                      style={[styles.segmentBtn, isNewUser === t.value && styles.segmentBtnActive]}
+                      onPress={() => {
+                        if (Platform.OS !== 'web') Haptics.selectionAsync();
+                        setIsNewUser(t.value);
+                      }}
+                    >
+                      <Text style={[styles.segmentText, isNewUser === t.value && styles.segmentTextActive]}>
+                        {t.label}
+                      </Text>
+                    </Pressable>
+                  ))}
+                </View>
 
                 {/* Name */}
                 {isNewUser && (
@@ -271,7 +288,7 @@ export function PhoneScreen() {
                       value={phone}
                       onChangeText={handlePhoneChange}
                       onBlur={() => setPhone(formatPhone(phone))}
-                      placeholder="416-555-0100"
+                      placeholder="705-555-0100"
                       placeholderTextColor={Colors.tertiaryLabel}
                       keyboardType="phone-pad"
                       maxLength={12}
@@ -281,18 +298,41 @@ export function PhoneScreen() {
                   </View>
                 </View>
 
-                {/* Phone signup is reached only via "I'm an artist" (role is preset to
-                    Provider on entry), so there's no role picker here anymore — the
-                    old Customer/Artist choice moved to the top-level Google/Email vs.
-                    phone split. "Returning" phone logins still work for any existing
-                    role (customer accounts created before this change included). */}
+                {/* Role — new phone signups can be either a customer or an artist;
+                    Google is customer-only, so phone is the ONLY path for artists to
+                    join, and must offer a real choice, not assume one. */}
                 {isNewUser && (
-                  <View style={[styles.roleCard, styles.roleCardSelected, { marginBottom: 18 }]}>
-                    <View style={[styles.roleIconWrap, { backgroundColor: Colors.brandLight }]}>
-                      <MirrorIcon size={20} color={Colors.brand} />
+                  <View style={styles.inputGroup}>
+                    <Text style={styles.inputLabel}>I'm here to</Text>
+                    <View style={styles.roleRow}>
+                      {([
+                        { key: 'CUSTOMER' as const, label: 'Book beauty', sub: 'Makeup, hair, nails & more', Icon: CrownIcon },
+                        { key: 'Provider' as const, label: "I'm an artist", sub: 'Grow your business & earn', Icon: MirrorIcon },
+                      ]).map(r => {
+                        const selected = role === r.key;
+                        return (
+                          <Pressable
+                            key={r.key}
+                            style={[styles.roleCard, selected && styles.roleCardSelected]}
+                            onPress={() => {
+                              if (Platform.OS !== 'web') Haptics.selectionAsync();
+                              setRole(r.key);
+                            }}
+                          >
+                            <View style={[styles.roleIconWrap, selected && { backgroundColor: Colors.brandLight }]}>
+                              <r.Icon size={20} color={selected ? Colors.brand : Colors.secondaryLabel} />
+                            </View>
+                            <Text style={[styles.roleLabel, selected && { color: Colors.label }]}>{r.label}</Text>
+                            <Text style={styles.roleSub} numberOfLines={2}>{r.sub}</Text>
+                            {selected && (
+                              <View style={styles.roleCheck}>
+                                <Text style={styles.roleCheckText}>✓</Text>
+                              </View>
+                            )}
+                          </Pressable>
+                        );
+                      })}
                     </View>
-                    <Text style={[styles.roleLabel, { color: Colors.label }]}>Signing up as an artist</Text>
-                    <Text style={styles.roleSub}>Grow your business — find clients & earn</Text>
                   </View>
                 )}
 

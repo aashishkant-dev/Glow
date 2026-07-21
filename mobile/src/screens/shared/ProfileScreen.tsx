@@ -1302,26 +1302,26 @@ export function ProfileScreen() {
             <Text style={styles.sectionLabel}>Quick Actions</Text>
             <View style={styles.quickActionsGrid}>
               <Pressable style={({ pressed }) => [styles.quickAction, pressed && { opacity: 0.82 }]} onPress={() => nav.navigate('NewBooking')}>
-                <View style={[styles.quickActionIcon, { backgroundColor: '#FCECEF' }]}>
-                  <CalendarSVGIcon size={22} color={BRAND} />
+                <View style={[styles.quickActionIcon, { backgroundColor: Colors.brandDeep }]}>
+                  <CalendarSVGIcon size={22} color="#fff" />
                 </View>
                 <Text style={styles.quickActionLabel}>Book Now</Text>
               </Pressable>
               <Pressable style={({ pressed }) => [styles.quickAction, pressed && { opacity: 0.82 }]} onPress={() => nav.navigate('Bookings')}>
-                <View style={[styles.quickActionIcon, { backgroundColor: '#FCECEF' }]}>
-                  <NoteIcon size={22} color={BRAND} />
+                <View style={[styles.quickActionIcon, { backgroundColor: Colors.brandDeep }]}>
+                  <CalendarSVGIcon size={22} color="#fff" />
                 </View>
                 <Text style={styles.quickActionLabel}>My Bookings</Text>
               </Pressable>
               <Pressable style={({ pressed }) => [styles.quickAction, pressed && { opacity: 0.82 }]} onPress={() => nav.navigate('Notifications')}>
-                <View style={[styles.quickActionIcon, { backgroundColor: '#FEF9C3' }]}>
-                  <BellIcon size={22} color="#CA8A04" />
+                <View style={[styles.quickActionIcon, { backgroundColor: '#B45309' }]}>
+                  <BellIcon size={22} color="#fff" />
                 </View>
                 <Text style={styles.quickActionLabel}>Alerts</Text>
               </Pressable>
               <Pressable style={({ pressed }) => [styles.quickAction, pressed && { opacity: 0.82 }]} onPress={() => nav.navigate('Help')}>
-                <View style={[styles.quickActionIcon, { backgroundColor: '#F6EBC9' }]}>
-                  <HelpIcon size={22} color="#D4AF37" />
+                <View style={[styles.quickActionIcon, { backgroundColor: '#92702A' }]}>
+                  <HelpIcon size={22} color="#fff" />
                 </View>
                 <Text style={styles.quickActionLabel}>Help</Text>
               </Pressable>
@@ -1340,13 +1340,13 @@ export function ProfileScreen() {
             <Text style={styles.sectionLabel}>Trust & Safety</Text>
             <View style={styles.card}>
               {([
-                { Icon: ShieldCheckIcon,        label: 'Background Checked', desc: 'Criminal record check on file',
+                { Icon: ShieldCheckIcon,        label: 'Background Checked', desc: 'Criminal record check',
                   detail: 'Artists can submit a Criminal Record Check for verification. Our team reviews each document, and artists who clear it carry a gold verified badge on their profile — look for it when you book. Artists without the badge have not completed a background check.' },
-                { Icon: CardAccountDetailsIcon, label: 'ID Verified',     desc: 'Government-issued photo ID confirmed',
+                { Icon: CardAccountDetailsIcon, label: 'ID Verified',     desc: 'Government photo ID',
                   detail: 'We confirm each Provider’s identity against a government-issued photo ID (driver’s licence, passport or provincial ID). The name on file must match their banking and certification documents, so you always know exactly who is coming to your home.' },
-                { Icon: AccountCheckIcon,       label: 'Admin Approved',  desc: 'Every profile reviewed by a real person',
+                { Icon: AccountCheckIcon,       label: 'Admin Approved',  desc: 'Reviewed by our team',
                   detail: 'Beyond automated checks, a Glow team member manually reviews every Provider application — credentials, experience, references and documents — before approving them. No Provider appears in the app until a human has signed off.' },
-                { Icon: StarIcon,               label: 'Rating System',   desc: 'Public 1–5 star reviews after every visit',
+                { Icon: StarIcon,               label: 'Rating System',   desc: '1–5 stars per visit',
                   detail: 'After each completed visit, clients rate their Provider from 1 to 5 stars and can leave a review. Ratings are visible on every Provider profile and we follow up on any low scores, so quality stays high across the whole network.' },
               ] as const).map((t, i) => (
                 <View key={t.label}>
