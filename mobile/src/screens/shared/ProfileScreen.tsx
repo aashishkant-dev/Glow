@@ -47,7 +47,10 @@ import * as Linking from 'expo-linking';
 import Constants from 'expo-constants';
 import { useAuth } from '../../context/AuthContext';
 import { useLocation } from '../../context/LocationContext';
-import { apiGetProfile, apiGetMyDocuments, apiSetPublicProfile, apiUpdateProfile, apiUploadPhoto, UserProfile } from '../../api/client';
+import {
+  apiGetProfile, apiGetMyDocuments, apiSetPublicProfile, apiUpdateProfile, apiUploadPhoto, UserProfile,
+  apiGetProviderServices, apiSetProviderServices, apiUpdateProviderPricing, ProviderServiceItem,
+} from '../../api/client';
 import { Storage } from '../../utils/storage';
 import { Colors, Fonts } from '../../utils/colors';
 import { GlowMark } from '../../components/GlowLogo';
@@ -208,7 +211,42 @@ export function ProfileScreen() {
   const [policeDoc, setPoliceDoc] = useState<'none' | 'submitted' | 'approved'>('none');
   const [galleryUploading, setGalleryUploading] = useState(false);
 
+  // Real per-service pricing — fetched from the artist's actual service menu
+  // (ProviderService rows), not the pricing-model badge that used to stand in
+  // for it. Editing a price locally, then "Save changes" replaces the whole
+  // menu server-side (PUT /services is full-replace, matching the API's design).
+  const [services,        setServices]        = useState<ProviderServiceItem[]>([]);
+  const [servicesLoading,  setServicesLoading]  = useState(false);
+  const [priceEdits,       setPriceEdits]       = useState<Record<string, string>>({});
+  const [pricesSaving,     setPricesSaving]     = useState(false);
+  const [priceNegotiable,  setPriceNegotiable]  = useState(false);
+  const [negotiableSaving, setNegotiableSaving] = useState(false);
+
   const LANGUAGE_OPTIONS = ['English', 'French', 'Hindi', 'Nepali', 'Spanish', 'Mandarin', 'Punjabi', 'Arabic'];
+
+  const hasPriceEdits = Object.keys(priceEdits).length > 0;
+
+  function priceValueFor(s: ProviderServiceItem) {
+    return priceEdits[s.id] ?? String(s.price);
+  }
+
+  async function savePriceEdits() {
+    setPricesSaving(true);
+    try {
+      const updated = services.map(s => ({
+        name: s.name,
+        price: priceEdits[s.id] !== undefined ? (Number(priceEdits[s.id]) || 0) : s.price,
+        durationMin: s.durationMin,
+      }));
+      const { services: saved } = await apiSetProviderServices(updated);
+      setServices(saved.map((s, i) => ({ ...s, id: services[i]?.id ?? String(i) })));
+      setPriceEdits({});
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      Alert.alert('Could not save prices', e?.message || 'Please try again.');
+    }
+    setPricesSaving(false);
+  }
 
   function openField(key: 'name' | 'bio', title: string, current: string, multiline = false) {
     setFieldDraft(current);
@@ -324,8 +362,19 @@ export function ProfileScreen() {
         else if (police.some(d => d.status === 'PENDING')) setPoliceDoc('submitted');
         else setPoliceDoc('none');
       }).catch(() => {});
+      setServicesLoading(true);
+      apiGetProviderServices()
+        .then(({ services: s }) => setServices(s))
+        .catch(() => {})
+        .finally(() => setServicesLoading(false));
     }
   }, [token]);
+
+  useEffect(() => {
+    if (typeof profile?.providerProfile?.priceNegotiable === 'boolean') {
+      setPriceNegotiable(profile.providerProfile.priceNegotiable);
+    }
+  }, [profile?.providerProfile?.priceNegotiable]);
 
   async function compressAndSave(asset: ImagePicker.ImagePickerAsset) {
     setPhotoUploading(true);
@@ -1052,34 +1101,82 @@ export function ProfileScreen() {
           </View>
         )}
 
-        {/* ── Section: Provider My Pricing ──────────────────────── */}
+        {/* ── Section: Provider My Pricing — real, editable per-service list ── */}
         {isProvider && (
           <View style={styles.sectionWrap}>
-            <Text style={styles.sectionLabel}>Pricing</Text>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={styles.sectionLabel}>Pricing</Text>
+              {hasPriceEdits && (
+                <Pressable onPress={savePriceEdits} disabled={pricesSaving} style={styles.saveChangesBtn}>
+                  {pricesSaving
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <Text style={styles.saveChangesBtnText}>Save changes</Text>}
+                </Pressable>
+              )}
+            </View>
             <View style={styles.card}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, marginBottom: 14 }}>
-                <View style={[styles.navCardIcon, { backgroundColor: '#F0FDF4', borderColor: '#BBF7D0' }]}>
-                  <Text style={{ fontSize: 20 }}>💰</Text>
+              {servicesLoading ? (
+                <View style={{ paddingVertical: 20, alignItems: 'center' }}>
+                  <ActivityIndicator color={BRAND} />
                 </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.navCardTitle}>My Pricing</Text>
-                  <Text style={styles.navCardSub}>
-                    Per-service pricing{providerP?.priceNegotiable ? ' · Negotiable' : ''}
+              ) : services.length === 0 ? (
+                <View style={styles.noProfileNote}>
+                  <Text style={styles.noProfileText}>
+                    You haven't added any priced services yet. Add prices during onboarding, or contact support to add your first service.
                   </Text>
                 </View>
-              </View>
-
-              {/* Pricing model badge */}
-              <View style={{ flexDirection: 'row', gap: 8, flexWrap: 'wrap' }}>
-                <View style={{ backgroundColor: '#DCFCE7', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }}>
-                  <Text style={{ fontSize: 12, fontWeight: '700', color: '#166534' }}>Per Service</Text>
-                </View>
-                {providerP?.priceNegotiable && (
-                  <View style={{ backgroundColor: '#FEF3C7', borderRadius: 8, paddingHorizontal: 10, paddingVertical: 4 }}>
-                    <Text style={{ fontSize: 12, fontWeight: '700', color: '#92400E' }}>Open to Negotiation</Text>
+              ) : (
+                services.map((s, i) => (
+                  <View key={s.id}>
+                    {i > 0 && <Divider />}
+                    <View style={styles.priceRow}>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.priceRowName} numberOfLines={1}>{s.name}</Text>
+                        <Text style={styles.priceRowDuration}>{s.durationMin} min</Text>
+                      </View>
+                      <View style={styles.priceInputWrap}>
+                        <Text style={styles.priceInputDollar}>$</Text>
+                        <TextInput
+                          style={styles.priceInput}
+                          value={priceValueFor(s)}
+                          onChangeText={v => setPriceEdits(prev => ({ ...prev, [s.id]: v.replace(/[^0-9.]/g, '') }))}
+                          keyboardType="decimal-pad"
+                          placeholder="0"
+                          placeholderTextColor={Colors.tertiaryLabel}
+                        />
+                      </View>
+                    </View>
                   </View>
-                )}
-              </View>
+                ))
+              )}
+              {services.length > 0 && (
+                <>
+                  <Divider />
+                  <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 10 }}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.infoLabel}>Open to negotiation</Text>
+                      <Text style={styles.navCardSub}>Let clients propose a different price when booking</Text>
+                    </View>
+                    <Switch
+                      value={priceNegotiable}
+                      disabled={negotiableSaving}
+                      onValueChange={async (next) => {
+                        setPriceNegotiable(next);
+                        setNegotiableSaving(true);
+                        try {
+                          await apiUpdateProviderPricing({ pricingModel: 'PER_SERVICE', priceNegotiable: next });
+                        } catch (e: any) {
+                          setPriceNegotiable(!next);
+                          Alert.alert('Could not save', e?.message || 'Please try again.');
+                        }
+                        setNegotiableSaving(false);
+                      }}
+                      trackColor={{ false: '#D1D5DB', true: '#E9A0B1' }}
+                      thumbColor={priceNegotiable ? BRAND : '#F4F4F5'}
+                    />
+                  </View>
+                </>
+              )}
             </View>
           </View>
         )}
@@ -1429,6 +1526,30 @@ export function ProfileScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: BG },
   scroll: { flex: 1 },
+
+  // ── Real per-service pricing list ──
+  saveChangesBtn: {
+    backgroundColor: Colors.brand, borderRadius: 100,
+    paddingHorizontal: 14, paddingVertical: 7,
+  },
+  saveChangesBtnText: { color: '#fff', fontSize: 12.5, fontFamily: Fonts.semibold },
+  priceRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 12, gap: 12,
+  },
+  priceRowName: { fontSize: 14.5, fontFamily: Fonts.semibold, color: Colors.label },
+  priceRowDuration: { fontSize: 12, color: Colors.tertiaryLabel, marginTop: 2, fontFamily: Fonts.regular },
+  priceInputWrap: {
+    flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.systemGroupedBackground, borderRadius: 10,
+    paddingHorizontal: 10, borderWidth: 1, borderColor: Colors.separator,
+    minWidth: 76,
+  },
+  priceInputDollar: { fontSize: 14, fontFamily: Fonts.semibold, color: Colors.secondaryLabel },
+  priceInput: {
+    flex: 1, fontSize: 14, fontFamily: Fonts.semibold, color: Colors.label,
+    paddingVertical: 8, paddingHorizontal: 4, textAlign: 'right',
+  },
 
   // ── Soft blush hero ──
   hero: {

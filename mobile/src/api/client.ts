@@ -148,6 +148,18 @@ export function apiSubmitProviderOnboarding(payload: {
   return request<{ message: string }>('POST', '/auth/provider-profile', payload);
 }
 
+export interface ProviderServiceItem {
+  id: string;
+  name: string;
+  price: number;
+  durationMin: number;
+  active: boolean;
+}
+
+export function apiGetProviderServices() {
+  return request<{ services: ProviderServiceItem[] }>('GET', '/services');
+}
+
 export function apiSetProviderServices(services: { name: string; price: number; durationMin?: number }[]) {
   return request<{ services: { name: string; price: number; durationMin: number; active: boolean }[] }>(
     'PUT', '/services', { services },

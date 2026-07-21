@@ -4,7 +4,7 @@
  * Artists tab: 2-column grid of celebrity/seed artists with specialty filter chips.
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { Alert, FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Colors, Fonts } from '../../utils/colors';
@@ -13,13 +13,14 @@ import { LookTile } from '../../components/LookTile';
 import { LookSheet } from '../../components/LookSheet';
 import { ArtistCard } from '../../components/ArtistCard';
 import { apiPublicCatalog, apiPublicProviders, PublicProviderCard } from '../../api/client';
+import { SearchIcon } from '../../components/TabIcons';
 import { SparkleIcon } from '../../components/BeautyIcons';
 import { tapLight } from '../../utils/haptics';
 import { SEED_ARTISTS } from '../../data/seedArtists';
 
 type LookFilter = 'All' | LookCollection;
 type Tab = 'Looks' | 'Artists';
-const ARTIST_SPECIALTIES = ['All', 'Bridal Makeup', 'Hair Styling', 'Facial', 'Nails', 'Mehendi', 'Massage', 'Makeup', 'Party Makeup'];
+type ArtistSort = 'rating' | 'priceLow' | 'experience';
 
 export function ExploreScreen() {
   const insets = useSafeAreaInsets();
@@ -29,7 +30,10 @@ export function ExploreScreen() {
   const [openLook, setOpenLook] = useState<Look | null>(null);
   const [catalogPrices, setCatalogPrices] = useState<Record<string, number>>({});
   const [artists, setArtists] = useState<PublicProviderCard[]>([]);
+  const [artistsLoading, setArtistsLoading] = useState(true);
   const [artistFilter, setArtistFilter] = useState('All');
+  const [artistSort, setArtistSort] = useState<ArtistSort>('rating');
+  const [query, setQuery] = useState('');
 
   useEffect(() => {
     apiPublicCatalog()
@@ -44,7 +48,8 @@ export function ExploreScreen() {
   useEffect(() => {
     apiPublicProviders()
       .then(r => setArtists(r.providers))
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setArtistsLoading(false));
   }, []);
 
   const looks = useMemo(
@@ -52,27 +57,68 @@ export function ExploreScreen() {
     [lookFilter],
   );
 
+  const filteredLooks = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return looks;
+    return looks.filter(l => l.name.toLowerCase().includes(q) || l.serviceType.toLowerCase().includes(q));
+  }, [looks, query]);
+
   const [left, right] = useMemo(() => {
     const l: Look[] = []; const r: Look[] = [];
     let lh = 0; let rh = 0;
-    looks.forEach(look => {
+    filteredLooks.forEach(look => {
       const h = look.tall ? 230 : 165;
       if (lh <= rh) { l.push(look); lh += h; } else { r.push(look); rh += h; }
     });
     return [l, r];
-  }, [looks]);
+  }, [filteredLooks]);
 
   const priceOf = (look: Look) => catalogPrices[look.serviceType];
 
-  const displayArtists = useMemo(() => {
+  const allArtists = useMemo(() => {
     // Merge API artists with seed artists (dedupe by id)
     const seedOnly = SEED_ARTISTS.filter(s => !artists.find(a => a.id === s.id));
-    const all = [...seedOnly, ...artists];
-    return artistFilter === 'All' ? all : all.filter(a =>
-      (a as any).specialty === artistFilter ||
-      a.qualificationType?.replace(/_/g, ' ').toLowerCase().includes(artistFilter.toLowerCase())
-    );
-  }, [artists, artistFilter]);
+    return [...seedOnly, ...artists];
+  }, [artists]);
+
+  // Specialty chips derived from the actual artist pool, not a hand-maintained
+  // list — new specialties (real Providers, future seed additions) show up
+  // automatically instead of silently having no filter for them.
+  const artistSpecialties = useMemo(() => {
+    const set = new Set<string>();
+    allArtists.forEach(a => {
+      const seedSpecialty = (a as any).specialty as string | undefined;
+      if (seedSpecialty) set.add(seedSpecialty);
+      a.specialties?.forEach(s => set.add(s));
+    });
+    return ['All', ...Array.from(set).sort()];
+  }, [allArtists]);
+
+  const displayArtists = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    let list = allArtists.filter(a => {
+      const matchesFilter = artistFilter === 'All' ||
+        (a as any).specialty === artistFilter ||
+        a.specialties?.includes(artistFilter) ||
+        a.qualificationType?.replace(/_/g, ' ').toLowerCase().includes(artistFilter.toLowerCase());
+      if (!matchesFilter) return false;
+      if (!q) return true;
+      return a.name.toLowerCase().includes(q) ||
+        a.specialties?.some(s => s.toLowerCase().includes(q)) ||
+        a.qualificationType?.replace(/_/g, ' ').toLowerCase().includes(q);
+    });
+
+    list = [...list].sort((a, b) => {
+      if (artistSort === 'rating') return (b.rating ?? 0) - (a.rating ?? 0) || b.ratingCount - a.ratingCount;
+      if (artistSort === 'priceLow') {
+        const ap = a.startingPrice ?? Infinity, bp = b.startingPrice ?? Infinity;
+        return ap - bp;
+      }
+      // experience
+      return (b.experienceYears ?? 0) - (a.experienceYears ?? 0);
+    });
+    return list;
+  }, [allArtists, artistFilter, artistSort, query]);
 
   const artistColumns = useMemo(() => {
     const cols: PublicProviderCard[][] = [[], []];
@@ -93,34 +139,50 @@ export function ExploreScreen() {
     nav.navigate('ProviderPublicProfile', { providerId: artist.id, providerName: artist.name });
   }
 
+  const SORT_OPTIONS: { label: string; value: ArtistSort }[] = [
+    { label: 'Top rated', value: 'rating' },
+    { label: 'Price: low to high', value: 'priceLow' },
+    { label: 'Most experienced', value: 'experience' },
+  ];
+
   return (
     <View style={styles.container}>
+      <View style={[styles.header, { paddingTop: insets.top + 18 }]}>
+        <Text style={styles.eyebrow}>EXPLORE</Text>
+        <View style={styles.titleRow}>
+          <Text style={styles.title}>{tab === 'Looks' ? 'Looks to fall\nin love with' : 'Artists near you'}</Text>
+          <SparkleIcon size={22} color={Colors.gold} />
+        </View>
+      </View>
+
+      {/* Tab toggle */}
+      <View style={styles.tabBar}>
+        {(['Looks', 'Artists'] as Tab[]).map(t => {
+          const active = tab === t;
+          return (
+            <Pressable key={t} style={[styles.tabPill, active && styles.tabPillActive]} onPress={() => { tapLight(); setTab(t); }}>
+              <Text style={[styles.tabPillText, active && styles.tabPillTextActive]}>{t}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+
+      {/* Search — filters Looks by name/service, Artists by name/specialty */}
+      <View style={styles.searchBar}>
+        <SearchIcon size={17} color={Colors.tertiaryLabel} />
+        <TextInput
+          style={styles.searchInput}
+          value={query}
+          onChangeText={setQuery}
+          placeholder={tab === 'Looks' ? 'Search looks…' : 'Search artists or specialties…'}
+          placeholderTextColor={Colors.tertiaryLabel}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+      </View>
+
       {tab === 'Looks' ? (
-        <ScrollView
-          showsVerticalScrollIndicator={false}
-          contentContainerStyle={{ paddingBottom: 130 }}
-          stickyHeaderIndices={[2]}
-        >
-          <View style={[styles.header, { paddingTop: insets.top + 18 }]}>
-            <Text style={styles.eyebrow}>EXPLORE</Text>
-            <View style={styles.titleRow}>
-              <Text style={styles.title}>Looks to fall{'\n'}in love with</Text>
-              <SparkleIcon size={22} color={Colors.gold} />
-            </View>
-          </View>
-
-          {/* Tab toggle */}
-          <View style={styles.tabBar}>
-            {(['Looks', 'Artists'] as Tab[]).map(t => {
-              const active = tab === t;
-              return (
-                <Pressable key={t} style={[styles.tabPill, active && styles.tabPillActive]} onPress={() => { tapLight(); setTab(t); }}>
-                  <Text style={[styles.tabPillText, active && styles.tabPillTextActive]}>{t}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
+        <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 130 }}>
           {/* Collection chips */}
           <View style={styles.chipBar}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={{ width: '100%' }}>
@@ -135,46 +197,32 @@ export function ExploreScreen() {
             </ScrollView>
           </View>
 
-          <View style={styles.masonry}>
-            <View style={styles.column}>
-              {left.map(look => (
-                <LookTile key={look.id} look={look} height={look.tall ? 230 : 165} price={priceOf(look)} onPress={() => setOpenLook(look)} />
-              ))}
+          {filteredLooks.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyStateText}>No looks match "{query}".</Text>
             </View>
-            <View style={styles.column}>
-              {right.map(look => (
-                <LookTile key={look.id} look={look} height={look.tall ? 230 : 165} price={priceOf(look)} onPress={() => setOpenLook(look)} />
-              ))}
+          ) : (
+            <View style={styles.masonry}>
+              <View style={styles.column}>
+                {left.map(look => (
+                  <LookTile key={look.id} look={look} height={look.tall ? 230 : 165} price={priceOf(look)} onPress={() => setOpenLook(look)} />
+                ))}
+              </View>
+              <View style={styles.column}>
+                {right.map(look => (
+                  <LookTile key={look.id} look={look} height={look.tall ? 230 : 165} price={priceOf(look)} onPress={() => setOpenLook(look)} />
+                ))}
+              </View>
             </View>
-          </View>
+          )}
         </ScrollView>
       ) : (
         /* ── Artists tab ── */
         <View style={{ flex: 1 }}>
-          <View style={[styles.header, { paddingTop: insets.top + 18 }]}>
-            <Text style={styles.eyebrow}>EXPLORE</Text>
-            <View style={styles.titleRow}>
-              <Text style={styles.title}>Artists near you</Text>
-              <SparkleIcon size={22} color={Colors.gold} />
-            </View>
-          </View>
-
-          {/* Tab toggle */}
-          <View style={styles.tabBar}>
-            {(['Looks', 'Artists'] as Tab[]).map(t => {
-              const active = tab === t;
-              return (
-                <Pressable key={t} style={[styles.tabPill, active && styles.tabPillActive]} onPress={() => { tapLight(); setTab(t); }}>
-                  <Text style={[styles.tabPillText, active && styles.tabPillTextActive]}>{t}</Text>
-                </Pressable>
-              );
-            })}
-          </View>
-
           {/* Specialty filter chips */}
           <View style={styles.chipBar}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={{ width: '100%' }}>
-              {ARTIST_SPECIALTIES.map(s => {
+              {artistSpecialties.map(s => {
                 const active = artistFilter === s;
                 return (
                   <Pressable key={s} style={[styles.chip, active && styles.chipActive]} onPress={() => { tapLight(); setArtistFilter(s); }}>
@@ -185,24 +233,49 @@ export function ExploreScreen() {
             </ScrollView>
           </View>
 
-          {/* 2-column artist grid */}
-          <FlatList
-            data={artistColumns}
-            keyExtractor={(_, i) => String(i)}
-            numColumns={2}
-            contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 130, paddingTop: 10 }}
-            columnWrapperStyle={{ gap: 14 }}
-            showsVerticalScrollIndicator={false}
-            renderItem={({ item: column }) => (
-              <View style={{ flex: 1 }}>
-                {column.map(artist => (
-                  <View key={artist.id} style={{ marginBottom: 10 }}>
-                    <ArtistCard artist={artist} onPress={() => openArtist(artist)} />
-                  </View>
-                ))}
-              </View>
-            )}
-          />
+          {/* Sort control */}
+          <View style={styles.chipBar}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={{ width: '100%' }}>
+              {SORT_OPTIONS.map(o => {
+                const active = artistSort === o.value;
+                return (
+                  <Pressable key={o.value} style={[styles.sortChip, active && styles.chipActive]} onPress={() => { tapLight(); setArtistSort(o.value); }}>
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>{o.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+
+          {artistsLoading ? (
+            <View style={styles.emptyState}>
+              <ActivityIndicator color={Colors.brand} />
+            </View>
+          ) : displayArtists.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyStateText}>
+                {query ? `No artists match "${query}".` : 'No artists match this filter yet.'}
+              </Text>
+            </View>
+          ) : (
+            <FlatList
+              data={artistColumns}
+              keyExtractor={(_, i) => String(i)}
+              numColumns={2}
+              contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 130, paddingTop: 10 }}
+              columnWrapperStyle={{ gap: 14 }}
+              showsVerticalScrollIndicator={false}
+              renderItem={({ item: column }) => (
+                <View style={{ flex: 1 }}>
+                  {column.map(artist => (
+                    <View key={artist.id} style={{ marginBottom: 10 }}>
+                      <ArtistCard artist={artist} onPress={() => openArtist(artist)} />
+                    </View>
+                  ))}
+                </View>
+              )}
+            />
+          )}
         </View>
       )}
 
@@ -246,6 +319,23 @@ const styles = StyleSheet.create({
   chipActive: { backgroundColor: Colors.label, borderColor: Colors.label },
   chipText: { fontSize: 13, fontFamily: Fonts.medium, color: Colors.secondaryLabel },
   chipTextActive: { color: '#fff' },
+  sortChip: {
+    paddingHorizontal: 15, paddingVertical: 9,
+    borderRadius: 100, backgroundColor: '#fff',
+    borderWidth: 1, borderColor: Colors.separator,
+  },
+
+  searchBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginHorizontal: 24, marginBottom: 12, marginTop: 4,
+    backgroundColor: '#fff', borderRadius: 14,
+    paddingHorizontal: 14, paddingVertical: 11,
+    borderWidth: 1, borderColor: Colors.separator,
+  },
+  searchInput: { flex: 1, fontSize: 14.5, fontFamily: Fonts.regular, color: Colors.label },
+
+  emptyState: { alignItems: 'center', justifyContent: 'center', paddingVertical: 60, paddingHorizontal: 24 },
+  emptyStateText: { fontSize: 14, color: Colors.tertiaryLabel, fontFamily: Fonts.regular, textAlign: 'center' },
 
   masonry: { flexDirection: 'row', paddingHorizontal: 24, gap: 14, marginTop: 10 },
   column: { flex: 1 },
