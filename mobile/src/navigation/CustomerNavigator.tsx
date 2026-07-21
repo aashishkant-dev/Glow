@@ -2,7 +2,8 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import React, { useEffect, useRef } from 'react';
 import { addTapListener } from '../utils/notifications';
-import { Platform, View } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { useAuth } from '../context/AuthContext';
 import { BookingDetailScreen } from '../screens/customer/BookingDetailScreen';
 import { BookingsScreen } from '../screens/customer/BookingsScreen';
@@ -78,6 +79,35 @@ function CustomerMessageListener() {
  * it opens from Glow Match, occasion cards, look sheets and artist profiles
  * as the full-screen `NewBooking` stack route.
  */
+// True frosted-glass tab bar background (iOS 26 "Liquid Glass" look) via
+// BlurView — RN Web has no native compositor blur, so BlurView renders inert
+// there; the CSS `backdropFilter` fallback below keeps web visually consistent
+// with native instead of just showing a flat, unblurred tint.
+function GlassTabBarBackground() {
+  if (Platform.OS === 'web') {
+    return (
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          {
+            backgroundColor: 'rgba(255,255,255,0.72)',
+            // @ts-expect-error — web-only CSS property, RN's types don't include it
+            backdropFilter: 'blur(20px) saturate(180%)',
+            borderRadius: 100,
+          },
+        ]}
+      />
+    );
+  }
+  return (
+    <BlurView
+      intensity={78}
+      tint="light"
+      style={[StyleSheet.absoluteFill, { borderRadius: 100, overflow: 'hidden' }]}
+    />
+  );
+}
+
 function HomeTabs() {
   return (
     // `overflow: hidden` gives RN Web a clipping ancestor so horizontal rows
@@ -91,21 +121,24 @@ function HomeTabs() {
         tabBarInactiveTintColor: INACTIVE,
         tabBarShowLabel: true,
         tabBarLabelStyle: { fontSize: 10.5, fontFamily: 'Inter_500Medium', marginTop: 2 },
+        tabBarBackground: GlassTabBarBackground,
         // Floating iOS-style pill bar — detached from the screen edges with a
-        // soft rose shadow, like modern beauty/lifestyle apps.
+        // soft rose shadow, like modern beauty/lifestyle apps. Background color
+        // is transparent here — GlassTabBarBackground paints the actual frosted
+        // fill behind the icons/labels.
         tabBarStyle: {
           position: 'absolute' as const,
           left: 16, right: 16,
           bottom: Platform.OS === 'ios' ? 24 : 14,
           borderTopWidth: 0,
-          backgroundColor: 'rgba(255,255,255,0.96)',
+          backgroundColor: 'transparent',
           height: 70,
           paddingBottom: 10,
           paddingTop: 10,
           paddingHorizontal: 8,
           borderRadius: 100,
           borderWidth: 1,
-          borderColor: Colors.separator,
+          borderColor: 'rgba(255,255,255,0.5)',
           shadowColor: Colors.cardShadow,
           shadowOffset: { width: 0, height: 12 },
           shadowOpacity: 0.14,

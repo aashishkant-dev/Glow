@@ -564,6 +564,8 @@ router.get(
               photoUrl: true,
               rating: true,
               ratingCount: true,
+              lat: true,
+              lng: true,
             },
           },
         },
@@ -611,6 +613,9 @@ router.get(
           salonService: profile.salonService,
           salonAddress: profile.salonAddress || '',
           serviceRadiusKm: profile.serviceRadiusKm,
+          // 0/0 = ungeocoded (project convention) — client omits the map when either is 0.
+          lat: profile.user.lat ?? 0,
+          lng: profile.user.lng ?? 0,
           coverPhotoUrl: profile.coverPhotoUrl || '',
           languages: profile.languages ?? [],
           services: (profile.services || []).map(s => ({ name: s.name, price: toNum(s.price), durationMin: s.durationMin })),

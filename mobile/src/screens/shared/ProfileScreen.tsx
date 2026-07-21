@@ -50,6 +50,7 @@ import { useLocation } from '../../context/LocationContext';
 import {
   apiGetProfile, apiGetMyDocuments, apiSetPublicProfile, apiUpdateProfile, apiUploadPhoto, UserProfile,
   apiGetProviderServices, apiSetProviderServices, apiUpdateProviderPricing, ProviderServiceItem,
+  apiMyJobs, apiToggleAvailability, Booking,
 } from '../../api/client';
 import { Storage } from '../../utils/storage';
 import { Colors, Fonts } from '../../utils/colors';
@@ -222,6 +223,13 @@ export function ProfileScreen() {
   const [priceNegotiable,  setPriceNegotiable]  = useState(false);
   const [negotiableSaving, setNegotiableSaving] = useState(false);
 
+  // Earnings + availability summary card — front-loaded on Profile per the
+  // Uber-driver-app pattern (real-time earnings + a prominent online toggle
+  // right on the home surface, not buried in a separate screen).
+  const [jobs, setJobs] = useState<Booking[]>([]);
+  const [isOnline, setIsOnline] = useState(false);
+  const [onlineToggling, setOnlineToggling] = useState(false);
+
   const LANGUAGE_OPTIONS = ['English', 'French', 'Hindi', 'Nepali', 'Spanish', 'Mandarin', 'Punjabi', 'Arabic'];
 
   const hasPriceEdits = Object.keys(priceEdits).length > 0;
@@ -367,6 +375,7 @@ export function ProfileScreen() {
         .then(({ services: s }) => setServices(s))
         .catch(() => {})
         .finally(() => setServicesLoading(false));
+      apiMyJobs().then(({ bookings }) => setJobs(bookings)).catch(() => {});
     }
   }, [token]);
 
@@ -374,7 +383,36 @@ export function ProfileScreen() {
     if (typeof profile?.providerProfile?.priceNegotiable === 'boolean') {
       setPriceNegotiable(profile.providerProfile.priceNegotiable);
     }
-  }, [profile?.providerProfile?.priceNegotiable]);
+    if (typeof profile?.providerProfile?.availability === 'boolean') {
+      setIsOnline(profile.providerProfile.availability);
+    }
+  }, [profile?.providerProfile?.priceNegotiable, profile?.providerProfile?.availability]);
+
+  const todayEarnings = jobs
+    .filter(j => j.status === 'COMPLETED' && new Date(j.scheduledAt).toDateString() === new Date().toDateString())
+    .reduce((sum, j) => sum + j.totalPrice, 0);
+  const weekEarnings = jobs
+    .filter(j => {
+      if (j.status !== 'COMPLETED') return false;
+      const diffDays = (Date.now() - new Date(j.scheduledAt).getTime()) / (1000 * 60 * 60 * 24);
+      return diffDays <= 7;
+    })
+    .reduce((sum, j) => sum + j.totalPrice, 0);
+
+  async function toggleOnline() {
+    if (onlineToggling) return;
+    const next = !isOnline;
+    setOnlineToggling(true);
+    setIsOnline(next);
+    try {
+      await apiToggleAvailability(next);
+      if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    } catch (e: any) {
+      setIsOnline(!next);
+      Alert.alert('Could not update status', e?.message || 'Please try again.');
+    }
+    setOnlineToggling(false);
+  }
 
   async function compressAndSave(asset: ImagePicker.ImagePickerAsset) {
     setPhotoUploading(true);
@@ -745,6 +783,48 @@ export function ProfileScreen() {
 
           <View style={styles.heroBottom} />
         </LinearGradient>
+
+        {/* ── Earnings + availability summary (Provider) — front-loaded like
+             Uber Driver's real-time earnings tracker + "Go" toggle on its home
+             screen, rather than buried behind a separate Earnings nav card. ── */}
+        {isProvider && (
+          <View style={styles.sectionWrap}>
+            <View style={styles.earningsCard}>
+              <View style={styles.earningsTopRow}>
+                <View style={{ flex: 1 }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
+                    <View style={[styles.earningsStatusDot, { backgroundColor: isOnline ? Colors.systemGreen : Colors.systemGray3 }]} />
+                    <Text style={styles.earningsStatusText}>{isOnline ? "You're online" : "You're offline"}</Text>
+                  </View>
+                  <Text style={styles.earningsStatusSub}>
+                    {isOnline ? 'Accepting new booking requests' : 'Go online to start accepting jobs'}
+                  </Text>
+                </View>
+                <Pressable
+                  onPress={toggleOnline}
+                  disabled={onlineToggling}
+                  style={[styles.earningsToggle, { backgroundColor: isOnline ? Colors.systemGreen : Colors.systemGray4 }]}
+                >
+                  <View style={[styles.earningsToggleKnob, { transform: [{ translateX: isOnline ? 20 : 0 }] }]} />
+                </Pressable>
+              </View>
+              <View style={styles.earningsSplitRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.earningsAmount}>${todayEarnings.toFixed(0)}</Text>
+                  <Text style={styles.earningsLabel}>Today</Text>
+                </View>
+                <View style={styles.earningsDivider} />
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.earningsAmount}>${weekEarnings.toFixed(0)}</Text>
+                  <Text style={styles.earningsLabel}>This Week</Text>
+                </View>
+                <Pressable onPress={() => nav.navigate('Earnings')} style={styles.earningsSeeAll}>
+                  <Text style={styles.earningsSeeAllText}>Full history ›</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        )}
 
         {/* ── Stats bar ───────────────────────────────────────────── */}
         {isCustomer && (
@@ -1507,6 +1587,28 @@ export function ProfileScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: BG },
   scroll: { flex: 1 },
+
+  // ── Earnings + availability summary card ──
+  earningsCard: {
+    backgroundColor: '#fff', borderRadius: 22, padding: 18,
+    borderWidth: 1, borderColor: DIVIDER_C,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.06, shadowRadius: 12, elevation: 3,
+  },
+  earningsTopRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingBottom: 16, marginBottom: 16, borderBottomWidth: 1, borderBottomColor: DIVIDER_C },
+  earningsStatusDot: { width: 8, height: 8, borderRadius: 4 },
+  earningsStatusText: { fontSize: 15, fontFamily: Fonts.semibold, color: VALUE },
+  earningsStatusSub: { fontSize: 12.5, color: LABEL, fontFamily: Fonts.regular, marginTop: 3 },
+  earningsToggle: { width: 48, height: 28, borderRadius: 14, justifyContent: 'center', paddingHorizontal: 3 },
+  earningsToggleKnob: {
+    width: 22, height: 22, borderRadius: 11, backgroundColor: '#fff',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 3, elevation: 3,
+  },
+  earningsSplitRow: { flexDirection: 'row', alignItems: 'center' },
+  earningsAmount: { fontSize: 22, fontFamily: Fonts.bold, color: VALUE, letterSpacing: -0.5 },
+  earningsLabel: { fontSize: 11.5, color: LABEL, fontFamily: Fonts.medium, marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.4 },
+  earningsDivider: { width: 1, height: 34, backgroundColor: DIVIDER_C, marginHorizontal: 14 },
+  earningsSeeAll: { paddingVertical: 4 },
+  earningsSeeAllText: { fontSize: 13, fontFamily: Fonts.semibold, color: BRAND },
 
   // ── Real per-service pricing list ──
   saveChangesBtn: {

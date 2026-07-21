@@ -882,6 +882,13 @@ export interface ProviderPublicProfile {
   hourlyRate?: number;
   priceNegotiable: boolean;
   services: { name: string; price: number; durationMin: number }[];
+  // Where they work + rough location — 0/0 means ungeocoded (never rendered as a real point).
+  homeService?: boolean;
+  salonService?: boolean;
+  salonAddress?: string;
+  serviceRadiusKm?: number;
+  lat?: number;
+  lng?: number;
 }
 
 export function apiGetProviderPublicProfile(providerId: string) {

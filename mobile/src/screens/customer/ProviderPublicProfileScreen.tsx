@@ -27,6 +27,8 @@ import { CloseCircleIcon, StarIcon, CheckCircleIcon, ChevronForwardIcon } from '
 import { ShieldCheckIcon, CheckDecagramIcon } from '../../components/CareIcons';
 import { GlowMark } from '../../components/GlowLogo';
 import { ServiceIcon } from '../../components/ServiceIcon';
+import { OSMMap } from '../../components/OSMMap';
+import { LocationIcon } from '../../components/TabIcons';
 import { tapLight } from '../../utils/haptics';
 
 const { width: SCREEN_W } = Dimensions.get('window');
@@ -295,6 +297,49 @@ export function ProviderPublicProfileScreen() {
           </View>
         )}
 
+        {/* ── Where they work + rough location (StyleSeat/Booksy discovery
+             pattern) — real fields already returned by the backend, just never
+             surfaced here before. Map only renders with a real geocoded point;
+             0/0 (the project's ungeocoded convention) never shows a fake pin. ── */}
+        {(p.homeService || p.salonService) && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Where they work</Text>
+            <View style={styles.workCard}>
+              {p.homeService && (
+                <View style={styles.workRow}>
+                  <LocationIcon size={18} color={Colors.brand} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.workRowTitle}>At your home</Text>
+                    <Text style={styles.workRowSub}>
+                      Travels within {p.serviceRadiusKm ?? 10} km
+                    </Text>
+                  </View>
+                </View>
+              )}
+              {p.homeService && p.salonService && <View style={styles.workDivider} />}
+              {p.salonService && (
+                <View style={styles.workRow}>
+                  <LocationIcon size={18} color={Colors.brand} />
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.workRowTitle}>In their salon</Text>
+                    {!!p.salonAddress && <Text style={styles.workRowSub}>{p.salonAddress}</Text>}
+                  </View>
+                </View>
+              )}
+            </View>
+            {!!p.lat && !!p.lng && (
+              <View style={styles.mapWrap}>
+                <OSMMap
+                  center={{ lat: p.lat, lng: p.lng }}
+                  markers={[{ lat: p.lat, lng: p.lng, kind: 'provider' }]}
+                  height={150}
+                  style={{ borderRadius: 20 }}
+                />
+              </View>
+            )}
+          </View>
+        )}
+
         {/* ── Reviews ── */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Reviews</Text>
@@ -439,6 +484,16 @@ const styles = StyleSheet.create({
     width: '100%', height: 260, borderRadius: 24, marginBottom: 12,
     backgroundColor: Colors.brandLight,
   },
+
+  workCard: {
+    backgroundColor: '#fff', borderRadius: 20, padding: 16,
+    borderWidth: 1, borderColor: Colors.separator, gap: 0,
+  },
+  workRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },
+  workRowTitle: { fontSize: 14.5, fontFamily: Fonts.semibold, color: Colors.label },
+  workRowSub: { fontSize: 12.5, color: Colors.secondaryLabel, marginTop: 2, fontFamily: Fonts.regular },
+  workDivider: { height: 1, backgroundColor: Colors.separator, marginVertical: 8 },
+  mapWrap: { marginTop: 12, borderRadius: 20, overflow: 'hidden' },
 
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   tag: { backgroundColor: Colors.brandLight, borderRadius: 100, paddingHorizontal: 13, paddingVertical: 7 },

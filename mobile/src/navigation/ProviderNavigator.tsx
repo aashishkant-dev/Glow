@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { addTapListener, scheduleLocal } from '../utils/notifications';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { BlurView } from 'expo-blur';
 import { useAuth } from '../context/AuthContext';
 import { useChatUnread } from '../context/ChatUnreadContext';
 import { useLocation } from '../context/LocationContext';
@@ -270,6 +271,35 @@ function ProviderTabs() {
   }, [token, clearUnread]);
   const tabBarHeight = Platform.OS === 'ios' ? 83 : 68;
 
+  // True frosted-glass background (matches CustomerNavigator's tab bar) — see
+  // that file's GlassTabBarBackground for why web needs a CSS backdrop-filter
+  // fallback instead of BlurView (no native compositor blur on RN Web).
+  function GlassTabBarBackground() {
+    if (Platform.OS === 'web') {
+      return (
+        <View
+          style={[
+            StyleSheet.absoluteFill,
+            {
+              backgroundColor: 'rgba(255,255,255,0.72)',
+              // @ts-expect-error — web-only CSS property, RN's types don't include it
+              backdropFilter: 'blur(20px) saturate(180%)',
+              borderTopLeftRadius: 32,
+              borderTopRightRadius: 32,
+            },
+          ]}
+        />
+      );
+    }
+    return (
+      <BlurView
+        intensity={78}
+        tint="light"
+        style={[StyleSheet.absoluteFill, { borderTopLeftRadius: 32, borderTopRightRadius: 32, overflow: 'hidden' }]}
+      />
+    );
+  }
+
   return (
     <View style={{ flex: 1, overflow: 'hidden' as const }}>
       <Tab.Navigator
@@ -283,10 +313,11 @@ function ProviderTabs() {
             fontWeight: '600',
             marginTop: 2,
           },
+          tabBarBackground: GlassTabBarBackground,
           tabBarStyle: {
             borderTopColor: 'transparent',
             borderTopWidth: 0,
-            backgroundColor: '#FFFFFF',
+            backgroundColor: 'transparent',
             height: Platform.OS === 'ios' ? 88 : 72,
             paddingTop: 10,
             paddingBottom: Platform.OS === 'ios' ? 28 : 12,
