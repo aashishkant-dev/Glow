@@ -556,6 +556,7 @@ router.get(
           pricingModel: true,
           hourlyRate: true,
           priceNegotiable: true,
+          businessHours: true,
           services: { where: { active: true }, select: { name: true, price: true, durationMin: true } },
           user: {
             select: {
@@ -613,6 +614,7 @@ router.get(
           salonService: profile.salonService,
           salonAddress: profile.salonAddress || '',
           serviceRadiusKm: profile.serviceRadiusKm,
+          businessHours: profile.businessHours || {},
           // 0/0 = ungeocoded (project convention) — client omits the map when either is 0.
           lat: profile.user.lat ?? 0,
           lng: profile.user.lng ?? 0,

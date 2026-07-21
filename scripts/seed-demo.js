@@ -38,6 +38,9 @@ const ARTISTS = [
     languages: ['English', 'French'], experienceYears: 8, rating: 4.9,
     qualificationType: 'MAKEUP_ARTIST',
     specialties: ['Bridal Makeup', 'Party Makeup', 'Hair Styling'],
+    homeService: true, salonService: true,
+    salonAddress: '1485 Lasalle Blvd, Sudbury, ON P3A 1Z8',
+    businessHours: { mon: '9:00 AM - 6:00 PM', tue: '9:00 AM - 6:00 PM', wed: '9:00 AM - 6:00 PM', thu: '9:00 AM - 7:00 PM', fri: '9:00 AM - 7:00 PM', sat: '10:00 AM - 4:00 PM', sun: 'Closed' },
     services: [
       { name: 'Bridal Makeup', price: 280, durationMin: 180 },
       { name: 'Party Makeup', price: 85, durationMin: 90 },
@@ -51,6 +54,9 @@ const ARTISTS = [
     languages: ['English'], experienceYears: 5, rating: 4.8,
     qualificationType: 'ESTHETICIAN',
     specialties: ['Facial', 'Waxing', 'Threading'],
+    homeService: true, salonService: true,
+    salonAddress: '2110 Regent St S, Sudbury, ON P3E 4B7',
+    businessHours: { mon: 'Closed', tue: '10:00 AM - 6:00 PM', wed: '10:00 AM - 6:00 PM', thu: '10:00 AM - 6:00 PM', fri: '10:00 AM - 6:00 PM', sat: '9:00 AM - 3:00 PM', sun: 'Closed' },
     services: [
       { name: 'Facial', price: 60, durationMin: 60 },
       { name: 'Waxing', price: 45, durationMin: 45 },
@@ -64,6 +70,9 @@ const ARTISTS = [
     languages: ['French', 'English'], experienceYears: 6, rating: 5.0,
     qualificationType: 'HAIR_STYLIST',
     specialties: ['Hair Coloring', 'Hair Styling', 'Facial'],
+    homeService: false, salonService: true,
+    salonAddress: '3475 Godfrey Dr, Val Caron, ON P3N 1H2',
+    businessHours: { mon: '9:00 AM - 5:00 PM', tue: '9:00 AM - 5:00 PM', wed: '9:00 AM - 5:00 PM', thu: '9:00 AM - 8:00 PM', fri: '9:00 AM - 8:00 PM', sat: '9:00 AM - 5:00 PM', sun: 'Closed' },
     services: [
       { name: 'Hair Coloring', price: 110, durationMin: 120 },
       { name: 'Hair Styling', price: 45, durationMin: 60 },
@@ -77,6 +86,8 @@ const ARTISTS = [
     languages: ['English'], experienceYears: 3, rating: 4.7,
     qualificationType: 'NAIL_TECH',
     specialties: ['Nails', 'Mehendi', 'Massage'],
+    homeService: true, salonService: false,
+    businessHours: { mon: '11:00 AM - 7:00 PM', tue: '11:00 AM - 7:00 PM', wed: 'Closed', thu: '11:00 AM - 7:00 PM', fri: '11:00 AM - 7:00 PM', sat: '10:00 AM - 6:00 PM', sun: '12:00 PM - 5:00 PM' },
     services: [
       { name: 'Nails', price: 38, durationMin: 60 },
       { name: 'Mehendi', price: 55, durationMin: 90 },
@@ -90,6 +101,9 @@ const ARTISTS = [
     languages: ['English'], experienceYears: 4, rating: 4.6,
     qualificationType: 'MAKEUP_ARTIST',
     specialties: ['Makeup', 'Hair Styling', 'Threading'],
+    homeService: true, salonService: true,
+    salonAddress: '875 Falconbridge Rd, Garson, ON P3L 1K6',
+    businessHours: { mon: '8:00 AM - 4:00 PM', tue: '8:00 AM - 4:00 PM', wed: '8:00 AM - 4:00 PM', thu: '8:00 AM - 4:00 PM', fri: '8:00 AM - 4:00 PM', sat: 'Closed', sun: 'Closed' },
     services: [
       { name: 'Makeup', price: 65, durationMin: 60 },
       { name: 'Hair Styling', price: 40, durationMin: 45 },
@@ -134,6 +148,10 @@ async function upsertProviderProfile(userId, p) {
     publicProfile: true,
     policeCheckCleared: true,
     firstAidCertified: true,
+    homeService: p.homeService ?? true,
+    salonService: p.salonService ?? false,
+    salonAddress: p.salonAddress ?? '',
+    businessHours: p.businessHours ?? {},
   };
   const profile = await prisma.providerProfile.upsert({
     where: { userId },

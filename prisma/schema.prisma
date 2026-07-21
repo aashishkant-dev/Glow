@@ -223,6 +223,9 @@ model ProviderProfile {
   salonAddress       String            @default("")
   serviceRadiusKm    Int               @default(10)
   coverPhotoUrl      String            @default("")
+  // Weekly hours, e.g. { "mon": "9:00 AM - 6:00 PM", "tue": "Closed", ... }.
+  // Missing/absent day key means not set (client shows "Hours not set").
+  businessHours      Json              @default("{}")
 
   // Mock wallet: total amount the Provider has "withdrawn" from released earnings.
   // Available balance = (sum of RELEASED payouts) - walletWithdrawn. Pre-Stripe.

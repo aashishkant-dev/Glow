@@ -24,7 +24,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { apiGetProviderPublicProfile, ProviderPublicProfile } from '../../api/client';
 import { Colors, Fonts } from '../../utils/colors';
 import { CloseCircleIcon, StarIcon, CheckCircleIcon, ChevronForwardIcon } from '../../components/TabIcons';
-import { ShieldCheckIcon, CheckDecagramIcon } from '../../components/CareIcons';
+import { ShieldCheckIcon, CheckDecagramIcon, ClockIcon } from '../../components/CareIcons';
 import { GlowMark } from '../../components/GlowLogo';
 import { ServiceIcon } from '../../components/ServiceIcon';
 import { OSMMap } from '../../components/OSMMap';
@@ -33,6 +33,11 @@ import { tapLight } from '../../utils/haptics';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const PHOTO_H = 380;
+
+const HOUR_DAY_ORDER: { key: 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'; label: string }[] = [
+  { key: 'mon', label: 'Monday' }, { key: 'tue', label: 'Tuesday' }, { key: 'wed', label: 'Wednesday' },
+  { key: 'thu', label: 'Thursday' }, { key: 'fri', label: 'Friday' }, { key: 'sat', label: 'Saturday' }, { key: 'sun', label: 'Sunday' },
+];
 
 function StarRow({ rating, size = 14 }: { rating: number; size?: number }) {
   return (
@@ -322,7 +327,9 @@ export function ProviderPublicProfileScreen() {
                   <LocationIcon size={18} color={Colors.brand} />
                   <View style={{ flex: 1 }}>
                     <Text style={styles.workRowTitle}>In their salon</Text>
-                    {!!p.salonAddress && <Text style={styles.workRowSub}>{p.salonAddress}</Text>}
+                    {!!p.salonAddress && (
+                      <Text style={styles.workAddress} selectable>{p.salonAddress}</Text>
+                    )}
                   </View>
                 </View>
               )}
@@ -335,6 +342,22 @@ export function ProviderPublicProfileScreen() {
                   height={150}
                   style={{ borderRadius: 20 }}
                 />
+              </View>
+            )}
+            {!!p.businessHours && Object.keys(p.businessHours).length > 0 && (
+              <View style={styles.hoursCard}>
+                <View style={styles.hoursCardHeader}>
+                  <ClockIcon size={16} color={Colors.brand} />
+                  <Text style={styles.hoursCardTitle}>Hours</Text>
+                </View>
+                <ScrollView style={styles.hoursCardScroll} nestedScrollEnabled showsVerticalScrollIndicator>
+                  {HOUR_DAY_ORDER.filter(d => p.businessHours?.[d.key]).map((d, i) => (
+                    <View key={d.key} style={[styles.hoursCardRow, i > 0 && styles.hoursCardRowBorder]}>
+                      <Text style={styles.hoursCardDay}>{d.label}</Text>
+                      <Text style={styles.hoursCardValue}>{p.businessHours?.[d.key]}</Text>
+                    </View>
+                  ))}
+                </ScrollView>
               </View>
             )}
           </View>
@@ -492,8 +515,28 @@ const styles = StyleSheet.create({
   workRow: { flexDirection: 'row', alignItems: 'center', gap: 12, paddingVertical: 6 },
   workRowTitle: { fontSize: 14.5, fontFamily: Fonts.semibold, color: Colors.label },
   workRowSub: { fontSize: 12.5, color: Colors.secondaryLabel, marginTop: 2, fontFamily: Fonts.regular },
+  // Real street address needs to actually be readable — was 12.5px secondaryLabel,
+  // easy to miss against the card. Bumped size/weight/contrast + made selectable.
+  workAddress: { fontSize: 14, color: Colors.label, marginTop: 3, fontFamily: Fonts.medium, lineHeight: 19 },
   workDivider: { height: 1, backgroundColor: Colors.separator, marginVertical: 8 },
   mapWrap: { marginTop: 12, borderRadius: 20, overflow: 'hidden' },
+
+  hoursCard: {
+    backgroundColor: '#fff', borderRadius: 20, padding: 16, marginTop: 12,
+    borderWidth: 1, borderColor: Colors.separator,
+  },
+  hoursCardHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
+  hoursCardTitle: { fontSize: 14.5, fontFamily: Fonts.semibold, color: Colors.label },
+  // Capped + internally scrollable so a full 7-day list never pushes the rest
+  // of the profile (reviews, book button) further down than needed.
+  hoursCardScroll: { maxHeight: 220 },
+  hoursCardRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 9,
+  },
+  hoursCardRowBorder: { borderTopWidth: 1, borderTopColor: Colors.separator },
+  hoursCardDay: { fontSize: 13.5, fontFamily: Fonts.medium, color: Colors.secondaryLabel },
+  hoursCardValue: { fontSize: 13.5, fontFamily: Fonts.semibold, color: Colors.label },
 
   tagRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   tag: { backgroundColor: Colors.brandLight, borderRadius: 100, paddingHorizontal: 13, paddingVertical: 7 },

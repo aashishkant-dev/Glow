@@ -51,6 +51,7 @@ import {
   apiGetProfile, apiGetMyDocuments, apiSetPublicProfile, apiUpdateProfile, apiUploadPhoto, UserProfile,
   apiGetProviderServices, apiSetProviderServices, apiUpdateProviderPricing, ProviderServiceItem,
   apiMyJobs, apiToggleAvailability, Booking,
+  apiUpdateProviderLocationSettings, BusinessHours,
 } from '../../api/client';
 import { Storage } from '../../utils/storage';
 import { Colors, Fonts } from '../../utils/colors';
@@ -223,6 +224,20 @@ export function ProfileScreen() {
   const [priceNegotiable,  setPriceNegotiable]  = useState(false);
   const [negotiableSaving, setNegotiableSaving] = useState(false);
 
+  // Where-you-work + business hours — real, editable fields (were previously
+  // read-only backend columns with no artist-facing UI to ever set them).
+  const [homeService, setHomeService] = useState(true);
+  const [salonService, setSalonService] = useState(false);
+  const [salonAddressDraft, setSalonAddressDraft] = useState('');
+  const [serviceRadiusDraft, setServiceRadiusDraft] = useState('10');
+  const [hoursDraft, setHoursDraft] = useState<BusinessHours>({});
+  const [locationSaving, setLocationSaving] = useState(false);
+  const [locationDirty, setLocationDirty] = useState(false);
+  const HOUR_DAYS: { key: keyof BusinessHours; label: string }[] = [
+    { key: 'mon', label: 'Mon' }, { key: 'tue', label: 'Tue' }, { key: 'wed', label: 'Wed' },
+    { key: 'thu', label: 'Thu' }, { key: 'fri', label: 'Fri' }, { key: 'sat', label: 'Sat' }, { key: 'sun', label: 'Sun' },
+  ];
+
   // Earnings + availability summary card — front-loaded on Profile per the
   // Uber-driver-app pattern (real-time earnings + a prominent online toggle
   // right on the home surface, not buried in a separate screen).
@@ -387,6 +402,39 @@ export function ProfileScreen() {
       setIsOnline(profile.providerProfile.availability);
     }
   }, [profile?.providerProfile?.priceNegotiable, profile?.providerProfile?.availability]);
+
+  useEffect(() => {
+    const pp = profile?.providerProfile as any;
+    if (!pp || locationDirty) return;
+    if (typeof pp.homeService === 'boolean') setHomeService(pp.homeService);
+    if (typeof pp.salonService === 'boolean') setSalonService(pp.salonService);
+    if (typeof pp.salonAddress === 'string') setSalonAddressDraft(pp.salonAddress);
+    if (pp.serviceRadiusKm != null) setServiceRadiusDraft(String(pp.serviceRadiusKm));
+    if (pp.businessHours && typeof pp.businessHours === 'object') setHoursDraft(pp.businessHours);
+  }, [profile?.providerProfile, locationDirty]);
+
+  async function saveLocationSettings(overrides: Partial<{
+    homeService: boolean; salonService: boolean; salonAddress: string; serviceRadiusKm: number; businessHours: BusinessHours;
+  }> = {}) {
+    setLocationSaving(true);
+    try {
+      const radius = Math.min(Math.max(Number(serviceRadiusDraft) || 10, 1), 200);
+      const payload = {
+        homeService, salonService,
+        salonAddress: salonAddressDraft.trim(),
+        serviceRadiusKm: radius,
+        businessHours: hoursDraft,
+        ...overrides,
+      };
+      const saved = await apiUpdateProviderLocationSettings(payload);
+      setProfile(prev => prev ? { ...prev, providerProfile: { ...(prev.providerProfile as any), ...saved } } : prev);
+      setLocationDirty(false);
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      Alert.alert('Could not save', e?.message || 'Please try again.');
+    }
+    setLocationSaving(false);
+  }
 
   const todayEarnings = jobs
     .filter(j => j.status === 'COMPLETED' && new Date(j.scheduledAt).toDateString() === new Date().toDateString())
@@ -1261,6 +1309,115 @@ export function ProfileScreen() {
           </View>
         )}
 
+        {/* ── Section: Where you work + business hours — real, editable fields.
+             Was read-only backend data with no UI to set it, so clients only ever
+             saw a blank/tiny address and no hours at all. ── */}
+        {isProvider && (
+          <View style={styles.sectionWrap}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={styles.sectionLabel}>Where You Work</Text>
+              {locationDirty && (
+                <Pressable onPress={() => saveLocationSettings()} disabled={locationSaving} style={styles.saveChangesBtn}>
+                  {locationSaving
+                    ? <ActivityIndicator size="small" color="#fff" />
+                    : <Text style={styles.saveChangesBtnText}>Save changes</Text>}
+                </Pressable>
+              )}
+            </View>
+            <View style={styles.card}>
+              <View style={styles.workToggleRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.infoLabel}>At the client's home</Text>
+                  <Text style={styles.navCardSub}>You travel to them</Text>
+                </View>
+                <Switch
+                  value={homeService}
+                  onValueChange={(next) => { setHomeService(next); setLocationDirty(true); }}
+                  trackColor={{ false: '#D1D5DB', true: '#E9A0B1' }}
+                  thumbColor={homeService ? BRAND : '#F4F4F5'}
+                />
+              </View>
+              {homeService && (
+                <View style={styles.radiusRow}>
+                  <Text style={styles.radiusLabel}>Travel radius</Text>
+                  <View style={styles.radiusInputWrap}>
+                    <TextInput
+                      style={styles.radiusInput}
+                      value={serviceRadiusDraft}
+                      onChangeText={v => { setServiceRadiusDraft(v.replace(/[^0-9]/g, '')); setLocationDirty(true); }}
+                      keyboardType="number-pad"
+                      placeholder="10"
+                      placeholderTextColor={Colors.tertiaryLabel}
+                    />
+                    <Text style={styles.radiusUnit}>km</Text>
+                  </View>
+                </View>
+              )}
+              <Divider />
+              <View style={styles.workToggleRow}>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.infoLabel}>In your salon</Text>
+                  <Text style={styles.navCardSub}>Clients come to your address</Text>
+                </View>
+                <Switch
+                  value={salonService}
+                  onValueChange={(next) => { setSalonService(next); setLocationDirty(true); }}
+                  trackColor={{ false: '#D1D5DB', true: '#E9A0B1' }}
+                  thumbColor={salonService ? BRAND : '#F4F4F5'}
+                />
+              </View>
+              {salonService && (
+                <View style={styles.addressInputWrap}>
+                  <LocationIcon size={16} color={Colors.tertiaryLabel} />
+                  <TextInput
+                    style={styles.addressInput}
+                    value={salonAddressDraft}
+                    onChangeText={v => { setSalonAddressDraft(v); setLocationDirty(true); }}
+                    placeholder="Street address, city"
+                    placeholderTextColor={Colors.tertiaryLabel}
+                    multiline
+                  />
+                </View>
+              )}
+            </View>
+
+            <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Business Hours</Text>
+            <View style={styles.card}>
+              <ScrollView
+                style={styles.hoursScroll}
+                nestedScrollEnabled
+                showsVerticalScrollIndicator
+              >
+                {HOUR_DAYS.map((d, i) => (
+                  <View key={d.key}>
+                    {i > 0 && <Divider />}
+                    <View style={styles.hoursRow}>
+                      <Text style={styles.hoursDay}>{d.label}</Text>
+                      <TextInput
+                        style={styles.hoursInput}
+                        value={hoursDraft[d.key] ?? ''}
+                        onChangeText={v => { setHoursDraft(prev => ({ ...prev, [d.key]: v })); setLocationDirty(true); }}
+                        placeholder="Closed"
+                        placeholderTextColor={Colors.tertiaryLabel}
+                      />
+                    </View>
+                  </View>
+                ))}
+              </ScrollView>
+              <Divider />
+              <Pressable
+                style={styles.hoursQuickFill}
+                onPress={() => {
+                  setHoursDraft({ mon: '9:00 AM - 6:00 PM', tue: '9:00 AM - 6:00 PM', wed: '9:00 AM - 6:00 PM', thu: '9:00 AM - 6:00 PM', fri: '9:00 AM - 6:00 PM', sat: '10:00 AM - 4:00 PM', sun: 'Closed' });
+                  setLocationDirty(true);
+                }}
+              >
+                <Text style={styles.hoursQuickFillText}>Use typical 9–6 weekdays</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
         {/* ── Section: Provider public profile (marketing consent) ─────── */}
         {isProvider && providerP?.approvedByAdmin && (
           <View style={styles.sectionWrap}>
@@ -1633,6 +1790,53 @@ const styles = StyleSheet.create({
     flex: 1, fontSize: 14, fontFamily: Fonts.semibold, color: Colors.label,
     paddingVertical: 8, paddingHorizontal: 4, textAlign: 'right',
   },
+
+  // ── Where you work + business hours ──
+  workToggleRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 12,
+  },
+  radiusRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingBottom: 14,
+  },
+  radiusLabel: { fontSize: 13.5, color: Colors.secondaryLabel, fontFamily: Fonts.medium },
+  radiusInputWrap: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: Colors.systemGroupedBackground, borderRadius: 10,
+    paddingHorizontal: 10, borderWidth: 1, borderColor: Colors.separator,
+    minWidth: 76,
+  },
+  radiusInput: {
+    fontSize: 14, fontFamily: Fonts.semibold, color: Colors.label,
+    paddingVertical: 8, textAlign: 'right', minWidth: 30,
+  },
+  radiusUnit: { fontSize: 13, color: Colors.tertiaryLabel, fontFamily: Fonts.regular },
+  addressInputWrap: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    backgroundColor: Colors.systemGroupedBackground, borderRadius: 12,
+    paddingHorizontal: 12, paddingVertical: 10, marginBottom: 12,
+    borderWidth: 1, borderColor: Colors.separator,
+  },
+  addressInput: {
+    flex: 1, fontSize: 14, fontFamily: Fonts.regular, color: Colors.label,
+    minHeight: 20, paddingTop: 0,
+  },
+  // Capped height + internal ScrollView: 7 rows of hours can run long on
+  // small screens, so the list scrolls in place instead of pushing the
+  // rest of the page (and the whole card) out of view.
+  hoursScroll: { maxHeight: 260 },
+  hoursRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingVertical: 10,
+  },
+  hoursDay: { fontSize: 14, fontFamily: Fonts.semibold, color: Colors.label, width: 44 },
+  hoursInput: {
+    flex: 1, fontSize: 13.5, fontFamily: Fonts.regular, color: Colors.label,
+    textAlign: 'right', paddingVertical: 6,
+  },
+  hoursQuickFill: { paddingVertical: 12, alignItems: 'center' },
+  hoursQuickFillText: { fontSize: 13, fontFamily: Fonts.semibold, color: BRAND },
 
   // ── Soft blush hero ──
   hero: {

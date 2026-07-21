@@ -141,6 +141,61 @@ router.patch(
   }
 );
 
+// ── PATCH /location-settings — where the Provider works + business hours ──────
+// Body: { homeService?, salonService?, salonAddress?, serviceRadiusKm?, businessHours? }
+// businessHours shape: { mon: "9:00 AM - 6:00 PM", tue: "Closed", ... } — any subset of
+// day keys (mon..sun); missing keys read as "not set" on the client.
+const HOUR_DAY_KEYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
+router.patch(
+  '/location-settings',
+  authenticate,
+  requireRole('Provider'),
+  async (req, res) => {
+    try {
+      const profile = await prisma.providerProfile.findUnique({ where: { userId: req.user.id }, select: { id: true } });
+      if (!profile) return res.status(403).json({ error: 'Provider profile not found.' });
+
+      const { homeService, salonService, salonAddress, serviceRadiusKm, businessHours } = req.body;
+      const data = {};
+      if (homeService !== undefined) data.homeService = Boolean(homeService);
+      if (salonService !== undefined) data.salonService = Boolean(salonService);
+      if (salonAddress !== undefined) data.salonAddress = String(salonAddress).trim().slice(0, 200);
+      if (serviceRadiusKm !== undefined) {
+        const r = Number(serviceRadiusKm);
+        if (Number.isNaN(r) || r < 1 || r > 200) return res.status(400).json({ error: 'serviceRadiusKm must be 1-200' });
+        data.serviceRadiusKm = Math.round(r);
+      }
+      if (businessHours !== undefined) {
+        if (typeof businessHours !== 'object' || businessHours === null || Array.isArray(businessHours)) {
+          return res.status(400).json({ error: 'businessHours must be an object' });
+        }
+        const clean = {};
+        for (const day of HOUR_DAY_KEYS) {
+          if (typeof businessHours[day] === 'string') clean[day] = businessHours[day].trim().slice(0, 40);
+        }
+        data.businessHours = clean;
+      }
+
+      if (Object.keys(data).length === 0) {
+        return res.status(400).json({ error: 'No valid fields provided' });
+      }
+
+      const updated = await prisma.providerProfile.update({ where: { userId: req.user.id }, data });
+      cacheFlushPattern('providers:*').catch(() => {});
+      res.json({
+        homeService: updated.homeService,
+        salonService: updated.salonService,
+        salonAddress: updated.salonAddress || '',
+        serviceRadiusKm: updated.serviceRadiusKm,
+        businessHours: updated.businessHours || {},
+      });
+    } catch (err) {
+      console.error('PATCH /location-settings error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
 // ── GET /jobs/nearby ──────────────────────────────────────────────────────────
 router.get(
   '/nearby',

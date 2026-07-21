@@ -157,12 +157,12 @@ export interface ProviderServiceItem {
 }
 
 export function apiGetProviderServices() {
-  return request<{ services: ProviderServiceItem[] }>('GET', '/services');
+  return request<{ services: ProviderServiceItem[] }>('GET', '/jobs/services');
 }
 
 export function apiSetProviderServices(services: { name: string; price: number; durationMin?: number }[]) {
   return request<{ services: { name: string; price: number; durationMin: number; active: boolean }[] }>(
-    'PUT', '/services', { services },
+    'PUT', '/jobs/services', { services },
   );
 }
 
@@ -171,7 +171,25 @@ export function apiUpdateProviderPricing(payload: {
   hourlyRate?: number;
   priceNegotiable?: boolean;
 }) {
-  return request<{ pricingModel: string; hourlyRate: number; priceNegotiable: boolean }>('PATCH', '/pricing', payload);
+  return request<{ pricingModel: string; hourlyRate: number; priceNegotiable: boolean }>('PATCH', '/jobs/pricing', payload);
+}
+
+export type BusinessHours = Partial<Record<'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun', string>>;
+
+export function apiUpdateProviderLocationSettings(payload: {
+  homeService?: boolean;
+  salonService?: boolean;
+  salonAddress?: string;
+  serviceRadiusKm?: number;
+  businessHours?: BusinessHours;
+}) {
+  return request<{
+    homeService: boolean;
+    salonService: boolean;
+    salonAddress: string;
+    serviceRadiusKm: number;
+    businessHours: BusinessHours;
+  }>('PATCH', '/jobs/location-settings', payload);
 }
 
 // ─── Customer ─────────────────────────────────────────────────────────────────
@@ -748,6 +766,11 @@ export interface UserProfile {
     pricingModel?: 'PER_SERVICE' | 'HOURLY';
     hourlyRate?: number;
     priceNegotiable?: boolean;
+    homeService?: boolean;
+    salonService?: boolean;
+    salonAddress?: string;
+    serviceRadiusKm?: number;
+    businessHours?: BusinessHours;
   };
 }
 
@@ -887,6 +910,7 @@ export interface ProviderPublicProfile {
   salonService?: boolean;
   salonAddress?: string;
   serviceRadiusKm?: number;
+  businessHours?: BusinessHours;
   lat?: number;
   lng?: number;
 }
