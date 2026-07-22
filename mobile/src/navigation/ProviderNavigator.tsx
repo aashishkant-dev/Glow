@@ -9,7 +9,7 @@ import { useChatUnread } from '../context/ChatUnreadContext';
 import { useLocation } from '../context/LocationContext';
 import { JobDetailScreen } from '../screens/provider/JobDetailScreen';
 import { NearbyJobsScreen, pendingJobsCount } from '../screens/provider/NearbyJobsScreen';
-import { MyJobsScreen } from '../screens/provider/MyJobsScreen';
+import { ProviderCalendarScreen } from '../screens/provider/ProviderCalendarScreen';
 import { ProviderDashboardScreen } from '../screens/provider/ProviderDashboardScreen';
 import { ProviderDocumentsScreen } from '../screens/provider/ProviderDocumentsScreen';
 import { ProviderOnboardingScreen } from '../screens/provider/ProviderOnboardingScreen';
@@ -24,7 +24,7 @@ import { NotificationsScreen } from '../screens/shared/NotificationsScreen';
 import { Colors } from '../utils/colors';
 import { Booking, apiNearbyJobs, apiMyJobs, apiGetRequests } from '../api/client';
 import { getSocket, joinBookingRoom, joinUserRoom } from '../utils/socket';
-import { HomeIcon, BriefcaseIcon, SearchJobsIcon } from '../components/TabIcons';
+import { HomeIcon, SearchJobsIcon, CalendarIcon, PersonIcon } from '../components/TabIcons';
 import { useNavigation } from '@react-navigation/native';
 import { DEFAULT_REGION_NAME } from '../utils/region';
 
@@ -406,14 +406,17 @@ function ProviderTabs() {
           }}
         />
 
-        {/* ── Tab 3: My Jobs ── */}
+        {/* ── Tab 3: Calendar (route name kept as "MyJobs" — several nav.navigate('MyJobs')
+             call sites across RequestsScreen/ChatUnreadContext/ProviderDashboardScreen
+             target this route by name; renaming the route would silently break those
+             deep-links, so only the label/icon/screen component changed here). ── */}
         <Tab.Screen
           name="MyJobs"
-          component={MyJobsScreen}
+          component={ProviderCalendarScreen}
           options={{
             tabBarIcon: ({ color }) => (
               <View>
-                <BriefcaseIcon size={24} color={color} />
+                <CalendarIcon size={24} color={color} />
                 {hasActiveJob && (
                   <View style={{
                     position: 'absolute', top: -2, right: -4,
@@ -425,7 +428,17 @@ function ProviderTabs() {
                 )}
               </View>
             ),
-            tabBarLabel: 'My Jobs',
+            tabBarLabel: 'Calendar',
+          }}
+        />
+
+        {/* ── Tab 4: Profile ── */}
+        <Tab.Screen
+          name="ProfileTab"
+          component={ProfileScreen}
+          options={{
+            tabBarIcon: ({ color }) => <PersonIcon size={24} color={color} />,
+            tabBarLabel: 'Profile',
           }}
         />
 

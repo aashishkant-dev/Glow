@@ -245,6 +245,11 @@ export function ProfileScreen() {
   const [isOnline, setIsOnline] = useState(false);
   const [onlineToggling, setOnlineToggling] = useState(false);
 
+  // Provider-only Profile sub-tabs — Business (pricing/hours/visibility/earnings)
+  // vs Account (personal info/professional profile/documents/support/legal). The
+  // hero stays shared above both. Customers never see this — single scroll, unchanged.
+  const [providerProfileTab, setProviderProfileTab] = useState<'business' | 'account'>('business');
+
   const LANGUAGE_OPTIONS = ['English', 'French', 'Hindi', 'Nepali', 'Spanish', 'Mandarin', 'Punjabi', 'Arabic'];
 
   const hasPriceEdits = Object.keys(priceEdits).length > 0;
@@ -832,10 +837,46 @@ export function ProfileScreen() {
           <View style={styles.heroBottom} />
         </LinearGradient>
 
+        {/* ── Business / Account segmented control (Provider only) ──────────
+             Splits the previously long single scroll into two focused sub-tabs,
+             mirroring the Booksy/Vagaro pattern (Business Settings vs Personal/
+             Account Settings) found in competitor research. Customers keep the
+             original single-scroll layout untouched — this control never renders
+             for them. */}
+        {isProvider && (
+          <View style={styles.profileTabWrap}>
+            <View style={styles.profileTabPill}>
+              <Pressable
+                style={[styles.profileTabBtn, providerProfileTab === 'business' && styles.profileTabBtnActive]}
+                onPress={() => {
+                  if (Platform.OS !== 'web') Haptics.selectionAsync();
+                  setProviderProfileTab('business');
+                }}
+              >
+                <Text style={[styles.profileTabText, providerProfileTab === 'business' && styles.profileTabTextActive]}>
+                  Business
+                </Text>
+              </Pressable>
+              <Pressable
+                style={[styles.profileTabBtn, providerProfileTab === 'account' && styles.profileTabBtnActive]}
+                onPress={() => {
+                  if (Platform.OS !== 'web') Haptics.selectionAsync();
+                  setProviderProfileTab('account');
+                }}
+              >
+                <Text style={[styles.profileTabText, providerProfileTab === 'account' && styles.profileTabTextActive]}>
+                  Account
+                </Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
         {/* ── Earnings + availability summary (Provider) — front-loaded like
              Uber Driver's real-time earnings tracker + "Go" toggle on its home
-             screen, rather than buried behind a separate Earnings nav card. ── */}
-        {isProvider && (
+             screen, rather than buried behind a separate Earnings nav card.
+             Business sub-tab. ── */}
+        {isProvider && providerProfileTab === 'business' && (
           <View style={styles.sectionWrap}>
             <View style={styles.earningsCard}>
               <View style={styles.earningsTopRow}>
@@ -900,7 +941,8 @@ export function ProfileScreen() {
           </View>
         )}
 
-        {isProvider && (
+        {/* Account sub-tab — performance snapshot lives alongside identity/profile info. */}
+        {isProvider && providerProfileTab === 'account' && (
           <View style={[styles.statsBar, styles.statsBarBelowEarnings]}>
             <View style={styles.statCell}>
               <Text style={styles.statNum}>
@@ -925,7 +967,8 @@ export function ProfileScreen() {
           </View>
         )}
 
-        {/* ── Section: Location ────────────────────────────────────── */}
+        {/* ── Section: Location ── Account sub-tab for Provider; unchanged for Customer. ── */}
+        {(!isProvider || providerProfileTab === 'account') && (
         <View style={styles.sectionWrap}>
           <Text style={styles.sectionLabel}>Your Location</Text>
           <Pressable
@@ -961,8 +1004,10 @@ export function ProfileScreen() {
             )}
           </Pressable>
         </View>
+        )}
 
-        {/* ── Section: Personal Info ───────────────────────────────── */}
+        {/* ── Section: Personal Info ── Account sub-tab for Provider; unchanged for Customer. ── */}
+        {(!isProvider || providerProfileTab === 'account') && (
         <View style={styles.sectionWrap}>
           <Text style={styles.sectionLabel}>Personal Info</Text>
           <View style={styles.card}>
@@ -985,9 +1030,10 @@ export function ProfileScreen() {
             <InfoRow glyph="key-variant" label="Account ID" value={accountId} />
           </View>
         </View>
+        )}
 
-        {/* ── Profile Strength card (Provider only) ────────────────────── */}
-        {isProvider && (
+        {/* ── Profile Strength card (Provider only) — Account sub-tab. ── */}
+        {isProvider && providerProfileTab === 'account' && (
           <View style={styles.sectionWrap}>
             <Text style={styles.sectionLabel}>Profile Strength</Text>
             <ProfileStrength
@@ -1002,8 +1048,8 @@ export function ProfileScreen() {
           </View>
         )}
 
-        {/* ── Section: Provider Professional Profile ───────────────────── */}
-        {isProvider && (
+        {/* ── Section: Provider Professional Profile — Account sub-tab. ── */}
+        {isProvider && providerProfileTab === 'account' && (
           <View style={styles.sectionWrap}>
             <Text style={styles.sectionLabel}>Professional Profile</Text>
             <View style={styles.card}>
@@ -1181,8 +1227,8 @@ export function ProfileScreen() {
           </View>
         )}
 
-        {/* ── Section: Provider Documents nav card ─────────────────────── */}
-        {isProvider && (
+        {/* ── Section: Provider Documents nav card — Account sub-tab. ── */}
+        {isProvider && providerProfileTab === 'account' && (
           <View style={styles.sectionWrap}>
             <Text style={styles.sectionLabel}>Documents</Text>
             <Pressable
@@ -1207,8 +1253,8 @@ export function ProfileScreen() {
           </View>
         )}
 
-        {/* ── Section: Provider Earnings nav card ──────────────────────── */}
-        {isProvider && (
+        {/* ── Section: Provider Earnings nav card — Business sub-tab. ── */}
+        {isProvider && providerProfileTab === 'business' && (
           <View style={styles.sectionWrap}>
             <Text style={styles.sectionLabel}>Earnings</Text>
             <Pressable
@@ -1229,8 +1275,8 @@ export function ProfileScreen() {
           </View>
         )}
 
-        {/* ── Section: Provider My Pricing — real, editable per-service list ── */}
-        {isProvider && (
+        {/* ── Section: Provider My Pricing — real, editable per-service list. Business sub-tab. ── */}
+        {isProvider && providerProfileTab === 'business' && (
           <View style={styles.sectionWrap}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={styles.sectionLabel}>Pricing</Text>
@@ -1311,8 +1357,8 @@ export function ProfileScreen() {
 
         {/* ── Section: Where you work + business hours — real, editable fields.
              Was read-only backend data with no UI to set it, so clients only ever
-             saw a blank/tiny address and no hours at all. ── */}
-        {isProvider && (
+             saw a blank/tiny address and no hours at all. Business sub-tab. ── */}
+        {isProvider && providerProfileTab === 'business' && (
           <View style={styles.sectionWrap}>
             <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
               <Text style={styles.sectionLabel}>Where You Work</Text>
@@ -1418,8 +1464,8 @@ export function ProfileScreen() {
           </View>
         )}
 
-        {/* ── Section: Provider public profile (marketing consent) ─────── */}
-        {isProvider && providerP?.approvedByAdmin && (
+        {/* ── Section: Provider public profile (marketing consent) — Business sub-tab. ── */}
+        {isProvider && providerP?.approvedByAdmin && providerProfileTab === 'business' && (
           <View style={styles.sectionWrap}>
             <Text style={styles.sectionLabel}>Visibility</Text>
             <View style={styles.navCard}>
@@ -1545,6 +1591,11 @@ export function ProfileScreen() {
           </View>
         )}
 
+        {/* ── Support / App Info / Legal / Sign Out / Delete Account ──────────
+             Account sub-tab for Provider (per spec); unchanged/always-visible
+             for Customer. ── */}
+        {(!isProvider || providerProfileTab === 'account') && (
+        <>
         {/* ── Section: Support ──────────────────────────────────────── */}
         <View style={styles.sectionWrap}>
           <Text style={styles.sectionLabel}>Support</Text>
@@ -1621,6 +1672,8 @@ export function ProfileScreen() {
             anonymized form as required by law. This cannot be undone.
           </Text>
         </View>
+        </>
+        )}
 
         <Text style={styles.footer}>
           © {new Date().getFullYear()} Glow · Beauty, on demand{'\n'}{DEFAULT_REGION_NAME}
@@ -1744,6 +1797,32 @@ export function ProfileScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: BG },
   scroll: { flex: 1 },
+
+  // ── Business / Account segmented control (Provider only) ──
+  profileTabWrap: { paddingHorizontal: 16, marginTop: 16, alignItems: 'center' },
+  profileTabPill: {
+    flexDirection: 'row',
+    backgroundColor: Colors.systemGray6,
+    borderRadius: 100,
+    padding: 4,
+    width: '100%',
+  },
+  profileTabBtn: {
+    flex: 1,
+    paddingVertical: 10,
+    borderRadius: 100,
+    alignItems: 'center',
+  },
+  profileTabBtnActive: {
+    backgroundColor: '#fff',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.08,
+    shadowRadius: 6,
+    elevation: 2,
+  },
+  profileTabText: { fontSize: 14, fontFamily: Fonts.semibold, color: Colors.secondaryLabel },
+  profileTabTextActive: { color: BRAND },
 
   // ── Earnings + availability summary card ──
   earningsCard: {
