@@ -1,45 +1,33 @@
 /**
- * VerifyPhoneSheet — one-time phone verification shown at the moment a
- * customer confirms their first booking (Part 1 of the 2026-07-20 auth
- * redesign). Accounts with no phone on file yet (Google/email signups) get
- * an extra phone-entry step first; phone accounts go straight to OTP entry.
+ * ProviderVerifyPhoneScreen — mandatory phone verification for new Provider
+ * accounts created via Google sign-in. Providers need a working, verified
+ * number sooner than customers do (job dispatch, SMS notifications), so
+ * unlike VerifyPhoneSheet (a dismissible sheet shown at first booking for
+ * customers), this is a full, non-dismissible screen shown before the
+ * Provider ever reaches the onboarding wizard or dashboard.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
-import { GlowSheet } from './GlowSheet';
-import { CountryPicker, COUNTRIES, Country } from './CountryPicker';
-import { apiSendVerifyOtp, apiVerifyPhone } from '../api/client';
-import { useAuth } from '../context/AuthContext';
-import { Colors, Fonts } from '../utils/colors';
+import { apiSendVerifyOtp, apiVerifyPhone } from '../../api/client';
+import { useAuth } from '../../context/AuthContext';
+import { Colors, Fonts } from '../../utils/colors';
+import { GlowMark } from '../../components/GlowLogo';
+import { CountryPicker, COUNTRIES, Country } from '../../components/CountryPicker';
 
 const OTP_LENGTH = 6;
 
-interface VerifyPhoneSheetProps {
-  visible: boolean;
-  needsPhone: boolean;
-  onVerified: () => void;
-  onClose: () => void;
-}
-
-export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: VerifyPhoneSheetProps) {
+export function ProviderVerifyPhoneScreen() {
+  const insets = useSafeAreaInsets();
   const { updateUser } = useAuth();
-  const [stage, setStage] = useState<'phone' | 'otp'>(needsPhone ? 'phone' : 'otp');
+  const [stage, setStage] = useState<'phone' | 'otp'>('phone');
   const [country, setCountry] = useState<Country>(COUNTRIES[0]);
   const [phone, setPhone] = useState('');
   const [digits, setDigits] = useState(Array(OTP_LENGTH).fill(''));
   const [loading, setLoading] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
   const inputRefs = useRef<(TextInput | null)[]>([]);
-
-  useEffect(() => {
-    if (visible) {
-      setStage(needsPhone ? 'phone' : 'otp');
-      setDigits(Array(OTP_LENGTH).fill(''));
-      setOtpSent(false);
-      if (!needsPhone) sendOtp();
-    }
-  }, [visible]);
 
   function getE164() {
     const d = phone.replace(/\D/g, '');
@@ -49,7 +37,7 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
   async function sendOtp() {
     setLoading(true);
     try {
-      await apiSendVerifyOtp(needsPhone ? getE164() : undefined);
+      await apiSendVerifyOtp(getE164());
       setOtpSent(true);
       setStage('otp');
       setTimeout(() => inputRefs.current[0]?.focus(), 300);
@@ -79,12 +67,11 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
   async function verify(otp: string) {
     setLoading(true);
     try {
-      const payload: { otp: string; phone?: string } = { otp };
-      if (needsPhone) payload.phone = getE164();
-      const { user } = await apiVerifyPhone(payload);
+      const { user } = await apiVerifyPhone({ otp, phone: getE164() });
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // Flips phoneVerified true — RootNavigator/ProviderNavigator re-render
+      // past this screen automatically since it's gated on user.phoneVerified.
       updateUser({ phone: user.phone ?? undefined, phoneVerified: user.phoneVerified });
-      onVerified();
     } catch (e: any) {
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       const msg = e.message || 'Incorrect code. Please try again.';
@@ -96,12 +83,15 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
   }
 
   return (
-    <GlowSheet visible={visible} onClose={onClose}>
+    <View style={[styles.container, { paddingTop: insets.top + 32 }]}>
+      <GlowMark size={40} petal={Colors.brand} core={Colors.brand} />
       <View style={styles.body}>
         {stage === 'phone' ? (
           <>
-            <Text style={styles.title}>Confirm your phone number</Text>
-            <Text style={styles.subtitle}>We'll text you a one-time code to verify it's really you before your first booking.</Text>
+            <Text style={styles.title}>Verify your phone number</Text>
+            <Text style={styles.subtitle}>
+              Clients and Glow need a working number to reach you about jobs. Add yours to continue.
+            </Text>
             <View style={styles.phoneRow}>
               <CountryPicker value={country} onChange={c => { setCountry(c); setPhone(''); }} />
               <TextInput
@@ -112,6 +102,7 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
                 placeholderTextColor={Colors.tertiaryLabel}
                 keyboardType="phone-pad"
                 maxLength={12}
+                autoFocus
               />
             </View>
             <Pressable
@@ -125,7 +116,7 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
         ) : (
           <>
             <Text style={styles.title}>Enter the code</Text>
-            <Text style={styles.subtitle}>{otpSent ? 'We just texted you a 6-digit code.' : 'Verifying…'}</Text>
+            <Text style={styles.subtitle}>{otpSent ? `We just texted a 6-digit code to ${country.dialCode} ${phone}.` : 'Verifying…'}</Text>
             <View style={styles.digitRow}>
               {digits.map((d, i) => (
                 <TextInput
@@ -141,16 +132,24 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
                 />
               ))}
             </View>
+            <Pressable
+              style={{ marginTop: 18, alignItems: 'center' }}
+              onPress={() => { setStage('phone'); setDigits(Array(OTP_LENGTH).fill('')); }}
+              disabled={loading}
+            >
+              <Text style={styles.changeLink}>← Change number</Text>
+            </Pressable>
           </>
         )}
       </View>
-    </GlowSheet>
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  body: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 20, gap: 14 },
-  title: { fontSize: 20, fontFamily: Fonts.bold, color: Colors.label },
+  container: { flex: 1, backgroundColor: Colors.systemBackground, alignItems: 'center', paddingHorizontal: 24 },
+  body: { width: '100%', maxWidth: 400, marginTop: 40, gap: 14 },
+  title: { fontSize: 22, fontFamily: Fonts.bold, color: Colors.label },
   subtitle: { fontSize: 14, color: Colors.secondaryLabel, lineHeight: 20, fontFamily: Fonts.regular },
   phoneRow: { flexDirection: 'row', gap: 8, alignItems: 'stretch' },
   phoneInput: {
@@ -159,7 +158,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.separator, fontFamily: Fonts.regular,
   },
   phoneInputFlex: { flex: 1 },
-  cta: { borderRadius: 18, backgroundColor: Colors.brand, paddingVertical: 16, alignItems: 'center' },
+  cta: { borderRadius: 18, backgroundColor: Colors.brand, paddingVertical: 16, alignItems: 'center', marginTop: 6 },
   ctaDisabled: { backgroundColor: Colors.systemGray4 },
   ctaText: { color: '#fff', fontSize: 16, fontFamily: Fonts.semibold },
   digitRow: { flexDirection: 'row', justifyContent: 'center', gap: 10, marginTop: 8 },
@@ -169,4 +168,5 @@ const styles = StyleSheet.create({
     color: Colors.label, textAlign: 'center',
   },
   digitBoxFilled: { borderColor: Colors.brand, backgroundColor: Colors.brandLight },
+  changeLink: { color: Colors.brandDark, textDecorationLine: 'underline', fontFamily: Fonts.medium, fontSize: 14 },
 });

@@ -1138,7 +1138,7 @@ export function ProfileScreen() {
                         Icon: typeof ShieldCheckIcon; label: string; ok: boolean;
                         status: string; onPress?: () => void;
                       }[] = [
-                        { Icon: MedicalBagIcon,         label: 'First Aid', ok: providerP.approvedByAdmin || !!providerP.certifications?.includes('firstAid'), status: providerP.approvedByAdmin ? 'Cleared' : 'Pending' },
+                        { Icon: MedalIcon,              label: 'Certificate', ok: providerP.approvedByAdmin, status: providerP.approvedByAdmin ? 'Cleared' : 'Pending' },
                         {
                           Icon: ShieldCheckIcon, label: 'Police', ok: policeCleared, status: policeStatus,
                           onPress: !policeCleared && policeDoc === 'none'

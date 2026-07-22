@@ -13,6 +13,7 @@ import { MyJobsScreen } from '../screens/provider/MyJobsScreen';
 import { ProviderDashboardScreen } from '../screens/provider/ProviderDashboardScreen';
 import { ProviderDocumentsScreen } from '../screens/provider/ProviderDocumentsScreen';
 import { ProviderOnboardingScreen } from '../screens/provider/ProviderOnboardingScreen';
+import { ProviderVerifyPhoneScreen } from '../screens/provider/ProviderVerifyPhoneScreen';
 import { EarningsScreen } from '../screens/provider/EarningsScreen';
 import { RequestsScreen } from '../screens/provider/RequestsScreen';
 import { requestsBadge } from '../utils/providerBadges';
@@ -29,6 +30,7 @@ import { DEFAULT_REGION_NAME } from '../utils/region';
 
 export type PROVIDERStackParams = {
   ProviderHome: undefined;
+  ProviderVerifyPhone: undefined;
   ProviderOnboarding: undefined;
   JobDetail: { job: Booking };
   ProviderDocuments: undefined;
@@ -435,11 +437,16 @@ function ProviderTabs() {
 
 export function ProviderNavigator() {
   const { user } = useAuth();
+  // Google-signed-in Providers have no phone at all yet — verify that BEFORE
+  // onboarding/dashboard, since job dispatch depends on a working number sooner
+  // than a customer's first-booking verify does. Phone-signup Providers already
+  // arrive with phoneVerified true (see /auth/login), so this never re-blocks them.
+  const needsPhoneVerify = user?.role === 'Provider' && !user?.phoneVerified;
   const needsOnboarding = user?.role === 'Provider' && !user?.onboardingComplete;
 
   return (
     <Stack.Navigator
-      initialRouteName={needsOnboarding ? 'ProviderOnboarding' : 'ProviderHome'}
+      initialRouteName={needsPhoneVerify ? 'ProviderVerifyPhone' : needsOnboarding ? 'ProviderOnboarding' : 'ProviderHome'}
       screenOptions={{
         headerTintColor: Colors.onlineGreen,
         headerBackTitle: 'Back',
@@ -448,6 +455,7 @@ export function ProviderNavigator() {
       }}
     >
       <Stack.Screen name="ProviderHome" component={ProviderTabs} options={{ headerShown: false }} />
+      <Stack.Screen name="ProviderVerifyPhone" component={ProviderVerifyPhoneScreen} options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="ProviderOnboarding" component={ProviderOnboardingScreen} options={{ headerShown: false, gestureEnabled: false }} />
       <Stack.Screen name="JobDetail" component={JobDetailScreen} options={{ headerShown: false }} />
       <Stack.Screen name="ProviderDocuments" component={ProviderDocumentsScreen} options={{ headerShown: false }} />

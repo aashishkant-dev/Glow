@@ -74,11 +74,13 @@ const activeJobBannerStyles = StyleSheet.create({
 });
 
 // Required docs — kept in sync with ProviderOnboardingScreen STEP4_DOCS (required: true).
-const REQUIRED_DOCS = ['police_check', 'provider_certificate', 'first_aid_cert', 'id_proof'] as const;
+// First Aid/CPR and a Driver's Licence were CareNearby-era home-care-aide
+// requirements that never applied to a beauty marketplace — dropped from the
+// required set (still optional to note certs in the bio if relevant).
+const REQUIRED_DOCS = ['id_proof', 'provider_certificate'] as const;
 const DOC_LABELS: Record<string, string> = {
   police_check: 'Police Check',
   provider_certificate: 'Provider Certificate',
-  first_aid_cert: 'First Aid Cert',
   id_proof: 'Government ID',
 };
 

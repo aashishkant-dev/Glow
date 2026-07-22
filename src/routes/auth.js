@@ -206,31 +206,46 @@ router.post(
 
 // ── POST /auth/send-verify-otp ───────────────────────────────────────────────
 // Sends an OTP to the authenticated user's own phone, for the verify-at-booking
-// flow (Part 1 of the 2026-07-20 auth redesign). Requires the account to already
-// have a phone on file — accounts without one (Google/email signups) collect a
-// phone via /auth/verify-phone's optional `phone` field instead, and this route
-// isn't called for them until after that phone is set.
-router.post('/send-verify-otp', authenticate, async (req, res) => {
-  try {
-    if (!req.user.phone) {
-      return res.status(400).json({ error: 'No phone on file. Provide one via /auth/verify-phone.' });
-    }
-    if (isDemoPhone(req.user.phone)) {
-      return res.json({ message: 'OTP sent' }); // demo account skips real Twilio, same as login used to
-    }
+// (customers) or verify-right-after-signup (Providers via Google) flow. Accounts
+// with no phone on file yet (Google/email signup) must supply one in the body —
+// it is NOT saved here, only used to send the code; /auth/verify-phone saves it
+// once the code checks out, same two-step pattern as phone login.
+router.post(
+  '/send-verify-otp',
+  authenticate,
+  [body('phone').optional().trim().notEmpty()],
+  validate,
+  async (req, res) => {
     try {
-      await generateOTP(req.user.phone);
+      let phone = req.user.phone;
+      if (!phone) {
+        if (!req.body.phone) {
+          return res.status(400).json({ error: 'No phone on file. Provide one in the request body.' });
+        }
+        phone = normalizePhone(req.body.phone);
+        const existing = await prisma.user.findUnique({ where: { phone } });
+        if (existing && existing.id !== req.user.id) {
+          return res.status(409).json({ error: 'That phone number is already registered to another account.' });
+        }
+      }
+
+      if (isDemoPhone(phone)) {
+        return res.json({ message: 'OTP sent' }); // demo account skips real Twilio, same as login used to
+      }
+      try {
+        await generateOTP(phone);
+      } catch (err) {
+        if (err.status === 429) return res.status(429).json({ error: err.message });
+        console.error('[OTP] send-verify-otp failed:', err);
+        return res.status(500).json({ error: 'Failed to send OTP. Please try again.' });
+      }
+      res.json({ message: 'OTP sent' });
     } catch (err) {
-      if (err.status === 429) return res.status(429).json({ error: err.message });
-      console.error('[OTP] send-verify-otp failed:', err);
-      return res.status(500).json({ error: 'Failed to send OTP. Please try again.' });
+      console.error(err);
+      res.status(500).json({ error: 'Server error' });
     }
-    res.json({ message: 'OTP sent' });
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: 'Server error' });
   }
-});
+);
 
 // ── POST /auth/verify-phone ──────────────────────────────────────────────────
 // Marks the authenticated user's phone verified. If they had no phone yet
@@ -296,11 +311,18 @@ router.post(
 );
 
 // ── POST /auth/google ────────────────────────────────────────────────────────
-// Google Sign-In for customers only — Providers still onboard via phone since
-// they need document verification regardless of how they authenticate.
+// Google Sign-In for both customers and artists. New artist accounts still get
+// a ProviderProfile row (same as phone signup) so they land in the credential
+// onboarding wizard; their phone is NOT set here — the client sends them
+// straight to a mandatory phone-verify step right after this call succeeds,
+// since Providers need a working, verified number for job dispatch sooner
+// than customers do (who verify at first booking instead).
 router.post(
   '/google',
-  [body('idToken').trim().notEmpty().withMessage('idToken is required')],
+  [
+    body('idToken').trim().notEmpty().withMessage('idToken is required'),
+    body('role').optional().isIn(['CUSTOMER', 'Provider']).withMessage('role must be CUSTOMER or Provider'),
+  ],
   validate,
   async (req, res) => {
     try {
@@ -329,16 +351,22 @@ router.post(
         }
       }
 
+      let isNewUser = false;
       if (!user) {
+        isNewUser = true;
+        const role = req.body.role === 'Provider' ? 'Provider' : 'CUSTOMER';
         user = await prisma.user.create({
           data: {
             googleId: payload.sub,
             email:    payload.email,
             name:     payload.name || 'Glow User',
-            role:     'CUSTOMER',
+            role,
             photoUrl: payload.picture || '',
           },
         });
+        if (role === 'Provider') {
+          await prisma.providerProfile.create({ data: { userId: user.id } });
+        }
       }
 
       if (user.deletedAt) {
@@ -362,6 +390,9 @@ router.post(
           onboardingComplete: user.onboardingComplete,
           phoneVerified:      user.phoneVerified,
         },
+        // Client uses this to decide whether to route straight into a mandatory
+        // phone-verify screen before anything else (new Provider accounts only).
+        requiresPhoneVerification: isNewUser && user.role === 'Provider' && !user.phone,
       });
     } catch (err) {
       console.error(err);

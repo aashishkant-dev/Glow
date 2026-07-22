@@ -23,6 +23,7 @@ import { MirrorIcon, CrownIcon } from '../../components/BeautyIcons';
 import { apiLogin, apiGoogleSignIn, apiSendLoginOtp } from '../../api/client';
 import { Colors, Fonts } from '../../utils/colors';
 import { GlowLogo, GlowMark, GlowTagline } from '../../components/GlowLogo';
+import { CountryPicker, COUNTRIES, Country } from '../../components/CountryPicker';
 import { DEFAULT_REGION_NAME } from '../../utils/region';
 import { useAuth } from '../../context/AuthContext';
 
@@ -66,6 +67,7 @@ export function PhoneScreen() {
   const insets = useSafeAreaInsets();
   const [isNewUser, setIsNewUser] = useState(true);
   const [name,    setName]    = useState('');
+  const [country, setCountry] = useState<Country>(COUNTRIES[0]);
   const [phone,   setPhone]   = useState('');
   const [role,    setRole]    = useState<Role>('CUSTOMER');
   const [loading, setLoading] = useState(false);
@@ -114,8 +116,11 @@ export function PhoneScreen() {
     Animated.timing(heroFade, { toValue: 1, duration: 700, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
   }, []);
 
+  // NANP (Canada) dash-groups as 3-3-4; other countries' numbering plans don't
+  // match that shape, so only Canada gets the auto-dash formatting.
   function formatPhone(raw: string) {
     const d = raw.replace(/\D/g, '');
+    if (country.code !== 'CA') return d;
     if (d.length <= 3) return d;
     if (d.length <= 6) return `${d.slice(0, 3)}-${d.slice(3)}`;
     return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6, 10)}`;
@@ -136,7 +141,7 @@ export function PhoneScreen() {
 
   function getE164() {
     const d = phone.replace(/\D/g, '');
-    return d.length === 10 ? `+1${d}` : `+${d}`;
+    return `${country.dialCode}${d}`;
   }
 
   function isPhoneValid() {
@@ -194,6 +199,7 @@ export function PhoneScreen() {
         id: user.id, name: user.name, phone: user.phone ?? undefined,
         role: user.role as 'CUSTOMER' | 'Provider' | 'ADMIN' | 'SALON',
         onboardingComplete: user.onboardingComplete,
+        phoneVerified: user.phoneVerified,
       });
     } catch (e: any) {
       const msg = e.message || 'Invalid code. Please try again.';
@@ -206,12 +212,16 @@ export function PhoneScreen() {
   async function googleSignIn(idToken: string) {
     setLoading(true);
     try {
-      const { token, user } = await apiGoogleSignIn({ idToken });
+      // Same role choice used for phone signup applies here too — Google no
+      // longer implies "customer," it just means "skip the phone/OTP step for
+      // login" (artists still verify their phone right after, separately).
+      const { token, user } = await apiGoogleSignIn({ idToken, role: role === 'Provider' ? 'Provider' : 'CUSTOMER' });
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       await signIn(token, {
         id: user.id, name: user.name, phone: user.phone ?? undefined,
         role: user.role as 'CUSTOMER' | 'Provider' | 'ADMIN' | 'SALON',
         onboardingComplete: user.onboardingComplete,
+        phoneVerified: user.phoneVerified,
       });
     } catch (e: any) {
       const msg = e.message || 'Google sign-in failed. Please try again.';
@@ -255,11 +265,51 @@ export function PhoneScreen() {
 
           {/* ── Form card ──
               Google + phone are both always visible on one screen — no mode
-              switch/link between them. Google is customer-only and one tap;
-              phone (with name+role for new signups) sits right below it,
-              since it's the only path for artists and for anyone without a
-              Google account. */}
+              switch/link between them. Both customers AND artists can use
+              Google now; the shared role picker above decides which. Phone
+              stays available for anyone without a Google account, and is
+              still the only way to reach the Salon & Business role. */}
           <View style={styles.formCard}>
+            {/* Role choice — shared by Google AND phone signup. Google used to be
+                hardcoded to create customer accounts only; it now just means "skip
+                the phone/OTP step to log in," while artists still verify their
+                phone separately right after. Returning users don't need this —
+                their role is already set. */}
+            {isNewUser && (
+              <View style={[styles.inputGroup, { marginBottom: 14 }]}>
+                <Text style={styles.inputLabel}>I'm here to</Text>
+                <View style={styles.roleRow}>
+                  {([
+                    { key: 'CUSTOMER' as const, label: 'Book beauty', sub: 'Makeup, hair, nails & more', Icon: CrownIcon },
+                    { key: 'Provider' as const, label: "I'm an artist", sub: 'Grow your business & earn', Icon: MirrorIcon },
+                  ]).map(r => {
+                    const selected = role === r.key;
+                    return (
+                      <Pressable
+                        key={r.key}
+                        style={[styles.roleCard, selected && styles.roleCardSelected]}
+                        onPress={() => {
+                          if (Platform.OS !== 'web') Haptics.selectionAsync();
+                          setRole(r.key);
+                        }}
+                      >
+                        <View style={[styles.roleIconWrap, selected && { backgroundColor: Colors.brandLight }]}>
+                          <r.Icon size={20} color={selected ? Colors.brand : Colors.secondaryLabel} />
+                        </View>
+                        <Text style={[styles.roleLabel, selected && { color: Colors.label }]}>{r.label}</Text>
+                        <Text style={styles.roleSub} numberOfLines={2}>{r.sub}</Text>
+                        {selected && (
+                          <View style={styles.roleCheck}>
+                            <Text style={styles.roleCheckText}>✓</Text>
+                          </View>
+                        )}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </View>
+            )}
+
             <Pressable
               style={[styles.ctaBtn, styles.googleBtn, !googleConfigured && styles.ctaBtnDisabled]}
               onPress={() => googleConfigured && promptGoogleAsync()}
@@ -270,7 +320,9 @@ export function PhoneScreen() {
                 {loading ? 'Signing in…' : googleConfigured ? 'Continue with Google' : 'Google sign-in unavailable'}
               </Text>
             </Pressable>
-            <Text style={styles.disclaimer}>Google is for customers only — artists sign in with phone below.</Text>
+            {role === 'Provider' && (
+              <Text style={styles.disclaimer}>You'll verify your phone right after signing in with Google.</Text>
+            )}
 
             <View style={styles.orDivider}>
               <View style={styles.orLine} />
@@ -323,16 +375,16 @@ export function PhoneScreen() {
                     <View style={styles.inputGroup}>
                       <Text style={styles.inputLabel}>Phone number</Text>
                       <View style={styles.phoneRow}>
-                        <View style={styles.countryBadge}>
-                          <Text style={styles.countryFlag}>🇨🇦</Text>
-                          <Text style={styles.countryCode}>+1</Text>
-                        </View>
+                        <CountryPicker
+                          value={country}
+                          onChange={c => { setCountry(c); setPhone(''); }}
+                        />
                         <TextInput
                           style={[styles.textInput, styles.phoneInput]}
                           value={phone}
                           onChangeText={handlePhoneChange}
                           onBlur={() => setPhone(formatPhone(phone))}
-                          placeholder="705-555-0100"
+                          placeholder={country.code === 'CA' ? '705-555-0100' : '98XXXXXXXX'}
                           placeholderTextColor={Colors.tertiaryLabel}
                           keyboardType="phone-pad"
                           maxLength={12}
@@ -341,44 +393,6 @@ export function PhoneScreen() {
                         />
                       </View>
                     </View>
-
-                    {/* Role — new phone signups can be either a customer or an artist;
-                        Google is customer-only, so phone is the ONLY path for artists to
-                        join, and must offer a real choice, not assume one. */}
-                    {isNewUser && (
-                      <View style={styles.inputGroup}>
-                        <Text style={styles.inputLabel}>I'm here to</Text>
-                        <View style={styles.roleRow}>
-                          {([
-                            { key: 'CUSTOMER' as const, label: 'Book beauty', sub: 'Makeup, hair, nails & more', Icon: CrownIcon },
-                            { key: 'Provider' as const, label: "I'm an artist", sub: 'Grow your business & earn', Icon: MirrorIcon },
-                          ]).map(r => {
-                            const selected = role === r.key;
-                            return (
-                              <Pressable
-                                key={r.key}
-                                style={[styles.roleCard, selected && styles.roleCardSelected]}
-                                onPress={() => {
-                                  if (Platform.OS !== 'web') Haptics.selectionAsync();
-                                  setRole(r.key);
-                                }}
-                              >
-                                <View style={[styles.roleIconWrap, selected && { backgroundColor: Colors.brandLight }]}>
-                                  <r.Icon size={20} color={selected ? Colors.brand : Colors.secondaryLabel} />
-                                </View>
-                                <Text style={[styles.roleLabel, selected && { color: Colors.label }]}>{r.label}</Text>
-                                <Text style={styles.roleSub} numberOfLines={2}>{r.sub}</Text>
-                                {selected && (
-                                  <View style={styles.roleCheck}>
-                                    <Text style={styles.roleCheckText}>✓</Text>
-                                  </View>
-                                )}
-                              </Pressable>
-                            );
-                          })}
-                        </View>
-                      </View>
-                    )}
 
                     {/* Age confirmation */}
                     {isNewUser && (
@@ -451,7 +465,7 @@ export function PhoneScreen() {
 
                     <View style={styles.inputGroup}>
                       <Text style={styles.inputLabel}>Enter the 6-digit code</Text>
-                      <Text style={styles.otpSentTo}>Sent to +1 {phone}</Text>
+                      <Text style={styles.otpSentTo}>Sent to {country.dialCode} {phone}</Text>
                       <TextInput
                         style={[styles.textInput, styles.otpInput]}
                         value={otpCode}
@@ -554,14 +568,6 @@ const styles = StyleSheet.create({
   otpInput: { fontSize: 22, letterSpacing: 6, textAlign: 'center', fontFamily: Fonts.semibold },
 
   phoneRow: { flexDirection: 'row', gap: 8, alignItems: 'stretch' },
-  countryBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: Colors.systemGroupedBackground, borderRadius: 16,
-    paddingHorizontal: 14,
-    borderWidth: 1, borderColor: Colors.separator,
-  },
-  countryFlag: { fontSize: 17 },
-  countryCode: { fontSize: 15, fontFamily: Fonts.semibold, color: Colors.label },
   phoneInput: { flex: 1, fontSize: 16, letterSpacing: 0.4 },
 
   roleRow: { flexDirection: 'row', gap: 10 },

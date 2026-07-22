@@ -143,7 +143,6 @@ export function ProviderOnboardingScreen() {
 
   // Step 3
   const [firstAid, setFirstAid]     = useState(false);
-  const [driversLic, setDriversLic] = useState(false);
   const [ownCar, setOwnCar]         = useState(false);
 
   // Step 4 — Pricing (per-service only — every Artist prices their own menu)
@@ -181,7 +180,6 @@ export function ProviderOnboardingScreen() {
         languages:         languages.length > 0 ? languages : ['English'],
         bio:               bio.trim(),
         firstAidCertified: firstAid,
-        driversLicense:    driversLic,
         ownTransportation: ownCar,
         pricingModel:      'PER_SERVICE',
         priceNegotiable,
@@ -466,8 +464,7 @@ export function ProviderOnboardingScreen() {
 
                 <View style={styles.card}>
                   {[
-                    { label: 'First Aid / CPR Certified', sub: 'Valid certificate', value: firstAid, set: setFirstAid },
-                    { label: "Valid Driver's Licence",     sub: 'Ontario G or G2',   value: driversLic, set: setDriversLic },
+                    { label: 'First Aid / CPR Certified', sub: 'Valid certificate (optional)', value: firstAid, set: setFirstAid },
                     { label: 'Own Transportation',         sub: 'Vehicle to travel to clients', value: ownCar, set: setOwnCar },
                   ].map((item, i) => (
                     <View key={item.label}>

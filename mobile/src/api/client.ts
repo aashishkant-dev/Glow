@@ -120,16 +120,16 @@ export function apiLogin(payload: { phone: string; otp: string; name?: string; r
   return request<{ token: string; user: AuthUser }>('POST', '/auth/login', payload, false, 2);
 }
 
-export function apiSendVerifyOtp() {
-  return request<{ message: string }>('POST', '/auth/send-verify-otp');
+export function apiSendVerifyOtp(phone?: string) {
+  return request<{ message: string }>('POST', '/auth/send-verify-otp', phone ? { phone } : undefined);
 }
 
 export function apiVerifyPhone(payload: { otp: string; phone?: string }) {
   return request<{ user: AuthUser }>('POST', '/auth/verify-phone', payload);
 }
 
-export function apiGoogleSignIn(payload: { idToken: string }) {
-  return request<{ token: string; user: AuthUser }>('POST', '/auth/google', payload, false, 2);
+export function apiGoogleSignIn(payload: { idToken: string; role?: 'CUSTOMER' | 'Provider' }) {
+  return request<{ token: string; user: AuthUser; requiresPhoneVerification?: boolean }>('POST', '/auth/google', payload, false, 2);
 }
 
 export function apiSubmitProviderOnboarding(payload: {

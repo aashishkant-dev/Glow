@@ -19,7 +19,7 @@ import { Storage, StoredDocument } from '../../utils/storage';
 import { Colors } from '../../utils/colors';
 import { CheckCircleIcon } from '../../components/TabIcons';
 import {
-  ShieldCheckIcon, MedalIcon, MedicalBagIcon, CardAccountDetailsIcon, NoteIcon,
+  ShieldCheckIcon, MedalIcon, CardAccountDetailsIcon, NoteIcon,
 } from '../../components/CareIcons';
 import { DEFAULT_REGION_NAME } from '../../utils/region';
 
@@ -36,14 +36,14 @@ const DOC_TYPES: {
   //   - ProviderDashboardScreen REQUIRED_DOCS array
   // If a doc's required flag differs across those three places the dashboard's
   // progress bar and the onboarding gate will contradict each other.
-  { id: 'police_check',    label: 'Police Check Clearance',      sublabel: 'RCMP/OPP criminal record check — required', Icon: ShieldCheckIcon,        required: true },
-  { id: 'provider_certificate', label: 'Provider Certificate',             sublabel: 'Official credential from your college',      Icon: MedalIcon,              required: true },
-  { id: 'first_aid_cert',  label: 'First Aid / CPR Certificate', sublabel: 'Valid St. John Ambulance or Red Cross cert', Icon: MedicalBagIcon,         required: true },
-  { id: 'driver_license',  label: "Driver's Licence",            sublabel: 'Ontario G or G2 — both sides',              Icon: CardAccountDetailsIcon, required: false },
-  // Required — must match ProviderOnboardingScreen STEP4_DOCS and ProviderDashboardScreen REQUIRED_DOCS.
-  // Previously listed as required:false here, which caused the progress counter
-  // to show 3/3 even when Government ID was missing.
+  //
+  // First Aid/CPR and a Driver's Licence were CareNearby-era home-care-aide
+  // requirements — never relevant to a beauty marketplace (makeup/hair/nails
+  // artists don't need either), so both are dropped entirely rather than just
+  // made optional; they cluttered the doc list for no artist-facing benefit.
   { id: 'id_proof',        label: 'Government ID',               sublabel: 'Passport, Ontario Photo Card, or health card', Icon: CardAccountDetailsIcon, required: true },
+  { id: 'provider_certificate', label: 'Provider Certificate',             sublabel: 'Official credential from your college',      Icon: MedalIcon,              required: true },
+  { id: 'police_check',    label: 'Police Check Clearance',      sublabel: 'RCMP/OPP criminal record check — optional but boosts trust', Icon: ShieldCheckIcon, required: false },
   { id: 'insurance',       label: 'Liability Insurance',         sublabel: 'Professional liability / E&O if applicable', Icon: NoteIcon,               required: false },
 ];
 

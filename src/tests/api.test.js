@@ -53,6 +53,7 @@ const mockQueryRaw   = jest.fn().mockResolvedValue([{ '?column?': 1 }]);
 // Same rationale as mockFindUnique above — captures prisma.user.update calls so
 // tests can assert whether (and with what args) a User row was written to.
 const mockUserUpdate = jest.fn().mockResolvedValue({});
+const mockUserCreate = jest.fn().mockResolvedValue({});
 
 // Jest requires mock factory variables to be prefixed with "mock" (case-insensitive)
 // when referenced from within a jest.mock() factory. The helper below is inlined
@@ -80,7 +81,7 @@ jest.mock('../lib/prisma', () => {
     get(_target, prop) {
       // auth middleware specifically uses prisma.user.findUnique —
       // mockFindUnique is allowed because it is prefixed with "mock"
-      if (prop === 'user')         return { ...mockModelStub(), findUnique: (...a) => mockFindUnique(...a), update: (...a) => mockUserUpdate(...a) };
+      if (prop === 'user')         return { ...mockModelStub(), findUnique: (...a) => mockFindUnique(...a), update: (...a) => mockUserUpdate(...a), create: (...a) => mockUserCreate(...a) };
       if (prop === '$queryRaw')    return (...a) => mockQueryRaw(...a);
       if (prop === '$connect')     return () => Promise.resolve();
       if (prop === '$disconnect')  return () => Promise.resolve();
@@ -276,6 +277,28 @@ describe('POST /auth/send-verify-otp', () => {
     const res = await request(app).post('/auth/send-verify-otp').send({});
     expect(res.status).toBe(401);
   });
+
+  it('rejects a phone-less account (Google Provider signup) with no phone supplied', async () => {
+    const token = jwt.sign({ userId: 'artist1', role: 'Provider' }, JWT_SECRET, { algorithm: 'HS256' });
+    mockFindUnique.mockResolvedValue({ id: 'artist1', phone: null, role: 'Provider', deletedAt: null });
+    const res = await request(app)
+      .post('/auth/send-verify-otp')
+      .set('Authorization', `Bearer ${token}`)
+      .send({});
+    expect(res.status).toBe(400);
+  });
+
+  it('sends an OTP for a supplied phone when the account has none on file yet', async () => {
+    const token = jwt.sign({ userId: 'artist1', role: 'Provider' }, JWT_SECRET, { algorithm: 'HS256' });
+    mockFindUnique.mockResolvedValueOnce({ id: 'artist1', phone: null, role: 'Provider', deletedAt: null }); // auth middleware
+    mockFindUnique.mockResolvedValueOnce(null); // no other account already has this phone
+    const res = await request(app)
+      .post('/auth/send-verify-otp')
+      .set('Authorization', `Bearer ${token}`)
+      .send({ phone: '7055559111' });
+    expect(res.status).toBe(200);
+    expect(res.body).toMatchObject({ message: 'OTP sent' });
+  });
 });
 
 describe('POST /auth/verify-phone', () => {
@@ -443,6 +466,23 @@ describe('POST /auth/google', () => {
     const res = await request(app).post('/auth/google').send({ idToken: 'fake' });
     expect(res.status).toBe(200);
     expect(res.body).toHaveProperty('token');
+  });
+
+  it('creates a new Provider account and flags requiresPhoneVerification when role=Provider', async () => {
+    verifyGoogleIdToken.mockResolvedValueOnce({
+      sub: 'g-artist-1', email: 'artist@example.com', name: 'New Artist', picture: '',
+    });
+    mockFindUnique.mockResolvedValueOnce(null); // no user with this googleId
+    mockFindUnique.mockResolvedValueOnce(null); // no user with this email either
+    mockUserCreate.mockResolvedValueOnce({
+      id: 'artist-user-1', googleId: 'g-artist-1', email: 'artist@example.com',
+      name: 'New Artist', role: 'Provider', photoUrl: '', phone: null,
+      onboardingComplete: false, phoneVerified: false, deletedAt: null,
+    });
+    const res = await request(app).post('/auth/google').send({ idToken: 'fake', role: 'Provider' });
+    expect(res.status).toBe(200);
+    expect(res.body.user.role).toBe('Provider');
+    expect(res.body.requiresPhoneVerification).toBe(true);
   });
 
   it('does not link to a soft-deleted account matched by email — creates a fresh account instead', async () => {
