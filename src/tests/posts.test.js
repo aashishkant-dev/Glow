@@ -421,6 +421,26 @@ describe('GET /posts/explore', () => {
     );
   });
 
+  it('clamps a negative limit to a minimum of 1 instead of 500ing', async () => {
+    mockFindUnique.mockResolvedValueOnce({ id: 'customer1', role: 'CUSTOMER', deletedAt: null });
+    // limit clamped to 1 requested, mock returns 2 (limit+1 "peek" item)
+    prisma.post.findMany.mockResolvedValueOnce([
+      { id: 'post2', photoUrl: '', caption: '', likeCount: 0, createdAt: new Date(), profile: { id: 'profile1', photoUrl: '', user: { name: 'Alice' } }, service: null, likes: [] },
+      { id: 'post1', photoUrl: '', caption: '', likeCount: 0, createdAt: new Date(), profile: { id: 'profile1', photoUrl: '', user: { name: 'Alice' } }, service: null, likes: [] },
+    ]);
+
+    const res = await request(app)
+      .get('/posts/explore?sort=recent&limit=-5')
+      .set('Authorization', `Bearer ${customerToken()}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.posts.map((p) => p.id)).toEqual(['post2']);
+    expect(res.body.nextCursor).toBe('post1');
+    expect(prisma.post.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: 2 })
+    );
+  });
+
   it('sets nextCursor to null when fewer results exist than the limit', async () => {
     mockFindUnique.mockResolvedValueOnce({ id: 'customer1', role: 'CUSTOMER', deletedAt: null });
     prisma.post.findMany.mockResolvedValueOnce([

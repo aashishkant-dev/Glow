@@ -171,7 +171,7 @@ router.get(
       if (sort !== 'recent' && sort !== 'top') {
         return res.status(400).json({ error: 'sort must be "recent" or "top"' });
       }
-      const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
+      const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
       const cursor = req.query.cursor;
 
       const posts = await prisma.post.findMany({
