@@ -168,6 +168,7 @@ model User {
   messagesSent       Message[]
   payouts            Payout[]
   notifications      Notification[]
+  postLikes          PostLike[]
 
   @@index([role, isVerified])
   @@index([role, createdAt(sort: Desc)])
@@ -247,6 +248,7 @@ model ProviderProfile {
 
   documents          Document[]
   services           ProviderService[]
+  posts              Post[]
 
   @@index([approvedByAdmin, availability])
   @@index([approvedByAdmin, availability, userId])  // nearby Provider lookup covering index
@@ -590,7 +592,39 @@ model ProviderService {
   createdAt     DateTime        @default(now())
   updatedAt     DateTime        @updatedAt
 
+  posts         Post[]
+
   @@unique([profileId, name])
   @@index([profileId, active])
   @@index([serviceItemId])
+}
+
+model Post {
+  id          String    @id @default(cuid())
+  profileId   String
+  profile     ProviderProfile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  photoUrl    String
+  caption     String?   @db.VarChar(500)
+  serviceId   String?
+  service     ProviderService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
+  likeCount   Int       @default(0)
+  active      Boolean   @default(true)
+  createdAt   DateTime  @default(now())
+  likes       PostLike[]
+
+  @@index([profileId])
+  @@index([likeCount])
+  @@index([createdAt])
+}
+
+model PostLike {
+  id        String   @id @default(cuid())
+  postId    String
+  post      Post     @relation(fields: [postId], references: [id], onDelete: Cascade)
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([postId, userId])
+  @@index([userId])
 }
