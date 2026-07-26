@@ -296,3 +296,157 @@ describe('DELETE /posts/:id/like', () => {
     expect(res.body).toEqual({ success: true });
   });
 });
+
+describe('GET /posts/explore', () => {
+  it('rejects unauthenticated requests', async () => {
+    const res = await request(app).get('/posts/explore');
+    expect(res.status).toBe(401);
+  });
+
+  it('rejects invalid sort values', async () => {
+    mockFindUnique.mockResolvedValueOnce({ id: 'customer1', role: 'CUSTOMER', deletedAt: null });
+    const res = await request(app)
+      .get('/posts/explore?sort=bogus')
+      .set('Authorization', `Bearer ${customerToken()}`);
+    expect(res.status).toBe(400);
+  });
+
+  it('defaults to sort=recent and orders by createdAt desc', async () => {
+    mockFindUnique.mockResolvedValueOnce({ id: 'customer1', role: 'CUSTOMER', deletedAt: null });
+    prisma.post.findMany.mockResolvedValueOnce([
+      {
+        id: 'post2', photoUrl: 'https://blob.example.com/2.jpg', caption: 'newer', likeCount: 1,
+        createdAt: new Date('2026-07-20T00:00:00Z'),
+        profile: { id: 'profile1', photoUrl: '', user: { name: 'Alice' } },
+        service: null,
+        likes: [],
+      },
+      {
+        id: 'post1', photoUrl: 'https://blob.example.com/1.jpg', caption: 'older', likeCount: 5,
+        createdAt: new Date('2026-07-10T00:00:00Z'),
+        profile: { id: 'profile1', photoUrl: '', user: { name: 'Alice' } },
+        service: null,
+        likes: [],
+      },
+    ]);
+
+    const res = await request(app)
+      .get('/posts/explore')
+      .set('Authorization', `Bearer ${customerToken()}`);
+
+    expect(res.status).toBe(200);
+    expect(prisma.post.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { createdAt: 'desc' } })
+    );
+    expect(res.body.posts.map((p) => p.id)).toEqual(['post2', 'post1']);
+  });
+
+  it('sort=top orders by likeCount desc', async () => {
+    mockFindUnique.mockResolvedValueOnce({ id: 'customer1', role: 'CUSTOMER', deletedAt: null });
+    prisma.post.findMany.mockResolvedValueOnce([
+      {
+        id: 'post1', photoUrl: 'https://blob.example.com/1.jpg', caption: 'most liked', likeCount: 10,
+        createdAt: new Date('2026-07-10T00:00:00Z'),
+        profile: { id: 'profile1', photoUrl: '', user: { name: 'Alice' } },
+        service: null,
+        likes: [],
+      },
+      {
+        id: 'post2', photoUrl: 'https://blob.example.com/2.jpg', caption: 'less liked', likeCount: 2,
+        createdAt: new Date('2026-07-20T00:00:00Z'),
+        profile: { id: 'profile1', photoUrl: '', user: { name: 'Alice' } },
+        service: null,
+        likes: [],
+      },
+    ]);
+
+    const res = await request(app)
+      .get('/posts/explore?sort=top')
+      .set('Authorization', `Bearer ${customerToken()}`);
+
+    expect(res.status).toBe(200);
+    expect(prisma.post.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ orderBy: { likeCount: 'desc' } })
+    );
+    expect(res.body.posts.map((p) => p.id)).toEqual(['post1', 'post2']);
+  });
+
+  it('computes isLikedByMe true when the requesting user has liked the post', async () => {
+    mockFindUnique.mockResolvedValueOnce({ id: 'customer1', role: 'CUSTOMER', deletedAt: null });
+    prisma.post.findMany.mockResolvedValueOnce([
+      {
+        id: 'post1', photoUrl: 'https://blob.example.com/1.jpg', caption: 'liked by me', likeCount: 1,
+        createdAt: new Date(),
+        profile: { id: 'profile1', photoUrl: '', user: { name: 'Alice' } },
+        service: null,
+        likes: [{ id: 'like1' }],
+      },
+      {
+        id: 'post2', photoUrl: 'https://blob.example.com/2.jpg', caption: 'not liked by me', likeCount: 0,
+        createdAt: new Date(),
+        profile: { id: 'profile1', photoUrl: '', user: { name: 'Alice' } },
+        service: null,
+        likes: [],
+      },
+    ]);
+
+    const res = await request(app)
+      .get('/posts/explore')
+      .set('Authorization', `Bearer ${customerToken()}`);
+
+    expect(res.status).toBe(200);
+    const byId = Object.fromEntries(res.body.posts.map((p) => [p.id, p]));
+    expect(byId.post1.isLikedByMe).toBe(true);
+    expect(byId.post2.isLikedByMe).toBe(false);
+  });
+
+  it('sets nextCursor to the last item id and excludes the peek item when more results exist', async () => {
+    mockFindUnique.mockResolvedValueOnce({ id: 'customer1', role: 'CUSTOMER', deletedAt: null });
+    // limit=2 requested, mock returns 3 (limit+1 "peek" item)
+    prisma.post.findMany.mockResolvedValueOnce([
+      { id: 'post3', photoUrl: '', caption: '', likeCount: 0, createdAt: new Date(), profile: { id: 'profile1', photoUrl: '', user: { name: 'Alice' } }, service: null, likes: [] },
+      { id: 'post2', photoUrl: '', caption: '', likeCount: 0, createdAt: new Date(), profile: { id: 'profile1', photoUrl: '', user: { name: 'Alice' } }, service: null, likes: [] },
+      { id: 'post1', photoUrl: '', caption: '', likeCount: 0, createdAt: new Date(), profile: { id: 'profile1', photoUrl: '', user: { name: 'Alice' } }, service: null, likes: [] },
+    ]);
+
+    const res = await request(app)
+      .get('/posts/explore?limit=2')
+      .set('Authorization', `Bearer ${customerToken()}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.posts.map((p) => p.id)).toEqual(['post3', 'post2']);
+    expect(res.body.nextCursor).toBe('post1');
+    expect(prisma.post.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ take: 3 })
+    );
+  });
+
+  it('sets nextCursor to null when fewer results exist than the limit', async () => {
+    mockFindUnique.mockResolvedValueOnce({ id: 'customer1', role: 'CUSTOMER', deletedAt: null });
+    prisma.post.findMany.mockResolvedValueOnce([
+      { id: 'post1', photoUrl: '', caption: '', likeCount: 0, createdAt: new Date(), profile: { id: 'profile1', photoUrl: '', user: { name: 'Alice' } }, service: null, likes: [] },
+    ]);
+
+    const res = await request(app)
+      .get('/posts/explore?limit=20')
+      .set('Authorization', `Bearer ${customerToken()}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body.posts.map((p) => p.id)).toEqual(['post1']);
+    expect(res.body.nextCursor).toBeNull();
+  });
+
+  it('passes cursor and skip:1 to prisma when a cursor is provided', async () => {
+    mockFindUnique.mockResolvedValueOnce({ id: 'customer1', role: 'CUSTOMER', deletedAt: null });
+    prisma.post.findMany.mockResolvedValueOnce([]);
+
+    const res = await request(app)
+      .get('/posts/explore?cursor=post5')
+      .set('Authorization', `Bearer ${customerToken()}`);
+
+    expect(res.status).toBe(200);
+    expect(prisma.post.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ cursor: { id: 'post5' }, skip: 1 })
+    );
+  });
+});

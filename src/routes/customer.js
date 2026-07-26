@@ -593,6 +593,14 @@ router.get(
         },
       });
 
+      // Most recent active posts for this Provider (portfolio grid on the public profile)
+      const recentPosts = await prisma.post.findMany({
+        where: { profileId: profile.id, active: true },
+        orderBy: { createdAt: 'desc' },
+        take: 12,
+        include: { service: { select: { id: true, name: true, price: true } } },
+      });
+
       res.json({
         provider: {
           id: profile.userId,
@@ -631,6 +639,14 @@ router.get(
             comment: b.ratingComment ?? '',
             customerName: b.customer?.name ? b.customer.name.split(' ')[0] + '.' : 'Anonymous',
             createdAt: b.updatedAt,
+          })),
+          posts: recentPosts.map(p => ({
+            id: p.id,
+            photoUrl: p.photoUrl,
+            caption: p.caption,
+            likeCount: p.likeCount,
+            createdAt: p.createdAt,
+            service: p.service ? { id: p.service.id, name: p.service.name, price: toNum(p.service.price) } : null,
           })),
         },
       });

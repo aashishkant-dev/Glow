@@ -160,4 +160,61 @@ router.delete(
   }
 );
 
+function toNum(v) { return v == null ? v : parseFloat(v.toString()); }
+
+router.get(
+  '/explore',
+  authenticate,
+  async (req, res) => {
+    try {
+      const sort = req.query.sort || 'recent';
+      if (sort !== 'recent' && sort !== 'top') {
+        return res.status(400).json({ error: 'sort must be "recent" or "top"' });
+      }
+      const limit = Math.min(parseInt(req.query.limit, 10) || 20, 50);
+      const cursor = req.query.cursor;
+
+      const posts = await prisma.post.findMany({
+        where: {
+          active: true,
+          profile: { approvedByAdmin: true },
+        },
+        orderBy: sort === 'top' ? { likeCount: 'desc' } : { createdAt: 'desc' },
+        take: limit + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        include: {
+          profile: {
+            select: {
+              id: true, photoUrl: true,
+              user: { select: { name: true } },
+            },
+          },
+          service: { select: { id: true, name: true, price: true } },
+          likes: { where: { userId: req.user.id }, select: { id: true } },
+        },
+      });
+
+      const hasMore = posts.length > limit;
+      const page = posts.slice(0, limit).map((p) => ({
+        id: p.id,
+        photoUrl: p.photoUrl,
+        caption: p.caption,
+        likeCount: p.likeCount,
+        createdAt: p.createdAt,
+        provider: { id: p.profile.id, name: p.profile.user.name, photoUrl: p.profile.photoUrl },
+        service: p.service ? { id: p.service.id, name: p.service.name, price: toNum(p.service.price) } : null,
+        isLikedByMe: p.likes.length > 0,
+      }));
+
+      res.json({
+        posts: page,
+        nextCursor: hasMore ? posts[limit].id : null,
+      });
+    } catch (err) {
+      console.error('GET /posts/explore error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
 module.exports = router;
