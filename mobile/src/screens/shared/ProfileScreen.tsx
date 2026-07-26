@@ -52,6 +52,7 @@ import {
   apiGetProviderServices, apiSetProviderServices, apiUpdateProviderPricing, ProviderServiceItem,
   apiMyJobs, apiToggleAvailability, Booking,
   apiUpdateProviderLocationSettings, BusinessHours,
+  apiCreatePost, apiDeletePost, apiGetMyPosts, Post,
 } from '../../api/client';
 import { Storage } from '../../utils/storage';
 import { Colors, Fonts } from '../../utils/colors';
@@ -213,6 +214,12 @@ export function ProfileScreen() {
   const [policeDoc, setPoliceDoc] = useState<'none' | 'submitted' | 'approved'>('none');
   const [galleryUploading, setGalleryUploading] = useState(false);
 
+  // Feed posts — separate from the profile gallery. Posts show up in the public
+  // Explore feed (with likes/ranking); gallery photos are profile-only.
+  const [myPosts,     setMyPosts]     = useState<Post[]>([]);
+  const [postCaption, setPostCaption] = useState('');
+  const [creatingPost, setCreatingPost] = useState(false);
+
   // Real per-service pricing — fetched from the artist's actual service menu
   // (ProviderService rows), not the pricing-model badge that used to stand in
   // for it. Editing a price locally, then "Save changes" replaces the whole
@@ -356,6 +363,53 @@ export function ProfileScreen() {
     }
   }
 
+  async function loadMyPosts() {
+    try {
+      const { posts } = await apiGetMyPosts();
+      setMyPosts(posts);
+    } catch (err) {
+      console.error('Failed to load posts', err);
+    }
+  }
+
+  async function createPost() {
+    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (status !== 'granted') { Alert.alert('Permission needed', 'Allow photo library access to create a post.'); return; }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ['images'],
+      allowsEditing: true,
+      aspect: [4, 5],
+      quality: 0.8,
+      base64: true,
+    });
+    if (result.canceled || !result.assets[0]) return;
+    const asset = result.assets[0];
+    if (!asset.base64) { Alert.alert('Could not read image'); return; }
+
+    setCreatingPost(true);
+    try {
+      await apiCreatePost({
+        photoBase64: asset.base64,
+        mimeType: asset.mimeType ?? 'image/jpeg',
+        caption: postCaption.trim() || undefined,
+      });
+      setPostCaption('');
+      await loadMyPosts();
+    } catch (e: any) {
+      Alert.alert('Post failed', e?.message || 'Could not create post. Please try again.');
+    }
+    setCreatingPost(false);
+  }
+
+  async function deletePost(postId: string) {
+    try {
+      await apiDeletePost(postId);
+      setMyPosts(prev => prev.filter(p => p.id !== postId));
+    } catch (e: any) {
+      Alert.alert('Delete failed', e?.message || 'Could not delete post.');
+    }
+  }
+
   const isCustomer = user?.role === 'CUSTOMER' || user?.role === 'SALON';
   const isProvider      = user?.role === 'Provider';
   const isAdmin    = user?.role === 'ADMIN';
@@ -391,6 +445,7 @@ export function ProfileScreen() {
         .catch(() => {})
         .finally(() => setServicesLoading(false));
       apiMyJobs().then(({ bookings }) => setJobs(bookings)).catch(() => {});
+      loadMyPosts();
     }
   }, [token]);
 
@@ -1175,6 +1230,58 @@ export function ProfileScreen() {
                   <Text style={styles.noProfileText}>
                     Complete your credential onboarding to see verification status.
                   </Text>
+                </View>
+              )}
+            </View>
+          </View>
+        )}
+
+        {/* ── Section: Provider Posts — feed content, separate from the profile
+             gallery. These show up in the public Explore feed with likes/ranking. ── */}
+        {isProvider && (
+          <View style={styles.sectionWrap}>
+            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
+              <Text style={styles.sectionLabel}>Posts</Text>
+              <Pressable onPress={createPost} disabled={creatingPost} style={styles.saveChangesBtn}>
+                {creatingPost
+                  ? <ActivityIndicator size="small" color="#fff" />
+                  : <Text style={styles.saveChangesBtnText}>+ New Post</Text>}
+              </Pressable>
+            </View>
+            <View style={styles.card}>
+              <TextInput
+                style={styles.postCaptionInput}
+                value={postCaption}
+                onChangeText={setPostCaption}
+                placeholder="Add a caption (optional)"
+                placeholderTextColor={Colors.tertiaryLabel}
+                multiline
+                maxLength={280}
+              />
+              {myPosts.length === 0 ? (
+                <Pressable onPress={createPost} style={styles.galleryEmpty}>
+                  <CameraIcon size={28} color={Colors.tertiaryLabel} />
+                  <Text style={styles.galleryEmptyText}>Share your work to get discovered in Explore</Text>
+                  <Text style={styles.galleryEmptyHint}>Tap "+ New Post" to add your first one</Text>
+                </Pressable>
+              ) : (
+                <View style={styles.galleryGrid}>
+                  {myPosts.map((post) => (
+                    <View key={post.id} style={styles.galleryThumb}>
+                      <Image source={{ uri: post.photoUrl }} style={styles.galleryThumbImg} contentFit="cover" cachePolicy="memory-disk" />
+                      <Pressable
+                        style={styles.galleryRemoveBtn}
+                        onPress={() => {
+                          Alert.alert('Delete post?', 'This cannot be undone.', [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Delete', style: 'destructive', onPress: () => deletePost(post.id) },
+                          ]);
+                        }}
+                      >
+                        <Text style={styles.galleryRemoveBtnText}>✕</Text>
+                      </Pressable>
+                    </View>
+                  ))}
                 </View>
               )}
             </View>
@@ -2100,6 +2207,12 @@ const styles = StyleSheet.create({
     borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', backgroundColor: ICON_BG,
   },
   galleryAddTileText: { fontSize: 28, color: BRAND, fontWeight: '300', marginTop: -2 },
+
+  postCaptionInput: {
+    fontSize: 14, color: VALUE, minHeight: 44, textAlignVertical: 'top',
+    backgroundColor: ICON_BG, borderRadius: 14, borderWidth: 1, borderColor: Colors.brandAccent,
+    paddingHorizontal: 12, paddingVertical: 10, marginBottom: 12,
+  },
 
   specialtiesBlock: { gap: 10, paddingVertical: 6 },
   specialtiesLabel: { fontSize: 13, fontWeight: '800', color: LABEL, textTransform: 'uppercase', letterSpacing: 0.6 },
