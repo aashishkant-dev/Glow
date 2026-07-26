@@ -165,3 +165,117 @@ describe('GET /posts/mine', () => {
     expect(res.body.posts).toEqual(posts);
   });
 });
+
+describe('POST /posts/:id/like', () => {
+  it('rejects unauthenticated requests', async () => {
+    const res = await request(app).post('/posts/post1/like');
+    expect(res.status).toBe(401);
+  });
+
+  it('returns 404 for a nonexistent or inactive post', async () => {
+    mockFindUnique.mockResolvedValueOnce({ id: 'customer1', role: 'CUSTOMER', deletedAt: null });
+    prisma.post.findUnique.mockResolvedValueOnce(null);
+
+    const res = await request(app)
+      .post('/posts/does-not-exist/like')
+      .set('Authorization', `Bearer ${customerToken()}`);
+
+    expect(res.status).toBe(404);
+  });
+
+  it('creates a PostLike and increments likeCount via $transaction', async () => {
+    mockFindUnique.mockResolvedValueOnce({ id: 'customer1', role: 'CUSTOMER', deletedAt: null });
+    prisma.post.findUnique.mockResolvedValueOnce({ id: 'post1', active: true });
+
+    const txPostLike = { create: jest.fn().mockResolvedValue({ id: 'like1', postId: 'post1', userId: 'customer1' }) };
+    const txPost = { update: jest.fn().mockResolvedValue({ id: 'post1', likeCount: 1 }) };
+    prisma.$transaction.mockImplementationOnce((fn) => fn({ post: txPost, postLike: txPostLike }));
+
+    const res = await request(app)
+      .post('/posts/post1/like')
+      .set('Authorization', `Bearer ${customerToken()}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+    expect(txPostLike.create).toHaveBeenCalledWith({ data: { postId: 'post1', userId: 'customer1' } });
+    expect(txPost.update).toHaveBeenCalledWith({
+      where: { id: 'post1' },
+      data: { likeCount: { increment: 1 } },
+    });
+  });
+
+  it('is a no-op (not an error) when the same user likes the post twice (P2002)', async () => {
+    mockFindUnique.mockResolvedValueOnce({ id: 'customer1', role: 'CUSTOMER', deletedAt: null });
+    prisma.post.findUnique.mockResolvedValueOnce({ id: 'post1', active: true });
+
+    const duplicateError = Object.assign(new Error('Unique constraint failed'), { code: 'P2002' });
+    prisma.$transaction.mockImplementationOnce(async () => {
+      throw duplicateError;
+    });
+
+    const res = await request(app)
+      .post('/posts/post1/like')
+      .set('Authorization', `Bearer ${customerToken()}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+  });
+
+  it('propagates non-P2002 errors as a 500', async () => {
+    mockFindUnique.mockResolvedValueOnce({ id: 'customer1', role: 'CUSTOMER', deletedAt: null });
+    prisma.post.findUnique.mockResolvedValueOnce({ id: 'post1', active: true });
+
+    const otherError = Object.assign(new Error('boom'), { code: 'P9999' });
+    prisma.$transaction.mockImplementationOnce(async () => {
+      throw otherError;
+    });
+
+    const res = await request(app)
+      .post('/posts/post1/like')
+      .set('Authorization', `Bearer ${customerToken()}`);
+
+    expect(res.status).toBe(500);
+  });
+});
+
+describe('DELETE /posts/:id/like', () => {
+  it('rejects unauthenticated requests', async () => {
+    const res = await request(app).delete('/posts/post1/like');
+    expect(res.status).toBe(401);
+  });
+
+  it('is a no-op success when no like exists, without running the transaction', async () => {
+    mockFindUnique.mockResolvedValueOnce({ id: 'customer1', role: 'CUSTOMER', deletedAt: null });
+    prisma.postLike.findUnique.mockResolvedValueOnce(null);
+    prisma.$transaction.mockClear();
+
+    const res = await request(app)
+      .delete('/posts/post1/like')
+      .set('Authorization', `Bearer ${customerToken()}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('deletes the PostLike and decrements likeCount when a like exists', async () => {
+    mockFindUnique.mockResolvedValueOnce({ id: 'customer1', role: 'CUSTOMER', deletedAt: null });
+    prisma.postLike.findUnique.mockResolvedValueOnce({ id: 'like1', postId: 'post1', userId: 'customer1' });
+
+    const txPostLike = { delete: jest.fn().mockResolvedValue({ id: 'like1' }) };
+    const txPost = { update: jest.fn().mockResolvedValue({ id: 'post1', likeCount: 0 }) };
+    prisma.$transaction.mockImplementationOnce((fn) => fn({ post: txPost, postLike: txPostLike }));
+
+    const res = await request(app)
+      .delete('/posts/post1/like')
+      .set('Authorization', `Bearer ${customerToken()}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+    expect(txPostLike.delete).toHaveBeenCalledWith({ where: { id: 'like1' } });
+    expect(txPost.update).toHaveBeenCalledWith({
+      where: { id: 'post1' },
+      data: { likeCount: { decrement: 1 } },
+    });
+  });
+});
