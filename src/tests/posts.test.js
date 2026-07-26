@@ -278,4 +278,21 @@ describe('DELETE /posts/:id/like', () => {
       data: { likeCount: { decrement: 1 } },
     });
   });
+
+  it('is a no-op (not an error) when a concurrent request already deleted the like (P2025)', async () => {
+    mockFindUnique.mockResolvedValueOnce({ id: 'customer1', role: 'CUSTOMER', deletedAt: null });
+    prisma.postLike.findUnique.mockResolvedValueOnce({ id: 'like1', postId: 'post1', userId: 'customer1' });
+
+    const raceError = Object.assign(new Error('An operation failed because it depends on one or more records that were required but not found'), { code: 'P2025' });
+    prisma.$transaction.mockImplementationOnce(async () => {
+      throw raceError;
+    });
+
+    const res = await request(app)
+      .delete('/posts/post1/like')
+      .set('Authorization', `Bearer ${customerToken()}`);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ success: true });
+  });
 });

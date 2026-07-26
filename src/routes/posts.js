@@ -143,10 +143,14 @@ router.delete(
       });
       if (!existing) return res.json({ success: true }); // no-op
 
-      await prisma.$transaction(async (tx) => {
-        await tx.postLike.delete({ where: { id: existing.id } });
-        await tx.post.update({ where: { id: req.params.id }, data: { likeCount: { decrement: 1 } } });
-      });
+      try {
+        await prisma.$transaction(async (tx) => {
+          await tx.postLike.delete({ where: { id: existing.id } });
+          await tx.post.update({ where: { id: req.params.id }, data: { likeCount: { decrement: 1 } } });
+        });
+      } catch (err) {
+        if (err.code !== 'P2025') throw err; // already deleted by a concurrent request — no-op
+      }
 
       res.json({ success: true });
     } catch (err) {
