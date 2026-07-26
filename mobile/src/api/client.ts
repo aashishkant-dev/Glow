@@ -872,6 +872,44 @@ export function apiUploadPhoto(photoBase64: string, mimeType = 'image/jpeg') {
   return request<{ photoUrl: string }>('POST', '/profile/photo', { photoBase64, mimeType });
 }
 
+// ─── Posts ────────────────────────────────────────────────────────────────────
+
+export interface Post {
+  id: string;
+  photoUrl: string;
+  caption: string | null;
+  likeCount: number;
+  createdAt: string;
+  provider?: { id: string; name?: string; photoUrl?: string };
+  service?: { id: string; name: string; price: number } | null;
+  isLikedByMe?: boolean;
+}
+
+export function apiCreatePost(payload: { photoBase64: string; mimeType?: string; caption?: string; serviceId?: string }) {
+  return request<{ post: Post }>('POST', '/posts', payload);
+}
+
+export function apiDeletePost(postId: string) {
+  return request<{ success: boolean }>('DELETE', `/posts/${postId}`);
+}
+
+export function apiGetMyPosts() {
+  return request<{ posts: Post[] }>('GET', '/posts/mine');
+}
+
+export function apiLikePost(postId: string) {
+  return request<{ success: boolean }>('POST', `/posts/${postId}/like`);
+}
+
+export function apiUnlikePost(postId: string) {
+  return request<{ success: boolean }>('DELETE', `/posts/${postId}/like`);
+}
+
+export function apiGetExplorePosts(sort: 'recent' | 'top', cursor?: string, limit = 20) {
+  const params = new URLSearchParams({ sort, limit: String(limit), ...(cursor ? { cursor } : {}) });
+  return request<{ posts: Post[]; nextCursor: string | null }>('GET', `/posts/explore?${params.toString()}`);
+}
+
 // ─── Provider Reviews & Tips ───────────────────────────────────────────────────────
 
 export function apiGetProviderReviews(providerId: string) {
