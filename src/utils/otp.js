@@ -65,17 +65,25 @@ async function generateOTP(phone) {
 
   if (isNepalNumber(phone)) {
     const requestId = await sendViaNepalOTP(phone);
-    // requestId is null if NepalOTP isn't configured/failed — still record a
-    // row (marker with empty id) so cooldown enforcement still works and dev
-    // mode doesn't throw; verify will just fail cleanly in that case.
-    const otpValue = `${NEPALOTP_MARKER}${requestId || ''}`;
-    if (existing) {
-      await prisma.oTP.update({ where: { phone }, data: { otp: otpValue, expiresAt, attempts: 0, lastGeneratedAt: now } });
-    } else {
-      await prisma.oTP.create({ data: { phone, otp: otpValue, expiresAt, attempts: 0, lastGeneratedAt: now } });
+    // A null requestId means NepalOTP couldn't be reached (missing API key, or
+    // a network/API error). Previously we still wrote the marker row — but then
+    // verifyViaNepalOTP has no key either and rejects EVERY code, so +977 login
+    // was completely unusable rather than merely undelivered. Fall through to
+    // the local generate/verify path instead: we own the code, so it gets
+    // hashed, logged like any other number, and can actually be verified.
+    if (requestId) {
+      const otpValue = `${NEPALOTP_MARKER}${requestId}`;
+      if (existing) {
+        await prisma.oTP.update({ where: { phone }, data: { otp: otpValue, expiresAt, attempts: 0, lastGeneratedAt: now } });
+      } else {
+        await prisma.oTP.create({ data: { phone, otp: otpValue, expiresAt, attempts: 0, lastGeneratedAt: now } });
+      }
+      if (process.env.NODE_ENV !== 'production' || process.env.LOG_OTP === '1') {
+        console.log(`[OTP] ${phone} → delegated to NepalOTP (request ${requestId})`);
+      }
+      return;
     }
-    if (process.env.NODE_ENV !== 'production') console.log(`[OTP] ${phone} → delegated to NepalOTP (request ${requestId})`);
-    return;
+    console.warn(`[OTP] ${phone} → NepalOTP unavailable, falling back to locally-generated code`);
   }
 
   const otp     = crypto.randomInt(100_000, 1_000_000).toString();
