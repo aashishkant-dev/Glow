@@ -1636,12 +1636,12 @@ export function ProfileScreen() {
           <View style={styles.card}>
             <InfoRow
               glyph="shield-check" label="Privacy Policy" value=""
-              onPress={() => Linking.openURL('https://ca.glow.app/privacy')}
+              onPress={() => Linking.openURL('https://glow-landing-five.vercel.app/privacy')}
             />
             <Divider />
             <InfoRow
               glyph="card-account-details-outline" label="Terms of Service" value=""
-              onPress={() => Linking.openURL('https://ca.glow.app/terms')}
+              onPress={() => Linking.openURL('https://glow-landing-five.vercel.app/terms')}
             />
           </View>
         </View>

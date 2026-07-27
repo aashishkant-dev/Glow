@@ -421,9 +421,9 @@ export function PhoneScreen() {
                     {isNewUser && (
                       <Text style={styles.agreeText}>
                         By continuing you agree to our{' '}
-                        <Text style={styles.agreeLink} onPress={() => Linking.openURL('https://ca.glow.app/terms')}>Terms</Text>
+                        <Text style={styles.agreeLink} onPress={() => Linking.openURL('https://glow-landing-five.vercel.app/terms')}>Terms</Text>
                         {' '}and{' '}
-                        <Text style={styles.agreeLink} onPress={() => Linking.openURL('https://ca.glow.app/privacy')}>Privacy Policy</Text>.
+                        <Text style={styles.agreeLink} onPress={() => Linking.openURL('https://glow-landing-five.vercel.app/privacy')}>Privacy Policy</Text>.
                       </Text>
                     )}
 
