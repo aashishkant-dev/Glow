@@ -15,7 +15,7 @@ import {
   View,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { LocateIcon, SearchIcon, CloseCircleIcon, MapIcon, ListIcon, RadioOnIcon, BriefcaseIcon } from '../../components/TabIcons';
+import { LocateIcon, SearchIcon, CloseCircleIcon, MapIcon, ListIcon, RadioOnIcon, BriefcaseIcon, TuneIcon, SortIcon } from '../../components/TabIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { apiAcceptJob, apiSkipJob, apiNearbyJobs, apiMyJobs, Booking } from '../../api/client';
@@ -275,6 +275,225 @@ const actionStyles = StyleSheet.create({
     borderColor: '#FFCDD2',
   },
   conflictText: { color: '#8B0000', fontSize: 13, fontWeight: '700' },
+});
+
+// ── Sort + filter ──────────────────────────────────────────────────────────────
+// Mirrors the gig-marketplace pattern (Uber Driver / Instawork): sort is a quick
+// single-tap cycle, while service/pay/distance refinements live in a bottom sheet
+// so the permanent header stays to one compact row instead of five stacked bars.
+type SortKey = 'distance' | 'payHighest' | 'newest';
+const SORT_OPTIONS: { key: SortKey; label: string; shortLabel: string }[] = [
+  { key: 'distance',   label: 'Closest first',   shortLabel: 'Distance' },
+  { key: 'payHighest', label: 'Highest pay first', shortLabel: 'Pay' },
+  { key: 'newest',     label: 'Newest first',     shortLabel: 'Newest' },
+];
+
+const MAX_DISTANCE_STEPS = [5, 10, 15, 25]; // km — 15km matches the service radius, 25 = "show all"
+const MIN_PAY_STEPS = [0, 25, 50, 75];
+
+interface JobFilters {
+  maxDistanceKm: number | null; // null = no cap
+  minPay: number;               // 0 = no minimum
+  services: Set<string>;        // empty = all services
+}
+
+const DEFAULT_FILTERS: JobFilters = { maxDistanceKm: null, minPay: 0, services: new Set() };
+
+function filtersActiveCount(f: JobFilters): number {
+  let n = 0;
+  if (f.maxDistanceKm != null) n++;
+  if (f.minPay > 0) n++;
+  if (f.services.size > 0) n++;
+  return n;
+}
+
+function FilterSortSheet({
+  visible,
+  onClose,
+  sort,
+  onSort,
+  filters,
+  onApplyFilters,
+  serviceTypes,
+}: {
+  visible: boolean;
+  onClose: () => void;
+  sort: SortKey;
+  onSort: (s: SortKey) => void;
+  filters: JobFilters;
+  onApplyFilters: (f: JobFilters) => void;
+  serviceTypes: string[];
+}) {
+  // Local draft so Cancel/close discards unsaved changes.
+  const [draft, setDraft] = useState<JobFilters>(filters);
+  useEffect(() => { if (visible) setDraft(filters); }, [visible, filters]);
+
+  function toggleService(st: string) {
+    if (Platform.OS !== 'web') Haptics.selectionAsync();
+    setDraft(prev => {
+      const next = new Set(prev.services);
+      if (next.has(st)) next.delete(st); else next.add(st);
+      return { ...prev, services: next };
+    });
+  }
+
+  function apply() {
+    onApplyFilters(draft);
+    onClose();
+  }
+
+  function reset() {
+    if (Platform.OS !== 'web') Haptics.selectionAsync();
+    setDraft(DEFAULT_FILTERS);
+  }
+
+  return (
+    <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
+      <Pressable style={sheetStyles.overlay} onPress={onClose}>
+        <Pressable style={sheetStyles.card} onPress={() => {}}>
+          <View style={sheetStyles.grabber} />
+          <ScrollView showsVerticalScrollIndicator={false}>
+            <Text style={sheetStyles.title}>Sort &amp; filter</Text>
+
+            {/* Sort */}
+            <Text style={sheetStyles.sectionLabel}>SORT BY</Text>
+            <View style={sheetStyles.optionGroup}>
+              {SORT_OPTIONS.map(opt => {
+                const active = sort === opt.key;
+                return (
+                  <Pressable
+                    key={opt.key}
+                    style={[sheetStyles.optionRow, active && sheetStyles.optionRowActive]}
+                    onPress={() => { if (Platform.OS !== 'web') Haptics.selectionAsync(); onSort(opt.key); }}
+                  >
+                    <Text style={[sheetStyles.optionText, active && sheetStyles.optionTextActive]}>{opt.label}</Text>
+                    {active && <View style={sheetStyles.optionCheck} />}
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {/* Max distance */}
+            <Text style={sheetStyles.sectionLabel}>MAX DISTANCE</Text>
+            <View style={sheetStyles.stepRow}>
+              <Pressable
+                style={[sheetStyles.stepChip, draft.maxDistanceKm === null && sheetStyles.stepChipActive]}
+                onPress={() => setDraft(p => ({ ...p, maxDistanceKm: null }))}
+              >
+                <Text style={[sheetStyles.stepChipText, draft.maxDistanceKm === null && sheetStyles.stepChipTextActive]}>Any</Text>
+              </Pressable>
+              {MAX_DISTANCE_STEPS.map(km => {
+                const active = draft.maxDistanceKm === km;
+                return (
+                  <Pressable
+                    key={km}
+                    style={[sheetStyles.stepChip, active && sheetStyles.stepChipActive]}
+                    onPress={() => setDraft(p => ({ ...p, maxDistanceKm: km }))}
+                  >
+                    <Text style={[sheetStyles.stepChipText, active && sheetStyles.stepChipTextActive]}>{km} km</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {/* Min pay */}
+            <Text style={sheetStyles.sectionLabel}>MINIMUM PAY</Text>
+            <View style={sheetStyles.stepRow}>
+              {MIN_PAY_STEPS.map(p => {
+                const active = draft.minPay === p;
+                return (
+                  <Pressable
+                    key={p}
+                    style={[sheetStyles.stepChip, active && sheetStyles.stepChipActive]}
+                    onPress={() => setDraft(prev => ({ ...prev, minPay: p }))}
+                  >
+                    <Text style={[sheetStyles.stepChipText, active && sheetStyles.stepChipTextActive]}>{p === 0 ? 'Any' : `$${p}+`}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+
+            {/* Service type */}
+            {serviceTypes.length > 0 && (
+              <>
+                <Text style={sheetStyles.sectionLabel}>SERVICE TYPE</Text>
+                <View style={sheetStyles.chipsWrap}>
+                  {serviceTypes.map(st => {
+                    const active = draft.services.has(st);
+                    return (
+                      <Pressable
+                        key={st}
+                        style={[sheetStyles.serviceChip, active && sheetStyles.serviceChipActive]}
+                        onPress={() => toggleService(st)}
+                      >
+                        <ServiceIcon serviceType={st} size={14} color={active ? '#fff' : Colors.brand} bubble={false} />
+                        <Text style={[sheetStyles.serviceChipText, active && sheetStyles.serviceChipTextActive]}>{st}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              </>
+            )}
+          </ScrollView>
+
+          <View style={sheetStyles.btnRow}>
+            <Pressable style={sheetStyles.resetBtn} onPress={reset}>
+              <Text style={sheetStyles.resetBtnText}>Reset</Text>
+            </Pressable>
+            <Pressable style={sheetStyles.applyBtn} onPress={apply}>
+              <Text style={sheetStyles.applyBtnText}>Show results</Text>
+            </Pressable>
+          </View>
+        </Pressable>
+      </Pressable>
+    </Modal>
+  );
+}
+
+const sheetStyles = StyleSheet.create({
+  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
+  card: {
+    backgroundColor: Colors.systemBackground,
+    borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    paddingHorizontal: 20, paddingTop: 10, paddingBottom: 28,
+    maxHeight: '82%',
+  },
+  grabber: { width: 40, height: 4, borderRadius: 2, backgroundColor: Colors.systemGray4, alignSelf: 'center', marginBottom: 14 },
+  title: { fontSize: 19, fontWeight: '800', color: Colors.label, marginBottom: 18 },
+  sectionLabel: { fontSize: 11, fontWeight: '800', color: Colors.tertiaryLabel, letterSpacing: 0.8, marginBottom: 10, marginTop: 6 },
+  optionGroup: { borderRadius: 14, borderWidth: 1, borderColor: Colors.separator, overflow: 'hidden', marginBottom: 8 },
+  optionRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 14, paddingVertical: 13,
+    borderBottomWidth: 1, borderBottomColor: Colors.separator,
+    backgroundColor: Colors.systemBackground,
+  },
+  optionRowActive: { backgroundColor: Colors.brandLight },
+  optionText: { fontSize: 14.5, fontWeight: '600', color: Colors.label },
+  optionTextActive: { color: Colors.brandDeep, fontWeight: '700' },
+  optionCheck: { width: 10, height: 10, borderRadius: 5, backgroundColor: Colors.brand },
+  stepRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  stepChip: {
+    paddingHorizontal: 14, paddingVertical: 9, borderRadius: 12,
+    borderWidth: 1.5, borderColor: Colors.separator, backgroundColor: Colors.systemBackground,
+  },
+  stepChipActive: { backgroundColor: Colors.brandDark, borderColor: Colors.brandDark },
+  stepChipText: { fontSize: 13, fontWeight: '700', color: Colors.secondaryLabel },
+  stepChipTextActive: { color: '#fff' },
+  chipsWrap: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 8 },
+  serviceChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 20,
+    borderWidth: 1.5, borderColor: Colors.separator, backgroundColor: Colors.systemBackground,
+  },
+  serviceChipActive: { backgroundColor: Colors.brandDark, borderColor: Colors.brandDark },
+  serviceChipText: { fontSize: 12.5, fontWeight: '700', color: Colors.secondaryLabel },
+  serviceChipTextActive: { color: '#fff' },
+  btnRow: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  resetBtn: { flex: 1, paddingVertical: 15, borderRadius: 14, backgroundColor: Colors.systemGray5, alignItems: 'center' },
+  resetBtnText: { fontSize: 14.5, fontWeight: '700', color: Colors.label },
+  applyBtn: { flex: 2, paddingVertical: 15, borderRadius: 14, backgroundColor: Colors.brand, alignItems: 'center' },
+  applyBtnText: { fontSize: 14.5, fontWeight: '800', color: '#fff' },
 });
 
 // ── Pending approval gate ─────────────────────────────────────────────────────
@@ -620,8 +839,12 @@ export function NearbyJobsScreen() {
   const [refreshing, setRefreshing]   = useState(false);
   const [pendingApproval, setPending] = useState(false);
   const [viewMode, setViewMode]       = useState<ViewMode>('list');
+  const [searchOpen, setSearchOpen]   = useState(false);
   const [searchText, setSearchText]   = useState('');
   const [serviceFilter, setFilter]    = useState<string | null>(null);
+  const [sheetOpen, setSheetOpen]     = useState(false);
+  const [sort, setSort]               = useState<SortKey>('distance');
+  const [filters, setFilters]         = useState<JobFilters>(DEFAULT_FILTERS);
   const [acceptingId, setAcceptingId] = useState<string | null>(null);
   const [skippingId, setSkippingId]   = useState<string | null>(null);
   const [declineJob, setDeclineJob]   = useState<Booking | null>(null); // job pending a decline reason
@@ -755,16 +978,34 @@ export function NearbyJobsScreen() {
   });
 
   const serviceTypes = Array.from(new Set(jobs.map(j => j.serviceType))).slice(0, 6);
+  const allServiceTypes = Array.from(new Set(jobs.map(j => j.serviceType)));
 
   const filtered = jobsWithDist.filter(j => {
     const matchSearch = !searchText.trim() || j.serviceType.toLowerCase().includes(searchText.toLowerCase());
     const matchChip   = !serviceFilter || j.serviceType === serviceFilter;
-    return matchSearch && matchChip;
+    const matchDist   = filters.maxDistanceKm == null || (j.distanceKm != null && j.distanceKm <= filters.maxDistanceKm);
+    const matchPay    = filters.minPay <= 0 || (Number(j.totalPrice) ?? 0) >= filters.minPay;
+    const matchService = filters.services.size === 0 || filters.services.has(j.serviceType);
+    return matchSearch && matchChip && matchDist && matchPay && matchService;
+  });
+
+  // Sort — distance (closest first, unknown-distance jobs sink to the bottom),
+  // highest pay first, or newest-posted first.
+  const sorted = [...filtered].sort((a, b) => {
+    if (sort === 'payHighest') return (Number(b.totalPrice) ?? 0) - (Number(a.totalPrice) ?? 0);
+    if (sort === 'newest') {
+      return new Date((b as any).createdAt ?? b.scheduledAt).getTime() - new Date((a as any).createdAt ?? a.scheduledAt).getTime();
+    }
+    // distance
+    if (a.distanceKm == null && b.distanceKm == null) return 0;
+    if (a.distanceKm == null) return 1;
+    if (b.distanceKm == null) return -1;
+    return a.distanceKm - b.distanceKm;
   });
 
   // Nearby = the OPEN pool (all REQUESTED + unassigned). Dedicated requests live in
-  // the Requests inbox, not here. So the whole filtered list is the open jobs.
-  const openJobs = filtered as any[];
+  // the Requests inbox, not here. So the whole sorted list is the open jobs.
+  const openJobs = sorted as any[];
 
   const potentialEarnings = filtered.reduce((s, j) => s + (Number(j.totalPrice) ?? 0), 0);
   // Prefer the Provider's real GPS; fall back to the first open job; only then the
@@ -778,26 +1019,73 @@ export function NearbyJobsScreen() {
   const upcomingJobs = myJobs.filter(j => ['ACCEPTED', 'ON_MY_WAY', 'STARTED'].includes(j.status));
   const pastJobs = myJobs.filter(j => j.status === 'COMPLETED');
 
-  // Search bar lives OUTSIDE the FlatList. As ListHeaderComponent it was rebuilt
-  // every render (and we re-render every 6s from polling) → FlatList remounted the
-  // header subtree → the TextInput lost focus on every keystroke. Rendered as a
-  // fixed sibling it keeps focus while typing.
+  // Control cluster (search + sort/filter) lives OUTSIDE the FlatList, same reason
+  // as before: rendered as ListHeaderComponent it gets rebuilt every render (we
+  // poll every 6s) and the TextInput loses focus on every keystroke. As a fixed
+  // sibling it keeps focus while typing.
+  //
+  // Design: one pill-row that unifies search + sort/filter into a single coherent
+  // control cluster (matching height/radius/color language), instead of a search
+  // bar stacked as its own separate block below the tabs. Search starts collapsed
+  // to a single icon button — tapping it expands the row into a text input, Uber
+  // Driver/Instawork-style — so the default state stays compact and the tab bar
+  // is the visual anchor of the header.
+  const activeFilterCount = filtersActiveCount(filters);
   const searchBar = (
     <View style={[styles.listHeader, { paddingBottom: 0 }]}>
-      <View style={styles.searchBar}>
-        <SearchIcon size={16} color={Colors.tertiaryLabel} />
-        <TextInput
-          style={styles.searchInput}
-          value={searchText}
-          onChangeText={setSearchText}
-          placeholder="Search by service…"
-          placeholderTextColor={Colors.tertiaryLabel}
-          returnKeyType="search"
-        />
-        {searchText.length > 0 && (
-          <Pressable onPress={() => setSearchText('')}>
-            <CloseCircleIcon size={18} color={Colors.tertiaryLabel} />
-          </Pressable>
+      <View style={styles.controlRow}>
+        {searchOpen ? (
+          <View style={styles.searchBarExpanded}>
+            <SearchIcon size={16} color={Colors.tertiaryLabel} />
+            <TextInput
+              style={styles.searchInput}
+              value={searchText}
+              onChangeText={setSearchText}
+              placeholder="Search by service…"
+              placeholderTextColor={Colors.tertiaryLabel}
+              returnKeyType="search"
+              autoFocus
+            />
+            <Pressable
+              onPress={() => {
+                setSearchText('');
+                setSearchOpen(false);
+                if (Platform.OS !== 'web') Haptics.selectionAsync();
+              }}
+              hitSlop={8}
+            >
+              <CloseCircleIcon size={18} color={Colors.tertiaryLabel} />
+            </Pressable>
+          </View>
+        ) : (
+          <>
+            <Pressable
+              style={styles.controlIconBtn}
+              onPress={() => { setSearchOpen(true); if (Platform.OS !== 'web') Haptics.selectionAsync(); }}
+            >
+              <SearchIcon size={17} color={Colors.label} />
+            </Pressable>
+            <Pressable
+              style={[styles.controlPillBtn, activeFilterCount > 0 && styles.controlPillBtnActive]}
+              onPress={() => { setSheetOpen(true); if (Platform.OS !== 'web') Haptics.selectionAsync(); }}
+            >
+              <TuneIcon size={15} color={activeFilterCount > 0 ? '#fff' : Colors.label} />
+              <Text style={[styles.controlPillText, activeFilterCount > 0 && styles.controlPillTextActive]}>
+                Sort &amp; filter
+              </Text>
+              {activeFilterCount > 0 && (
+                <View style={styles.controlPillBadge}>
+                  <Text style={styles.controlPillBadgeText}>{activeFilterCount}</Text>
+                </View>
+              )}
+            </Pressable>
+            <View style={styles.controlSortHint}>
+              <SortIcon size={13} color={Colors.tertiaryLabel} />
+              <Text style={styles.controlSortHintText} numberOfLines={1}>
+                {SORT_OPTIONS.find(o => o.key === sort)?.shortLabel}
+              </Text>
+            </View>
+          </>
         )}
       </View>
     </View>
@@ -891,12 +1179,20 @@ export function NearbyJobsScreen() {
         </Animated.View>
       )}
 
-      {/* Header */}
+      {/* Header — one coherent control cluster: title + live-status chip share a row,
+          Map/List toggle sits opposite, tab bar anchors the bottom. The GPS badge is
+          folded into the title row as a small status chip rather than its own stacked
+          line, so the header reads as one unit instead of a pile of separate rows. */}
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
         <View style={styles.headerRow}>
-          <View style={{ marginRight: 8 }}>
+          <View style={{ flex: 1, marginRight: 8 }}>
             <Text style={styles.headerTitle} numberOfLines={1}>Fresh requests</Text>
-            <Text style={styles.headerSub} numberOfLines={1}>Clients near you are ready to glow</Text>
+            <Pressable style={styles.gpsChip} onPress={requestLocation} hitSlop={4}>
+              <RadioOnIcon size={10} color={rawCoords ? '#34D399' : '#FCD34D'} />
+              <Text style={styles.gpsChipText} numberOfLines={1}>
+                {rawCoords ? 'Live GPS' : DEFAULT_REGION_NAME}
+              </Text>
+            </Pressable>
           </View>
           {activeTab === 'new' && (
             <Pressable style={styles.toggleBtn} onPress={() => setViewMode(v => v === 'list' ? 'map' : 'list')}>
@@ -905,12 +1201,6 @@ export function NearbyJobsScreen() {
             </Pressable>
           )}
         </View>
-        <Pressable style={styles.gpsBadge} onPress={requestLocation}>
-          <RadioOnIcon size={12} color={rawCoords ? '#34D399' : '#FCD34D'} />
-          <Text style={styles.gpsBadgeText} numberOfLines={1}>
-            {rawCoords ? 'Live GPS' : DEFAULT_REGION_NAME}
-          </Text>
-        </Pressable>
         {/* Tab bar */}
         <View style={styles.tabBar}>
           {(['new', 'upcoming', 'past'] as const).map(tab => {
@@ -987,24 +1277,33 @@ export function NearbyJobsScreen() {
                 ListHeaderComponent={listHeader}
                 ListEmptyComponent={!loading ? (
                   <>
-                  {!searchText && (
+                  {!searchText && activeFilterCount === 0 && (
                     <ProfileBoostBanner prominent onPress={() => nav.navigate('Profile')} />
                   )}
                   <View style={styles.empty}>
                     <View style={styles.emptyIconBubble}>
-                      {searchText
+                      {searchText || activeFilterCount > 0
                         ? <SearchIcon size={30} color={Colors.brand} />
                         : <BriefcaseIcon size={30} color={Colors.brand} />}
                     </View>
                     <Text style={styles.emptyTitle}>
-                      {searchText ? 'No matching requests' : 'All quiet — for now'}
+                      {searchText ? 'No matching requests'
+                        : activeFilterCount > 0 ? 'No jobs match your filters'
+                        : 'All quiet — for now'}
                     </Text>
                     <Text style={styles.emptySub}>
                       {searchText
                         ? `Nothing matches "${searchText}". Try clearing the filter.`
+                        : activeFilterCount > 0
+                        ? 'Try widening your distance, pay, or service filters.'
                         : 'New glam requests land here all day. Pull to refresh, or polish your profile while you wait.'}
                     </Text>
-                    {!searchText && (
+                    {activeFilterCount > 0 && (
+                      <Pressable style={styles.refreshBtn} onPress={() => setFilters(DEFAULT_FILTERS)}>
+                        <Text style={styles.refreshBtnText}>Clear filters</Text>
+                      </Pressable>
+                    )}
+                    {!searchText && activeFilterCount === 0 && (
                       <Pressable style={styles.refreshBtn} onPress={() => load(true)}>
                         <Text style={styles.refreshBtnText}>Refresh requests</Text>
                       </Pressable>
@@ -1118,6 +1417,17 @@ export function NearbyJobsScreen() {
           </View>
         </View>
       </Modal>
+
+      {/* Sort & filter bottom sheet */}
+      <FilterSortSheet
+        visible={sheetOpen}
+        onClose={() => setSheetOpen(false)}
+        sort={sort}
+        onSort={setSort}
+        filters={filters}
+        onApplyFilters={setFilters}
+        serviceTypes={allServiceTypes}
+      />
     </View>
   );
 }
@@ -1143,7 +1453,13 @@ const styles = StyleSheet.create({
   },
   headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
   headerTitle: { ...Typography.title2, color: '#fff' },
-  headerSub: { ...Typography.footnote, color: 'rgba(255,255,255,0.75)', marginTop: 2 },
+
+  // Live-status chip, folded into the title row instead of its own stacked line.
+  gpsChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    alignSelf: 'flex-start', marginTop: 4,
+  },
+  gpsChipText: { fontSize: 12.5, fontWeight: '600', color: 'rgba(255,255,255,0.8)' },
 
   toggleBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
@@ -1152,15 +1468,6 @@ const styles = StyleSheet.create({
     borderRadius: Radius.full,
   },
   toggleBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
-  gpsBadge: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.15)',
-    paddingHorizontal: 10, paddingVertical: 6,
-    borderRadius: Radius.full,
-    alignSelf: 'flex-start',
-    marginTop: 10,
-  },
-  gpsBadgeText: { fontSize: 12, fontWeight: '600', color: '#fff' },
 
   listHeader: { paddingHorizontal: 16, paddingTop: 14 },
 
@@ -1174,11 +1481,43 @@ const styles = StyleSheet.create({
   },
   weekPillText: { fontSize: 12, fontWeight: '700', color: Colors.brand },
 
-  searchBar: {
-    flexDirection: 'row', alignItems: 'center',
+  // ── Unified control cluster (search + sort/filter) ──────────────────────────
+  // One row, same height/radius/color language throughout, so search and
+  // sort/filter visually belong together instead of reading as bolted-on parts.
+  controlRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginBottom: 12,
+  },
+  controlIconBtn: {
+    width: 44, height: 44, borderRadius: 14,
+    alignItems: 'center', justifyContent: 'center',
     backgroundColor: Colors.systemBackground,
-    borderRadius: 14, paddingHorizontal: 14, paddingVertical: 11,
-    marginBottom: 12, borderWidth: 1, borderColor: Colors.separator, gap: 10,
+    borderWidth: 1, borderColor: Colors.separator,
+  },
+  controlPillBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    height: 44, paddingHorizontal: 14, borderRadius: 14,
+    backgroundColor: Colors.systemBackground,
+    borderWidth: 1, borderColor: Colors.separator,
+  },
+  controlPillBtnActive: { backgroundColor: Colors.brandDark, borderColor: Colors.brandDark },
+  controlPillText: { fontSize: 13.5, fontWeight: '700', color: Colors.label },
+  controlPillTextActive: { color: '#fff' },
+  controlPillBadge: {
+    minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.3)',
+  },
+  controlPillBadgeText: { fontSize: 10.5, fontWeight: '800', color: '#fff' },
+  controlSortHint: {
+    flexDirection: 'row', alignItems: 'center', gap: 4,
+    marginLeft: 'auto', paddingHorizontal: 4,
+  },
+  controlSortHintText: { fontSize: 12, fontWeight: '600', color: Colors.tertiaryLabel, maxWidth: 70 },
+  searchBarExpanded: {
+    flex: 1, flexDirection: 'row', alignItems: 'center',
+    backgroundColor: Colors.systemBackground,
+    borderRadius: 14, height: 44, paddingHorizontal: 14,
+    borderWidth: 1, borderColor: Colors.separator, gap: 10,
   },
   searchInput: { flex: 1, color: Colors.label, fontSize: 15, fontWeight: '500' },
 

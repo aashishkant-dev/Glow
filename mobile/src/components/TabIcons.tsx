@@ -329,6 +329,27 @@ export function HeartIcon({ size = 24, color = '#000', filled = false }: P) {
   );
 }
 
+export function TuneIcon({ size = 24, color = '#000' }: P) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M4 6h10M17 6h3M4 18h3M9 18h11M4 12h6M13 12h7"
+        stroke={color} strokeWidth={1.7} strokeLinecap="round" />
+      <Circle cx="14" cy="6" r="2.3" fill={color} />
+      <Circle cx="7" cy="12" r="2.3" fill={color} />
+      <Circle cx="12" cy="18" r="2.3" fill={color} />
+    </Svg>
+  );
+}
+
+export function SortIcon({ size = 24, color = '#000' }: P) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M7 4v16M7 20l-3.5-3.5M7 20l3.5-3.5M17 20V4M17 4l-3.5 3.5M17 4l3.5 3.5"
+        stroke={color} strokeWidth={1.7} strokeLinecap="round" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+
 export function CompassIcon({ size = 24, color = '#000', filled = false }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
