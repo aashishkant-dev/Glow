@@ -36,9 +36,12 @@ interface ProfileStrengthProps {
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
-const BRAND = '#0EA56F';
-const BRAND_LIGHT = '#ECFDF5';
-const BRAND_DARK = '#B76E79';
+// Was CareNearby-era green — this card now anchors the top of the
+// reorganized "Your public profile" group, making the stale color more
+// visible, so it's switched to the real Glow rose tokens here.
+const BRAND = Colors.brand;
+const BRAND_LIGHT = Colors.brandLight;
+const BRAND_DARK = Colors.brandDark;
 
 function computeStrength(
   providerP: ProviderProfileShape | undefined | null,
