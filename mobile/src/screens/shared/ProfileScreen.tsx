@@ -69,8 +69,61 @@ const BG         = Colors.systemGroupedBackground; // #FFF9F8 warm cream
 const CARD       = '#FFFFFF';
 const LABEL      = Colors.secondaryLabel;
 const VALUE      = Colors.label;
-const DIVIDER_C  = Colors.separator;
+const DIVIDER_C  = Colors.separatorSoft;
 const ICON_BG    = Colors.brandLight;  // soft rose icon chips
+
+// ── Visual system for this screen ────────────────────────────────────────────
+// The structure of this screen was settled in earlier passes; what follows is
+// purely the SKIN. Three rules, drawn from the reference apps:
+//
+//  1. TYPE — hierarchy comes from weight + letter-spacing, not just size
+//     (Glossier). Everything routes through `Fonts.*` (Inter). The screen
+//     previously used raw `fontWeight: '700'` strings, which on Android/web
+//     silently fall back to the system face instead of Inter, so headings
+//     rendered in a different typeface than the rest of the app.
+//  2. ELEVATION — one soft, warm, wide shadow instead of per-component values
+//     between 0.06 and 0.18 opacity (Pinterest). Cards lift off warm paper.
+//  3. SURFACE — inset wells use cream/blush, never systemGray (Sephora).
+//
+// Radii ladder: cards 20 / wells 14 / chips + pills 999.
+const R_CARD = 20;
+const R_WELL = 14;
+const R_PILL = 999;
+
+/** One warm, soft, wide card lift — replaces six near-duplicate shadow blocks. */
+const SHADOW_CARD = {
+  shadowColor: Colors.shadowSoft,
+  shadowOffset: { width: 0, height: 6 },
+  shadowOpacity: 0.07,
+  shadowRadius: 20,
+  elevation: 3,
+} as const;
+
+/** A slightly stronger lift for the one card that floats over the hero. */
+const SHADOW_FLOAT = {
+  shadowColor: Colors.shadowSoft,
+  shadowOffset: { width: 0, height: 10 },
+  shadowOpacity: 0.10,
+  shadowRadius: 28,
+  elevation: 6,
+} as const;
+
+/**
+ * Type scale. Editorial rather than functional: titles are tighter-tracked and
+ * heavier, while labels get positive tracking at small sizes so they read as
+ * considered captions instead of shrunken body copy (Glossier/Sephora).
+ */
+const Type = {
+  heroName:   { fontFamily: Fonts.bold,     fontSize: 30, letterSpacing: -0.8 },
+  groupTitle: { fontFamily: Fonts.bold,     fontSize: 19, letterSpacing: -0.5 },
+  cardTitle:  { fontFamily: Fonts.semibold, fontSize: 16, letterSpacing: -0.2 },
+  rowLabel:   { fontFamily: Fonts.medium,   fontSize: 15.5, letterSpacing: -0.1 },
+  rowValue:   { fontFamily: Fonts.semibold, fontSize: 15.5, letterSpacing: -0.1 },
+  body:       { fontFamily: Fonts.regular,  fontSize: 13.5, letterSpacing: 0 },
+  caption:    { fontFamily: Fonts.regular,  fontSize: 12.5, letterSpacing: 0 },
+  overline:   { fontFamily: Fonts.semibold, fontSize: 11,   letterSpacing: 1.1 },
+  statNum:    { fontFamily: Fonts.bold,     fontSize: 25, letterSpacing: -0.9 },
+} as const;
 
 // ── Helpers ────────────────────────────────────────────────────────────────────
 function fmtMemberSince(dateStr?: string): string {
@@ -1217,7 +1270,7 @@ export function ProfileScreen() {
                     >
                       <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
                         <Text style={styles.specialtiesLabel}>Specialties</Text>
-                        <Text style={{ color: Colors.brand, fontSize: 13, fontWeight: '700' }}>Edit</Text>
+                        <Text style={{ color: Colors.brand, fontSize: 13, fontFamily: Fonts.semibold }}>Edit</Text>
                       </View>
                       {(providerP.specialties?.length ?? 0) > 0 ? (
                         <View style={styles.specialtiesChips}>
@@ -1249,7 +1302,7 @@ export function ProfileScreen() {
                         <Pressable onPress={addGalleryPhoto} disabled={galleryUploading} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
                           {galleryUploading
                             ? <ActivityIndicator size="small" color={BRAND} />
-                            : <Text style={{ color: BRAND, fontWeight: '700', fontSize: 13 }}>+ Add Photo</Text>
+                            : <Text style={{ color: BRAND, fontFamily: Fonts.semibold, fontSize: 13 }}>+ Add Photo</Text>
                           }
                         </Pressable>
                       )}
@@ -1919,50 +1972,51 @@ const styles = StyleSheet.create({
   scroll: { flex: 1 },
 
   // ── Business / Account segmented control (Provider only) ──
-  profileTabWrap: { paddingHorizontal: 16, marginTop: 16, alignItems: 'center' },
+  profileTabWrap: { paddingHorizontal: 16, marginTop: 20, alignItems: 'center' },
+  // Blush track instead of systemGray6 — keeps the control in the brand palette.
   profileTabPill: {
     flexDirection: 'row',
-    backgroundColor: Colors.systemGray6,
-    borderRadius: 100,
+    backgroundColor: Colors.surfaceBlush,
+    borderRadius: R_PILL,
     padding: 4,
     width: '100%',
   },
   profileTabBtn: {
     flex: 1,
     paddingVertical: 10,
-    borderRadius: 100,
+    borderRadius: R_PILL,
     alignItems: 'center',
   },
   profileTabBtnActive: {
     backgroundColor: '#fff',
-    shadowColor: '#000',
+    shadowColor: Colors.shadowSoft,
     shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.08,
-    shadowRadius: 6,
+    shadowOpacity: 0.10,
+    shadowRadius: 8,
     elevation: 2,
   },
-  profileTabText: { fontSize: 14, fontFamily: Fonts.semibold, color: Colors.secondaryLabel },
-  profileTabTextActive: { color: BRAND },
+  profileTabText: { ...Type.rowLabel, fontSize: 14, fontFamily: Fonts.medium, color: Colors.secondaryLabel },
+  profileTabTextActive: { fontFamily: Fonts.semibold, color: BRAND },
 
   // ── Earnings + availability summary card ──
   earningsCard: {
-    backgroundColor: '#fff', borderRadius: 22, padding: 18,
-    borderWidth: 1, borderColor: DIVIDER_C,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.06, shadowRadius: 12, elevation: 3,
+    backgroundColor: '#fff', borderRadius: R_CARD, padding: 20,
+    borderWidth: 1, borderColor: Colors.cardBorder,
+    ...SHADOW_CARD,
   },
-  earningsTopRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingBottom: 16, marginBottom: 16, borderBottomWidth: 1, borderBottomColor: DIVIDER_C },
+  earningsTopRow: { flexDirection: 'row', alignItems: 'center', gap: 14, paddingBottom: 18, marginBottom: 18, borderBottomWidth: 1, borderBottomColor: DIVIDER_C },
   earningsStatusDot: { width: 8, height: 8, borderRadius: 4 },
-  earningsStatusText: { fontSize: 15, fontFamily: Fonts.semibold, color: VALUE },
-  earningsStatusSub: { fontSize: 12.5, color: LABEL, fontFamily: Fonts.regular, marginTop: 3 },
+  earningsStatusText: { ...Type.cardTitle, fontSize: 15, color: VALUE },
+  earningsStatusSub: { ...Type.caption, color: Colors.tertiaryLabel, marginTop: 3 },
   earningsToggle: { width: 48, height: 28, borderRadius: 14, justifyContent: 'center', paddingHorizontal: 3 },
   earningsToggleKnob: {
     width: 22, height: 22, borderRadius: 11, backgroundColor: '#fff',
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.2, shadowRadius: 3, elevation: 3,
   },
   earningsSplitRow: { flexDirection: 'row', alignItems: 'center' },
-  earningsAmount: { fontSize: 22, fontFamily: Fonts.bold, color: VALUE, letterSpacing: -0.5 },
-  earningsLabel: { fontSize: 11.5, color: LABEL, fontFamily: Fonts.medium, marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.4 },
-  earningsDivider: { width: 1, height: 34, backgroundColor: DIVIDER_C, marginHorizontal: 14 },
+  earningsAmount: { ...Type.statNum, fontSize: 24, color: VALUE },
+  earningsLabel: { ...Type.overline, fontSize: 10, color: Colors.tertiaryLabel, marginTop: 4, textTransform: 'uppercase' },
+  earningsDivider: { width: 1, height: 34, backgroundColor: DIVIDER_C, marginHorizontal: 16 },
 
   // ── Real per-service pricing list ──
   saveChangesBtn: {
@@ -1974,12 +2028,12 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingVertical: 12, gap: 12,
   },
-  priceRowName: { fontSize: 14.5, fontFamily: Fonts.semibold, color: Colors.label },
-  priceRowDuration: { fontSize: 12, color: Colors.tertiaryLabel, marginTop: 2, fontFamily: Fonts.regular },
+  priceRowName: { ...Type.rowValue, fontSize: 14.5, color: Colors.label },
+  priceRowDuration: { ...Type.caption, fontSize: 12, color: Colors.tertiaryLabel, marginTop: 3 },
   priceInputWrap: {
     flexDirection: 'row', alignItems: 'center',
-    backgroundColor: Colors.systemGroupedBackground, borderRadius: 10,
-    paddingHorizontal: 10, borderWidth: 1, borderColor: Colors.separator,
+    backgroundColor: Colors.surfaceCream, borderRadius: R_WELL,
+    paddingHorizontal: 12, borderWidth: 1, borderColor: Colors.separator,
     minWidth: 76,
   },
   priceInputDollar: { fontSize: 14, fontFamily: Fonts.semibold, color: Colors.secondaryLabel },
@@ -2000,8 +2054,8 @@ const styles = StyleSheet.create({
   radiusLabel: { fontSize: 13.5, color: Colors.secondaryLabel, fontFamily: Fonts.medium },
   radiusInputWrap: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: Colors.systemGroupedBackground, borderRadius: 10,
-    paddingHorizontal: 10, borderWidth: 1, borderColor: Colors.separator,
+    backgroundColor: Colors.surfaceCream, borderRadius: R_WELL,
+    paddingHorizontal: 12, borderWidth: 1, borderColor: Colors.separator,
     minWidth: 76,
   },
   radiusInput: {
@@ -2011,8 +2065,8 @@ const styles = StyleSheet.create({
   radiusUnit: { fontSize: 13, color: Colors.tertiaryLabel, fontFamily: Fonts.regular },
   addressInputWrap: {
     flexDirection: 'row', alignItems: 'flex-start', gap: 8,
-    backgroundColor: Colors.systemGroupedBackground, borderRadius: 12,
-    paddingHorizontal: 12, paddingVertical: 10, marginBottom: 12,
+    backgroundColor: Colors.surfaceCream, borderRadius: R_WELL,
+    paddingHorizontal: 14, paddingVertical: 12, marginBottom: 12,
     borderWidth: 1, borderColor: Colors.separator,
   },
   addressInput: {
@@ -2070,41 +2124,44 @@ const styles = StyleSheet.create({
   backBtnLabel: {
     color: '#FFFFFF',
     fontSize: 15,
-    fontWeight: '700',
+    fontFamily: Fonts.semibold,
   },
   heroBottom: { height: 4 },
 
-  // Avatar — gold-kissed white ring
-  avatarWrap: { position: 'relative', marginBottom: 18 },
+  // Avatar — Instagram's profile-header treatment: a large, confident portrait
+  // with a clean white ring and a soft halo, rather than a heavy drop-shadowed
+  // disc. Ring is thinner (3) and the halo far softer (was 0.4/24 — a hard,
+  // muddy shadow that made the avatar look pasted onto the gradient).
+  avatarWrap: { position: 'relative', marginBottom: 20 },
   avatarRing: {
-    width: 148, height: 148, borderRadius: 74,
-    borderWidth: 4, borderColor: '#FFFFFF',
+    width: 132, height: 132, borderRadius: 66,
+    borderWidth: 3, borderColor: '#FFFFFF',
     overflow: 'hidden',
-    shadowColor: ROSE_DEEP, shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.4, shadowRadius: 24,
-    elevation: 14,
+    shadowColor: ROSE_DEEP, shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.22, shadowRadius: 30,
+    elevation: 10,
   },
   avatarImg:    { width: '100%', height: '100%' },
   avatarCircle: { width: '100%', height: '100%', alignItems: 'center', justifyContent: 'center' },
-  avatarInitial: { color: ROSE_DEEP, fontSize: 52, fontWeight: '800', fontFamily: Fonts.bold },
+  avatarInitial: { color: ROSE_DEEP, fontSize: 46, fontFamily: Fonts.bold, letterSpacing: -1 },
   cameraBadge: {
-    position: 'absolute', bottom: 4, right: 4,
-    width: 40, height: 40, borderRadius: 20,
+    position: 'absolute', bottom: 2, right: 2,
+    width: 38, height: 38, borderRadius: 19,
     backgroundColor: BRAND,
     alignItems: 'center', justifyContent: 'center',
     borderWidth: 3, borderColor: '#FFFFFF',
-    shadowColor: ROSE_DEEP, shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.35, shadowRadius: 8, elevation: 6,
+    shadowColor: ROSE_DEEP, shadowOffset: { width: 0, height: 3 },
+    shadowOpacity: 0.22, shadowRadius: 8, elevation: 5,
   },
   addPhotoPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
+    flexDirection: 'row', alignItems: 'center', gap: 7,
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 14, paddingVertical: 8,
-    borderRadius: 999, marginBottom: 12,
+    paddingHorizontal: 16, paddingVertical: 9,
+    borderRadius: R_PILL, marginBottom: 14,
     shadowColor: ROSE_DEEP, shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15, shadowRadius: 10, elevation: 3,
+    shadowOpacity: 0.12, shadowRadius: 12, elevation: 3,
   },
-  addPhotoPillText: { fontSize: 13, fontWeight: '700', color: BRAND },
+  addPhotoPillText: { ...Type.caption, fontFamily: Fonts.semibold, color: BRAND },
 
   avatarUploadOverlay: {
     position: 'absolute', top: 0, left: 0, right: 0, bottom: 0,
@@ -2119,60 +2176,62 @@ const styles = StyleSheet.create({
     marginTop: 6, marginBottom: 8, borderWidth: 1, borderColor: '#FCA5A5',
     maxWidth: 300,
   },
-  photoErrorText: { flex: 1, fontSize: 12, color: '#DC2626', fontWeight: '500', lineHeight: 16 },
-  photoErrorDismiss: { fontSize: 14, color: '#DC2626', fontWeight: '700' },
+  photoErrorText: { flex: 1, fontSize: 12, fontFamily: Fonts.medium, color: '#DC2626', lineHeight: 16 },
+  photoErrorDismiss: { fontSize: 14, fontFamily: Fonts.semibold, color: '#DC2626' },
 
+  // Editorial name treatment — tight tracking, no text-shadow. The old 0.45
+  // rose text-shadow smeared the letterforms and was the loudest "2014 app"
+  // signal in the hero (Glossier sets names in clean, confident type on flat
+  // colour, never embossed).
   heroName: {
-    color: '#FFFFFF', fontSize: 30, fontWeight: '800',
-    letterSpacing: -0.6, marginBottom: 14,
-    textShadowColor: 'rgba(163,77,99,0.45)',
-    textShadowOffset: { width: 0, height: 2 },
-    textShadowRadius: 10,
+    ...Type.heroName,
+    color: '#FFFFFF',
+    marginBottom: 12,
   },
   heroChipRow: {
     flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'center',
     gap: 8, marginBottom: 8,
   },
   glassChip: {
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    paddingHorizontal: 16, paddingVertical: 8,
-    borderRadius: 999,
+    backgroundColor: '#FFFFFF',
+    paddingHorizontal: 15, paddingVertical: 7,
+    borderRadius: R_PILL,
   },
-  glassChipText: { fontSize: 13, fontWeight: '700', color: ROSE_DEEP },
+  glassChipText: { ...Type.caption, fontFamily: Fonts.semibold, color: ROSE_DEEP },
   glassChipMuted: {
-    backgroundColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(255,255,255,0.20)',
     paddingHorizontal: 14, paddingVertical: 7,
-    borderRadius: 999,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)',
+    borderRadius: R_PILL,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.34)',
   },
-  glassChipMutedText: { fontSize: 13, fontWeight: '600', color: '#FFFFFF' },
+  glassChipMutedText: { ...Type.caption, fontFamily: Fonts.medium, color: '#FFFFFF' },
 
   heroRatingRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10, marginTop: 4,
+    flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10, marginTop: 6,
   },
   heroRatingText: {
-    color: 'rgba(255,255,255,0.95)', fontSize: 13, fontWeight: '600',
+    ...Type.caption, fontFamily: Fonts.medium, color: 'rgba(255,255,255,0.95)',
   },
 
   verifiedBanner: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
+    flexDirection: 'row', alignItems: 'center', gap: 7,
     backgroundColor: '#FFFFFF',
-    paddingHorizontal: 16, paddingVertical: 8,
-    borderRadius: 22, marginTop: 6,
+    paddingHorizontal: 15, paddingVertical: 8,
+    borderRadius: R_PILL, marginTop: 8,
   },
-  verifiedBannerText: { color: ROSE_DEEP, fontSize: 14, fontWeight: '700' },
+  verifiedBannerText: { ...Type.body, fontFamily: Fonts.semibold, color: ROSE_DEEP },
 
-  // ── Stats bar ──
+  // ── Stats bar ── Instagram's profile stat row: big confident numerals over
+  // quiet, wide-tracked labels, separated by hairlines rather than boxed cells.
   statsBar: {
     flexDirection: 'row',
     backgroundColor: CARD,
     marginHorizontal: 16,
-    borderRadius: 26,
-    marginTop: -28,
-    paddingVertical: 22,
+    borderRadius: R_CARD,
+    marginTop: -30,
+    paddingVertical: 20,
     paddingHorizontal: 8,
-    shadowColor: Colors.cardShadow, shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.18, shadowRadius: 26, elevation: 10,
+    ...SHADOW_FLOAT,
     borderWidth: 1, borderColor: Colors.cardBorder,
     marginBottom: 8,
   },
@@ -2181,84 +2240,87 @@ const styles = StyleSheet.create({
   // designed for the bar sitting directly under the hero gradient (customer
   // profile) and was clipping into the earnings card's own bottom edge here.
   statsBarBelowEarnings: { marginTop: 12 },
-  statCell: { flex: 1, alignItems: 'center', gap: 5 },
-  statNum: { fontSize: 26, fontWeight: '800', color: ROSE_DEEP, letterSpacing: -0.7 },
-  statLabel: { fontSize: 12, color: LABEL, fontWeight: '600', textAlign: 'center' },
-  statDivider: { width: 1, height: 44, backgroundColor: DIVIDER_C },
+  statCell: { flex: 1, alignItems: 'center', gap: 6 },
+  statNum: { ...Type.statNum, color: ROSE_DEEP },
+  // Wide-tracked uppercase caption — the "considered" label treatment Sephora
+  // and Glossier use under numerals, vs. the old plain 12px semibold.
+  statLabel: {
+    ...Type.overline, fontSize: 10, color: Colors.tertiaryLabel,
+    textTransform: 'uppercase', textAlign: 'center',
+  },
+  statDivider: { width: 1, height: 36, backgroundColor: DIVIDER_C, alignSelf: 'center' },
 
   // ── Location card ──
   locationCard: {
-    backgroundColor: CARD, borderRadius: 20, padding: 18,
+    backgroundColor: CARD, borderRadius: R_CARD, padding: 18,
     flexDirection: 'row', alignItems: 'center', gap: 16,
     borderWidth: 1, borderColor: Colors.cardBorder,
-    shadowColor: Colors.cardShadow, shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.08, shadowRadius: 16, elevation: 4,
+    ...SHADOW_CARD,
   },
   locationIconWrap: {
-    width: 50, height: 50, borderRadius: 18,
+    width: 46, height: 46, borderRadius: R_WELL,
     alignItems: 'center', justifyContent: 'center',
   },
   locationIconOk:  { backgroundColor: ICON_BG },
-  locationIconOff: { backgroundColor: '#FEF3C7' },
-  locationTitle: { fontSize: 16, fontWeight: '700', color: VALUE, marginBottom: 3 },
-  locationSub:   { fontSize: 13, color: LABEL, lineHeight: 18 },
-  locationCoords: { fontSize: 11, color: Colors.tertiaryLabel, marginTop: 4, fontFamily: Fonts.medium },
+  locationIconOff: { backgroundColor: Colors.goldSoft },
+  locationTitle: { ...Type.cardTitle, color: VALUE, marginBottom: 3 },
+  locationSub:   { ...Type.caption, color: Colors.tertiaryLabel, lineHeight: 18 },
+  locationCoords: { ...Type.overline, fontSize: 10, color: Colors.tertiaryLabel, marginTop: 5 },
   locationCta: {
     backgroundColor: BRAND, paddingHorizontal: 16, paddingVertical: 10,
     borderRadius: 999,
   },
-  locationCtaText: { color: '#fff', fontSize: 14, fontWeight: '700' },
+  locationCtaText: { color: '#fff', fontSize: 14, fontFamily: Fonts.semibold },
   locationOkPill: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     backgroundColor: ICON_BG, paddingHorizontal: 12, paddingVertical: 7,
     borderRadius: 999, borderWidth: 1, borderColor: Colors.brandAccent,
   },
-  locationOkText: { fontSize: 13, fontWeight: '700', color: BRAND },
+  locationOkText: { ...Type.caption, fontFamily: Fonts.semibold, color: BRAND },
 
-  // ── Section ──
-  sectionWrap: { paddingHorizontal: 16, marginTop: 24 },
+  // ── Section ── More air between groups (28 vs 24): Glossier/Pinterest lean
+  // on generous vertical rhythm to make a long page feel calm rather than dense.
+  sectionWrap: { paddingHorizontal: 16, marginTop: 28 },
   // Continuation of the group directly above — small gap so the card reads as
   // part of that group rather than as a new peer section.
   sectionWrapTight: { paddingHorizontal: 16, marginTop: 12 },
 
   // ── Group (primary tier) ──
-  // A named tier that owns several cards. Large, high-contrast title with a
-  // rose accent bar — clearly outranks the Subhead labels nested inside it.
+  // A named tier that owns several cards. The rose accent BAR is replaced by a
+  // small gold bloom dot: the bar read as a generic "section rule" widget,
+  // while the dot ties the heading to the brand mark without shouting.
   group: {},
-  groupSecondary: { opacity: 0.92 },
-  groupHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 14, paddingHorizontal: 2 },
+  groupSecondary: { opacity: 1 },
+  groupHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 14, paddingHorizontal: 4 },
   groupAccent: {
-    width: 3, height: 30, borderRadius: 2,
-    backgroundColor: Colors.brandAccent, marginTop: 2,
+    width: 6, height: 6, borderRadius: 3,
+    backgroundColor: GOLD, marginTop: 9,
   },
-  groupTitle: {
-    fontSize: 20, fontFamily: Fonts.bold, fontWeight: '800',
-    color: VALUE, letterSpacing: -0.4,
-  },
+  groupTitle: { ...Type.groupTitle, color: VALUE },
   groupCaption: {
-    fontSize: 12.5, fontFamily: Fonts.regular, color: LABEL,
-    marginTop: 2, lineHeight: 17,
+    ...Type.caption, color: Colors.tertiaryLabel,
+    marginTop: 3, lineHeight: 18,
   },
-  // Secondary tier — same structure, deliberately de-emphasised so rarely
-  // touched items (support/legal/app info) don't compete with core settings.
-  groupTitleSecondary: { fontSize: 15, color: LABEL, letterSpacing: -0.1 },
-  groupCaptionSecondary: { fontSize: 11.5, color: Colors.tertiaryLabel },
+  // Secondary tier — de-emphasised via colour + weight rather than a blanket
+  // opacity (which also washed out the cards underneath).
+  groupTitleSecondary: { fontFamily: Fonts.semibold, fontSize: 15, color: LABEL, letterSpacing: -0.2 },
+  groupCaptionSecondary: { color: Colors.tertiaryLabel },
   groupBody: { gap: 0 },
 
   // ── Subhead — a label for a card *inside* a group, not a peer heading. ──
   subheadRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    marginBottom: 8, marginTop: 16, paddingHorizontal: 2, minHeight: 26,
+    marginBottom: 10, marginTop: 20, paddingHorizontal: 4, minHeight: 26,
   },
   subhead: {
-    fontSize: 11.5, fontFamily: Fonts.semibold, fontWeight: '700',
-    color: Colors.tertiaryLabel, textTransform: 'uppercase', letterSpacing: 0.9,
+    ...Type.overline,
+    color: Colors.tertiaryLabel, textTransform: 'uppercase',
   },
 
   // Quieter card for the secondary "More" tier — flatter, no lift.
   cardQuiet: {
-    backgroundColor: CARD, borderRadius: 18,
-    paddingHorizontal: 16, paddingVertical: 14,
+    backgroundColor: CARD, borderRadius: R_CARD,
+    paddingHorizontal: 18, paddingVertical: 16,
     borderWidth: 1, borderColor: Colors.cardBorder,
   },
 
@@ -2273,50 +2335,58 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A',
     alignItems: 'center', justifyContent: 'center',
   },
-  earningsDetailTitle: { fontSize: 14, fontFamily: Fonts.semibold, fontWeight: '700', color: VALUE },
-  earningsDetailSub: { fontSize: 12, color: LABEL, marginTop: 1 },
+  earningsDetailTitle: { ...Type.cardTitle, fontSize: 14.5, color: VALUE },
+  earningsDetailSub: { ...Type.caption, fontSize: 12, color: Colors.tertiaryLabel, marginTop: 2 },
 
-  // ── Card ──
+  // ── Card ── Pinterest card treatment: generous padding, soft warm lift, a
+  // hairline border doing the edge definition instead of a heavy shadow.
   card: {
-    backgroundColor: CARD, borderRadius: 24,
-    paddingHorizontal: 18, paddingVertical: 18,
-    shadowColor: Colors.cardShadow, shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.10, shadowRadius: 22, elevation: 6,
+    backgroundColor: CARD, borderRadius: R_CARD,
+    paddingHorizontal: 20, paddingVertical: 20,
+    ...SHADOW_CARD,
     borderWidth: 1, borderColor: Colors.cardBorder,
   },
 
-  divider: { height: 1, backgroundColor: DIVIDER_C, marginVertical: 14 },
+  // Subtler in-card rule + more air around it. A full-strength separator inside
+  // an already-bordered card chopped the content into stacked boxes.
+  divider: { height: 1, backgroundColor: DIVIDER_C, marginVertical: 16 },
 
   // ── Info row ──
   // Tappable rows use the brand rose icon chip below; informational-only rows
   // switch to infoIconWrapMuted (neutral gray) so "display only" reads at a
   // glance, matching the affordance split used across NearbyJobs/Calendar.
-  infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 52 },
+  infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 56 },
   infoLeft:  { flexDirection: 'row', alignItems: 'center', gap: 14, flexShrink: 0 },
   infoIconWrap: {
-    width: 40, height: 40, borderRadius: 14,
+    width: 38, height: 38, borderRadius: R_WELL,
     backgroundColor: ICON_BG, alignItems: 'center', justifyContent: 'center',
   },
-  infoIconWrapMuted: { backgroundColor: Colors.systemGray6 },
-  infoLabel: { fontSize: 16, color: LABEL, fontWeight: '600' },
-  infoRight: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, justifyContent: 'flex-end' },
-  infoValue: { fontSize: 16, fontWeight: '600', color: VALUE, textAlign: 'right', flexShrink: 1 },
-  // Circular chevron chip — same "navigable" affordance as navCardChevron, just
-  // smaller to fit InfoRow's more compact 52px row height.
+  // Muted chips now sit on warm blush, not systemGray6. A cool gray chip on a
+  // cream page was the single most "system settings" element on the screen.
+  infoIconWrapMuted: { backgroundColor: Colors.surfaceCream },
+  // Label vs value now differ in WEIGHT (medium vs semibold) and colour, not
+  // just colour — so the eye separates "what" from "what it's set to".
+  infoLabel: { ...Type.rowLabel, color: LABEL },
+  infoRight: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, justifyContent: 'flex-end' },
+  infoValue: { ...Type.rowValue, color: VALUE, textAlign: 'right', flexShrink: 1 },
+  // Bare chevron glyph — the filled circular chip repeated on every row read as
+  // a button, competing with the actual buttons. Sephora/Instagram use a plain
+  // light chevron for "drill in".
   infoChevronChip: {
-    width: 26, height: 26, borderRadius: 13,
-    backgroundColor: ICON_BG, alignItems: 'center', justifyContent: 'center',
+    width: 20, height: 26, alignItems: 'center', justifyContent: 'center',
   },
-  infoChevronChipText: { fontSize: 16, color: BRAND, fontWeight: '700', marginTop: -1 },
+  infoChevronChipText: { fontSize: 19, color: Colors.brandAccent, fontFamily: Fonts.medium, marginTop: -2 },
 
   chipRow: { marginTop: 6, marginBottom: 2 },
 
+  // Borderless tinted chip — a rose fill on a rose outline was double-stating
+  // the same accent. Sephora/Glossier use flat tinted pills with no stroke.
   verifiedChip: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    backgroundColor: ICON_BG, borderRadius: 999, borderWidth: 1, borderColor: Colors.brandAccent,
-    paddingHorizontal: 14, paddingVertical: 6, alignSelf: 'flex-start',
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: ICON_BG, borderRadius: R_PILL,
+    paddingHorizontal: 13, paddingVertical: 7, alignSelf: 'flex-start',
   },
-  verifiedChipText: { fontSize: 13, fontWeight: '700', color: BRAND },
+  verifiedChipText: { ...Type.caption, fontFamily: Fonts.semibold, color: BRAND },
 
   approvalRow: { marginBottom: 6 },
   statusChip: {
@@ -2325,51 +2395,54 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16, paddingVertical: 10, alignSelf: 'flex-start',
   },
   statusDot: { width: 10, height: 10, borderRadius: 5 },
-  statusChipText: { fontSize: 15, fontWeight: '700' },
+  statusChipText: { fontSize: 14, fontFamily: Fonts.semibold, letterSpacing: -0.1 },
 
   bioBlock: { paddingVertical: 10, gap: 6 },
   bioLabelRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  bioEditHint: { marginLeft: 'auto', fontSize: 13, fontWeight: '700', color: Colors.brand },
+  bioEditHint: { marginLeft: 'auto', ...Type.caption, fontFamily: Fonts.semibold, color: Colors.brand },
+  // Bio gets a genuinely editorial setting — larger line-height and readable
+  // body size, the way Glossier sets a personal blurb.
   bioValue: {
-    fontSize: 14, color: Colors.secondaryLabel, lineHeight: 21, fontWeight: '400',
-    paddingLeft: 46,
+    ...Type.body, fontSize: 14, color: Colors.secondaryLabel, lineHeight: 22,
+    paddingLeft: 52,
   },
   bioPlaceholder: {
-    fontSize: 13, color: Colors.tertiaryLabel, lineHeight: 19,
-    paddingLeft: 46,
+    ...Type.body, color: Colors.tertiaryLabel, lineHeight: 20,
+    paddingLeft: 52,
     fontStyle: 'italic',
   },
 
+  // Portfolio grid — Pinterest tile treatment: softer dashed prompt, larger
+  // radius on the thumbs so photos read as a gallery, not as form attachments.
   galleryEmpty: {
-    backgroundColor: ICON_BG, borderRadius: 18, borderWidth: 1.5, borderColor: Colors.brandAccent,
-    borderStyle: 'dashed', paddingVertical: 28, alignItems: 'center', gap: 8, marginBottom: 6,
+    backgroundColor: Colors.surfaceCream, borderRadius: R_WELL, borderWidth: 1.5, borderColor: Colors.brandAccent,
+    borderStyle: 'dashed', paddingVertical: 30, alignItems: 'center', gap: 8, marginBottom: 6,
   },
-  galleryEmptyText: { fontSize: 14, color: Colors.secondaryLabel, fontWeight: '600', textAlign: 'center', marginTop: 4 },
-  galleryEmptyHint: { fontSize: 12, color: Colors.tertiaryLabel },
+  galleryEmptyText: { ...Type.body, fontSize: 14, fontFamily: Fonts.medium, color: Colors.secondaryLabel, textAlign: 'center', marginTop: 4 },
+  galleryEmptyHint: { ...Type.caption, fontSize: 12, color: Colors.tertiaryLabel },
   galleryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 6 },
-  galleryThumb: { width: 96, height: 96, borderRadius: 16, overflow: 'hidden', position: 'relative' },
+  galleryThumb: { width: 96, height: 96, borderRadius: R_WELL, overflow: 'hidden', position: 'relative' },
   galleryThumbImg: { width: 96, height: 96 },
   galleryRemoveBtn: {
-    position: 'absolute', top: 4, right: 4,
+    position: 'absolute', top: 5, right: 5,
     width: 22, height: 22, borderRadius: 11,
-    backgroundColor: 'rgba(163,77,99,0.75)', alignItems: 'center', justifyContent: 'center',
+    backgroundColor: 'rgba(61,35,41,0.62)', alignItems: 'center', justifyContent: 'center',
   },
-  galleryRemoveBtnText: { color: '#fff', fontSize: 11, fontWeight: '800' },
+  galleryRemoveBtnText: { color: '#fff', fontSize: 11, fontFamily: Fonts.semibold },
   galleryAddTile: {
-    width: 88, height: 88, borderRadius: 14, borderWidth: 2, borderColor: BRAND,
-    borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', backgroundColor: ICON_BG,
+    width: 96, height: 96, borderRadius: R_WELL, borderWidth: 1.5, borderColor: Colors.brandAccent,
+    borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.surfaceCream,
   },
-  galleryAddTileText: { fontSize: 28, color: BRAND, fontWeight: '300', marginTop: -2 },
+  galleryAddTileText: { fontSize: 26, color: BRAND, fontFamily: Fonts.light, marginTop: -2 },
 
-  specialtiesBlock: { gap: 10, paddingVertical: 6 },
-  specialtiesLabel: { fontSize: 13, fontWeight: '800', color: LABEL, textTransform: 'uppercase', letterSpacing: 0.6 },
+  specialtiesBlock: { gap: 11, paddingVertical: 6 },
+  specialtiesLabel: { ...Type.overline, color: Colors.tertiaryLabel, textTransform: 'uppercase' },
   specialtiesChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   specialtyChip: {
-    backgroundColor: ICON_BG, borderRadius: 22,
-    paddingHorizontal: 14, paddingVertical: 7,
-    borderWidth: 1, borderColor: Colors.brandAccent,
+    backgroundColor: ICON_BG, borderRadius: R_PILL,
+    paddingHorizontal: 14, paddingVertical: 8,
   },
-  specialtyChipText: { fontSize: 13, fontWeight: '700', color: BRAND },
+  specialtyChipText: { ...Type.caption, fontFamily: Fonts.medium, color: BRAND },
 
   // De-emphasized on purpose: these are background-checks, not the main content
   // of the artist's own profile — smaller icons, lighter label weight, quieter
@@ -2382,91 +2455,92 @@ const styles = StyleSheet.create({
   },
   checkIconOk:      { backgroundColor: ICON_BG },
   checkIconPending: { backgroundColor: Colors.goldSoft },
-  checkLabel:  { fontSize: 11, fontWeight: '500', color: LABEL, textAlign: 'center' },
-  checkStatus: { fontSize: 10, fontWeight: '500', textAlign: 'center' },
+  checkLabel:  { fontSize: 11, fontFamily: Fonts.medium, color: LABEL, textAlign: 'center' },
+  checkStatus: { fontSize: 10, fontFamily: Fonts.medium, textAlign: 'center' },
 
   quickActionsGrid: { flexDirection: 'row', gap: 12 },
   quickAction: {
-    flex: 1, alignItems: 'center', gap: 10,
-    backgroundColor: CARD, borderRadius: 22, paddingVertical: 20,
+    flex: 1, alignItems: 'center', gap: 11,
+    backgroundColor: CARD, borderRadius: R_CARD, paddingVertical: 22,
     borderWidth: 1, borderColor: Colors.cardBorder,
-    shadowColor: Colors.cardShadow, shadowOffset: { width: 0, height: 5 },
-    shadowOpacity: 0.07, shadowRadius: 12, elevation: 3,
+    ...SHADOW_CARD,
   },
   quickActionIcon: {
-    width: 52, height: 52, borderRadius: 18,
+    width: 48, height: 48, borderRadius: R_WELL,
     alignItems: 'center', justifyContent: 'center',
   },
   quickActionLabel: {
-    fontSize: 12.5, fontWeight: '700', color: VALUE, textAlign: 'center',
+    ...Type.caption, fontFamily: Fonts.semibold, color: VALUE, textAlign: 'center',
   },
 
   navCard: {
-    backgroundColor: CARD, borderRadius: 24, padding: 20,
+    backgroundColor: CARD, borderRadius: R_CARD, padding: 18,
     flexDirection: 'row', alignItems: 'center', gap: 16,
-    shadowColor: Colors.cardShadow, shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.10, shadowRadius: 20, elevation: 6,
+    ...SHADOW_CARD,
     borderWidth: 1, borderColor: Colors.cardBorder,
   },
   navCardIcon: {
-    width: 54, height: 54, borderRadius: 20,
+    width: 46, height: 46, borderRadius: R_WELL,
     alignItems: 'center', justifyContent: 'center',
     borderWidth: 1,
   },
-  navCardTitle: { fontSize: 16, fontWeight: '700', color: VALUE, marginBottom: 4 },
-  navCardSub:   { fontSize: 13, color: LABEL, lineHeight: 18 },
+  navCardTitle: { ...Type.cardTitle, color: VALUE, marginBottom: 3 },
+  navCardSub:   { ...Type.caption, color: Colors.tertiaryLabel, lineHeight: 18 },
   navCardChevron: {
-    width: 34, height: 34, borderRadius: 17,
-    backgroundColor: ICON_BG, alignItems: 'center', justifyContent: 'center',
+    width: 22, height: 30, alignItems: 'center', justifyContent: 'center',
   },
-  navCardChevronText: { fontSize: 20, color: BRAND, fontWeight: '600' },
+  navCardChevronText: { fontSize: 21, color: Colors.brandAccent, fontFamily: Fonts.medium, marginTop: -2 },
 
-  trustRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, paddingVertical: 4 },
+  trustRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 14, paddingVertical: 5 },
   trustIconWrap: {
-    width: 40, height: 40, borderRadius: 14,
+    width: 38, height: 38, borderRadius: R_WELL,
     backgroundColor: ICON_BG, alignItems: 'center', justifyContent: 'center',
   },
-  trustLabel: { fontSize: 15, fontWeight: '600', color: VALUE, marginBottom: 3 },
-  trustDesc:  { fontSize: 13, color: LABEL, lineHeight: 19 },
+  trustLabel: { ...Type.rowValue, fontSize: 15, color: VALUE, marginBottom: 3 },
+  trustDesc:  { ...Type.body, color: Colors.tertiaryLabel, lineHeight: 19 },
 
   noProfileNote: { paddingVertical: 8 },
   noProfileText: { fontSize: 14, color: LABEL, lineHeight: 20 },
 
+  // Sign out is a quiet, contained action — a soft rose-tinted card rather than
+  // an alarm-red bordered slab. Destructive intent is carried by the text
+  // colour alone (Instagram/Glossier keep "log out" visually calm).
   signOutBtn: {
-    borderRadius: 22, backgroundColor: CARD,
-    borderWidth: 1.5, borderColor: '#FECACA',
-    paddingVertical: 20, alignItems: 'center',
-    shadowColor: Colors.cardShadow, shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.06, shadowRadius: 12, elevation: 2,
+    borderRadius: R_CARD, backgroundColor: CARD,
+    borderWidth: 1, borderColor: Colors.cardBorder,
+    paddingVertical: 18, alignItems: 'center',
+    ...SHADOW_CARD,
   },
-  signOutText: { color: '#DC2626', fontSize: 17, fontWeight: '700' },
+  signOutText: { color: Colors.systemRed, fontSize: 16, fontFamily: Fonts.semibold, letterSpacing: -0.2 },
 
   deleteAccountBtn: {
-    borderRadius: 16, backgroundColor: 'transparent',
+    borderRadius: R_WELL, backgroundColor: 'transparent',
     paddingVertical: 16, alignItems: 'center', marginTop: 12,
   },
-  deleteAccountText: { color: '#DC2626', fontSize: 15, fontWeight: '700', textDecorationLine: 'underline' },
-  deleteAccountHint: { fontSize: 11, color: Colors.tertiaryLabel, textAlign: 'center', lineHeight: 16, marginTop: 4, paddingHorizontal: 12 },
+  deleteAccountText: { color: Colors.systemRed, fontSize: 14, fontFamily: Fonts.medium, textDecorationLine: 'underline' },
+  deleteAccountHint: { ...Type.caption, fontSize: 11, color: Colors.tertiaryLabel, textAlign: 'center', lineHeight: 16, marginTop: 6, paddingHorizontal: 12 },
 
   footer: {
-    textAlign: 'center', fontSize: 12, color: Colors.tertiaryLabel,
-    marginTop: 32, marginHorizontal: 20, lineHeight: 18,
+    textAlign: 'center', ...Type.caption, fontSize: 11.5, color: Colors.tertiaryLabel,
+    marginTop: 36, marginHorizontal: 20, lineHeight: 18,
   },
 });
 
 const specStyles = StyleSheet.create({
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
-  sheet:   { backgroundColor: '#fff', borderTopLeftRadius: 22, borderTopRightRadius: 22, padding: 20, paddingBottom: 34 },
-  title:   { fontSize: 19, fontWeight: '800', color: Colors.label },
-  sub:     { fontSize: 13, color: Colors.secondaryLabel, marginTop: 4, marginBottom: 8 },
-  input:   { borderWidth: 1, borderColor: Colors.systemGray4, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, color: Colors.label, marginTop: 6 },
-  chip:    { paddingHorizontal: 14, paddingVertical: 9, borderRadius: 20, backgroundColor: Colors.systemGray6, borderWidth: 1, borderColor: 'transparent' },
-  chipOn:  { backgroundColor: Colors.brandLight, borderColor: Colors.brand },
-  chipText:   { fontSize: 13, fontWeight: '600', color: Colors.secondaryLabel },
-  chipTextOn: { color: Colors.brand },
-  btn:        { flex: 1, height: 50, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
-  btnGhost:   { backgroundColor: Colors.systemGray6 },
-  btnGhostText: { fontSize: 15, fontWeight: '700', color: Colors.label },
+  // Sheet matched to the refreshed card system: warmer scrim, larger radius,
+  // cream wells and Inter throughout (was raw fontWeight + systemGray).
+  overlay: { flex: 1, backgroundColor: 'rgba(61,35,41,0.42)', justifyContent: 'flex-end' },
+  sheet:   { backgroundColor: '#fff', borderTopLeftRadius: 28, borderTopRightRadius: 28, padding: 22, paddingBottom: 34 },
+  title:   { ...Type.groupTitle, color: Colors.label },
+  sub:     { ...Type.body, color: Colors.tertiaryLabel, marginTop: 5, marginBottom: 8 },
+  input:   { borderWidth: 1, borderColor: Colors.separator, backgroundColor: Colors.surfaceCream, borderRadius: R_WELL, paddingHorizontal: 14, paddingVertical: 13, fontSize: 15, fontFamily: Fonts.regular, color: Colors.label, marginTop: 8 },
+  chip:    { paddingHorizontal: 14, paddingVertical: 9, borderRadius: R_PILL, backgroundColor: Colors.surfaceCream, borderWidth: 1, borderColor: 'transparent' },
+  chipOn:  { backgroundColor: Colors.brandLight, borderColor: Colors.brandAccent },
+  chipText:   { ...Type.caption, fontFamily: Fonts.medium, color: Colors.secondaryLabel },
+  chipTextOn: { fontFamily: Fonts.semibold, color: Colors.brand },
+  btn:        { flex: 1, height: 50, borderRadius: R_WELL, alignItems: 'center', justifyContent: 'center' },
+  btnGhost:   { backgroundColor: Colors.surfaceCream },
+  btnGhostText: { fontSize: 15, fontFamily: Fonts.semibold, color: Colors.label },
   btnPrimary: { backgroundColor: Colors.brand },
-  btnPrimaryText: { fontSize: 15, fontWeight: '800', color: '#fff' },
+  btnPrimaryText: { fontSize: 15, fontFamily: Fonts.semibold, color: '#fff' },
 });

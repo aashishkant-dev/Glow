@@ -1,9 +1,16 @@
 /**
- * BeautyIcons — Glow 2.0 thin-line icon set (Lucide/Phosphor weight).
+ * BeautyIcons — Glow's service glyphs, drawn to the same system as
+ * TabIcons/CareIcons so all three files render as ONE set.
  *
- * Rules: 24×24 viewBox, strokeWidth 1.5, round caps/joins, minimal geometry,
- * NO SVG gradients (url(#id) renders blank in react-native-svg-web/PWA),
- * every icon: function XIcon({ size = 24, color = Colors.brand }).
+ * Rules (from Lucide's icon design guide): 24×24 viewBox, a SINGLE stroke
+ * weight of 2, round caps/joins, ≥1px padding inside the canvas, rect radius
+ * 2, ≥2px between distinct elements, coordinates on the grid. These were
+ * previously strokeWidth 1.5 with per-path opacity fades, which made the
+ * beauty glyphs read visibly lighter than the UI icons sitting beside them on
+ * the same row — the set looked like two libraries mixed together.
+ *
+ * NO SVG gradients (url(#id) renders blank in react-native-svg-web/PWA).
+ * Every icon: function XIcon({ size = 24, color = Colors.brand }).
  */
 
 import React from 'react';
@@ -15,15 +22,15 @@ interface IconProps {
   color?: string;
 }
 
-const S = { strokeWidth: 1.5, strokeLinecap: 'round', strokeLinejoin: 'round', fill: 'none' } as const;
+const S = { strokeWidth: 2, strokeLinecap: 'round', strokeLinejoin: 'round', fill: 'none' } as const;
 
 /** SparkleIcon — thin four-point star. Glam / featured. */
 export function SparkleIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
-        <Path d="M12 3.5c.5 3 1.2 4.9 2.1 5.9.9 1 2.8 1.7 5.4 2.1-2.6.4-4.5 1.1-5.4 2.1-.9 1-1.6 2.9-2.1 5.9-.5-3-1.2-4.9-2.1-5.9-.9-1-2.8-1.7-5.4-2.1 2.6-.4 4.5-1.1 5.4-2.1.9-1 1.6-2.9 2.1-5.9z" />
-        <Path d="M19 16.5v4M17 18.5h4" opacity={0.55} />
+        <Path d="M10 3c.6 3.4 1.4 5.5 2.4 6.6 1 1 3.2 1.9 6.1 2.4-2.9.5-5.1 1.4-6.1 2.4-1 1.1-1.8 3.2-2.4 6.6-.6-3.4-1.4-5.5-2.4-6.6-1-1-3.2-1.9-6.1-2.4 2.9-.5 5.1-1.4 6.1-2.4C8.6 8.5 9.4 6.4 10 3z" />
+        <Path d="M19 3v4M17 5h4" />
       </G>
     </Svg>
   );
@@ -34,10 +41,11 @@ export function LipstickIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
-        <Path d="M10.1 9.5V5.6c0-.5.3-1 .8-1.2l2.3-1.1c.4-.2.7.1.7.5v5.7" />
-        <Rect x={9.2} y={9.5} width={5.6} height={3.6} rx={0.9} />
-        <Path d="M8.1 13.1h7.8v5.5a1.8 1.8 0 0 1-1.8 1.8H9.9a1.8 1.8 0 0 1-1.8-1.8z" />
-        <Path d="M10.3 15.2v2.3" opacity={0.5} />
+        {/* Slanted bullet, then the tube — the bullet now clears the collar by
+            a full 2 units so the two shapes stay separate at SW 2. */}
+        <Path d="M10 8V4.6a1 1 0 0 1 .6-.9l2.6-1.2a.5.5 0 0 1 .8.5V8" />
+        <Rect x={9} y={8} width={6} height={3.5} rx={1} />
+        <Path d="M8.5 13.5h7V19a2 2 0 0 1-2 2h-3a2 2 0 0 1-2-2z" />
       </G>
     </Svg>
   );
@@ -48,9 +56,9 @@ export function BrushIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
-        <Path d="m4.6 19.4 1.2-4.2 9-9a2.25 2.25 0 0 1 3.2 3.2l-9 9z" />
-        <Path d="m13.5 5.5 3.2 3.2" />
-        <Path d="m6.6 14.4 3.2 3.2" opacity={0.5} />
+        <Path d="m4 20 1.5-4.5 9-9a2.5 2.5 0 0 1 3.5 3.5l-9 9z" />
+        <Path d="m13.5 5.5 5 5" />
+        <Path d="m6 15 3 3" />
       </G>
     </Svg>
   );
@@ -61,12 +69,14 @@ export function HennaIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
-        <Path d="M7.8 12.8V6.3a1.45 1.45 0 0 1 2.9 0v4.4M10.7 10.7V4.9a1.45 1.45 0 0 1 2.9 0v5.8M13.6 10.7V6.3a1.45 1.45 0 0 1 2.9 0v7.2c0 4-2.4 7-6.2 7-1.6 0-2.9-.8-3.6-2.3l-1.9-3.9a1.35 1.35 0 0 1 2.4-1.2l1.4 2.6" />
-        <Circle cx={12.4} cy={15.4} r={1.7} />
+        {/* Palm + three fingers, spaced 3 units apart so they stay legible at
+            SW 2 (four fingers at 3-unit pitch merged into a solid block). */}
+        <Path d="M8 12V7a1.5 1.5 0 0 1 3 0v4" />
+        <Path d="M11 11V5.5a1.5 1.5 0 0 1 3 0V11" />
+        <Path d="M14 11V7.5a1.5 1.5 0 0 1 3 0V14c0 4-2.6 7-6.5 7-1.8 0-3.1-.9-3.9-2.5l-1.9-3.8a1.5 1.5 0 0 1 2.6-1.3L9 16" />
       </G>
-      <Circle cx={12.4} cy={15.4} r={0.42} fill={color} />
-      <Circle cx={9.4} cy={17.6} r={0.42} fill={color} opacity={0.6} />
-      <Circle cx={15.4} cy={17.4} r={0.42} fill={color} opacity={0.6} />
+      {/* Mehndi medallion — the one bloom accent this glyph carries */}
+      <Circle cx={12} cy={16.5} r={1.5} fill={color} />
     </Svg>
   );
 }
@@ -76,11 +86,13 @@ export function NailIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
-        <Rect x={10.3} y={2.8} width={3.4} height={4.6} rx={1.2} />
-        <Path d="M8.9 9.4h6.2c1.8.9 2.9 2.5 2.9 4.6 0 3.9-2.7 6.5-6 6.5s-6-2.6-6-6.5c0-2.1 1.1-3.7 2.9-4.6z" />
-        <Path d="M12 9.4v5.2" opacity={0.5} />
+        {/* Polish bottle: narrow cap, then a clearly wider flacon. The old
+            neck and body were within 1 unit of each other, so at SW 2 the
+            silhouette read as one lumpy column. */}
+        <Path d="M11 2h2v3h-2z" />
+        <Path d="M8.5 8.5h7c1.5 1.2 2.5 3 2.5 5.5 0 4-2.5 7-6 7s-6-3-6-7c0-2.5 1-4.3 2.5-5.5z" />
+        <Path d="M11 5h2v3.5h-2z" />
       </G>
-      <Circle cx={12} cy={15.4} r={0.6} fill={color} opacity={0.5} />
     </Svg>
   );
 }
@@ -90,13 +102,15 @@ export function PedicureIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
-        <Path d="M12.6 8.4c2.7 0 4.4 2.4 4.2 5.5-.2 3.5-1.7 7-4.2 7s-4-3.5-4.2-7c-.2-3.1 1.5-5.5 4.2-5.5z" />
-        <Circle cx={8.6} cy={5.3} r={1.35} />
+        <Path d="M12 8c3 0 4.7 2.6 4.5 6-.2 3.7-1.8 7-4.5 7s-4.3-3.3-4.5-7C7.3 10.6 9 8 12 8z" />
+        <Circle cx={7.5} cy={5.5} r={1.5} />
       </G>
-      <Circle cx={11.5} cy={3.9} r={0.75} fill={color} />
-      <Circle cx={13.9} cy={3.6} r={0.7} fill={color} />
-      <Circle cx={16.1} cy={4.1} r={0.65} fill={color} />
-      <Circle cx={17.9} cy={5.2} r={0.6} fill={color} />
+      {/* Toes — equal radii on one arc, so they read as a set not a fade */}
+      <G fill={color}>
+        <Circle cx={11} cy={3.5} r={1} />
+        <Circle cx={14} cy={3.5} r={1} />
+        <Circle cx={17} cy={4.5} r={1} />
+      </G>
     </Svg>
   );
 }
@@ -106,11 +120,10 @@ export function ScissorsIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
-        <Circle cx={6} cy={6.2} r={2.5} />
-        <Circle cx={6} cy={17.8} r={2.5} />
-        <Path d="M19.8 4.4 8.2 16M14.4 14.5l5.4 5.1M8.2 8 12 11.8" />
+        <Circle cx={6} cy={6} r={3} />
+        <Circle cx={6} cy={18} r={3} />
+        <Path d="M20 4 8.1 15.9M14.5 14.5 20 20M8.1 8.1 12 12" />
       </G>
-      <Circle cx={12} cy={12} r={0.5} fill={color} />
     </Svg>
   );
 }
@@ -120,9 +133,8 @@ export function HairColorIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
-        <Path d="M12 3.6c2.8 3.5 4.2 6 4.2 8.2a4.2 4.2 0 1 1-8.4 0c0-2.2 1.4-4.7 4.2-8.2z" />
-        <Path d="M9.9 11.6c0 1.2.7 2.1 1.7 2.4" opacity={0.5} />
-        <Path d="M7 20.5h10" opacity={0.55} />
+        <Path d="M12 3c3 3.8 4.5 6.4 4.5 8.5a4.5 4.5 0 1 1-9 0C7.5 9.4 9 6.8 12 3z" />
+        <Path d="M7 21h10" />
       </G>
     </Svg>
   );
@@ -133,11 +145,12 @@ export function FacialIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
-        <Path d="M12 3.8c3.9 0 6.5 3.3 6.5 7.3 0 4.8-2.8 9.1-6.5 9.1s-6.5-4.3-6.5-9.1c0-4 2.6-7.3 6.5-7.3z" />
-        <Path d="M8.9 12.1c.5.5 1.2.5 1.7 0M13.4 12.1c.5.5 1.2.5 1.7 0" />
-        <Path d="M10.7 15.7c.8.6 1.8.6 2.6 0" />
+        <Path d="M12 3c4 0 6.5 3.4 6.5 7.5 0 5-2.9 9.5-6.5 9.5s-6.5-4.5-6.5-9.5C5.5 6.4 8 3 12 3z" />
+        {/* Eyes as short level lashes and a wide smile — the old paired 2-unit
+            curves sat 1 unit apart and merged into a single bar at SW 2. */}
+        <Path d="M8.5 11h1.5M14 11h1.5" />
+        <Path d="M10 15.5c1.2 1 2.8 1 4 0" />
       </G>
-      <Circle cx={17.9} cy={5.4} r={0.55} fill={color} opacity={0.6} />
     </Svg>
   );
 }
@@ -147,8 +160,9 @@ export function WaxIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
-        <Path d="M13.8 3.5c1.1 3.1.4 5.7-.9 7.9-1 1.8-2.2 3.5-2.4 5.9L10.2 20.5" />
-        <Path d="M17.6 4.1c1.1 3.6.2 6.6-1.4 9.2-.9 1.6-1.8 3.1-2.1 5L13.9 20.5" opacity={0.55} />
+        <Path d="M9 3c1.2 3.4.4 6.2-1 8.6C6.9 13.6 5.6 15.4 5.4 18L5.2 21" />
+        <Path d="M15 3c1.2 3.4.4 6.2-1 8.6-1.1 2-2.4 3.8-2.6 6.4L11.2 21" />
+        <Path d="M21 3c1.2 3.4.4 6.2-1 8.6-1.1 2-2.4 3.8-2.6 6.4L17.2 21" />
       </G>
     </Svg>
   );
@@ -159,9 +173,9 @@ export function LotusIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
-        <Path d="M12 4.5c1.8 2 2.7 4 2.7 6 0 2.4-1.2 4-2.7 4s-2.7-1.6-2.7-4c0-2 .9-4 2.7-4z" />
-        <Path d="M6.2 8.3c.4 3.2 1.9 5.4 4.4 6.5M17.8 8.3c-.4 3.2-1.9 5.4-4.4 6.5" />
-        <Path d="M3.5 12.6c.9 4.6 4 7.4 8.5 7.4s7.6-2.8 8.5-7.4c-1.7 1.1-3.4 1.7-5.2 1.7-1.2 0-2.3-.2-3.3-.7-1 .5-2.1.7-3.3.7-1.8 0-3.5-.6-5.2-1.7z" />
+        <Path d="M12 4c2 2.2 3 4.3 3 6.4 0 2.6-1.3 4.3-3 4.3s-3-1.7-3-4.3c0-2.1 1-4.2 3-6.4z" />
+        <Path d="M6 8c.4 3.4 2 5.8 4.7 7M18 8c-.4 3.4-2 5.8-4.7 7" />
+        <Path d="M3 12.5C4 17.4 7.3 20.4 12 20.4s8-3 9-7.9c-1.8 1.2-3.6 1.8-5.5 1.8-1.3 0-2.4-.2-3.5-.7-1.1.5-2.2.7-3.5.7-1.9 0-3.7-.6-5.5-1.8z" />
       </G>
     </Svg>
   );
@@ -171,13 +185,16 @@ export function LotusIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function SpaBloomIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
+      {/* Geometry is deliberately IDENTICAL to PersonalCareIcon in CareIcons —
+          both render the Glow bloom mark, and they previously used two
+          slightly different petal constructions. */}
       <G stroke={color} {...S}>
-        <Path d="M12 3.2c1.5 1.5 2.2 3 2.2 4.4S13.3 10 12 10s-2.2-1-2.2-2.4.7-2.9 2.2-4.4z" />
-        <Path d="M20.8 12c-1.5 1.5-3 2.2-4.4 2.2S14 13.3 14 12s1-2.2 2.4-2.2 2.9.7 4.4 2.2z" />
-        <Path d="M12 20.8c-1.5-1.5-2.2-3-2.2-4.4S10.7 14 12 14s2.2 1 2.2 2.4-.7 2.9-2.2 4.4z" />
-        <Path d="M3.2 12c1.5-1.5 3-2.2 4.4-2.2S10 10.7 10 12s-1 2.2-2.4 2.2S4.7 13.5 3.2 12z" />
+        <Path d="M12 3c1.7 1.7 2.5 3.3 2.5 4.9S13.4 10.5 12 10.5s-2.5-1-2.5-2.6S10.3 4.7 12 3z" />
+        <Path d="M21 12c-1.7 1.7-3.3 2.5-4.9 2.5S13.5 13.4 13.5 12s1-2.5 2.6-2.5S19.3 10.3 21 12z" />
+        <Path d="M12 21c-1.7-1.7-2.5-3.3-2.5-4.9s1-2.6 2.5-2.6 2.5 1 2.5 2.6S13.7 19.3 12 21z" />
+        <Path d="M3 12c1.7-1.7 3.3-2.5 4.9-2.5s2.6 1 2.6 2.5-1 2.5-2.6 2.5S4.7 13.7 3 12z" />
       </G>
-      <Circle cx={12} cy={12} r={1.05} fill={color} />
+      <Circle cx={12} cy={12} r={1.5} fill={color} />
     </Svg>
   );
 }
@@ -187,12 +204,15 @@ export function CrownIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
-        <Path d="M4.5 8.8l3.6 3L12 6l3.9 5.8 3.6-3-1.5 8.4a1.5 1.5 0 0 1-1.5 1.3H7.5A1.5 1.5 0 0 1 6 17.2z" />
-        <Path d="M8.6 15.6h6.8" opacity={0.5} />
+        <Path d="M3 8l4 3.5L12 5l5 6.5L21 8l-1.7 9.2a2 2 0 0 1-2 1.8H6.7a2 2 0 0 1-2-1.8z" />
+        <Path d="M8 15h8" />
       </G>
-      <Circle cx={12} cy={4.6} r={0.55} fill={color} />
-      <Circle cx={4} cy={7.3} r={0.5} fill={color} opacity={0.7} />
-      <Circle cx={20} cy={7.3} r={0.5} fill={color} opacity={0.7} />
+      {/* Gem points — equal radii, one weight */}
+      <G fill={color}>
+        <Circle cx={12} cy={3} r={1.2} />
+        <Circle cx={3} cy={6.5} r={1.2} />
+        <Circle cx={21} cy={6.5} r={1.2} />
+      </G>
     </Svg>
   );
 }
@@ -202,9 +222,8 @@ export function MirrorIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
       <G stroke={color} {...S}>
-        <Circle cx={12} cy={9.2} r={5.2} />
-        <Path d="M9.9 7.2a3 3 0 0 1 1.6-1.1" opacity={0.5} />
-        <Path d="M12 14.4V20.5M9.8 20.5h4.4" />
+        <Circle cx={12} cy={9} r={6} />
+        <Path d="M12 15v6M9 21h6" />
       </G>
     </Svg>
   );

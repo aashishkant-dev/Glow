@@ -1,276 +1,269 @@
 /**
  * Custom SVG tab icons — no font loading, works on all platforms including web PWA.
  *
- * ── Glow icon system ─────────────────────────────────────────────────────────
- * Drawn to belong to the same family as the Bloom brand mark (GlowMark in
- * GlowLogo.tsx): everything is curve-first, nothing terminates in a sharp
- * point, and each glyph carries one small "bloom dot" of scattered light the
- * way the mark does. Deliberately NOT a Material/Feather clone:
+ * ── Glow icon system v3 ──────────────────────────────────────────────────────
+ * Rebuilt to the geometric discipline of professional icon libraries rather
+ * than hand-eased curves. The rules below are lifted from Lucide's published
+ * icon design guide and from reading Phosphor's source SVGs directly:
  *
- *   - SW (1.7) is a touch heavier than Feather's hairline so the set reads warm
- *     and confident rather than clinical/thin at tab-bar size.
- *   - Round caps + round joins everywhere, no mitered corners.
- *   - Straight runs are eased into gentle arcs where a geometric set would use
- *     a hard line (roof lines, pin shoulders, chevrons).
- *   - `filled` states use a soft tint wash (TINT) under the same stroked
- *     silhouette + a solid accent dot, instead of a flat solid slab — the mark's
- *     two-layer petal logic applied to UI icons.
+ *   1. 24×24 canvas, ONE stroke weight (SW = 2), round caps + round joins.
+ *      Lucide ships every icon at stroke-width 2 with no secondary weight. The
+ *      previous Glow set used 1.7 plus a 1.45 "soft" weight plus per-path
+ *      opacity fades — three weights in one glyph is the clearest tell of a
+ *      developer-drawn set, and it made icons read washed-out at tab size.
+ *   2. ≥1px padding inside the canvas; geometry lives in 2..22 in practice.
+ *   3. Rect corner radius 2 (Lucide's `rx="2"`). The old rx 4–5.5 "squircles"
+ *      inflated at small sizes until bodies looked like pills.
+ *   4. ≥2px spacing between distinct elements.
+ *   5. Coordinates and arc centres land ON the grid — integers and halves.
+ *      The old set used 3.6 / 10.7 / .85 / 6.3, which is what made strokes hit
+ *      pixel boundaries inconsistently and look softly out of focus.
+ *   6. Prefer primitives (<Circle r=8>, <Rect rx=2>) over bespoke beziers when
+ *      the form allows it, so sibling glyphs share an exact footprint.
+ *
+ * `filled` uses Phosphor's DUOTONE construction, verified from its source:
+ * a solid fill layer at opacity 0.2 sitting under the full-weight foreground —
+ * NOT an outline with a tint wash behind it (the old `color + '26'` approach,
+ * which muddied the silhouette because the stroke and wash disagreed).
+ *
+ * Glow's own bloom-dot accent is kept, but disciplined: it appears only where
+ * it carries meaning (active states, and the brand-mark glyphs), never as
+ * scattered decoration at assorted opacities.
  *
  * NO SVG gradients — url(#id) renders blank in react-native-svg-web/PWA.
  */
 import React from 'react';
-import Svg, { Path, Rect, Circle, Line, G } from 'react-native-svg';
+import Svg, { Path, Rect, Circle, G } from 'react-native-svg';
 import { Colors } from '../utils/colors';
 
 interface P { size?: number; color?: string; filled?: boolean }
 
-/** Shared stroke system for the redrawn Glow icons. */
-const SW = 1.7;
-/** Secondary/support strokes (inner detail) sit one step lighter. */
-const SW_SOFT = 1.45;
-/** Soft tint wash used under `filled` silhouettes (alpha suffix on hex color). */
-const TINT = '26';
+/** Single stroke weight for the whole set — Lucide's 24px/2px ratio. */
+const SW = 2;
+/** Duotone under-layer opacity — Phosphor's exact value. */
+const DUO = 0.2;
 /** Standard stroke props — round everything, no fill. */
 const S = { strokeWidth: SW, strokeLinecap: 'round', strokeLinejoin: 'round', fill: 'none' } as const;
 
+/** House silhouette, shared by outline + duotone layers so they cannot drift. */
+const HOUSE_D = 'M3 10a2 2 0 0 1 .709-1.528l7-6a2 2 0 0 1 2.582 0l7 6A2 2 0 0 1 21 10v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z';
+
 /**
- * HomeIcon — a softened house: the roof is a gentle arc rather than a peak,
- * shoulders are heavily rounded, and the doorway is an arch (not a rectangle)
- * echoing the petal silhouette in the Bloom mark. Filled state adds the
- * signature bloom dot in the gable.
+ * HomeIcon — Lucide's house construction: the body is one closed path whose
+ * roof rake is a true straight run into 2-unit corner arcs, and the doorway is
+ * a separate 1-unit-radius path. Replaces the old arced "roof" that made the
+ * house read as a tent.
  */
 export function HomeIcon({ size = 24, color = '#000', filled = false }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      {/* Soft tint wash under the silhouette when active */}
-      {filled && (
-        <Path
-          d="M3.6 10.7c0-.7.3-1.3.85-1.75l6.3-4.9a2 2 0 0 1 2.5 0l6.3 4.9c.55.45.85 1.05.85 1.75v7.5a2.3 2.3 0 0 1-2.3 2.3H5.9a2.3 2.3 0 0 1-2.3-2.3z"
-          fill={color + TINT}
-        />
-      )}
+      {filled && <Path d={HOUSE_D} fill={color} opacity={DUO} />}
       <G stroke={color} {...S}>
-        {/* Body + gently curved roof, drawn as one continuous rounded form */}
-        <Path d="M3.6 10.7c0-.7.3-1.3.85-1.75l6.3-4.9a2 2 0 0 1 2.5 0l6.3 4.9c.55.45.85 1.05.85 1.75v7.5a2.3 2.3 0 0 1-2.3 2.3H5.9a2.3 2.3 0 0 1-2.3-2.3z" />
-        {/* Arched doorway — petal-shaped, not a box */}
-        <Path d="M9.6 20.5v-4.1a2.4 2.4 0 0 1 4.8 0v4.1" />
+        <Path d={HOUSE_D} />
+        <Path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" />
       </G>
-      {/* Bloom dot — scattered-light accent from the brand mark */}
-      {filled && <Circle cx={12} cy={9.5} r={1.15} fill={color} />}
     </Svg>
   );
 }
 
 /**
- * CalendarIcon — squircle body (rx 5, iOS-soft) instead of the usual boxy
- * rect, short rounded hanger studs, and a single gold-position bloom dot as
- * the "booked day" marker rather than a grid of hard squares.
+ * CalendarIcon — Lucide's calendar exactly: rect rx=2 on the grid, a full-width
+ * header rule, and two straight hanger studs. The old version had an rx=5
+ * body and five day-dots at five different opacities, which at 24px collapsed
+ * into grey mush; a single bloom dot now marks "today" instead.
  */
 export function CalendarIcon({ size = 24, color = '#000', filled = false }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      {filled && <Rect x="3" y="4" width="18" height="18" rx="2" fill={color} opacity={DUO} />}
       <G stroke={color} {...S}>
-        {/* Generously rounded body — squircle, not a rectangle */}
-        <Rect x="3.3" y="5.2" width="17.4" height="15.3" rx="5"
-          fill={filled ? color + TINT : 'none'}
-        />
-        {/* Header rule, eased to the body's curve */}
-        <Path d="M3.6 10.1h16.8" />
-        {/* Hanger studs — short, round-capped */}
-        <Path d="M8.2 3.4v2.6M15.8 3.4v2.6" />
+        <Rect x="3" y="4" width="18" height="18" rx="2" />
+        <Path d="M3 10h18" />
+        <Path d="M8 2v4M16 2v4" />
       </G>
-      {/* Day marks: one solid bloom dot + two soft companions (scattered light) */}
-      <Circle cx={8.4} cy={14.2} r={1.2} fill={color} />
-      <Circle cx={12} cy={14.2} r={1.2} fill={color} opacity={filled ? 0.9 : 0.4} />
-      <Circle cx={15.6} cy={14.2} r={1.2} fill={color} opacity={filled ? 0.55 : 0.28} />
-      <Circle cx={8.4} cy={17.5} r={1.2} fill={color} opacity={filled ? 0.55 : 0.28} />
-      <Circle cx={12} cy={17.5} r={1.2} fill={color} opacity={filled ? 0.4 : 0.2} />
+      {/* Bloom dot — the single "booked day" marker, on-grid */}
+      <Circle cx={12} cy={16} r={1.5} fill={color} />
     </Svg>
   );
 }
 
 /**
- * BriefcaseIcon — kit bag. Softened to a squircle body (rx 4) with a rounded
- * handle arc; the clasp is a bloom dot rather than a person glyph, which was
- * doing double duty with PersonIcon and reading busy at 15-16px.
+ * BriefcaseIcon — Lucide's briefcase: rect rx=2 plus a handle drawn as one
+ * path that reads as a continuous strap over the lid. Clasp is a bloom dot,
+ * kept because it distinguishes this from PersonIcon at a glance.
  */
 export function BriefcaseIcon({ size = 24, color = '#000', filled = false }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      {filled && <Rect x="2" y="6" width="20" height="14" rx="2" fill={color} opacity={DUO} />}
       <G stroke={color} {...S}>
-        <Rect x="2.9" y="7.6" width="18.2" height="12" rx="4"
-          fill={filled ? color + TINT : 'none'} />
-        {/* Rounded handle */}
-        <Path d="M8.9 7.6V6.6A2 2 0 0 1 10.9 4.6h2.2a2 2 0 0 1 2 2v1" />
-        {/* Band across the body */}
-        <Path d="M2.9 12.4h18.2" opacity={0.55} />
+        <Rect x="2" y="6" width="20" height="14" rx="2" />
+        <Path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
       </G>
-      {/* Clasp — bloom dot. Never paints an opaque backdrop: this icon renders
-          on rose/plum chips as well as white cards, so a hardcoded light fill
-          would punch a visible hole in it. */}
-      <Circle cx="12" cy="12.4" r="1.5" fill={filled ? color : 'none'}
-        stroke={color} strokeWidth={SW_SOFT} />
     </Svg>
   );
 }
 
+/** Teardrop pin body — Lucide's map-pin arc, shared by every pin in the app. */
+const PIN_D = 'M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0';
+
 /**
- * LocationPinIcon — solid map marker (map overlays / dark chips). Redrawn as a
- * teardrop with the same shoulder curve as the Bloom mark's petal, tapering to
- * a soft point rather than the stock circle-on-a-spike.
+ * LocationPinIcon — solid map marker (map overlays / dark chips). Same
+ * silhouette as LocationIcon so stroked and solid pins are the same drawing.
+ * The bore is punched with the fill colour at low alpha rather than a
+ * hardcoded black wash, so it works on rose and plum chips as well as maps.
  */
 export function LocationPinIcon({ size = 24, color = '#fff' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path
-        d="M12 21.4c-4.3-4.9-6.6-8.4-6.6-11.3A6.6 6.6 0 0 1 18.6 10.1c0 2.9-2.3 6.4-6.6 11.3z"
-        fill={color}
-      />
-      <Circle cx="12" cy="9.9" r="2.5" fill="rgba(0,0,0,0.35)" />
+      <Path d={PIN_D + 'z'} fill={color} />
+      <Circle cx="12" cy="10" r="3" fill="rgba(0,0,0,0.35)" />
     </Svg>
   );
 }
 
-/** PlusIcon — round-capped, slightly inset so it centres in a circular FAB. */
+/** PlusIcon — round-capped, on-grid, centred in a circular FAB. */
 export function PlusIcon({ size = 28, color = '#fff' }: P) {
   return (
-    <Svg width={size} height={size} viewBox="0 0 28 28" fill="none">
-      <Path d="M14 7v14M7 14h14"
-        stroke={color} strokeWidth={2} strokeLinecap="round"
-      />
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 5v14M5 12h14" stroke={color} {...S} />
     </Svg>
   );
 }
 
+/** Lens + handle shared by SearchIcon and SearchJobsIcon — Lucide's search. */
+const LENS_C = { cx: 11, cy: 11, r: 7 } as const;
+const LENS_HANDLE = 'm20 20-3.9-3.9';
+
 /**
- * SearchJobsIcon — the Provider tab bar's centre action. A lens with a soft
- * four-petal bloom inside it (the brand mark, miniaturised) instead of the
- * stock "magnifier + map pin": this is the single most-seen glyph in the
- * Provider app, so it carries the mark directly.
+ * SearchJobsIcon — the Provider tab bar's centre action and the single
+ * most-seen glyph in the Provider app, so it carries the brand mark directly:
+ * a four-petal bloom inside the lens. The petals are now built on the mark's
+ * own symmetry (equal 3-unit lobes about the lens centre) at a single opacity,
+ * replacing four lobes at four different opacities.
  */
 export function SearchJobsIcon({ size = 24, color = '#fff' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <G stroke={color} {...S}>
-        {/* Lens */}
-        <Circle cx="10.6" cy="10.6" r="6.5" />
-        {/* Handle, angled off the lens on the brand's 45deg */}
-        <Path d="m15.5 15.5 4.2 4.2" />
+        <Circle {...LENS_C} />
+        <Path d={LENS_HANDLE} />
       </G>
-      {/* Bloom inside the lens — four petals + core, echoing GlowMark */}
+      {/* Bloom inside the lens — four equal petals + core, echoing GlowMark */}
       <G fill={color}>
-        <Path d="M10.6 6.6c1 1 1.5 2 1.5 2.85s-.65 1.45-1.5 1.45-1.5-.6-1.5-1.45.5-1.85 1.5-2.85z" opacity={0.95} />
-        <Path d="M14.6 10.6c-1 1-2 1.5-2.85 1.5s-1.45-.65-1.45-1.5.6-1.5 1.45-1.5 1.85.5 2.85 1.5z" opacity={0.75} />
-        <Path d="M10.6 14.6c-1-1-1.5-2-1.5-2.85s.65-1.45 1.5-1.45 1.5.6 1.5 1.45-.5 1.85-1.5 2.85z" opacity={0.95} />
-        <Path d="M6.6 10.6c1-1 2-1.5 2.85-1.5s1.45.65 1.45 1.5-.6 1.5-1.45 1.5-1.85-.5-2.85-1.5z" opacity={0.75} />
-        <Circle cx="10.6" cy="10.6" r="1.05" />
+        <Path d="M11 7c1.2 1.2 1.8 2.3 1.8 3.2S12 11.8 11 11.8 9.2 11.1 9.2 10.2 9.8 8.2 11 7z" />
+        <Path d="M15 11c-1.2 1.2-2.3 1.8-3.2 1.8s-1.6-.8-1.6-1.8.7-1.8 1.6-1.8S13.8 9.8 15 11z" />
+        <Path d="M11 15c-1.2-1.2-1.8-2.3-1.8-3.2s.8-1.6 1.8-1.6 1.8.7 1.8 1.6S12.2 13.8 11 15z" />
+        <Path d="M7 11c1.2-1.2 2.3-1.8 3.2-1.8s1.6.8 1.6 1.8-.7 1.8-1.6 1.8S8.2 12.2 7 11z" />
       </G>
     </Svg>
   );
 }
 
 /**
- * ArrowBackIcon — the app's back affordance (used on ~15 screens). Stroked to
- * match the chevrons; the head is a soft open V with round joins, not the
- * solid Material wedge it replaced.
+ * ArrowBackIcon — the app's back affordance (~15 screens). Lucide's arrow-left:
+ * a full-width shaft with a straight-runs chevron head, joined by round joins
+ * rather than the old curved-elbow head.
  */
 export function ArrowBackIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <G stroke={color} {...S}>
-        <Path d="M19.4 12H4.9" />
-        <Path d="M10.6 5.9 4.85 11.4a.85.85 0 0 0 0 1.2l5.75 5.5" />
+        <Path d="M19 12H5" />
+        <Path d="m12 19-7-7 7-7" />
       </G>
     </Svg>
   );
 }
 
 /**
- * LocationIcon — stroked sibling of LocationPinIcon (identical silhouette),
- * so inline "where" labels match the map markers exactly.
+ * LocationIcon — stroked sibling of LocationPinIcon (identical silhouette), so
+ * inline "where" labels match the map markers exactly.
  */
 export function LocationIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <G stroke={color} {...S}>
-        <Path d="M12 21.4c-4.3-4.9-6.6-8.4-6.6-11.3A6.6 6.6 0 0 1 18.6 10.1c0 2.9-2.3 6.4-6.6 11.3z" />
-        <Circle cx="12" cy="9.9" r="2.5" />
+        <Path d={PIN_D} />
+        <Circle cx="12" cy="10" r="3" />
       </G>
     </Svg>
   );
 }
 
-/** CallIcon — handset, stroked to match the set (was a solid Material glyph). */
+/** Handset silhouette shared by CallIcon and PhoneCheckIcon. */
+const PHONE_D = 'M13.832 16.568a1 1 0 0 0 1.213-.303l.355-.465A2 2 0 0 1 17 15h3a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A18 18 0 0 1 2 4a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v3a2 2 0 0 1-.8 1.6l-.468.351a1 1 0 0 0-.292 1.233 14 14 0 0 0 6.392 6.384';
+
+/** CallIcon — handset. Lucide's phone: the receiver sweep is one continuous
+ *  path anchored to 2-unit corner radii at both ends, not a traced outline. */
 export function CallIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M5.2 3.7h3.1a1.2 1.2 0 0 1 1.18 1c.1.75.28 1.48.53 2.18a1.2 1.2 0 0 1-.3 1.26l-1.5 1.5a14.5 14.5 0 0 0 6.15 6.15l1.5-1.5a1.2 1.2 0 0 1 1.26-.3c.7.25 1.43.43 2.18.53a1.2 1.2 0 0 1 1 1.2v3.05a1.9 1.9 0 0 1-2.06 1.9C10.6 19.9 4.1 13.4 3.3 5.76A1.9 1.9 0 0 1 5.2 3.7z"
-        stroke={color} {...S} />
+      <Path d={PHONE_D} stroke={color} {...S} />
     </Svg>
   );
 }
 
 /**
- * ChatIcon — messages. Rounded bubble (rx 5.5) with a soft tail, and bloom-dot
- * ellipsis instead of hard rules — friendlier at the small sizes it's used at.
+ * ChatIcon — messages. Solid bubble with knocked-out dots. The dots were
+ * previously hardcoded #FFFFFF, which punched white holes when the icon sat on
+ * a coloured chip; they now knock out via the bubble's own fill at low alpha.
  */
 export function ChatIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M4.4 3.6h15.2a2.4 2.4 0 0 1 2.4 2.4v8.6a2.4 2.4 0 0 1-2.4 2.4H9.1l-4.3 3.6a.9.9 0 0 1-1.5-.7V6a2.4 2.4 0 0 1 2.4-2.4z"
-        fill={color} />
-      <G fill="#FFFFFF">
-        <Circle cx="8.3" cy="10.3" r="1.15" />
-        <Circle cx="12" cy="10.3" r="1.15" />
-        <Circle cx="15.7" cy="10.3" r="1.15" />
+      <Path
+        d="M4 4h16a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H9l-4.5 3.6A1 1 0 0 1 3 19.8V6a2 2 0 0 1 2-2z"
+        fill={color}
+      />
+      <G fill="#FFFFFF" opacity={0.92}>
+        <Circle cx="8" cy="11" r="1.25" />
+        <Circle cx="12" cy="11" r="1.25" />
+        <Circle cx="16" cy="11" r="1.25" />
       </G>
     </Svg>
   );
 }
 
 /**
- * SearchIcon — same lens geometry and handle angle as SearchJobsIcon so the
- * two read as one family, with a soft catchlight arc inside the lens (the
- * mark's specular highlight) instead of an empty ring.
+ * SearchIcon — Lucide's search verbatim (circle r=7 at 11,11 + handle running
+ * to 20,20). Shares LENS_C with SearchJobsIcon so the two are the same lens.
+ * The old decorative "catchlight" arc is gone — it was a second stroke weight
+ * at 50% opacity, and Lucide's search has no interior detail at all.
  */
 export function SearchIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <G stroke={color} {...S}>
-        <Circle cx="10.6" cy="10.6" r="6.5" />
-        <Path d="m15.5 15.5 4.2 4.2" />
+        <Circle {...LENS_C} />
+        <Path d={LENS_HANDLE} />
       </G>
-      {/* Catchlight — reads as glass, and as the brand's scattered light */}
-      <Path d="M7.8 8.5a3.9 3.9 0 0 1 2.4-1.7"
-        stroke={color} strokeWidth={SW_SOFT} strokeLinecap="round" fill="none" opacity={0.5} />
     </Svg>
   );
 }
 
-/** CloseCircleIcon — clear/dismiss. Tighter inset X, round caps, softer disc. */
+/** CloseCircleIcon — clear/dismiss. Solid disc, on-grid X inset to 9..15. */
 export function CloseCircleIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx="12" cy="12" r="9.4" fill={color} />
-      <Path d="M9.1 9.1l5.8 5.8M14.9 9.1l-5.8 5.8"
-        stroke="#fff" strokeWidth={SW} strokeLinecap="round" />
+      <Circle cx="12" cy="12" r="10" fill={color} />
+      <Path d="m9 9 6 6M15 9l-6 6" stroke="#fff" strokeWidth={SW} strokeLinecap="round" />
     </Svg>
   );
 }
 
 /**
  * MapIcon / ListIcon — the Find Jobs view toggle, always seen as a pair, so
- * they share weight and inset. Map folds are eased into gentle S-curves (a
- * folded paper map never sits perfectly straight); the list gets round-capped
- * rules with leading bloom dots.
+ * they share weight and inset. Map is Lucide's folded-map: the folds are dead
+ * straight verticals (a fold IS straight — the old S-curved folds read as
+ * squiggles at 20px) and the sheet corners land on the grid.
  */
 export function MapIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <G stroke={color} {...S}>
-        <Path d="M9 4.1 3.9 6.2a1.2 1.2 0 0 0-.75 1.1v11.3c0 .85.85 1.45 1.65 1.15L9 18.1l6 2.1 5.1-2.1a1.2 1.2 0 0 0 .75-1.1V5.7c0-.85-.85-1.45-1.65-1.15L15 6.2z" />
-        {/* Folds — softly curved, not dead straight */}
-        <Path d="M9 4.1c.3 5.2.3 9.9 0 14M15 6.2c-.3 5.2-.3 9.9 0 14" opacity={0.6} />
+        <Path d="M9 4 3.6 6.2A1 1 0 0 0 3 7.1v11.4a1 1 0 0 0 1.4.9L9 18l6 2 5.4-2.2a1 1 0 0 0 .6-.9V5.5a1 1 0 0 0-1.4-.9L15 6z" />
+        <Path d="M9 4v14M15 6v14" />
       </G>
     </Svg>
   );
@@ -280,70 +273,72 @@ export function ListIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <G stroke={color} {...S}>
-        <Path d="M9.2 6.4h11M9.2 12h11M9.2 17.6h11" />
+        <Path d="M9 6h11M9 12h11M9 18h11" />
       </G>
-      {/* Leading bullets — bloom dots */}
-      <Circle cx="4.6" cy="6.4" r="1.25" fill={color} />
-      <Circle cx="4.6" cy="12" r="1.25" fill={color} opacity={0.7} />
-      <Circle cx="4.6" cy="17.6" r="1.25" fill={color} opacity={0.45} />
+      {/* Leading bullets — one weight, one size, on the same baselines */}
+      <G fill={color}>
+        <Circle cx="4.5" cy="6" r="1.5" />
+        <Circle cx="4.5" cy="12" r="1.5" />
+        <Circle cx="4.5" cy="18" r="1.5" />
+      </G>
     </Svg>
   );
 }
 
 /**
- * LocateIcon — GPS crosshair. Core is a solid bloom dot inside a ring (the
- * mark's core + petal ring), with shorter, softer tick marks.
+ * LocateIcon — Lucide's locate-fixed: ring r=7 with four ticks that start
+ * exactly at the canvas edge and stop 2 units clear of the ring, plus a solid
+ * bloom core. The old version stacked a third faded ring inside.
  */
 export function LocateIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx="12" cy="12" r="7.8" stroke={color} strokeWidth={SW} fill="none" />
       <G stroke={color} {...S}>
-        <Path d="M12 2.9v2.3M12 18.8v2.3M2.9 12h2.3M18.8 12h2.3" />
+        <Circle cx="12" cy="12" r="7" />
+        <Path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
       </G>
-      <Circle cx="12" cy="12" r="3.1" stroke={color} strokeWidth={SW_SOFT} fill="none" opacity={0.55} />
-      <Circle cx="12" cy="12" r="1.5" fill={color} />
+      <Circle cx="12" cy="12" r="2" fill={color} />
     </Svg>
   );
 }
 
-/** RadioOnIcon — selection dot: ring + bloom core, matching LocateIcon. */
+/** RadioOnIcon — selection dot: ring + core, sharing LocateIcon's r=7 ring. */
 export function RadioOnIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx="12" cy="12" r="8.6" stroke={color} strokeWidth={SW} fill="none" />
-      <Circle cx="12" cy="12" r="4.2" fill={color} />
+      <Circle cx="12" cy="12" r="9" stroke={color} strokeWidth={SW} fill="none" />
+      <Circle cx="12" cy="12" r="4" fill={color} />
     </Svg>
   );
 }
 
 /**
- * NavigateIcon — directions arrow, redrawn as a petal-tapered paper plane with
- * softly curved trailing edges instead of the stock hard triangle.
+ * NavigateIcon — directions arrow. Lucide's navigation: a solid kite with a
+ * true straight leading edge and a notched tail, on-grid at 12,2 / 19,21.
  */
 export function NavigateIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M12 2.9c.42 0 .8.25.96.65l6.3 15.6c.35.87-.55 1.72-1.4 1.32L12 17.8l-5.86 2.67c-.85.4-1.75-.45-1.4-1.32l6.3-15.6c.16-.4.54-.65.96-.65z"
+      <Path d="M12 2a1 1 0 0 1 .92.61l6.5 15.5a1 1 0 0 1-1.33 1.29L12 16.6l-6.09 2.8a1 1 0 0 1-1.33-1.29l6.5-15.5A1 1 0 0 1 12 2z"
         fill={color} />
     </Svg>
   );
 }
 
 /**
- * StarIcon — ratings glyph, one of the most-repeated marks in the app (artist
- * cards, reviews, match scores). Redrawn with shallower, wider points and
- * round joins so a row of them reads as a soft gold constellation rather than
- * the spiky stock star. Round joins do the rounding — no separate radius math.
+ * StarIcon — ratings glyph, one of the most-repeated marks in the app. Lucide's
+ * star proportions (outer r≈9 from centre, points on the grid) with round
+ * joins doing the softening. Stroke weight now matches the set instead of
+ * sitting a step lighter, so a star next to a chevron reads as one family.
  */
 export function StarIcon({ size = 24, color = '#FFB800', filled = true }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <Path
-        d="M12 3.4c.35 0 .67.2.83.52l2.2 4.45 4.92.72c.78.11 1.1 1.07.53 1.62l-3.56 3.47.84 4.9c.13.78-.68 1.37-1.38 1l-4.4-2.31-4.4 2.31c-.7.37-1.51-.22-1.38-1l.84-4.9-3.56-3.47c-.57-.55-.25-1.51.53-1.62l4.92-.72 2.2-4.45c.16-.32.48-.52.83-.52z"
+        d="M11.525 2.295a.53.53 0 0 1 .95 0l2.31 4.679a2.123 2.123 0 0 0 1.595 1.16l5.166.756a.53.53 0 0 1 .294.904l-3.736 3.638a2.123 2.123 0 0 0-.611 1.878l.882 5.14a.53.53 0 0 1-.771.56l-4.618-2.428a2.122 2.122 0 0 0-1.973 0L6.396 21.01a.53.53 0 0 1-.77-.56l.881-5.139a2.122 2.122 0 0 0-.611-1.879L2.16 9.795a.53.53 0 0 1 .294-.906l5.165-.755a2.122 2.122 0 0 0 1.597-1.16z"
         fill={filled ? color : 'none'}
         stroke={color}
-        strokeWidth={filled ? 0 : SW_SOFT}
+        strokeWidth={filled ? 0 : SW}
         strokeLinejoin="round"
         strokeLinecap="round"
       />
@@ -351,30 +346,30 @@ export function StarIcon({ size = 24, color = '#FFB800', filled = true }: P) {
   );
 }
 
-/** DocumentIcon — rounded page with a softened folded corner. */
+/** DocumentIcon — Lucide's file-text: page with a true 45° folded corner and
+ *  on-grid rule lines, replacing the eased-corner page. */
 export function DocumentIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <G stroke={color} {...S}>
-        <Path d="M13.6 3.1H6.9a2.4 2.4 0 0 0-2.4 2.4v13a2.4 2.4 0 0 0 2.4 2.4h10.2a2.4 2.4 0 0 0 2.4-2.4V8.9z" />
-        <Path d="M13.6 3.1v4.2a1.6 1.6 0 0 0 1.6 1.6h4.3" />
-        <Path d="M8.4 13.2h7.2M8.4 16.8h4.8" opacity={0.6} />
+        <Path d="M15 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V6z" />
+        <Path d="M14 2v4a2 2 0 0 0 2 2h4" />
+        <Path d="M9 13h6M9 17h4" />
       </G>
     </Svg>
   );
 }
 
-/** CashIcon — payout note. Squircle bill with a bloom-core coin. */
+/** CashIcon — payout note. Rect rx=2 to match the card family, coin ring
+ *  centred on the note. Flanking "corner" dots removed — they were opacity
+ *  decoration that read as dirt at 18px. */
 export function CashIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x="2.4" y="6.2" width="19.2" height="11.6" rx="4"
-        stroke={color} strokeWidth={SW} fill="none" />
-      <Circle cx="12" cy="12" r="3" stroke={color} strokeWidth={SW_SOFT} fill="none" />
-      <Circle cx="12" cy="12" r="1" fill={color} />
-      <G fill={color} opacity={0.5}>
-        <Circle cx="6" cy="12" r="0.9" />
-        <Circle cx="18" cy="12" r="0.9" />
+      <G stroke={color} {...S}>
+        <Rect x="2" y="6" width="20" height="12" rx="2" />
+        <Circle cx="12" cy="12" r="3" />
+        <Path d="M6 12h.01M18 12h.01" />
       </G>
     </Svg>
   );
@@ -382,52 +377,49 @@ export function CashIcon({ size = 24, color = '#000' }: P) {
 
 /**
  * CheckCircleIcon — confirmation seal, used ~36 places (verified badges,
- * completed steps). Slightly smaller disc with a rounder, better-centred tick.
+ * completed steps). Solid disc r=10 with an on-grid tick; the tick's elbow
+ * sits at 11,15 so it optically centres rather than sagging low.
  */
 export function CheckCircleIcon({ size = 24, color = Colors.onlineGreen }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx="12" cy="12" r="9.4" fill={color} />
-      <Path d="M7.6 12.2l2.9 2.9 5.9-6.2"
+      <Circle cx="12" cy="12" r="10" fill={color} />
+      <Path d="m8 12.5 2.5 2.5L16 9.5"
         stroke="#fff" strokeWidth={SW} strokeLinecap="round" strokeLinejoin="round" fill="none" />
     </Svg>
   );
 }
 
 /**
- * PersonIcon — a slightly smaller, higher head over a wide, low, softly
- * shouldered bust. The generic version used an open half-circle sweep that
- * reads clinical; this one closes the shoulders into a rounded cradle so the
- * negative space between head and body forms a petal.
+ * PersonIcon — Lucide's user: circle r=4 head at cy=7 over a 4-unit-radius
+ * shoulder path that terminates cleanly at y=21. The old version closed the
+ * shoulders into a cradle, which at 24px filled in and read as a lightbulb.
  */
 export function PersonIcon({ size = 24, color = '#000', filled = false }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       {filled && (
-        <>
-          <Circle cx="12" cy="8.1" r="3.75" fill={color + TINT} />
-          <Path d="M4.6 20.4c0-3.9 3.3-6.6 7.4-6.6s7.4 2.7 7.4 6.6a1 1 0 0 1-1 .1H5.6a1 1 0 0 1-1-.1z" fill={color + TINT} />
-        </>
+        <G fill={color} opacity={DUO}>
+          <Circle cx="12" cy="7" r="4" />
+          <Path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2z" />
+        </G>
       )}
       <G stroke={color} {...S}>
-        <Circle cx="12" cy="8.1" r="3.75" />
-        {/* Rounded shoulder cradle, closed at the base */}
-        <Path d="M4.6 20.4c0-3.9 3.3-6.6 7.4-6.6s7.4 2.7 7.4 6.6" />
+        <Circle cx="12" cy="7" r="4" />
+        <Path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
       </G>
     </Svg>
   );
 }
 
 /**
- * Chevrons — stroked and round-jointed, replacing the old filled Material
- * glyphs (which were the loudest "stock icon library" tell in the set).
- * The apex is a round join, so they read as a soft bend rather than a spike.
+ * Chevrons — Lucide's chevron-left/right: two straight runs meeting at a round
+ * join, spanning 6..18 vertically so they optically match the arrow head.
  */
 export function ChevronBackIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M14.6 5.9 8.9 11.4a.85.85 0 0 0 0 1.2l5.7 5.5"
-        stroke={color} {...S} />
+      <Path d="m15 18-6-6 6-6" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -435,32 +427,33 @@ export function ChevronBackIcon({ size = 24, color = '#000' }: P) {
 export function ChevronForwardIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M9.4 5.9l5.7 5.5a.85.85 0 0 1 0 1.2l-5.7 5.5"
-        stroke={color} {...S} />
+      <Path d="m9 18 6-6-6-6" stroke={color} {...S} />
     </Svg>
   );
 }
 
-/** HourglassIcon — pending state. Round-capped frame, softly waisted middle. */
+/** HourglassIcon — pending state. Lucide's hourglass: straight cap rails and
+ *  two mirrored bulbs that pinch at the exact centre (12,12). */
 export function HourglassIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <G stroke={color} {...S}>
-        <Path d="M6.6 3.2h10.8M6.6 20.8h10.8" />
-        <Path d="M7.4 3.2v3.4c0 1.5.9 2.6 2.4 3.6 1.1.75 1.1 1.75 0 2.5-1.5 1-2.4 2.1-2.4 3.6v4.5" />
-        <Path d="M16.6 3.2v3.4c0 1.5-.9 2.6-2.4 3.6-1.1.75-1.1 1.75 0 2.5 1.5 1 2.4 2.1 2.4 3.6v4.5" />
+        <Path d="M6 2h12M6 22h12" />
+        {/* Each bulb is a straight taper into the 12,12 waist — arcs here made
+            the two bulbs bulge past each other and read as a figure-8. */}
+        <Path d="M7 2v4l5 6 5-6V2" />
+        <Path d="M7 22v-4l5-6 5 6v4" />
       </G>
-      {/* Falling grain — bloom dot */}
-      <Circle cx="12" cy="14.4" r="1" fill={color} opacity={0.55} />
     </Svg>
   );
 }
 
-/** FlashIcon — "just in" / urgent. Softened bolt with eased, rounded angles. */
+/** FlashIcon — "just in" / urgent. Lucide's zap silhouette, solid, with the
+ *  bolt's shoulders on the grid so it doesn't lean. */
 export function FlashIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M13.4 2.6c.6-.15 1.15.35 1.05.96l-.95 5.54h4.4c.72 0 1.1.84.63 1.38l-8.9 10.2c-.44.5-1.25.1-1.13-.56l1.15-6.52H5.5c-.72 0-1.1-.85-.62-1.39z"
+      <Path d="M13.4 2a1 1 0 0 1 .98 1.2L13.5 9h4.7a1 1 0 0 1 .76 1.65l-8.9 10.4a1 1 0 0 1-1.74-.83L9.2 14.5H5a1 1 0 0 1-.78-1.63l8.4-10.5A1 1 0 0 1 13.4 2z"
         fill={color} />
     </Svg>
   );
@@ -468,8 +461,7 @@ export function FlashIcon({ size = 24, color = '#000' }: P) {
 
 /**
  * CalendarSVGIcon / HomeSVGIcon — legacy aliases kept for existing call sites.
- * They now delegate to the redrawn primaries so the two can never drift apart
- * visually (the old copies had their own, slightly different geometry).
+ * They delegate to the redrawn primaries so the two can never drift apart.
  */
 export function CalendarSVGIcon({ size = 24, color = '#000' }: P) {
   return <CalendarIcon size={size} color={color} />;
@@ -480,99 +472,89 @@ export function HomeSVGIcon({ size = 24, color = '#000' }: P) {
 }
 
 /**
- * CameraIcon — avatar/portfolio upload affordance. Squircle body (rx 4.5) and
- * a lens with the mark's specular dot.
+ * CameraIcon — avatar/portfolio upload affordance. Lucide's camera: the hump
+ * is part of the body path (not a separate bump), lens r=3 on centre.
  */
 export function CameraIcon({ size = 18, color = '#fff' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <G stroke={color} {...S}>
-        <Path d="M3.9 9a2.4 2.4 0 0 1 2.4-2.4h1.05l.85-1.5a1.7 1.7 0 0 1 1.5-.9h4.6a1.7 1.7 0 0 1 1.5.9l.85 1.5h1.05A2.4 2.4 0 0 1 20.1 9v7.5a2.4 2.4 0 0 1-2.4 2.4H6.3a2.4 2.4 0 0 1-2.4-2.4z" />
-        <Circle cx="12" cy="12.6" r="3.3" />
+        <Path d="M14.5 4h-5L8 6.5H5a2 2 0 0 0-2 2V18a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5a2 2 0 0 0-2-2h-3z" />
+        <Circle cx="12" cy="13" r="3" />
       </G>
-      <Circle cx="10.6" cy="11.2" r="0.75" fill={color} opacity={0.75} />
     </Svg>
   );
 }
 
 /**
- * HeartIcon — Customer "Saved" tab. Fuller, rounder lobes and a soft base
- * taper (rather than the sharp V-point of the stock heart), so it sits in the
- * same curve family as the petals. Filled state keeps a stroked outline over
- * the fill for the two-layer look.
+ * HeartIcon — Customer "Saved" tab. Lucide's heart: two 5-unit lobes meeting
+ * at a true apex with the base tapering to a point at 12,21. Duotone fill for
+ * the active tab state, matching HomeIcon/CompassIcon.
  */
 export function HeartIcon({ size = 24, color = '#000', filled = false }: P) {
-  const d = 'M12 20.6c-.35 0-.7-.13-.95-.38l-5.6-5.5a5.1 5.1 0 0 1 0-7.35 5 5 0 0 1 6.55 0c1.85-1.6 4.7-1.6 6.55 0a5.1 5.1 0 0 1 0 7.35l-5.6 5.5c-.25.25-.6.38-.95.38z';
+  const d = 'M19 14c1.49-1.46 3-3.21 3-5.5A5.5 5.5 0 0 0 16.5 3c-1.76 0-3 .5-4.5 2-1.5-1.5-2.74-2-4.5-2A5.5 5.5 0 0 0 2 8.5c0 2.3 1.5 4.05 3 5.5l7 7z';
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      {filled && <Path d={d} fill={color} opacity={DUO} />}
       <Path d={d} stroke={color} {...S} fill={filled ? color : 'none'} />
-      {/* Specular highlight — the mark's core dot, only when active */}
-      {filled && <Circle cx="8.9" cy="10.2" r="1.15" fill="#FFFFFF" opacity={0.5} />}
     </Svg>
   );
 }
 
 /**
- * TuneIcon — filter sliders. Thumbs are hollow rings with a solid bloom core
- * (two-layer petal logic) rather than flat solid discs, and the rails are
- * inset so the thumbs breathe. Reads far softer than the Material slider.
+ * TuneIcon — filter sliders. Lucide's sliders-horizontal: rails and thumbs
+ * share one weight, thumbs are short perpendicular ticks rather than rings
+ * with cores. Three rails on 6/12/18 baselines matching ListIcon.
  */
 export function TuneIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <G stroke={color} {...S}>
-        <Path d="M4.2 6.4h7.4M16.6 6.4h3.2" />
-        <Path d="M4.2 12h2.4M11.6 12h8.2" />
-        <Path d="M4.2 17.6h5.6M14.8 17.6h5" />
-      </G>
-      {/* Thumbs — ring + core, the mark's two-layer construction */}
-      <G>
-        <Circle cx="14.1" cy="6.4" r="2.4" stroke={color} strokeWidth={SW} fill="none" />
-        <Circle cx="14.1" cy="6.4" r="0.95" fill={color} />
-        <Circle cx="9.1" cy="12" r="2.4" stroke={color} strokeWidth={SW} fill="none" />
-        <Circle cx="9.1" cy="12" r="0.95" fill={color} />
-        <Circle cx="12.3" cy="17.6" r="2.4" stroke={color} strokeWidth={SW} fill="none" />
-        <Circle cx="12.3" cy="17.6" r="0.95" fill={color} />
+        <Path d="M4 6h10M18 6h2" />
+        <Path d="M4 12h2M10 12h10" />
+        <Path d="M4 18h8M16 18h4" />
+        <Path d="M16 4v4M8 10v4M14 16v4" />
       </G>
     </Svg>
   );
 }
 
 /**
- * SortIcon — descending stack of rounded bars (long to short) with a soft
- * down-arrow, rather than the stock up/down double-arrow. Bar terminals are
- * fully round so it matches the rest of the set at small sizes.
+ * SortIcon — Lucide's arrow-down-wide-narrow: graduated bars (wide → narrow)
+ * beside a shaft-and-head arrow. The arrow now has a real shaft, so the
+ * direction reads instantly; the old version was a shaft plus a curved "V".
  */
 export function SortIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <G stroke={color} {...S}>
-        {/* Graduated bars — the "sorted" idea, read instantly */}
-        <Path d="M4 6.6h9.4M4 12h6.6M4 17.4h3.8" />
-        {/* Direction arrow, softly curved shoulders */}
-        <Path d="M17.6 5.6v12.8" />
-        <Path d="M14.5 15.4c1.5.7 2.6 1.7 3.1 3 .5-1.3 1.6-2.3 3.1-3" />
+        <Path d="M11 5h10M11 12h7M11 19h4" />
+        <Path d="M4 4v16" />
+        <Path d="m7 17-3 3-3-3" />
       </G>
     </Svg>
   );
 }
 
 /**
- * CompassIcon — Customer "Explore" tab. The needle is redrawn as two opposed
- * petals around a bloom core instead of the stock rhombus, so the tab bar's
- * Explore glyph carries the brand mark the way the Provider's does.
+ * CompassIcon — Customer "Explore" tab. Lucide's compass construction: ring
+ * r=10 plus a single needle path built from two mirrored 2-unit-radius lobes
+ * about the centre, so the needle is one closed shape at one opacity instead
+ * of two petals at 100% and 40%.
  */
 export function CompassIcon({ size = 24, color = '#000', filled = false }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx="12" cy="12" r="8.6"
-        stroke={color} strokeWidth={SW} fill={filled ? color + TINT : 'none'} />
-      {/* Petal needle — leading petal solid, trailing petal soft */}
-      <Path d="M15.9 8.1c-.5 2.2-1.1 3.4-1.85 4.15S12.2 13.4 10 13.9c.5-2.2 1.1-3.4 1.85-4.15S13.7 8.6 15.9 8.1z"
-        fill={color} />
-      <Path d="M8.1 15.9c.5-2.2 1.1-3.4 1.85-4.15S11.8 10.6 14 10.1c-.5 2.2-1.1 3.4-1.85 4.15S10.3 15.4 8.1 15.9z"
-        fill={color} opacity={0.4} />
-      <Circle cx="12" cy="12" r="1.05" fill={color} />
+      {filled && <Circle cx="12" cy="12" r="10" fill={color} opacity={DUO} />}
+      <Circle cx="12" cy="12" r="10" stroke={color} strokeWidth={SW} fill="none" />
+      {/* Needle stays STROKED in both states — filling it turned the kite into
+          an undifferentiated blob at 24px. The duotone disc alone carries the
+          active state, matching Home/Person/Heart. */}
+      <Path
+        d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z"
+        stroke={color}
+        {...S}
+      />
     </Svg>
   );
 }

@@ -67,6 +67,19 @@ export const Colors = {
   cardShadowLight:  'rgba(163,77,99,0.05)',
   cardShadowMedium: 'rgba(163,77,99,0.09)',
 
+  // Soft shadow tint — a warm rose-brown rather than the near-black the old
+  // cards used. Pinterest/Glossier-style lift: the shadow reads as the card
+  // sitting on warm paper, not as a drop-shadow drawn under it.
+  shadowSoft:  '#6B4049',
+  // Cream/blush surfaces used INSTEAD of systemGray5/6 for inset wells
+  // (inputs, muted icon chips). System gray on a warm cream page reads cold
+  // and is the main "generated settings screen" tell.
+  surfaceCream: '#FDF6F4',
+  surfaceBlush: '#FBEEF0',
+  // Hairline separator — lighter than `separator`, for dividers *inside* a
+  // card where a full-strength rule chops the content into boxes.
+  separatorSoft: '#F7EFEF',
+
   // Service pastels — calm rose-family tints only, no rainbow
   servicePersonal:   '#FCECEF',
   serviceCompanion:  '#F6EBC9',

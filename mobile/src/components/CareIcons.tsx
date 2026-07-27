@@ -145,10 +145,12 @@ export function AdminMark({
 type IconProps = { size?: number; color?: string };
 
 // Shared stroke system — matches TabIcons/BeautyIcons exactly so the three
-// files render as ONE set. Was 1.55 (inherited from the CareNearby brand kit),
-// which read thinner and colder than the redrawn Glow icons next to it.
-const SW = 1.7;
-const SW_SOFT = 1.45;
+// files render as ONE set. Now Lucide's 24px/2px ratio: a single weight for
+// every stroke in every glyph. The previous 1.7 + 1.45 "soft" pair meant
+// primary and secondary detail in the SAME icon sat at different weights,
+// which is the clearest giveaway of a hand-drawn set and is something no
+// professional library does (Lucide ships zero secondary weights).
+const SW = 2;
 const S = { strokeWidth: SW, strokeLinecap: 'round', strokeLinejoin: 'round', fill: 'none' } as const;
 
 /**
@@ -159,11 +161,10 @@ const S = { strokeWidth: SW, strokeLinecap: 'round', strokeLinejoin: 'round', fi
 export function FindJobsIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x={2.5} y={7.4} width={12.2} height={9.2} rx={3.2} stroke={color} {...S} />
-      <Path d="M5.9 7.4V6.5A1.7 1.7 0 0 1 7.6 4.8h2A1.7 1.7 0 0 1 11.3 6.5v.9" stroke={color} {...S} />
-      <Path d="M2.5 11.1h12.2" stroke={color} {...S} opacity={0.55} />
-      <Circle cx={17.2} cy={16.2} r={3.2} stroke={color} {...S} />
-      <Path d="m19.5 18.5 2.3 2.3" stroke={color} {...S} />
+      <Rect x={2} y={7} width={12} height={9} rx={2} stroke={color} {...S} />
+      <Path d="M6 7V5.5A1.5 1.5 0 0 1 7.5 4h3A1.5 1.5 0 0 1 12 5.5V7" stroke={color} {...S} />
+      <Circle cx={17} cy={16} r={4} stroke={color} {...S} />
+      <Path d="m20 19 2 2" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -175,9 +176,9 @@ export function EarningsIcon({ size = 24, color = Colors.brand }: IconProps) {
   // Ring radius aligned to ClockIcon/ProfileIcon so circular glyphs match.
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx={12} cy={12} r={8.6} stroke={color} {...S} />
-      <Path d="M12 6.9v10.2" stroke={color} {...S} />
-      <Path d="M14.7 9.3c-.6-1-1.7-1.4-2.8-1.4-1.5 0-2.7.8-2.7 2.1 0 1.2 1 1.7 2.7 2.1 1.7.4 2.9.9 2.9 2.2 0 1.3-1.2 2.2-2.9 2.2-1.2 0-2.3-.5-2.9-1.5" stroke={color} {...S} />
+      <Circle cx={12} cy={12} r={10} stroke={color} {...S} />
+      <Path d="M12 6v12" stroke={color} {...S} />
+      <Path d="M15 9.5A2.5 2.5 0 0 0 12.5 8h-1a2.5 2.5 0 0 0 0 5h1a2.5 2.5 0 0 1 0 5h-1A2.5 2.5 0 0 1 9 16.5" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -191,9 +192,9 @@ export function EarningsIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function ProfileIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx={12} cy={12} r={8.8} stroke={color} {...S} />
-      <Circle cx={12} cy={9.9} r={2.85} stroke={color} {...S} />
-      <Path d="M6.6 18.8a5.7 5.7 0 0 1 10.8 0" stroke={color} {...S} />
+      <Circle cx={12} cy={12} r={10} stroke={color} {...S} />
+      <Circle cx={12} cy={10} r={3} stroke={color} {...S} />
+      <Path d="M5.5 19.2a7 7 0 0 1 13 0" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -205,9 +206,9 @@ export function ProfileIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function HelpIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx={12} cy={12} r={8.6} stroke={color} {...S} />
-      <Circle cx={12} cy={12} r={3.4} stroke={color} {...S} />
-      <Path d="M6.4 6.4l3.2 3.2M17.6 6.4l-3.2 3.2M6.4 17.6l3.2-3.2M17.6 17.6l-3.2-3.2" stroke={color} {...S} opacity={0.75} />
+      <Circle cx={12} cy={12} r={10} stroke={color} {...S} />
+      <Circle cx={12} cy={12} r={4} stroke={color} {...S} />
+      <Path d="m4.9 4.9 4.2 4.2M19.1 4.9l-4.2 4.2M4.9 19.1l4.2-4.2M19.1 19.1l-4.2-4.2" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -220,8 +221,8 @@ export function HelpIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function BellIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M12 3.4a5.6 5.6 0 0 1 5.6 5.6v3.6c0 1.15.42 2.05 1.25 2.9a.85.85 0 0 1-.6 1.45H5.75a.85.85 0 0 1-.6-1.45c.83-.85 1.25-1.75 1.25-2.9V9A5.6 5.6 0 0 1 12 3.4z" stroke={color} {...S} />
-      <Path d="M10.1 19.6a2.1 2.1 0 0 0 3.8 0" stroke={color} {...S} />
+      <Path d="M3.262 15.326A1 1 0 0 0 4 17h16a1 1 0 0 0 .74-1.673C19.41 13.956 18 12.499 18 8A6 6 0 0 0 6 8c0 4.499-1.411 5.956-2.738 7.326" stroke={color} {...S} />
+      <Path d="M10.268 21a2 2 0 0 0 3.464 0" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -234,11 +235,9 @@ export function BellIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function NoteIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M8.4 4.9H6.9a2.2 2.2 0 0 0-2.2 2.2v11.6a2.2 2.2 0 0 0 2.2 2.2h10.2a2.2 2.2 0 0 0 2.2-2.2V7.1a2.2 2.2 0 0 0-2.2-2.2h-1.5" stroke={color} {...S} />
-      <Rect x={8.4} y={3.2} width={7.2} height={3.5} rx={1.75} stroke={color} {...S} />
-      <Path d="M10.4 11.6h5.2M10.4 15.4h3.4" stroke={color} {...S} />
-      <Circle cx={8.3} cy={11.6} r={0.85} fill={color} />
-      <Circle cx={8.3} cy={15.4} r={0.85} fill={color} opacity={0.6} />
+      <Path d="M8 4H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-2" stroke={color} {...S} />
+      <Rect x={8} y={2} width={8} height={4} rx={1} stroke={color} {...S} />
+      <Path d="M9 12h6M9 16h4" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -247,7 +246,7 @@ export function NoteIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function HospitalIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x={4} y={4} width={16} height={16} rx={4.5} stroke={color} {...S} />
+      <Rect x={4} y={4} width={16} height={16} rx={2} stroke={color} {...S} />
       <Path d="M12 8v8M8 12h8" stroke={color} {...S} />
     </Svg>
   );
@@ -257,7 +256,7 @@ export function HospitalIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function PulseIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M3 12.5h3.6l2-5 3.2 10 2.4-7 1.5 2H21" stroke={color} {...S} />
+      <Path d="M3 12h4l2-6 4 12 2-6h6" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -271,8 +270,8 @@ export function PulseIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function ShieldCheckIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M12 3.1c2 1.35 4.15 2.1 6.45 2.25a.9.9 0 0 1 .85.9v4.9c0 3.85-2.4 6.9-7.05 9.15a.6.6 0 0 1-.5 0C7.1 18.05 4.7 15 4.7 11.15v-4.9a.9.9 0 0 1 .85-.9C7.85 5.2 10 4.45 12 3.1z" stroke={color} {...S} />
-      <Path d="M9.1 11.9l2.05 2.05 3.75-3.95" stroke={color} {...S} />
+      <Path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" stroke={color} {...S} />
+      <Path d="m9 12 2 2 4-4" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -285,8 +284,8 @@ export function ShieldCheckIcon({ size = 24, color = Colors.brand }: IconProps) 
 export function PinIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M12 21.4c-4.3-4.9-6.6-8.4-6.6-11.3A6.6 6.6 0 0 1 18.6 10.1c0 2.9-2.3 6.4-6.6 11.3z" stroke={color} {...S} />
-      <Circle cx={12} cy={9.9} r={2.5} stroke={color} {...S} />
+      <Path d="M20 10c0 4.993-5.539 10.193-7.399 11.799a1 1 0 0 1-1.202 0C9.539 20.193 4 14.993 4 10a8 8 0 0 1 16 0" stroke={color} {...S} />
+      <Circle cx={12} cy={10} r={3} stroke={color} {...S} />
     </Svg>
   );
 }
@@ -295,9 +294,9 @@ export function PinIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function CreditCardIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x={2.6} y={5.4} width={18.8} height={13.2} rx={4} stroke={color} {...S} />
-      <Path d="M2.6 10.1h18.8" stroke={color} {...S} />
-      <Path d="M6.4 14.7h3.2" stroke={color} {...S} opacity={0.6} />
+      <Rect x={2} y={5} width={20} height={14} rx={2} stroke={color} {...S} />
+      <Path d="M2 10h20" stroke={color} {...S} />
+      <Path d="M6 15h4" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -306,9 +305,9 @@ export function CreditCardIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function AccountCheckIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx={10.4} cy={8.1} r={3.6} stroke={color} {...S} />
-      <Path d="M4.6 19.6a6 6 0 0 1 10.5-3.9" stroke={color} {...S} />
-      <Path d="M15.2 18.7l1.95 1.95 3.45-3.75" stroke={color} {...S} />
+      <Circle cx={10} cy={8} r={4} stroke={color} {...S} />
+      <Path d="M4 21v-1a5 5 0 0 1 5-5h1.5" stroke={color} {...S} />
+      <Path d="m15 18 2 2 4-4" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -317,9 +316,9 @@ export function AccountCheckIcon({ size = 24, color = Colors.brand }: IconProps)
 export function MedicalBagIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x={3} y={8.5} width={18} height={11.5} rx={2} stroke={color} {...S} />
-      <Path d="M9 8.5V7a1.5 1.5 0 0 1 1.5-1.5h3A1.5 1.5 0 0 1 15 7v1.5" stroke={color} {...S} />
-      <Path d="M12 12v4M10 14h4" stroke={color} {...S} />
+      <Rect x={2} y={8} width={20} height={12} rx={2} stroke={color} {...S} />
+      <Path d="M9 8V6a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2" stroke={color} {...S} />
+      <Path d="M12 11v6M9 14h6" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -333,9 +332,9 @@ export function MedicalBagIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function CheckDecagramIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M12 3.1c1.05 0 2 .58 2.5 1.44a2.9 2.9 0 0 1 3.82 3.82 2.9 2.9 0 0 1 0 5.28 2.9 2.9 0 0 1-3.82 3.82 2.9 2.9 0 0 1-5 0 2.9 2.9 0 0 1-3.82-3.82 2.9 2.9 0 0 1 0-5.28A2.9 2.9 0 0 1 9.5 4.54 2.9 2.9 0 0 1 12 3.1z"
+      <Path d="M12 2.5a2.6 2.6 0 0 1 2.16 1.15 2.6 2.6 0 0 1 3.4 1.79 2.6 2.6 0 0 1 1.79 3.4A2.6 2.6 0 0 1 20.5 11a2.6 2.6 0 0 1-1.15 2.16 2.6 2.6 0 0 1-1.79 3.4 2.6 2.6 0 0 1-3.4 1.79 2.6 2.6 0 0 1-4.32 0 2.6 2.6 0 0 1-3.4-1.79 2.6 2.6 0 0 1-1.79-3.4A2.6 2.6 0 0 1 3.5 11a2.6 2.6 0 0 1 1.15-2.16 2.6 2.6 0 0 1 1.79-3.4 2.6 2.6 0 0 1 3.4-1.79A2.6 2.6 0 0 1 12 2.5z"
         stroke={color} {...S} />
-      <Path d="M9.3 12.05l1.95 1.95 3.6-3.8" stroke={color} {...S} />
+      <Path d="m9 11 2 2 4-4" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -344,8 +343,8 @@ export function CheckDecagramIcon({ size = 24, color = Colors.brand }: IconProps
 export function EmailIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x={2.6} y={5.4} width={18.8} height={13.2} rx={4} stroke={color} {...S} />
-      <Path d="M4.2 8.2l6.6 4.5a2.1 2.1 0 0 0 2.4 0l6.6-4.5" stroke={color} {...S} />
+      <Rect x={2} y={4} width={20} height={16} rx={2} stroke={color} {...S} />
+      <Path d="m22 7-8.97 5.7a1.94 1.94 0 0 1-2.06 0L2 7" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -354,9 +353,9 @@ export function EmailIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function MonitorDashboardIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x={2.5} y={4.6} width={19} height={11.6} rx={3.6} stroke={color} {...S} />
-      <Path d="M9.6 20.2h4.8M12 16.2v4" stroke={color} {...S} />
-      <Path d="M6.8 12.6v-1.8M10.3 12.6v-3.8M13.8 12.6v-1.4M17.3 12.6v-3.3" stroke={color} {...S} opacity={0.8} />
+      <Rect x={2} y={4} width={20} height={12} rx={2} stroke={color} {...S} />
+      <Path d="M9 20h6M12 16v4" stroke={color} {...S} />
+      <Path d="M7 12v-2M11 12v-4M15 12v-1M19 12v-3" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -365,8 +364,8 @@ export function MonitorDashboardIcon({ size = 24, color = Colors.brand }: IconPr
 export function ChartBoxIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x={3.4} y={3.4} width={17.2} height={17.2} rx={4.5} stroke={color} {...S} />
-      <Path d="M8.2 16.2v-2.8M12 16.2v-5.8M15.8 16.2v-3.8" stroke={color} {...S} />
+      <Rect x={3} y={3} width={18} height={18} rx={2} stroke={color} {...S} />
+      <Path d="M8 16v-3M12 16v-6M16 16v-4" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -375,8 +374,8 @@ export function ChartBoxIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function PhoneCheckIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M4.9 4.3h2.6a1.1 1.1 0 0 1 1.08.92c.09.63.24 1.24.45 1.83a1.1 1.1 0 0 1-.28 1.15L7.5 9.45a12.6 12.6 0 0 0 5.1 5.1l1.25-1.25a1.1 1.1 0 0 1 1.15-.28c.59.21 1.2.36 1.83.45a1.1 1.1 0 0 1 .92 1.1v2.53a1.7 1.7 0 0 1-1.85 1.7C9.4 18.2 3.9 12.7 3.2 6.15A1.7 1.7 0 0 1 4.9 4.3z" stroke={color} {...S} />
-      <Path d="M15.1 6.6l1.65 1.65L20.1 4.9" stroke={color} {...S} />
+      <Path d="M12.5 16.2a1 1 0 0 0 1.2-.3l.3-.4a2 2 0 0 1 1.6-.8h1.4a2 2 0 0 1 2 2v3a2 2 0 0 1-2 2A17 17 0 0 1 2 5a2 2 0 0 1 2-2h3a2 2 0 0 1 2 2v1.4a2 2 0 0 1-.8 1.6l-.4.3a1 1 0 0 0-.3 1.2 13 13 0 0 0 5 5" stroke={color} {...S} />
+      <Path d="m15 6 2 2 4-4" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -385,10 +384,10 @@ export function PhoneCheckIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function CardAccountDetailsIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x={2.6} y={4.9} width={18.8} height={14.2} rx={4} stroke={color} {...S} />
-      <Circle cx={8.6} cy={10.6} r={2.1} stroke={color} {...S} />
-      <Path d="M5.5 16a3.2 3.2 0 0 1 6.2 0" stroke={color} {...S} />
-      <Path d="M14.8 9.7h3.8M14.8 12.6h3.8M14.8 15.5h2.4" stroke={color} {...S} opacity={0.65} />
+      <Rect x={2} y={4} width={20} height={16} rx={2} stroke={color} {...S} />
+      <Circle cx={8.5} cy={10} r={2.5} stroke={color} {...S} />
+      <Path d="M5 16a3.5 3.5 0 0 1 7 0" stroke={color} {...S} />
+      <Path d="M15 9h4M15 13h4M15 16h2" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -397,10 +396,10 @@ export function CardAccountDetailsIcon({ size = 24, color = Colors.brand }: Icon
 export function BriefcaseAccountIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x={2.9} y={7.6} width={18.2} height={12} rx={4} stroke={color} {...S} />
-      <Path d="M8.9 7.6V6.6A2 2 0 0 1 10.9 4.6h2.2a2 2 0 0 1 2 2v1" stroke={color} {...S} />
-      <Circle cx={12} cy={12.4} r={1.9} stroke={color} {...S} />
-      <Path d="M9 17.4a3.1 3.1 0 0 1 6 0" stroke={color} {...S} />
+      <Rect x={2} y={7} width={20} height={13} rx={2} stroke={color} {...S} />
+      <Path d="M8 7V5a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2" stroke={color} {...S} />
+      <Circle cx={12} cy={12} r={2} stroke={color} {...S} />
+      <Path d="M9 17.5a3.5 3.5 0 0 1 6 0" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -419,13 +418,16 @@ export function BriefcaseAccountIcon({ size = 24, color = Colors.brand }: IconPr
 export function PersonalCareIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      {/* Four equal petals about the exact centre, each spanning 3 grid units
+          from the core — snapped to the grid so opposing petals are true
+          mirrors (they were 4.6/4.6/4.6/4.6 off-centre before). */}
       <G stroke={color} {...S}>
-        <Path d="M12 3.4c1.6 1.6 2.35 3.1 2.35 4.6S13.4 10.5 12 10.5s-2.35-1-2.35-2.5S10.4 5 12 3.4z" />
-        <Path d="M20.6 12c-1.6 1.6-3.1 2.35-4.6 2.35S13.5 13.4 13.5 12s1-2.35 2.5-2.35S19 10.4 20.6 12z" />
-        <Path d="M12 20.6c-1.6-1.6-2.35-3.1-2.35-4.6s1-2.5 2.35-2.5 2.35 1 2.35 2.5-.75 3-2.35 4.6z" />
-        <Path d="M3.4 12c1.6-1.6 3.1-2.35 4.6-2.35s2.5 1 2.5 2.35-1 2.35-2.5 2.35S5 13.6 3.4 12z" />
+        <Path d="M12 3c1.7 1.7 2.5 3.3 2.5 4.9S13.4 10.5 12 10.5s-2.5-1-2.5-2.6S10.3 4.7 12 3z" />
+        <Path d="M21 12c-1.7 1.7-3.3 2.5-4.9 2.5S13.5 13.4 13.5 12s1-2.5 2.6-2.5S19.3 10.3 21 12z" />
+        <Path d="M12 21c-1.7-1.7-2.5-3.3-2.5-4.9s1-2.6 2.5-2.6 2.5 1 2.5 2.6S13.7 19.3 12 21z" />
+        <Path d="M3 12c1.7-1.7 3.3-2.5 4.9-2.5s2.6 1 2.6 2.5-1 2.5-2.6 2.5S4.7 13.7 3 12z" />
       </G>
-      <Circle cx={12} cy={12} r={1.1} fill={color} />
+      <Circle cx={12} cy={12} r={1.5} fill={color} />
     </Svg>
   );
 }
@@ -434,10 +436,12 @@ export function PersonalCareIcon({ size = 24, color = Colors.brand }: IconProps)
 export function CompanionIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx={8} cy={11} r={2.6} stroke={color} {...S} />
-      <Circle cx={16} cy={11} r={2.6} stroke={color} {...S} />
-      <Path d="M3.5 19.5a4.5 4.5 0 0 1 9 0M11.5 19.5a4.5 4.5 0 0 1 9 0" stroke={color} {...S} />
-      <Path d="M12 4.5c-.2-.4-.6-.6-1.05-.6-.6 0-1.05.45-1.05 1.05 0 .75 1 1.35 2.1 2.15 1.1-.8 2.1-1.4 2.1-2.15 0-.6-.45-1.05-1.05-1.05-.45 0-.85.2-1.05.6z" stroke={color} {...S} />
+      {/* Two figures with heads a full 9 units apart and non-overlapping
+          shoulder arcs — at 8/16 with r=3 the two heads nearly touched. */}
+      <Circle cx={7.5} cy={12} r={2.5} stroke={color} {...S} />
+      <Circle cx={16.5} cy={12} r={2.5} stroke={color} {...S} />
+      <Path d="M3 20.5a4.5 4.5 0 0 1 9 0M12 20.5a4.5 4.5 0 0 1 9 0" stroke={color} {...S} />
+      <Path d="M12 8c1.6-1.3 2.5-2.2 2.5-3.2A1.6 1.6 0 0 0 12 3.5a1.6 1.6 0 0 0-2.5 1.3C9.5 5.8 10.4 6.7 12 8z" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -446,9 +450,12 @@ export function CompanionIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function MealIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M3.5 12h17a8.5 8.5 0 0 1-17 0z" stroke={color} {...S} />
-      <Path d="M3 12h18" stroke={color} {...S} />
-      <Path d="M9 7c0-1.2 1-1.2 1-2.4M12.5 6.6c0-1.2 1-1.2 1-2.4M16 7c0-1.2 1-1.2 1-2.4" stroke={color} {...S} />
+      {/* Cloche + a plate rule that extends past the dome on both sides, so
+          the dish reads as covered rather than as a plain half-circle. */}
+      <Path d="M5 14a7 7 0 0 1 14 0" stroke={color} {...S} />
+      <Path d="M3 14h18" stroke={color} {...S} />
+      <Path d="M12 7V5" stroke={color} {...S} />
+      <Circle cx={12} cy={4} r={1.2} fill={color} />
     </Svg>
   );
 }
@@ -457,8 +464,8 @@ export function MealIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function MedicationIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M7 13l6-6a3.5 3.5 0 0 1 5 5l-6 6a3.5 3.5 0 0 1-5-5z" stroke={color} {...S} />
-      <Path d="M10 10l5 5" stroke={color} {...S} />
+      <Path d="m10.5 20.5-7-7a4.95 4.95 0 1 1 7-7l7 7a4.95 4.95 0 1 1-7 7z" stroke={color} {...S} />
+      <Path d="m8.5 8.5 7 7" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -467,8 +474,10 @@ export function MedicationIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function HousekeepingIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M11 3.5l1.6 4.3L17 9.4l-4.4 1.6L11 15.4 9.4 11 5 9.4l4.4-1.6z" stroke={color} {...S} />
-      <Path d="M17.5 14.5l.8 2 2 .8-2 .8-.8 2-.8-2-2-.8 2-.8z" stroke={color} {...S} />
+      {/* Large sparkle given more spread between points, small one moved fully
+          clear of it — the two previously overlapped around 15,14. */}
+      <Path d="M9.5 2.5l2 5.5 5.5 2-5.5 2-2 5.5-2-5.5-5.5-2 5.5-2z" stroke={color} {...S} />
+      <Path d="M18 14.5l1 2.5 2.5 1-2.5 1-1 2.5-1-2.5-2.5-1 2.5-1z" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -477,9 +486,9 @@ export function HousekeepingIcon({ size = 24, color = Colors.brand }: IconProps)
 export function MobilityIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx={12.5} cy={4.3} r={1.9} stroke={color} {...S} />
-      <Path d="M12.5 6.5v6M12.5 12.5l-2 8M12.5 12.5l2.2 5M12.5 8.7l3 2.1" stroke={color} {...S} />
-      <Path d="M16 10.8l1 9.7M15.2 20.5h3.4" stroke={color} {...S} />
+      <Circle cx={12} cy={4} r={2} stroke={color} {...S} />
+      <Path d="M12 6v7M12 13l-2 8M12 13l3 5M12 9l3 2" stroke={color} {...S} />
+      <Path d="M16 11v10M14 21h4" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -489,8 +498,8 @@ export function PostSurgeryIcon({ size = 24, color = Colors.brand }: IconProps) 
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       <G transform="rotate(45 12 12)">
-        <Rect x={4.5} y={9} width={15} height={6} rx={3} stroke={color} {...S} />
-        <Path d="M9.5 12h.01M12 12h.01M14.5 12h.01" stroke={color} {...S} />
+        <Rect x={3} y={9} width={18} height={6} rx={3} stroke={color} {...S} />
+        <Path d="M9 12h.01M12 12h.01M15 12h.01" stroke={color} {...S} />
       </G>
     </Svg>
   );
@@ -504,9 +513,8 @@ export function PostSurgeryIcon({ size = 24, color = Colors.brand }: IconProps) 
 export function PhoneMobileIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x={5.9} y={2.9} width={12.2} height={18.2} rx={4} stroke={color} {...S} />
-      <Path d="M10.6 5.9h2.8" stroke={color} {...S} opacity={0.7} />
-      <Circle cx={12} cy={17.9} r={0.95} fill={color} />
+      <Rect x={5} y={2} width={14} height={20} rx={2} stroke={color} {...S} />
+      <Path d="M12 18h.01" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -518,9 +526,8 @@ export function PhoneMobileIcon({ size = 24, color = Colors.brand }: IconProps) 
 export function KeyIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx={8.3} cy={8.3} r={3.8} stroke={color} {...S} />
-      <Path d="M11 11l8.6 8.6M16.6 16.6l1.9-1.9M14.1 14.1l1.6-1.6" stroke={color} {...S} />
-      <Circle cx={8.3} cy={8.3} r={1.15} fill={color} />
+      <Circle cx={7.5} cy={15.5} r={4.5} stroke={color} {...S} />
+      <Path d="m21 2-9.6 9.6M15.5 7.5l3 3" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -533,10 +540,13 @@ export function KeyIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function MedalIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx={12} cy={14.6} r={5.1} stroke={color} {...S} />
-      <Path d="M9 10.2 6.5 3.6M15 10.2l2.5-6.6M9.5 4.1h5" stroke={color} {...S} />
-      <Circle cx={12} cy={14.6} r={2.1} stroke={color} strokeWidth={SW_SOFT} fill="none" opacity={0.6} />
-      <Circle cx={12} cy={14.6} r={0.95} fill={color} />
+      {/* Ribbon tails clear the disc by 2 units before it starts, so the medal
+          reads as ribbon-then-disc rather than one fused shape. */}
+      <Circle cx={12} cy={15.5} r={5.5} stroke={color} {...S} />
+      <Path d="M8.5 10.2 5.5 3M15.5 10.2 18.5 3M8.5 3h7" stroke={color} {...S} />
+      {/* Bloom core — the brand accent, kept because a 5-point star at this
+          scale (rendered ~18px in profile rows) collapses into a blob. */}
+      <Circle cx={12} cy={15.5} r={2} fill={color} />
     </Svg>
   );
 }
@@ -545,8 +555,8 @@ export function MedalIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function TranslateIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M3.5 5.5h7M7 5.5v.5M9 5.7c-.2 4-2.6 7-5.5 8.3M4.6 9.6c1.2 1.7 3 2.9 5.2 3.4" stroke={color} {...S} />
-      <Path d="M13 19.5l3.5-8 3.5 8M14.4 16.7h4.2" stroke={color} {...S} />
+      <Path d="M2 5h8M6 3v2M9 5c0 4-2.5 7-7 8M4 9c1 2 3 3.5 6 4" stroke={color} {...S} />
+      <Path d="m12 20 4-9 4 9M13.5 17h5" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -559,9 +569,8 @@ export function TranslateIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function ClockIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx={12} cy={12} r={8.6} stroke={color} {...S} />
-      <Path d="M12 7.5V12l3.2 2.1" stroke={color} {...S} />
-      <Circle cx={12} cy={12} r={0.9} fill={color} />
+      <Circle cx={12} cy={12} r={10} stroke={color} {...S} />
+      <Path d="M12 6v6l4 2" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -573,8 +582,8 @@ export function ClockIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function PackageIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M11 3.35a2 2 0 0 1 2 0l6.5 3.5a2 2 0 0 1 1 1.75v6.8a2 2 0 0 1-1 1.75L13 20.65a2 2 0 0 1-2 0l-6.5-3.5a2 2 0 0 1-1-1.75V8.6a2 2 0 0 1 1-1.75z" stroke={color} {...S} />
-      <Path d="M3.8 7.8 12 12.1l8.2-4.3M12 12.1v8.6" stroke={color} {...S} opacity={0.7} />
+      <Path d="M11 2.4a2 2 0 0 1 2 0l7 4a2 2 0 0 1 1 1.73v7.74a2 2 0 0 1-1 1.73l-7 4a2 2 0 0 1-2 0l-7-4a2 2 0 0 1-1-1.73V8.13a2 2 0 0 1 1-1.73z" stroke={color} {...S} />
+      <Path d="m3.3 7 8.7 5 8.7-5M12 22V12" stroke={color} {...S} />
     </Svg>
   );
 }
