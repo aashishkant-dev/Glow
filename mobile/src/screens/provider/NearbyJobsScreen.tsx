@@ -11,11 +11,10 @@ import {
   ScrollView,
   StyleSheet,
   Text,
-  TextInput,
   View,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { LocateIcon, SearchIcon, CloseCircleIcon, MapIcon, ListIcon, RadioOnIcon, BriefcaseIcon, TuneIcon } from '../../components/TabIcons';
+import { LocateIcon, SearchIcon, MapIcon, ListIcon, RadioOnIcon, BriefcaseIcon, TuneIcon } from '../../components/TabIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { apiAcceptJob, apiSkipJob, apiNearbyJobs, apiMyJobs, Booking } from '../../api/client';
@@ -839,8 +838,6 @@ export function NearbyJobsScreen() {
   const [refreshing, setRefreshing]   = useState(false);
   const [pendingApproval, setPending] = useState(false);
   const [viewMode, setViewMode]       = useState<ViewMode>('list');
-  const [searchOpen, setSearchOpen]   = useState(false);
-  const [searchText, setSearchText]   = useState('');
   const [serviceFilter, setFilter]    = useState<string | null>(null);
   const [sheetOpen, setSheetOpen]     = useState(false);
   const [sort, setSort]               = useState<SortKey>('distance');
@@ -981,12 +978,11 @@ export function NearbyJobsScreen() {
   const allServiceTypes = Array.from(new Set(jobs.map(j => j.serviceType)));
 
   const filtered = jobsWithDist.filter(j => {
-    const matchSearch = !searchText.trim() || j.serviceType.toLowerCase().includes(searchText.toLowerCase());
     const matchChip   = !serviceFilter || j.serviceType === serviceFilter;
     const matchDist   = filters.maxDistanceKm == null || (j.distanceKm != null && j.distanceKm <= filters.maxDistanceKm);
     const matchPay    = filters.minPay <= 0 || (Number(j.totalPrice) ?? 0) >= filters.minPay;
     const matchService = filters.services.size === 0 || filters.services.has(j.serviceType);
-    return matchSearch && matchChip && matchDist && matchPay && matchService;
+    return matchChip && matchDist && matchPay && matchService;
   });
 
   // Sort — distance (closest first, unknown-distance jobs sink to the bottom),
@@ -1019,74 +1015,37 @@ export function NearbyJobsScreen() {
   const upcomingJobs = myJobs.filter(j => ['ACCEPTED', 'ON_MY_WAY', 'STARTED'].includes(j.status));
   const pastJobs = myJobs.filter(j => j.status === 'COMPLETED');
 
-  // Control cluster (search + sort/filter) lives OUTSIDE the FlatList, same reason
-  // as before: rendered as ListHeaderComponent it gets rebuilt every render (we
-  // poll every 6s) and the TextInput loses focus on every keystroke. As a fixed
-  // sibling it keeps focus while typing.
+  // Control cluster (sort/filter) lives OUTSIDE the FlatList, same reason as
+  // before: rendered as ListHeaderComponent it gets rebuilt every render (we
+  // poll every 6s) and would lose focus/state on every re-render. As a fixed
+  // sibling it's stable.
   //
-  // Design: one pill-row that unifies search + sort/filter into a single coherent
-  // control cluster (matching height/radius/color language), instead of a search
-  // bar stacked as its own separate block below the tabs. Search starts collapsed
-  // to a single icon button — tapping it expands the row into a text input, Uber
-  // Driver/Instawork-style — so the default state stays compact and the tab bar
-  // is the visual anchor of the header.
+  // The separate search-icon toggle was dropped — service search is already
+  // covered by the chip row below, and a second, visually-quiet ghost/outline
+  // button next to a solid brand pill read as an odd, half-finished control.
+  // One full-width, solidly brand-colored Sort & filter pill is the header's
+  // only action here, so it reads as a clear, intentional call to action
+  // instead of a muted secondary button.
   const activeFilterCount = filtersActiveCount(filters);
   const searchBar = (
     <View style={[styles.listHeader, { paddingBottom: 0 }]}>
       <View style={styles.controlRow}>
-        {searchOpen ? (
-          <View style={styles.searchBarExpanded}>
-            <SearchIcon size={16} color={Colors.tertiaryLabel} />
-            <TextInput
-              style={styles.searchInput}
-              value={searchText}
-              onChangeText={setSearchText}
-              placeholder="Search by service…"
-              placeholderTextColor={Colors.tertiaryLabel}
-              returnKeyType="search"
-              autoFocus
-            />
-            <Pressable
-              onPress={() => {
-                setSearchText('');
-                setSearchOpen(false);
-                if (Platform.OS !== 'web') Haptics.selectionAsync();
-              }}
-              hitSlop={8}
-            >
-              <CloseCircleIcon size={18} color={Colors.tertiaryLabel} />
-            </Pressable>
-          </View>
-        ) : (
-          <>
-            <Pressable
-              style={styles.controlIconBtn}
-              onPress={() => { setSearchOpen(true); if (Platform.OS !== 'web') Haptics.selectionAsync(); }}
-            >
-              <SearchIcon size={17} color={Colors.label} />
-            </Pressable>
-            <Pressable
-              style={[styles.controlPillBtn, activeFilterCount > 0 && styles.controlPillBtnActive]}
-              onPress={() => { setSheetOpen(true); if (Platform.OS !== 'web') Haptics.selectionAsync(); }}
-            >
-              <TuneIcon size={15} color={activeFilterCount > 0 ? '#fff' : Colors.label} />
-              <Text style={[styles.controlPillText, activeFilterCount > 0 && styles.controlPillTextActive]} numberOfLines={1}>
-                {/* One pill carries both sort + filter state instead of a second,
-                    visually disconnected label floating beside it — a bare-text
-                    hint with no background/border read as a stray third element
-                    rather than part of the same control cluster. */}
-                {activeFilterCount > 0
-                  ? `Filters${SORT_OPTIONS.find(o => o.key === sort)?.shortLabel !== 'Distance' ? ` · ${SORT_OPTIONS.find(o => o.key === sort)?.shortLabel}` : ''}`
-                  : `Sort: ${SORT_OPTIONS.find(o => o.key === sort)?.shortLabel}`}
-              </Text>
-              {activeFilterCount > 0 && (
-                <View style={styles.controlPillBadge}>
-                  <Text style={styles.controlPillBadgeText}>{activeFilterCount}</Text>
-                </View>
-              )}
-            </Pressable>
-          </>
-        )}
+        <Pressable
+          style={styles.controlPillBtn}
+          onPress={() => { setSheetOpen(true); if (Platform.OS !== 'web') Haptics.selectionAsync(); }}
+        >
+          <TuneIcon size={15} color="#fff" />
+          <Text style={styles.controlPillText} numberOfLines={1}>
+            {activeFilterCount > 0
+              ? `Filters${SORT_OPTIONS.find(o => o.key === sort)?.shortLabel !== 'Distance' ? ` · ${SORT_OPTIONS.find(o => o.key === sort)?.shortLabel}` : ''}`
+              : `Sort: ${SORT_OPTIONS.find(o => o.key === sort)?.shortLabel}`}
+          </Text>
+          {activeFilterCount > 0 && (
+            <View style={styles.controlPillBadge}>
+              <Text style={styles.controlPillBadgeText}>{activeFilterCount}</Text>
+            </View>
+          )}
+        </Pressable>
       </View>
     </View>
   );
@@ -1234,7 +1193,7 @@ export function NearbyJobsScreen() {
               jobs={filtered}
               onJobPress={job => nav.navigate('JobDetail', { job })}
               onAcceptJob={handleAccept}
-              filterText={searchText}
+              filterText=""
             />
           )}
 
@@ -1277,24 +1236,20 @@ export function NearbyJobsScreen() {
                 ListHeaderComponent={listHeader}
                 ListEmptyComponent={!loading ? (
                   <>
-                  {!searchText && activeFilterCount === 0 && (
+                  {activeFilterCount === 0 && (
                     <ProfileBoostBanner prominent onPress={() => nav.navigate('Profile')} />
                   )}
                   <View style={styles.empty}>
                     <View style={styles.emptyIconBubble}>
-                      {searchText || activeFilterCount > 0
+                      {activeFilterCount > 0
                         ? <SearchIcon size={30} color={Colors.brand} />
                         : <BriefcaseIcon size={30} color={Colors.brand} />}
                     </View>
                     <Text style={styles.emptyTitle}>
-                      {searchText ? 'No matching requests'
-                        : activeFilterCount > 0 ? 'No jobs match your filters'
-                        : 'All quiet — for now'}
+                      {activeFilterCount > 0 ? 'No jobs match your filters' : 'All quiet — for now'}
                     </Text>
                     <Text style={styles.emptySub}>
-                      {searchText
-                        ? `Nothing matches "${searchText}". Try clearing the filter.`
-                        : activeFilterCount > 0
+                      {activeFilterCount > 0
                         ? 'Try widening your distance, pay, or service filters.'
                         : 'New glam requests land here all day. Pull to refresh, or polish your profile while you wait.'}
                     </Text>
@@ -1303,7 +1258,7 @@ export function NearbyJobsScreen() {
                         <Text style={styles.refreshBtnText}>Clear filters</Text>
                       </Pressable>
                     )}
-                    {!searchText && activeFilterCount === 0 && (
+                    {activeFilterCount === 0 && (
                       <Pressable style={styles.refreshBtn} onPress={() => load(true)}>
                         <Text style={styles.refreshBtnText}>Refresh requests</Text>
                       </Pressable>
@@ -1482,40 +1437,24 @@ const styles = StyleSheet.create({
   weekPillText: { fontSize: 12, fontWeight: '700', color: Colors.brand },
 
   // ── Unified control cluster (search + sort/filter) ──────────────────────────
-  // One row, same height/radius/color language throughout, so search and
-  // sort/filter visually belong together instead of reading as bolted-on parts.
+  // Single full-width, solidly brand-colored pill — the header's one clear
+  // call to action, not a muted/outline button beside a ghost search toggle.
   controlRow: {
     flexDirection: 'row', alignItems: 'center', gap: 8,
     marginBottom: 12,
   },
-  controlIconBtn: {
-    width: 44, height: 44, borderRadius: 14,
-    alignItems: 'center', justifyContent: 'center',
-    backgroundColor: Colors.systemBackground,
-    borderWidth: 1, borderColor: Colors.separator,
-  },
   controlPillBtn: {
     flex: 1,
     flexDirection: 'row', alignItems: 'center', gap: 7,
-    height: 44, paddingHorizontal: 14, borderRadius: 14,
-    backgroundColor: Colors.systemBackground,
-    borderWidth: 1, borderColor: Colors.separator,
+    height: 44, paddingHorizontal: 16, borderRadius: 14,
+    backgroundColor: Colors.brandDark,
   },
-  controlPillBtnActive: { backgroundColor: Colors.brandDark, borderColor: Colors.brandDark },
-  controlPillText: { fontSize: 13.5, fontWeight: '700', color: Colors.label },
-  controlPillTextActive: { color: '#fff' },
+  controlPillText: { fontSize: 13.5, fontWeight: '700', color: '#fff' },
   controlPillBadge: {
     minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5,
     alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.3)',
   },
   controlPillBadgeText: { fontSize: 10.5, fontWeight: '800', color: '#fff' },
-  searchBarExpanded: {
-    flex: 1, flexDirection: 'row', alignItems: 'center',
-    backgroundColor: Colors.systemBackground,
-    borderRadius: 14, height: 44, paddingHorizontal: 14,
-    borderWidth: 1, borderColor: Colors.separator, gap: 10,
-  },
-  searchInput: { flex: 1, color: Colors.label, fontSize: 15, fontWeight: '500' },
 
   chip: {
     paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
