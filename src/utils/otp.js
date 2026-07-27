@@ -5,8 +5,19 @@ const crypto = require('crypto');
 const bcrypt = require('bcryptjs');
 const prisma = require('../lib/prisma');
 const { sendOTPSms } = require('./smsProviders');
+const { sendViaNepalOTP, verifyViaNepalOTP } = require('./smsProviders/nepalotp');
 
 const MAX_ATTEMPTS = 5;
+
+// NepalOTP owns both generation AND verification for +977 numbers — unlike
+// Twilio (a blind SMS transport for a code WE generate), there is no local
+// code to hash/compare. The OTP row's `otp` column stores their opaque
+// request id instead of a bcrypt hash, tagged with this prefix so verifyOTP
+// knows to delegate rather than bcrypt.compare against it.
+const NEPALOTP_MARKER = 'nepalotp:';
+function isNepalNumber(phone) {
+  return phone.startsWith('+977');
+}
 
 function getTTLMs() {
   return (parseInt(process.env.OTP_TTL_MINUTES, 10) || 5) * 60 * 1000;
@@ -40,21 +51,37 @@ async function sendSMS(phone, otp) {
  * Replaces any existing OTP for that phone, then sends via SMS.
  */
 async function generateOTP(phone) {
-  const otp            = crypto.randomInt(100_000, 1_000_000).toString();
-  const otpHash        = await bcrypt.hash(otp, 10);
   const expiresAt      = new Date(Date.now() + getTTLMs());
   const cooldownCutoff = new Date(Date.now() - 30_000);
   const now            = new Date();
 
-  // Check for existing OTP (cooldown enforcement)
+  // Check for existing OTP (cooldown enforcement) — applies to both flows.
   const existing = await prisma.oTP.findUnique({ where: { phone } });
+  if (existing && existing.lastGeneratedAt && existing.lastGeneratedAt > cooldownCutoff) {
+    const secondsSinceLast = (Date.now() - existing.lastGeneratedAt.getTime()) / 1000;
+    const wait = Math.ceil(30 - secondsSinceLast);
+    throw Object.assign(new Error(`Please wait ${wait}s before requesting another OTP.`), { status: 429 });
+  }
+
+  if (isNepalNumber(phone)) {
+    const requestId = await sendViaNepalOTP(phone);
+    // requestId is null if NepalOTP isn't configured/failed — still record a
+    // row (marker with empty id) so cooldown enforcement still works and dev
+    // mode doesn't throw; verify will just fail cleanly in that case.
+    const otpValue = `${NEPALOTP_MARKER}${requestId || ''}`;
+    if (existing) {
+      await prisma.oTP.update({ where: { phone }, data: { otp: otpValue, expiresAt, attempts: 0, lastGeneratedAt: now } });
+    } else {
+      await prisma.oTP.create({ data: { phone, otp: otpValue, expiresAt, attempts: 0, lastGeneratedAt: now } });
+    }
+    if (process.env.NODE_ENV !== 'production') console.log(`[OTP] ${phone} → delegated to NepalOTP (request ${requestId})`);
+    return;
+  }
+
+  const otp     = crypto.randomInt(100_000, 1_000_000).toString();
+  const otpHash = await bcrypt.hash(otp, 10);
 
   if (existing) {
-    if (existing.lastGeneratedAt && existing.lastGeneratedAt > cooldownCutoff) {
-      const secondsSinceLast = (Date.now() - existing.lastGeneratedAt.getTime()) / 1000;
-      const wait = Math.ceil(30 - secondsSinceLast);
-      throw Object.assign(new Error(`Please wait ${wait}s before requesting another OTP.`), { status: 429 });
-    }
     await prisma.oTP.update({
       where: { phone },
       data:  { otp: otpHash, expiresAt, attempts: 0, lastGeneratedAt: now },
@@ -84,6 +111,16 @@ async function verifyOTP(phone, code) {
   if (entry.attempts >= MAX_ATTEMPTS) {
     await prisma.oTP.delete({ where: { phone } });
     return { valid: false, error: 'Too many failed attempts. Please request a new OTP.' };
+  }
+
+  if (entry.otp.startsWith(NEPALOTP_MARKER)) {
+    const result = await verifyViaNepalOTP(phone, code);
+    if (!result.valid) {
+      await prisma.oTP.update({ where: { phone }, data: { attempts: { increment: 1 } } });
+      return result;
+    }
+    await prisma.oTP.delete({ where: { phone } }); // one-time use
+    return { valid: true };
   }
 
   const codeMatch = await bcrypt.compare(code, entry.otp);
