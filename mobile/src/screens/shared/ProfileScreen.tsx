@@ -211,6 +211,49 @@ function StatusChip({ status }: { status: 'pending' | 'approved' | 'rejected' })
 
 function Divider() { return <View style={styles.divider} />; }
 
+// ── Hierarchy primitives ──────────────────────────────────────────────────────
+// The screen used to render ~12 flat `sectionLabel` blocks of identical visual
+// weight, which is what made it read as an undifferentiated wall. These three
+// components introduce a real hierarchy, mirroring how Fresha groups workspace
+// settings under named groups ("Your Workspace", "Locations", "Workspace
+// Access") rather than one heading per setting:
+//
+//   Group   → a named tier that owns several cards (primary or secondary)
+//   Subhead → a quiet label for a card *inside* a group (not a peer heading)
+//   Secondary group → same structure, deliberately de-emphasised (StyleSeat's
+//                     bottom-of-menu "Other" catch-all for billing/legal)
+
+function Group({
+  title, caption, tone = 'primary', children,
+}: {
+  title: string; caption?: string; tone?: 'primary' | 'secondary'; children: React.ReactNode;
+}) {
+  const secondary = tone === 'secondary';
+  return (
+    <View style={[styles.group, secondary && styles.groupSecondary]}>
+      <View style={styles.groupHeader}>
+        {!secondary && <View style={styles.groupAccent} />}
+        <View style={{ flex: 1 }}>
+          <Text style={[styles.groupTitle, secondary && styles.groupTitleSecondary]}>{title}</Text>
+          {caption ? (
+            <Text style={[styles.groupCaption, secondary && styles.groupCaptionSecondary]}>{caption}</Text>
+          ) : null}
+        </View>
+      </View>
+      <View style={styles.groupBody}>{children}</View>
+    </View>
+  );
+}
+
+function Subhead({ title, action }: { title: string; action?: React.ReactNode }) {
+  return (
+    <View style={styles.subheadRow}>
+      <Text style={styles.subhead}>{title}</Text>
+      {action}
+    </View>
+  );
+}
+
 export function ProfileScreen() {
   const { user, signOut, updatePhoto, photoUri: authPhotoUri, token } = useAuth();
   const insets = useSafeAreaInsets();
@@ -912,6 +955,10 @@ export function ProfileScreen() {
              Business sub-tab. ── */}
         {isProvider && providerProfileTab === 'business' && (
           <View style={styles.sectionWrap}>
+            <Group
+              title="Today"
+              caption="Your live status and what you've earned"
+            >
             <View style={styles.earningsCard}>
               <View style={styles.earningsTopRow}>
                 <View style={{ flex: 1 }}>
@@ -941,11 +988,32 @@ export function ProfileScreen() {
                   <Text style={styles.earningsAmount}>${weekEarnings.toFixed(0)}</Text>
                   <Text style={styles.earningsLabel}>This Week</Text>
                 </View>
-                <Pressable onPress={() => nav.navigate('Earnings')} style={styles.earningsSeeAll}>
-                  <Text style={styles.earningsSeeAllText}>Full history ›</Text>
-                </Pressable>
               </View>
+              {/* "Quick glance" above, "full detail" below — the standalone
+                  Earnings nav card that used to sit beside this card carried
+                  equal weight for the same topic. Vagaro nests the detail
+                  entry inside the summary it belongs to rather than repeating
+                  it as a sibling section. */}
+              <Pressable
+                style={({ pressed }) => [styles.earningsDetailRow, pressed && { opacity: 0.7 }]}
+                onPress={() => {
+                  if (Platform.OS !== 'web') Haptics.selectionAsync();
+                  nav.navigate('Earnings');
+                }}
+              >
+                <View style={[styles.earningsDetailIcon]}>
+                  <EarningsIcon size={16} color="#D97706" />
+                </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.earningsDetailTitle}>My Earnings</Text>
+                  <Text style={styles.earningsDetailSub}>Full history, charts &amp; monthly goal</Text>
+                </View>
+                <View style={styles.infoChevronChip}>
+                  <Text style={styles.infoChevronChipText}>›</Text>
+                </View>
+              </Pressable>
             </View>
+            </Group>
           </View>
         )}
 
@@ -1001,10 +1069,48 @@ export function ProfileScreen() {
           </View>
         )}
 
-        {/* ── Section: Location ── Account sub-tab for Provider; unchanged for Customer. ── */}
+        {/* ── Identity group: Personal Info + Location ── Account sub-tab for
+             Provider; same grouping applied to Customer so both roles read as
+             one system. Fresha's "Personal settings → Personal info" keeps
+             identity fields and device/location prefs in one group rather than
+             as two peer headings. ── */}
         {(!isProvider || providerProfileTab === 'account') && (
         <View style={styles.sectionWrap}>
-          <Text style={styles.sectionLabel}>Your Location</Text>
+          <Group
+            title="Your account"
+            caption={isProvider ? 'Your identity and device settings' : 'Your details and how we match you'}
+          >
+          <Subhead title="Personal info" />
+          <View style={styles.card}>
+            <Pressable
+              style={({ pressed }) => [styles.infoRow, pressed && { opacity: 0.6 }]}
+              onPress={() => {
+                if (Platform.OS !== 'web') Haptics.selectionAsync();
+                handleEditName();
+              }}
+              accessibilityRole="button"
+            >
+              <View style={styles.infoLeft}>
+                <View style={styles.infoIconWrap}><PersonIcon size={18} color={BRAND} /></View>
+                <Text style={styles.infoLabel}>Name</Text>
+              </View>
+              <View style={styles.infoRight}>
+                <Text style={styles.infoValue} numberOfLines={1}>{user?.name ?? '—'}</Text>
+                <View style={styles.infoChevronChip}>
+                  <Text style={styles.infoChevronChipText}>›</Text>
+                </View>
+              </View>
+            </Pressable>
+            <Divider />
+            <InfoRow glyph="cellphone" label="Phone" value={user?.phone ?? '—'} />
+            <View style={styles.chipRow}>
+              <VerifiedChip label="Phone verified" />
+            </View>
+            <Divider />
+            <InfoRow glyph="key-variant" label="Account ID" value={accountId} />
+          </View>
+
+          <Subhead title="Location" />
           <Pressable
             style={({ pressed }) => [styles.locationCard, pressed && permissionStatus !== 'granted' && { opacity: 0.9 }]}
             onPress={permissionStatus === 'granted' ? undefined : () => requestLocation()}
@@ -1037,48 +1143,22 @@ export function ProfileScreen() {
               </View>
             )}
           </Pressable>
+          </Group>
         </View>
         )}
 
-        {/* ── Section: Personal Info ── Account sub-tab for Provider; unchanged for Customer. ── */}
-        {(!isProvider || providerProfileTab === 'account') && (
-        <View style={styles.sectionWrap}>
-          <Text style={styles.sectionLabel}>Personal Info</Text>
-          <View style={styles.card}>
-            <Pressable
-              style={({ pressed }) => [styles.infoRow, pressed && { opacity: 0.6 }]}
-              onPress={() => {
-                if (Platform.OS !== 'web') Haptics.selectionAsync();
-                handleEditName();
-              }}
-              accessibilityRole="button"
-            >
-              <View style={styles.infoLeft}>
-                <View style={styles.infoIconWrap}><PersonIcon size={18} color={BRAND} /></View>
-                <Text style={styles.infoLabel}>Name</Text>
-              </View>
-              <View style={styles.infoRight}>
-                <Text style={styles.infoValue} numberOfLines={1}>{user?.name ?? '—'}</Text>
-                <View style={styles.infoChevronChip}>
-                  <Text style={styles.infoChevronChipText}>›</Text>
-                </View>
-              </View>
-            </Pressable>
-            <Divider />
-            <InfoRow glyph="cellphone" label="Phone" value={user?.phone ?? '—'} />
-            <View style={styles.chipRow}>
-              <VerifiedChip label="Phone verified" />
-            </View>
-            <Divider />
-            <InfoRow glyph="key-variant" label="Account ID" value={accountId} />
-          </View>
-        </View>
-        )}
-
-        {/* ── Profile Strength card (Provider only) — Account sub-tab. ── */}
+        {/* ── Public profile group (Provider) — Account sub-tab.
+             Profile Strength is now the *summary at the top of* this group
+             rather than its own peer section, matching Booksy Biz's "Profile
+             Completeness", which is a single guide to the steps to succeed with
+             tap-to-fix items, not a status indicator scattered beside the
+             fields it grades. The fields it grades follow directly below. ── */}
         {isProvider && providerProfileTab === 'account' && (
           <View style={styles.sectionWrap}>
-            <Text style={styles.sectionLabel}>Profile Strength</Text>
+            <Group
+              title="Your public profile"
+              caption="What clients see before they book you"
+            >
             <ProfileStrength
               providerProfile={providerP}
               hasPhoto={!!photoUri}
@@ -1088,13 +1168,9 @@ export function ProfileScreen() {
               onFixSpecialties={() => { setSpecDraft(providerP?.specialties ?? []); setSpecModal(true); }}
               onFixDocuments={() => nav.navigate('ProviderDocuments')}
             />
-          </View>
-        )}
 
-        {/* ── Section: Provider Professional Profile — Account sub-tab. ── */}
-        {isProvider && providerProfileTab === 'account' && (
-          <View style={styles.sectionWrap}>
-            <Text style={styles.sectionLabel}>Professional Profile</Text>
+            {/* The fields the strength meter above actually grades. */}
+            <Subhead title="Professional details" />
             <View style={styles.card}>
               {/* Approval status */}
               <View style={styles.approvalRow}>
@@ -1267,13 +1343,16 @@ export function ProfileScreen() {
                 </View>
               )}
             </View>
+            </Group>
           </View>
         )}
 
-        {/* ── Section: Provider Documents nav card — Account sub-tab. ── */}
+        {/* ── Provider Documents nav card — Account sub-tab. Folded into the
+             public-profile group: documents are what unlock the verification
+             badges rendered directly above, so they belong with them rather
+             than as a separate equal-weight heading. ── */}
         {isProvider && providerProfileTab === 'account' && (
-          <View style={styles.sectionWrap}>
-            <Text style={styles.sectionLabel}>Documents</Text>
+          <View style={styles.sectionWrapTight}>
             <Pressable
               style={({ pressed }) => [styles.navCard, pressed && { opacity: 0.85 }]}
               onPress={() => nav.navigate('ProviderDocuments')}
@@ -1296,41 +1375,25 @@ export function ProfileScreen() {
           </View>
         )}
 
-        {/* ── Section: Provider Earnings nav card — Business sub-tab. ── */}
+        {/* ── Section: Provider My Pricing — real, editable per-service list. Business sub-tab.
+             Now the opening card of the "Your services" group (pricing is the
+             highest-frequency thing an artist edits, so it leads the tab). ── */}
         {isProvider && providerProfileTab === 'business' && (
           <View style={styles.sectionWrap}>
-            <Text style={styles.sectionLabel}>Earnings</Text>
-            <Pressable
-              style={({ pressed }) => [styles.navCard, pressed && { opacity: 0.85 }]}
-              onPress={() => nav.navigate('Earnings')}
+            <Group
+              title="Your services"
+              caption="What you charge and how clients can book you"
             >
-              <View style={[styles.navCardIcon, { backgroundColor: '#FFFBEB', borderColor: '#FDE68A' }]}>
-                <EarningsIcon size={22} color="#D97706" />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.navCardTitle}>My Earnings</Text>
-                <Text style={styles.navCardSub}>View history, charts & monthly goal</Text>
-              </View>
-              <View style={styles.navCardChevron}>
-                <Text style={styles.navCardChevronText}>›</Text>
-              </View>
-            </Pressable>
-          </View>
-        )}
-
-        {/* ── Section: Provider My Pricing — real, editable per-service list. Business sub-tab. ── */}
-        {isProvider && providerProfileTab === 'business' && (
-          <View style={styles.sectionWrap}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={styles.sectionLabel}>Pricing</Text>
-              {hasPriceEdits && (
+            <Subhead
+              title="Pricing"
+              action={hasPriceEdits ? (
                 <Pressable onPress={savePriceEdits} disabled={pricesSaving} style={styles.saveChangesBtn}>
                   {pricesSaving
                     ? <ActivityIndicator size="small" color="#fff" />
                     : <Text style={styles.saveChangesBtnText}>Save changes</Text>}
                 </Pressable>
-              )}
-            </View>
+              ) : undefined}
+            />
             <View style={styles.card}>
               {servicesLoading ? (
                 <View style={{ paddingVertical: 20, alignItems: 'center' }}>
@@ -1395,24 +1458,21 @@ export function ProfileScreen() {
                 </>
               )}
             </View>
-          </View>
-        )}
 
-        {/* ── Section: Where you work + business hours — real, editable fields.
-             Was read-only backend data with no UI to set it, so clients only ever
-             saw a blank/tiny address and no hours at all. Business sub-tab. ── */}
-        {isProvider && providerProfileTab === 'business' && (
-          <View style={styles.sectionWrap}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' }}>
-              <Text style={styles.sectionLabel}>Where You Work</Text>
-              {locationDirty && (
+            {/* Where you work + business hours — real, editable fields. Was
+                read-only backend data with no UI to set it, so clients only ever
+                saw a blank/tiny address and no hours at all. Kept in the same
+                group as pricing: both answer "how do clients book me?". */}
+            <Subhead
+              title="Where you work"
+              action={locationDirty ? (
                 <Pressable onPress={() => saveLocationSettings()} disabled={locationSaving} style={styles.saveChangesBtn}>
                   {locationSaving
                     ? <ActivityIndicator size="small" color="#fff" />
                     : <Text style={styles.saveChangesBtnText}>Save changes</Text>}
                 </Pressable>
-              )}
-            </View>
+              ) : undefined}
+            />
             <View style={styles.card}>
               <View style={styles.workToggleRow}>
                 <View style={{ flex: 1 }}>
@@ -1470,7 +1530,7 @@ export function ProfileScreen() {
               )}
             </View>
 
-            <Text style={[styles.sectionLabel, { marginTop: 20 }]}>Business Hours</Text>
+            <Subhead title="Business hours" />
             <View style={styles.card}>
               <ScrollView
                 style={styles.hoursScroll}
@@ -1504,13 +1564,17 @@ export function ProfileScreen() {
                 <Text style={styles.hoursQuickFillText}>Use typical 9–6 weekdays</Text>
               </Pressable>
             </View>
+            </Group>
           </View>
         )}
 
-        {/* ── Section: Provider public profile (marketing consent) — Business sub-tab. ── */}
+        {/* ── Provider public profile (marketing consent) — Business sub-tab.
+             Nested under the "Your services" reach group rather than standing as
+             a peer top-level section: Vagaro keeps "List Business on Vagaro.com"
+             / contact visibility inside Business Profile, not beside it. ── */}
         {isProvider && providerP?.approvedByAdmin && providerProfileTab === 'business' && (
           <View style={styles.sectionWrap}>
-            <Text style={styles.sectionLabel}>Visibility</Text>
+            <Group title="Your reach" caption="Where clients can discover you">
             <View style={styles.navCard}>
               <View style={[styles.navCardIcon, { backgroundColor: '#FCECEF', borderColor: '#E9A0B1' }]}>
                 <PersonIcon size={22} color={BRAND} />
@@ -1539,13 +1603,14 @@ export function ProfileScreen() {
                 thumbColor={publicProfile ? BRAND : '#F4F4F5'}
               />
             </View>
+            </Group>
           </View>
         )}
 
         {/* ── Section: Customer Quick Actions ─────────────────────── */}
         {isCustomer && (
           <View style={styles.sectionWrap}>
-            <Text style={styles.sectionLabel}>Quick Actions</Text>
+            <Group title="Quick actions" caption="Everything you do most often">
             <View style={styles.quickActionsGrid}>
               <Pressable style={({ pressed }) => [styles.quickAction, pressed && { opacity: 0.82 }]} onPress={() => nav.navigate('NewBooking')}>
                 <View style={[styles.quickActionIcon, { backgroundColor: Colors.brandDeep }]}>
@@ -1572,6 +1637,7 @@ export function ProfileScreen() {
                 <Text style={styles.quickActionLabel}>Help</Text>
               </Pressable>
             </View>
+            </Group>
           </View>
         )}
 
@@ -1583,7 +1649,7 @@ export function ProfileScreen() {
             already explains properly with real detail. */}
         {isCustomer && (
           <View style={styles.sectionWrap}>
-            <Text style={styles.sectionLabel}>Trust & Safety</Text>
+            <Group title="Trust & safety" caption="How we vet every artist on Glow">
             <View style={styles.card}>
               {([
                 { Icon: ShieldCheckIcon,        label: 'Background Checked', desc: 'Criminal record check',
@@ -1620,13 +1686,14 @@ export function ProfileScreen() {
                 </View>
               ))}
             </View>
+            </Group>
           </View>
         )}
 
         {/* ── Section: Admin Portal ─────────────────────────────────── */}
         {isAdmin && (
           <View style={styles.sectionWrap}>
-            <Text style={styles.sectionLabel}>Admin Portal</Text>
+            <Group title="Admin portal" caption="Platform tools">
             <View style={styles.card}>
               <InfoRow
                 glyph="monitor-dashboard" label="Admin Dashboard" value="Open admin panel"
@@ -1636,6 +1703,7 @@ export function ProfileScreen() {
               <Divider />
               <InfoRow glyph="chart-box-outline" label="Stats" value="View platform analytics" />
             </View>
+            </Group>
           </View>
         )}
 
@@ -1644,10 +1712,19 @@ export function ProfileScreen() {
              for Customer. ── */}
         {(!isProvider || providerProfileTab === 'account') && (
         <>
-        {/* ── Section: Support ──────────────────────────────────────── */}
+        {/* ── "More" catch-all — Support + App Info + Legal collapsed into one
+             deliberately quieter tier at the bottom, instead of three
+             full-weight sections sitting beside core account info. StyleSeat
+             puts exactly this class of rarely-touched item (plan & billing,
+             legal) in a single "Other" group at the bottom of its pro Menu. ── */}
         <View style={styles.sectionWrap}>
-          <Text style={styles.sectionLabel}>Support</Text>
-          <View style={styles.card}>
+          <Group
+            title="More"
+            caption="Help, legal and app details"
+            tone="secondary"
+          >
+          <Subhead title="Support" />
+          <View style={styles.cardQuiet}>
             <InfoRow
               glyph="email-outline" label="Email Us" value="support@glow.app"
               valueColor="#C4667E"
@@ -1664,24 +1741,18 @@ export function ProfileScreen() {
             <Divider />
             <InfoRow glyph="translate" label="Languages" value="English" />
           </View>
-        </View>
 
-        {/* ── Section: App Info ─────────────────────────────────────── */}
-        <View style={styles.sectionWrap}>
-          <Text style={styles.sectionLabel}>App Info</Text>
-          <View style={styles.card}>
+          <Subhead title="App info" />
+          <View style={styles.cardQuiet}>
             <InfoRow glyph="package-variant" label="Version" value={`v${appVersion}`} />
             <Divider />
             <InfoRow glyph="map" label="Region" value={DEFAULT_REGION_NAME} />
             <Divider />
             <InfoRow glyph="map-marker" label="Coverage" value="15 km radius" />
           </View>
-        </View>
 
-        {/* ── Section: Legal ─────────────────────────────────────────── */}
-        <View style={styles.sectionWrap}>
-          <Text style={styles.sectionLabel}>Legal</Text>
-          <View style={styles.card}>
+          <Subhead title="Legal" />
+          <View style={styles.cardQuiet}>
             <InfoRow
               glyph="shield-check" label="Privacy Policy" value=""
               onPress={() => Linking.openURL('https://glow-landing-five.vercel.app/privacy')}
@@ -1692,6 +1763,7 @@ export function ProfileScreen() {
               onPress={() => Linking.openURL('https://glow-landing-five.vercel.app/terms')}
             />
           </View>
+          </Group>
         </View>
 
         {/* ── Sign Out ──────────────────────────────────────────────── */}
@@ -1891,8 +1963,6 @@ const styles = StyleSheet.create({
   earningsAmount: { fontSize: 22, fontFamily: Fonts.bold, color: VALUE, letterSpacing: -0.5 },
   earningsLabel: { fontSize: 11.5, color: LABEL, fontFamily: Fonts.medium, marginTop: 2, textTransform: 'uppercase', letterSpacing: 0.4 },
   earningsDivider: { width: 1, height: 34, backgroundColor: DIVIDER_C, marginHorizontal: 14 },
-  earningsSeeAll: { paddingVertical: 4 },
-  earningsSeeAllText: { fontSize: 13, fontFamily: Fonts.semibold, color: BRAND },
 
   // ── Real per-service pricing list ──
   saveChangesBtn: {
@@ -2147,11 +2217,64 @@ const styles = StyleSheet.create({
 
   // ── Section ──
   sectionWrap: { paddingHorizontal: 16, marginTop: 24 },
-  sectionLabel: {
-    fontSize: 12, fontWeight: '800', color: BRAND,
-    textTransform: 'uppercase', letterSpacing: 1.2,
-    marginBottom: 12, paddingHorizontal: 2,
+  // Continuation of the group directly above — small gap so the card reads as
+  // part of that group rather than as a new peer section.
+  sectionWrapTight: { paddingHorizontal: 16, marginTop: 12 },
+
+  // ── Group (primary tier) ──
+  // A named tier that owns several cards. Large, high-contrast title with a
+  // rose accent bar — clearly outranks the Subhead labels nested inside it.
+  group: {},
+  groupSecondary: { opacity: 0.92 },
+  groupHeader: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginBottom: 14, paddingHorizontal: 2 },
+  groupAccent: {
+    width: 3, height: 30, borderRadius: 2,
+    backgroundColor: Colors.brandAccent, marginTop: 2,
   },
+  groupTitle: {
+    fontSize: 20, fontFamily: Fonts.bold, fontWeight: '800',
+    color: VALUE, letterSpacing: -0.4,
+  },
+  groupCaption: {
+    fontSize: 12.5, fontFamily: Fonts.regular, color: LABEL,
+    marginTop: 2, lineHeight: 17,
+  },
+  // Secondary tier — same structure, deliberately de-emphasised so rarely
+  // touched items (support/legal/app info) don't compete with core settings.
+  groupTitleSecondary: { fontSize: 15, color: LABEL, letterSpacing: -0.1 },
+  groupCaptionSecondary: { fontSize: 11.5, color: Colors.tertiaryLabel },
+  groupBody: { gap: 0 },
+
+  // ── Subhead — a label for a card *inside* a group, not a peer heading. ──
+  subheadRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginBottom: 8, marginTop: 16, paddingHorizontal: 2, minHeight: 26,
+  },
+  subhead: {
+    fontSize: 11.5, fontFamily: Fonts.semibold, fontWeight: '700',
+    color: Colors.tertiaryLabel, textTransform: 'uppercase', letterSpacing: 0.9,
+  },
+
+  // Quieter card for the secondary "More" tier — flatter, no lift.
+  cardQuiet: {
+    backgroundColor: CARD, borderRadius: 18,
+    paddingHorizontal: 16, paddingVertical: 14,
+    borderWidth: 1, borderColor: Colors.cardBorder,
+  },
+
+  // Full-detail entry nested inside the earnings summary card.
+  earningsDetailRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    marginTop: 16, paddingTop: 14,
+    borderTopWidth: 1, borderTopColor: DIVIDER_C,
+  },
+  earningsDetailIcon: {
+    width: 32, height: 32, borderRadius: 11,
+    backgroundColor: '#FFFBEB', borderWidth: 1, borderColor: '#FDE68A',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  earningsDetailTitle: { fontSize: 14, fontFamily: Fonts.semibold, fontWeight: '700', color: VALUE },
+  earningsDetailSub: { fontSize: 12, color: LABEL, marginTop: 1 },
 
   // ── Card ──
   card: {
