@@ -132,6 +132,10 @@ export function apiGoogleSignIn(payload: { idToken: string; role?: 'CUSTOMER' | 
   return request<{ token: string; user: AuthUser; requiresPhoneVerification?: boolean }>('POST', '/auth/google', payload, false, 2);
 }
 
+export function apiAppleSignIn(payload: { idToken: string; role?: 'CUSTOMER' | 'Provider'; name?: string }) {
+  return request<{ token: string; user: AuthUser; requiresPhoneVerification?: boolean }>('POST', '/auth/apple', payload, false, 2);
+}
+
 export function apiSubmitProviderOnboarding(payload: {
   qualificationType: string;
   licenseNumber?: string;

@@ -135,6 +135,7 @@ model User {
 
   phoneVerified      Boolean   @default(false)
   googleId           String?   @unique
+  appleId            String?   @unique
   passwordHash       String?
 
   // Location stored as flat lat/lng (no GeoJSON in Postgres — use PostGIS via raw SQL when needed)

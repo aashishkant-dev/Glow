@@ -7,6 +7,7 @@ const jwt     = require('jsonwebtoken');
 const prisma  = require('../lib/prisma');
 const { generateOTP, verifyOTP } = require('../utils/otp');
 const { verifyGoogleIdToken } = require('../utils/googleAuth');
+const { verifyAppleIdToken } = require('../utils/appleAuth');
 const validate         = require('../middleware/validate');
 const { authenticate } = require('../middleware/auth');
 const { cacheDel } = require('../utils/cache');
@@ -392,6 +393,98 @@ router.post(
         },
         // Client uses this to decide whether to route straight into a mandatory
         // phone-verify screen before anything else (new Provider accounts only).
+        requiresPhoneVerification: isNewUser && user.role === 'Provider' && !user.phone,
+      });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+// ── POST /auth/apple ─────────────────────────────────────────────────────────
+// Sign in with Apple — required alongside Google Sign-In per App Store guideline
+// 4.8 (any app offering a third-party login must offer Apple's as an equal
+// option). Mirrors /auth/google's account-linking/creation logic, with two
+// Apple-specific quirks handled: (1) Apple only sends `email` on the very
+// first sign-in ever for a given app — `name` is NEVER in the id token at all,
+// it's returned to the CLIENT once (in the native credential, not the JWT) and
+// must be forwarded here explicitly on that first call; (2) an Apple private-relay
+// email is still a real, usable email address for our purposes.
+router.post(
+  '/apple',
+  [
+    body('idToken').trim().notEmpty().withMessage('idToken is required'),
+    body('role').optional().isIn(['CUSTOMER', 'Provider']).withMessage('role must be CUSTOMER or Provider'),
+    body('name').optional().trim(),
+  ],
+  validate,
+  async (req, res) => {
+    try {
+      let payload;
+      try {
+        payload = await verifyAppleIdToken(req.body.idToken);
+      } catch (err) {
+        return res.status(401).json({ error: 'Invalid Apple token' });
+      }
+
+      let user = await prisma.user.findUnique({ where: { appleId: payload.sub } });
+
+      if (!user && payload.email) {
+        // Same soft-delete guard as /auth/google — never link to a dead row.
+        const existingByEmail = await prisma.user.findUnique({ where: { email: payload.email } });
+        if (existingByEmail && !existingByEmail.deletedAt) {
+          user = await prisma.user.update({
+            where: { id: existingByEmail.id },
+            data:  { appleId: payload.sub },
+          });
+        }
+      }
+
+      let isNewUser = false;
+      if (!user) {
+        isNewUser = true;
+        const role = req.body.role === 'Provider' ? 'Provider' : 'CUSTOMER';
+        user = await prisma.user.create({
+          data: {
+            appleId: payload.sub,
+            email:   payload.email,
+            // Apple never puts name in the id token — the client only has it
+            // on the FIRST authorization ever, from the native credential
+            // object, and must send it here. No name at all (returning user
+            // whose first-ever call for some reason lost it, or edge cases)
+            // falls back the same way Google's "Glow User" default does.
+            name:     req.body.name || 'Glow User',
+            role,
+            photoUrl: '',
+          },
+        });
+        if (role === 'Provider') {
+          await prisma.providerProfile.create({ data: { userId: user.id } });
+        }
+      }
+
+      if (user.deletedAt) {
+        return res.status(403).json({ error: 'This account has been deleted.' });
+      }
+
+      const token = jwt.sign(
+        { userId: user.id, role: user.role },
+        JWT_SECRET,
+        { expiresIn: '30d', algorithm: 'HS256' }
+      );
+
+      res.json({
+        token,
+        user: {
+          id:                 user.id,
+          name:               user.name,
+          role:               user.role,
+          phone:              user.phone,
+          photoUrl:           user.photoUrl || null,
+          onboardingComplete: user.onboardingComplete,
+          phoneVerified:      user.phoneVerified,
+        },
         requiresPhoneVerification: isNewUser && user.role === 'Provider' && !user.phone,
       });
     } catch (err) {

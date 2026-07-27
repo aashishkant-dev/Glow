@@ -16,6 +16,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.glowbeauty.app",
+      "usesAppleSignIn": true,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Glow uses your location to find beauty artists near you and share your arrival with customers during an active appointment.",
         "NSLocationAlwaysAndWhenInUseUsageDescription": "Glow shares your location with customers during active appointments so they can track your arrival, even when the app is in the background.",

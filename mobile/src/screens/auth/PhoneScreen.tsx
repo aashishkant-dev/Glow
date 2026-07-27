@@ -18,9 +18,10 @@ import { useNavigation } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import * as Google from 'expo-auth-session/providers/google';
 import * as WebBrowser from 'expo-web-browser';
+import * as AppleAuthentication from 'expo-apple-authentication';
 import { ShieldCheckIcon, CheckDecagramIcon, GoogleLogoIcon } from '../../components/CareIcons';
 import { MirrorIcon, CrownIcon } from '../../components/BeautyIcons';
-import { apiLogin, apiGoogleSignIn, apiSendLoginOtp } from '../../api/client';
+import { apiLogin, apiGoogleSignIn, apiAppleSignIn, apiSendLoginOtp } from '../../api/client';
 import { Colors, Fonts } from '../../utils/colors';
 import { GlowLogo, GlowMark, GlowTagline } from '../../components/GlowLogo';
 import { CountryPicker, COUNTRIES, Country } from '../../components/CountryPicker';
@@ -82,6 +83,15 @@ export function PhoneScreen() {
   const [sendingOtp, setSendingOtp] = useState(false);
   const ctaScale = useRef(new Animated.Value(1)).current;
   const heroFade = useRef(new Animated.Value(0)).current;
+  // Only true on iOS 13+ devices signed into an Apple ID — never on Android/web,
+  // where the native Apple button can't render at all. Starts false so the
+  // button never flashes in on platforms that can't support it.
+  const [appleAvailable, setAppleAvailable] = useState(false);
+  useEffect(() => {
+    if (Platform.OS === 'ios') {
+      AppleAuthentication.isAvailableAsync().then(setAppleAvailable);
+    }
+  }, []);
 
   // Google.useAuthRequest's internal useMemo throws synchronously (invariantClientId)
   // if the platform-relevant client ID is missing — e.g. a build without
@@ -237,6 +247,43 @@ export function PhoneScreen() {
     setLoading(false);
   }
 
+  // Apple only returns `fullName` on the VERY FIRST authorization ever for this
+  // app+Apple-ID pair — every sign-in after that omits it entirely, so it must
+  // be captured and forwarded here right when it's available, never re-asked.
+  async function appleSignIn() {
+    setLoading(true);
+    try {
+      const credential = await AppleAuthentication.signInAsync({
+        requestedScopes: [
+          AppleAuthentication.AppleAuthenticationScope.FULL_NAME,
+          AppleAuthentication.AppleAuthenticationScope.EMAIL,
+        ],
+      });
+      if (!credential.identityToken) throw new Error('Apple did not return an identity token.');
+      const name = credential.fullName
+        ? [credential.fullName.givenName, credential.fullName.familyName].filter(Boolean).join(' ').trim()
+        : undefined;
+      const { token, user } = await apiAppleSignIn({
+        idToken: credential.identityToken,
+        role: role === 'Provider' ? 'Provider' : 'CUSTOMER',
+        name: name || undefined,
+      });
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      await signIn(token, {
+        id: user.id, name: user.name, phone: user.phone ?? undefined,
+        role: user.role as 'CUSTOMER' | 'Provider' | 'ADMIN' | 'SALON',
+        onboardingComplete: user.onboardingComplete,
+        phoneVerified: user.phoneVerified,
+      });
+    } catch (e: any) {
+      // User-cancelled the native sheet — not an error worth surfacing.
+      if (e.code === 'ERR_REQUEST_CANCELED') { setLoading(false); return; }
+      const msg = e.message || 'Apple sign-in failed. Please try again.';
+      if (Platform.OS === 'web') alert(msg); else Alert.alert('Error', msg);
+    }
+    setLoading(false);
+  }
+
   function pressCta(pressed: boolean) {
     Animated.spring(ctaScale, { toValue: pressed ? 0.96 : 1, useNativeDriver: true, speed: 40, bounciness: 6 }).start();
   }
@@ -317,6 +364,16 @@ export function PhoneScreen() {
               </View>
             )}
 
+            {appleAvailable && (
+              <AppleAuthentication.AppleAuthenticationButton
+                buttonType={AppleAuthentication.AppleAuthenticationButtonType.CONTINUE}
+                buttonStyle={AppleAuthentication.AppleAuthenticationButtonStyle.BLACK}
+                cornerRadius={18}
+                style={styles.appleBtn}
+                onPress={appleSignIn}
+              />
+            )}
+
             <Pressable
               style={[styles.ctaBtn, styles.googleBtn, !googleConfigured && styles.ctaBtnDisabled]}
               onPress={() => googleConfigured && promptGoogleAsync()}
@@ -328,7 +385,7 @@ export function PhoneScreen() {
               </Text>
             </Pressable>
             {role === 'Provider' && (
-              <Text style={styles.disclaimer}>You'll verify your phone right after signing in with Google.</Text>
+              <Text style={styles.disclaimer}>You'll verify your phone right after signing in with {appleAvailable ? 'Apple or Google' : 'Google'}.</Text>
             )}
 
             <View style={styles.orDivider}>
@@ -620,6 +677,7 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff', borderWidth: 1.5, borderColor: Colors.separator,
     shadowOpacity: 0.06,
   },
+  appleBtn: { height: 54, marginBottom: 12 },
 
   orDivider: { flexDirection: 'row', alignItems: 'center', gap: 12, marginVertical: 20 },
   orLine: { flex: 1, height: 1, backgroundColor: Colors.separator },
