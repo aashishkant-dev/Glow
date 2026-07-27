@@ -139,15 +139,44 @@ function VerifiedChip({ label }: { label: string }) {
 }
 
 // ── Info row ──────────────────────────────────────────────────────────────────
+// Tappable rows (onPress set) get the brand-colored icon chip + a circular chevron
+// chip — the same "navigable" affordance as navCard. Informational-only rows (no
+// onPress) get a muted gray icon chip and no chevron slot at all, so it reads at a
+// glance as "display only" rather than a slightly-quieter button.
 function InfoRow({
   glyph, label, value, onPress, valueColor,
 }: { glyph: string; label: string; value: string; onPress?: () => void; valueColor?: string }) {
-  const Wrap = onPress ? Pressable : View;
   const Icon = infoIcon(glyph);
+  const iconColor = onPress ? BRAND : Colors.systemGray2;
+  if (!onPress) {
+    return (
+      <View style={styles.infoRow}>
+        <View style={styles.infoLeft}>
+          <View style={[styles.infoIconWrap, styles.infoIconWrapMuted]}><Icon size={18} color={iconColor} /></View>
+          <Text style={styles.infoLabel}>{label}</Text>
+        </View>
+        <View style={styles.infoRight}>
+          <Text
+            style={[styles.infoValue, valueColor ? { color: valueColor } : undefined]}
+            numberOfLines={1}
+          >
+            {value}
+          </Text>
+        </View>
+      </View>
+    );
+  }
   return (
-    <Wrap style={styles.infoRow} onPress={onPress}>
+    <Pressable
+      style={({ pressed }) => [styles.infoRow, pressed && { opacity: 0.6 }]}
+      onPress={() => {
+        if (Platform.OS !== 'web') Haptics.selectionAsync();
+        onPress();
+      }}
+      accessibilityRole="button"
+    >
       <View style={styles.infoLeft}>
-        <View style={styles.infoIconWrap}><Icon size={18} color={BRAND} /></View>
+        <View style={styles.infoIconWrap}><Icon size={18} color={iconColor} /></View>
         <Text style={styles.infoLabel}>{label}</Text>
       </View>
       <View style={styles.infoRight}>
@@ -157,9 +186,11 @@ function InfoRow({
         >
           {value}
         </Text>
-        {onPress && <Text style={styles.infoChevron}>›</Text>}
+        <View style={styles.infoChevronChip}>
+          <Text style={styles.infoChevronChipText}>›</Text>
+        </View>
       </View>
-    </Wrap>
+    </Pressable>
   );
 }
 
@@ -332,7 +363,10 @@ export function ProfileScreen() {
     const result = await ImagePicker.launchImageLibraryAsync({
       mediaTypes: ['images'],
       allowsEditing: true,
-      aspect: [4, 3],
+      // Portrait 4:5 (not square) — portfolio/work-sample shots read better tall,
+      // matching the StyleSeat/Fresha convention of square-only for the avatar
+      // and a taller frame for gallery/work photos.
+      aspect: [4, 5],
       quality: 0.8,
       base64: true,
     });
@@ -1011,14 +1045,23 @@ export function ProfileScreen() {
         <View style={styles.sectionWrap}>
           <Text style={styles.sectionLabel}>Personal Info</Text>
           <View style={styles.card}>
-            <Pressable style={styles.infoRow} onPress={handleEditName}>
+            <Pressable
+              style={({ pressed }) => [styles.infoRow, pressed && { opacity: 0.6 }]}
+              onPress={() => {
+                if (Platform.OS !== 'web') Haptics.selectionAsync();
+                handleEditName();
+              }}
+              accessibilityRole="button"
+            >
               <View style={styles.infoLeft}>
                 <View style={styles.infoIconWrap}><PersonIcon size={18} color={BRAND} /></View>
                 <Text style={styles.infoLabel}>Name</Text>
               </View>
               <View style={styles.infoRight}>
                 <Text style={styles.infoValue} numberOfLines={1}>{user?.name ?? '—'}</Text>
-                <Text style={styles.infoChevron}>›</Text>
+                <View style={styles.infoChevronChip}>
+                  <Text style={styles.infoChevronChipText}>›</Text>
+                </View>
               </View>
             </Pressable>
             <Divider />
@@ -1556,7 +1599,10 @@ export function ProfileScreen() {
                   {i > 0 && <Divider />}
                   <Pressable
                     style={({ pressed }) => [styles.trustRow, pressed && { opacity: 0.6 }]}
-                    onPress={() => setTrustModal({ label: t.label, desc: t.desc, detail: t.detail })}
+                    onPress={() => {
+                      if (Platform.OS !== 'web') Haptics.selectionAsync();
+                      setTrustModal({ label: t.label, desc: t.desc, detail: t.detail });
+                    }}
                     accessibilityRole="button"
                     accessibilityLabel={`${t.label} — tap to learn more`}
                   >
@@ -1567,7 +1613,9 @@ export function ProfileScreen() {
                       <Text style={styles.trustLabel}>{t.label}</Text>
                       <Text style={styles.trustDesc}>{t.desc}</Text>
                     </View>
-                    <Text style={styles.infoChevron}>›</Text>
+                    <View style={styles.infoChevronChip}>
+                      <Text style={styles.infoChevronChipText}>›</Text>
+                    </View>
                   </Pressable>
                 </View>
               ))}
@@ -2117,16 +2165,26 @@ const styles = StyleSheet.create({
   divider: { height: 1, backgroundColor: DIVIDER_C, marginVertical: 14 },
 
   // ── Info row ──
+  // Tappable rows use the brand rose icon chip below; informational-only rows
+  // switch to infoIconWrapMuted (neutral gray) so "display only" reads at a
+  // glance, matching the affordance split used across NearbyJobs/Calendar.
   infoRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 52 },
   infoLeft:  { flexDirection: 'row', alignItems: 'center', gap: 14, flexShrink: 0 },
   infoIconWrap: {
     width: 40, height: 40, borderRadius: 14,
     backgroundColor: ICON_BG, alignItems: 'center', justifyContent: 'center',
   },
+  infoIconWrapMuted: { backgroundColor: Colors.systemGray6 },
   infoLabel: { fontSize: 16, color: LABEL, fontWeight: '600' },
   infoRight: { flexDirection: 'row', alignItems: 'center', gap: 6, flex: 1, justifyContent: 'flex-end' },
   infoValue: { fontSize: 16, fontWeight: '600', color: VALUE, textAlign: 'right', flexShrink: 1 },
-  infoChevron: { fontSize: 22, color: ROSE_SOFT },
+  // Circular chevron chip — same "navigable" affordance as navCardChevron, just
+  // smaller to fit InfoRow's more compact 52px row height.
+  infoChevronChip: {
+    width: 26, height: 26, borderRadius: 13,
+    backgroundColor: ICON_BG, alignItems: 'center', justifyContent: 'center',
+  },
+  infoChevronChipText: { fontSize: 16, color: BRAND, fontWeight: '700', marginTop: -1 },
 
   chipRow: { marginTop: 6, marginBottom: 2 },
 
