@@ -15,7 +15,7 @@ import {
   View,
 } from 'react-native';
 import * as Haptics from 'expo-haptics';
-import { LocateIcon, SearchIcon, CloseCircleIcon, MapIcon, ListIcon, RadioOnIcon, BriefcaseIcon, TuneIcon, SortIcon } from '../../components/TabIcons';
+import { LocateIcon, SearchIcon, CloseCircleIcon, MapIcon, ListIcon, RadioOnIcon, BriefcaseIcon, TuneIcon } from '../../components/TabIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { apiAcceptJob, apiSkipJob, apiNearbyJobs, apiMyJobs, Booking } from '../../api/client';
@@ -1070,8 +1070,14 @@ export function NearbyJobsScreen() {
               onPress={() => { setSheetOpen(true); if (Platform.OS !== 'web') Haptics.selectionAsync(); }}
             >
               <TuneIcon size={15} color={activeFilterCount > 0 ? '#fff' : Colors.label} />
-              <Text style={[styles.controlPillText, activeFilterCount > 0 && styles.controlPillTextActive]}>
-                Sort &amp; filter
+              <Text style={[styles.controlPillText, activeFilterCount > 0 && styles.controlPillTextActive]} numberOfLines={1}>
+                {/* One pill carries both sort + filter state instead of a second,
+                    visually disconnected label floating beside it — a bare-text
+                    hint with no background/border read as a stray third element
+                    rather than part of the same control cluster. */}
+                {activeFilterCount > 0
+                  ? `Filters${SORT_OPTIONS.find(o => o.key === sort)?.shortLabel !== 'Distance' ? ` · ${SORT_OPTIONS.find(o => o.key === sort)?.shortLabel}` : ''}`
+                  : `Sort: ${SORT_OPTIONS.find(o => o.key === sort)?.shortLabel}`}
               </Text>
               {activeFilterCount > 0 && (
                 <View style={styles.controlPillBadge}>
@@ -1079,12 +1085,6 @@ export function NearbyJobsScreen() {
                 </View>
               )}
             </Pressable>
-            <View style={styles.controlSortHint}>
-              <SortIcon size={13} color={Colors.tertiaryLabel} />
-              <Text style={styles.controlSortHintText} numberOfLines={1}>
-                {SORT_OPTIONS.find(o => o.key === sort)?.shortLabel}
-              </Text>
-            </View>
           </>
         )}
       </View>
@@ -1495,6 +1495,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.separator,
   },
   controlPillBtn: {
+    flex: 1,
     flexDirection: 'row', alignItems: 'center', gap: 7,
     height: 44, paddingHorizontal: 14, borderRadius: 14,
     backgroundColor: Colors.systemBackground,
@@ -1508,11 +1509,6 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.3)',
   },
   controlPillBadgeText: { fontSize: 10.5, fontWeight: '800', color: '#fff' },
-  controlSortHint: {
-    flexDirection: 'row', alignItems: 'center', gap: 4,
-    marginLeft: 'auto', paddingHorizontal: 4,
-  },
-  controlSortHintText: { fontSize: 12, fontWeight: '600', color: Colors.tertiaryLabel, maxWidth: 70 },
   searchBarExpanded: {
     flex: 1, flexDirection: 'row', alignItems: 'center',
     backgroundColor: Colors.systemBackground,
