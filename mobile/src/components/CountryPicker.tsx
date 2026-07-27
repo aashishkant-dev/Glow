@@ -11,20 +11,53 @@ import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { Platform } from 'react-native';
+import Svg, { Path, Rect } from 'react-native-svg';
 import { GlowSheet } from './GlowSheet';
 import { Colors, Fonts } from '../utils/colors';
 
 export interface Country {
   code: 'CA' | 'NP';
   name: string;
-  flag: string;
   dialCode: string;
 }
 
 export const COUNTRIES: Country[] = [
-  { code: 'CA', name: 'Canada', flag: '🇨🇦', dialCode: '+1' },
-  { code: 'NP', name: 'Nepal',  flag: '🇳🇵', dialCode: '+977' },
+  { code: 'CA', name: 'Canada', dialCode: '+1' },
+  { code: 'NP', name: 'Nepal',  dialCode: '+977' },
 ];
+
+// Real SVG flags, not emoji — regional-indicator flag emoji (🇨🇦/🇳🇵) render as
+// blank boxes on Windows and many Linux browsers (no flag glyphs in the
+// default font stack), even though they work fine on iOS/Android. Drawing the
+// flags ourselves renders identically on every platform, same as every other
+// icon in this app.
+function FlagCA({ size = 20 }: { size?: number }) {
+  const h = size * 0.72;
+  return (
+    <Svg width={size} height={h} viewBox="0 0 20 14">
+      <Rect width="20" height="14" fill="#FFFFFF" />
+      <Rect width="5" height="14" fill="#D80621" />
+      <Rect x="15" width="5" height="14" fill="#D80621" />
+      <Path
+        d="M10 3.2l.6 1.5 1.5-.7-.5 1.6 1.6.1-1.2 1.1 1 1.3-1.6-.3.1 1.6-1.2-1-.7 1.4-.7-1.4-1.2 1 .1-1.6-1.6.3 1-1.3-1.2-1.1 1.6-.1-.5-1.6 1.5.7z"
+        fill="#D80621"
+      />
+      <Path d="M10 9.4v1.8" stroke="#D80621" strokeWidth="0.5" />
+    </Svg>
+  );
+}
+function FlagNP({ size = 20 }: { size?: number }) {
+  const h = size * 0.9;
+  return (
+    <Svg width={size} height={h} viewBox="0 0 13 16">
+      <Path d="M1 15.2V1.4l7 5.1H3.5z" fill="#DC143C" stroke="#003893" strokeWidth="0.8" strokeLinejoin="round" />
+      <Path d="M1 8.8V1.4l10 8.3H3.5z" fill="#DC143C" stroke="#003893" strokeWidth="0.8" strokeLinejoin="round" />
+    </Svg>
+  );
+}
+function CountryFlag({ code, size = 20 }: { code: Country['code']; size?: number }) {
+  return code === 'CA' ? <FlagCA size={size} /> : <FlagNP size={size} />;
+}
 
 interface CountryPickerProps {
   value: Country;
@@ -42,7 +75,7 @@ export function CountryPicker({ value, onChange, disabled }: CountryPickerProps)
         onPress={() => { if (!disabled) { if (Platform.OS !== 'web') Haptics.selectionAsync(); setOpen(true); } }}
         disabled={disabled}
       >
-        <Text style={styles.flag}>{value.flag}</Text>
+        <CountryFlag code={value.code} size={20} />
         <View style={{ flex: 1 }}>
           <Text style={styles.countryName} numberOfLines={1}>{value.name}</Text>
           <Text style={styles.dialCode}>{value.dialCode}</Text>
@@ -63,7 +96,7 @@ export function CountryPicker({ value, onChange, disabled }: CountryPickerProps)
                 setOpen(false);
               }}
             >
-              <Text style={styles.rowFlag}>{c.flag}</Text>
+              <CountryFlag code={c.code} size={28} />
               <View style={{ flex: 1 }}>
                 <Text style={styles.rowName}>{c.name}</Text>
                 <Text style={styles.rowDial}>{c.dialCode}</Text>
@@ -86,7 +119,6 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.separator,
     minWidth: 128,
   },
-  flag: { fontSize: 20 },
   countryName: { fontSize: 13.5, fontFamily: Fonts.semibold, color: Colors.label },
   dialCode: { fontSize: 12, fontFamily: Fonts.regular, color: Colors.tertiaryLabel, marginTop: 1 },
   chevron: { fontSize: 11, color: Colors.tertiaryLabel, marginLeft: -1 },
@@ -98,7 +130,6 @@ const styles = StyleSheet.create({
     paddingVertical: 12, paddingHorizontal: 12, borderRadius: 14,
   },
   rowSelected: { backgroundColor: Colors.brandLight },
-  rowFlag: { fontSize: 26 },
   rowName: { fontSize: 16, fontFamily: Fonts.semibold, color: Colors.label },
   rowDial: { fontSize: 13, color: Colors.secondaryLabel, fontFamily: Fonts.regular, marginTop: 1 },
   rowCheck: { fontSize: 18, color: Colors.brand, fontFamily: Fonts.bold },
