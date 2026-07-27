@@ -144,18 +144,26 @@ export function AdminMark({
 // Common props for every line icon.
 type IconProps = { size?: number; color?: string };
 
-// Shared stroke attributes — the brand-kit system (1.9, round, no fill).
-const S = { strokeWidth: 1.55, strokeLinecap: 'round', strokeLinejoin: 'round', fill: 'none' } as const;
+// Shared stroke system — matches TabIcons/BeautyIcons exactly so the three
+// files render as ONE set. Was 1.55 (inherited from the CareNearby brand kit),
+// which read thinner and colder than the redrawn Glow icons next to it.
+const SW = 1.7;
+const SW_SOFT = 1.45;
+const S = { strokeWidth: SW, strokeLinecap: 'round', strokeLinejoin: 'round', fill: 'none' } as const;
 
-/** FindJobsIcon — briefcase + magnifier (i-findjobs). */
+/**
+ * FindJobsIcon — kit bag + lens. Bag now uses the same squircle + rounded
+ * handle as BriefcaseIcon, and the lens/handle angle matches SearchIcon, so
+ * this composite reads as two Glow glyphs rather than a third variant of each.
+ */
 export function FindJobsIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x={2.5} y={7.5} width={12} height={9} rx={1.9} stroke={color} {...S} />
-      <Path d="M5.8 7.5V6.4A1.4 1.4 0 0 1 7.2 5h2.6A1.4 1.4 0 0 1 11.2 6.4V7.5" stroke={color} {...S} />
-      <Path d="M2.5 11h12" stroke={color} {...S} />
-      <Circle cx={17.3} cy={16.3} r={3.1} stroke={color} {...S} />
-      <Path d="m19.6 18.6 2.2 2.2" stroke={color} {...S} />
+      <Rect x={2.5} y={7.4} width={12.2} height={9.2} rx={3.2} stroke={color} {...S} />
+      <Path d="M5.9 7.4V6.5A1.7 1.7 0 0 1 7.6 4.8h2A1.7 1.7 0 0 1 11.3 6.5v.9" stroke={color} {...S} />
+      <Path d="M2.5 11.1h12.2" stroke={color} {...S} opacity={0.55} />
+      <Circle cx={17.2} cy={16.2} r={3.2} stroke={color} {...S} />
+      <Path d="m19.5 18.5 2.3 2.3" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -164,54 +172,73 @@ export function FindJobsIcon({ size = 24, color = Colors.brand }: IconProps) {
 export function EarningsIcon({ size = 24, color = Colors.brand }: IconProps) {
   // Single clean coin with a $ — reads clearly at 24-26px (the prior two-coin
   // glyph had an incomplete second circle that looked like a stray squiggle).
+  // Ring radius aligned to ClockIcon/ProfileIcon so circular glyphs match.
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx={12} cy={12} r={8.2} stroke={color} {...S} />
-      <Path d="M12 7v10" stroke={color} {...S} />
+      <Circle cx={12} cy={12} r={8.6} stroke={color} {...S} />
+      <Path d="M12 6.9v10.2" stroke={color} {...S} />
       <Path d="M14.7 9.3c-.6-1-1.7-1.4-2.8-1.4-1.5 0-2.7.8-2.7 2.1 0 1.2 1 1.7 2.7 2.1 1.7.4 2.9.9 2.9 2.2 0 1.3-1.2 2.2-2.9 2.2-1.2 0-2.3-.5-2.9-1.5" stroke={color} {...S} />
     </Svg>
   );
 }
 
-/** ProfileIcon — person in a circle (i-account-circle). */
+/**
+ * ProfileIcon — the CUSTOMER tab bar's Profile glyph, so it matters as much as
+ * anything in TabIcons. Same head/shoulder proportions as PersonIcon there
+ * (smaller, higher head; wide low cradle) enclosed in a ring — the two Profile
+ * glyphs across the two tab bars now read as the same drawing.
+ */
 export function ProfileIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx={12} cy={12} r={9} stroke={color} {...S} />
-      <Circle cx={12} cy={9.8} r={2.8} stroke={color} {...S} />
-      <Path d="M6.7 18.6a5.5 5.5 0 0 1 10.6 0" stroke={color} {...S} />
+      <Circle cx={12} cy={12} r={8.8} stroke={color} {...S} />
+      <Circle cx={12} cy={9.9} r={2.85} stroke={color} {...S} />
+      <Path d="M6.6 18.8a5.7 5.7 0 0 1 10.8 0" stroke={color} {...S} />
     </Svg>
   );
 }
 
-/** HelpIcon — lifebuoy (i-lifebuoy). */
+/**
+ * HelpIcon — support. Ring radius aligned to the circular-glyph family
+ * (Clock/Profile/Earnings/Locate at r 8.6) with softer, shorter spokes.
+ */
 export function HelpIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx={12} cy={12} r={8.2} stroke={color} {...S} />
-      <Circle cx={12} cy={12} r={3.2} stroke={color} {...S} />
-      <Path d="M6.3 6.3l3.4 3.4M17.7 6.3l-3.4 3.4M6.3 17.7l3.4-3.4M17.7 17.7l-3.4-3.4" stroke={color} {...S} />
+      <Circle cx={12} cy={12} r={8.6} stroke={color} {...S} />
+      <Circle cx={12} cy={12} r={3.4} stroke={color} {...S} />
+      <Path d="M6.4 6.4l3.2 3.2M17.6 6.4l-3.2 3.2M6.4 17.6l3.2-3.2M17.6 17.6l-3.2-3.2" stroke={color} {...S} opacity={0.75} />
     </Svg>
   );
 }
 
-/** BellIcon — notification bell (i-bell). */
+/**
+ * BellIcon — notifications (~24 call sites). Dome is now a true rounded bell
+ * with a flared, softly curved skirt instead of the flat-shouldered trapezoid,
+ * and the clapper is a bloom dot.
+ */
 export function BellIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M6.5 16v-5a5.5 5.5 0 0 1 11 0v5l1.7 2H4.8z" stroke={color} {...S} />
-      <Path d="M10 19.5a2 2 0 0 0 4 0" stroke={color} {...S} />
+      <Path d="M12 3.4a5.6 5.6 0 0 1 5.6 5.6v3.6c0 1.15.42 2.05 1.25 2.9a.85.85 0 0 1-.6 1.45H5.75a.85.85 0 0 1-.6-1.45c.83-.85 1.25-1.75 1.25-2.9V9A5.6 5.6 0 0 1 12 3.4z" stroke={color} {...S} />
+      <Path d="M10.1 19.6a2.1 2.1 0 0 0 3.8 0" stroke={color} {...S} />
     </Svg>
   );
 }
 
-/** NoteIcon — clipboard (i-clipboard). */
+/**
+ * NoteIcon — bookings/notes (~31 call sites). Squircle board (rx 4) matching
+ * BriefcaseIcon and CalendarIcon, fully rounded clip, and bloom-dot bullets
+ * leading the rules.
+ */
 export function NoteIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M8 5H6.5a1.5 1.5 0 0 0-1.5 1.5V19a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 19V6.5A1.5 1.5 0 0 0 17.5 5H16" stroke={color} {...S} />
-      <Rect x={8.5} y={3.3} width={7} height={3.4} rx={1.2} stroke={color} {...S} />
-      <Path d="M8.5 11h7M8.5 14.5h4.5" stroke={color} {...S} />
+      <Path d="M8.4 4.9H6.9a2.2 2.2 0 0 0-2.2 2.2v11.6a2.2 2.2 0 0 0 2.2 2.2h10.2a2.2 2.2 0 0 0 2.2-2.2V7.1a2.2 2.2 0 0 0-2.2-2.2h-1.5" stroke={color} {...S} />
+      <Rect x={8.4} y={3.2} width={7.2} height={3.5} rx={1.75} stroke={color} {...S} />
+      <Path d="M10.4 11.6h5.2M10.4 15.4h3.4" stroke={color} {...S} />
+      <Circle cx={8.3} cy={11.6} r={0.85} fill={color} />
+      <Circle cx={8.3} cy={15.4} r={0.85} fill={color} opacity={0.6} />
     </Svg>
   );
 }
@@ -235,43 +262,53 @@ export function PulseIcon({ size = 24, color = Colors.brand }: IconProps) {
   );
 }
 
-/** ShieldCheckIcon — verified seal (i-seal-check). */
+/**
+ * ShieldCheckIcon — the Glow Trust badge (~36 call sites: verified artists,
+ * trust cards, onboarding). Redrawn as a soft-shouldered shield that tapers to
+ * a rounded base, replacing the octagon "seal" which was the most
+ * stock-looking glyph in the set and read as a compliance stamp.
+ */
 export function ShieldCheckIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M8.6 3.5h6.8L20.5 8.6v6.8L15.4 20.5H8.6L3.5 15.4V8.6z" stroke={color} {...S} />
-      <Path d="M8.7 12l2.3 2.3L15.4 9.6" stroke={color} {...S} />
+      <Path d="M12 3.1c2 1.35 4.15 2.1 6.45 2.25a.9.9 0 0 1 .85.9v4.9c0 3.85-2.4 6.9-7.05 9.15a.6.6 0 0 1-.5 0C7.1 18.05 4.7 15 4.7 11.15v-4.9a.9.9 0 0 1 .85-.9C7.85 5.2 10 4.45 12 3.1z" stroke={color} {...S} />
+      <Path d="M9.1 11.9l2.05 2.05 3.75-3.95" stroke={color} {...S} />
     </Svg>
   );
 }
 
-/** PinIcon — location pin (i-pin). */
+/**
+ * PinIcon — the app's most-used location glyph (~26 call sites). Path is now
+ * IDENTICAL to LocationIcon/LocationPinIcon in TabIcons: previously the two
+ * pins were subtly different shapes and both appeared on the Find Jobs screen.
+ */
 export function PinIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M12 21c4-3.8 6.5-7 6.5-10.5A6.5 6.5 0 0 0 5.5 10.5C5.5 14 8 17.2 12 21z" stroke={color} {...S} />
-      <Circle cx={12} cy={10.3} r={2.4} stroke={color} {...S} />
+      <Path d="M12 21.4c-4.3-4.9-6.6-8.4-6.6-11.3A6.6 6.6 0 0 1 18.6 10.1c0 2.9-2.3 6.4-6.6 11.3z" stroke={color} {...S} />
+      <Circle cx={12} cy={9.9} r={2.5} stroke={color} {...S} />
     </Svg>
   );
 }
 
-/** CreditCardIcon — payment card (i-card). */
+/** CreditCardIcon — payment card. Squircle body (rx 4) to match CashIcon. */
 export function CreditCardIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x={3} y={5.5} width={18} height={13} rx={2.5} stroke={color} {...S} />
-      <Path d="M3 10h18M6.5 14.5h3" stroke={color} {...S} />
+      <Rect x={2.6} y={5.4} width={18.8} height={13.2} rx={4} stroke={color} {...S} />
+      <Path d="M2.6 10.1h18.8" stroke={color} {...S} />
+      <Path d="M6.4 14.7h3.2" stroke={color} {...S} opacity={0.6} />
     </Svg>
   );
 }
 
-/** AccountCheckIcon — verified person (i-user-check). */
+/** AccountCheckIcon — verified person. Head/shoulder proportions match PersonIcon. */
 export function AccountCheckIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx={10.5} cy={8.2} r={3.6} stroke={color} {...S} />
-      <Path d="M4.8 19.5a6 6 0 0 1 10.6-3.8" stroke={color} {...S} />
-      <Path d="M15.3 18.8l2 2 3.4-3.7" stroke={color} {...S} />
+      <Circle cx={10.4} cy={8.1} r={3.6} stroke={color} {...S} />
+      <Path d="M4.6 19.6a6 6 0 0 1 10.5-3.9" stroke={color} {...S} />
+      <Path d="M15.2 18.7l1.95 1.95 3.45-3.75" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -287,76 +324,83 @@ export function MedicalBagIcon({ size = 24, color = Colors.brand }: IconProps) {
   );
 }
 
-/** CheckDecagramIcon — verified seal (i-seal-check). */
+/**
+ * CheckDecagramIcon — verified seal. Now a scalloped bloom rosette (eight soft
+ * lobes) rather than a duplicate of ShieldCheckIcon's path: the two were
+ * pixel-identical before, so "verified" and "trust" looked like the same badge.
+ * The scallop echoes the mark's petals.
+ */
 export function CheckDecagramIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M8.6 3.5h6.8L20.5 8.6v6.8L15.4 20.5H8.6L3.5 15.4V8.6z" stroke={color} {...S} />
-      <Path d="M8.7 12l2.3 2.3L15.4 9.6" stroke={color} {...S} />
+      <Path d="M12 3.1c1.05 0 2 .58 2.5 1.44a2.9 2.9 0 0 1 3.82 3.82 2.9 2.9 0 0 1 0 5.28 2.9 2.9 0 0 1-3.82 3.82 2.9 2.9 0 0 1-5 0 2.9 2.9 0 0 1-3.82-3.82 2.9 2.9 0 0 1 0-5.28A2.9 2.9 0 0 1 9.5 4.54 2.9 2.9 0 0 1 12 3.1z"
+        stroke={color} {...S} />
+      <Path d="M9.3 12.05l1.95 1.95 3.6-3.8" stroke={color} {...S} />
     </Svg>
   );
 }
 
-/** EmailIcon — envelope (i-mail). */
+/** EmailIcon — envelope. Squircle body + a softly curved flap. */
 export function EmailIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x={3} y={5.5} width={18} height={13} rx={2.5} stroke={color} {...S} />
-      <Path d="M4 7.5l8 5.5 8-5.5" stroke={color} {...S} />
+      <Rect x={2.6} y={5.4} width={18.8} height={13.2} rx={4} stroke={color} {...S} />
+      <Path d="M4.2 8.2l6.6 4.5a2.1 2.1 0 0 0 2.4 0l6.6-4.5" stroke={color} {...S} />
     </Svg>
   );
 }
 
-/** MonitorDashboardIcon — dashboard screen (i-dashboard). */
+/** MonitorDashboardIcon — admin dashboard tab. Squircle screen + soft bars. */
 export function MonitorDashboardIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x={2.5} y={5} width={19} height={11} rx={2} stroke={color} {...S} />
-      <Path d="M9.5 20h5M12 16v4" stroke={color} {...S} />
-      <Path d="M6.5 12.5v-2M10 12.5v-4M13.5 12.5v-1.5M17 12.5v-3.5" stroke={color} {...S} />
+      <Rect x={2.5} y={4.6} width={19} height={11.6} rx={3.6} stroke={color} {...S} />
+      <Path d="M9.6 20.2h4.8M12 16.2v4" stroke={color} {...S} />
+      <Path d="M6.8 12.6v-1.8M10.3 12.6v-3.8M13.8 12.6v-1.4M17.3 12.6v-3.3" stroke={color} {...S} opacity={0.8} />
     </Svg>
   );
 }
 
-/** ChartBoxIcon — bar chart in box (i-chart). */
+/** ChartBoxIcon — stats. Squircle frame (rx 4.5) + round-capped bars. */
 export function ChartBoxIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x={3.5} y={3.5} width={17} height={17} rx={3.5} stroke={color} {...S} />
-      <Path d="M8 16v-3M12 16v-6M16 16v-4" stroke={color} {...S} />
+      <Rect x={3.4} y={3.4} width={17.2} height={17.2} rx={4.5} stroke={color} {...S} />
+      <Path d="M8.2 16.2v-2.8M12 16.2v-5.8M15.8 16.2v-3.8" stroke={color} {...S} />
     </Svg>
   );
 }
 
-/** PhoneCheckIcon — phone + check (i-phone-check). */
+/** PhoneCheckIcon — verified phone. Handset matches CallIcon's silhouette. */
 export function PhoneCheckIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M5 4.4 7.2 4.9l1 3.3-1.7 1.5a10 10 0 0 0 4.5 4.5l1.5-1.7 3.3 1 .4 2.2a1.7 1.7 0 0 1-1.8 1.9A14 14 0 0 1 3.4 5.9 1.7 1.7 0 0 1 5 4.4z" stroke={color} {...S} />
-      <Path d="M15 6.5l1.7 1.7L20 4.9" stroke={color} {...S} />
+      <Path d="M4.9 4.3h2.6a1.1 1.1 0 0 1 1.08.92c.09.63.24 1.24.45 1.83a1.1 1.1 0 0 1-.28 1.15L7.5 9.45a12.6 12.6 0 0 0 5.1 5.1l1.25-1.25a1.1 1.1 0 0 1 1.15-.28c.59.21 1.2.36 1.83.45a1.1 1.1 0 0 1 .92 1.1v2.53a1.7 1.7 0 0 1-1.85 1.7C9.4 18.2 3.9 12.7 3.2 6.15A1.7 1.7 0 0 1 4.9 4.3z" stroke={color} {...S} />
+      <Path d="M15.1 6.6l1.65 1.65L20.1 4.9" stroke={color} {...S} />
     </Svg>
   );
 }
 
-/** CardAccountDetailsIcon — ID card (i-idcard). */
+/** CardAccountDetailsIcon — ID card. Squircle body matching the card family. */
 export function CardAccountDetailsIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x={3} y={5} width={18} height={14} rx={2.5} stroke={color} {...S} />
-      <Circle cx={8.5} cy={10.5} r={2} stroke={color} {...S} />
-      <Path d="M5.5 15.8a3 3 0 0 1 6 0M14.5 9.5h4M14.5 12.5h4M14.5 15.5h2.5" stroke={color} {...S} />
+      <Rect x={2.6} y={4.9} width={18.8} height={14.2} rx={4} stroke={color} {...S} />
+      <Circle cx={8.6} cy={10.6} r={2.1} stroke={color} {...S} />
+      <Path d="M5.5 16a3.2 3.2 0 0 1 6.2 0" stroke={color} {...S} />
+      <Path d="M14.8 9.7h3.8M14.8 12.6h3.8M14.8 15.5h2.4" stroke={color} {...S} opacity={0.65} />
     </Svg>
   );
 }
 
-/** BriefcaseAccountIcon — briefcase + person (i-briefcase). */
+/** BriefcaseAccountIcon — work profile. Squircle bag matching BriefcaseIcon. */
 export function BriefcaseAccountIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x={3} y={8} width={18} height={11.5} rx={2} stroke={color} {...S} />
-      <Path d="M9 8V6.7A1.7 1.7 0 0 1 10.7 5h2.6A1.7 1.7 0 0 1 15 6.7V8" stroke={color} {...S} />
-      <Circle cx={12} cy={12.5} r={1.8} stroke={color} {...S} />
-      <Path d="M9 17.2a3 3 0 0 1 6 0" stroke={color} {...S} />
+      <Rect x={2.9} y={7.6} width={18.2} height={12} rx={4} stroke={color} {...S} />
+      <Path d="M8.9 7.6V6.6A2 2 0 0 1 10.9 4.6h2.2a2 2 0 0 1 2 2v1" stroke={color} {...S} />
+      <Circle cx={12} cy={12.4} r={1.9} stroke={color} {...S} />
+      <Path d="M9 17.4a3.1 3.1 0 0 1 6 0" stroke={color} {...S} />
     </Svg>
   );
 }
@@ -365,13 +409,23 @@ export function BriefcaseAccountIcon({ size = 24, color = Colors.brand }: IconPr
 // 3. SERVICE ICONS  (24 × 24) — matched family, i-svc-* from the brand kit.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** PersonalCareIcon — person + heart (i-svc-personal). */
+/**
+ * PersonalCareIcon — the FALLBACK icon for any service with no specific glyph
+ * (see ServiceIcon.tsx), so it is far more visible than its single import
+ * suggests. Redrawn as a four-petal bloom + core: an unmapped service now
+ * falls back to the brand mark itself rather than a person-with-heart, which
+ * read as a CareNearby caregiving glyph.
+ */
 export function PersonalCareIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx={9.5} cy={8} r={3} stroke={color} {...S} />
-      <Path d="M4 19.2a5.5 5.5 0 0 1 11 0" stroke={color} {...S} />
-      <Path d="M18 4.4c-.3-.5-.8-.8-1.4-.8-.85 0-1.5.65-1.5 1.5 0 1.05 1.35 1.9 2.9 3.1 1.55-1.2 2.9-2.05 2.9-3.1 0-.85-.65-1.5-1.5-1.5-.6 0-1.1.3-1.4.8z" stroke={color} {...S} />
+      <G stroke={color} {...S}>
+        <Path d="M12 3.4c1.6 1.6 2.35 3.1 2.35 4.6S13.4 10.5 12 10.5s-2.35-1-2.35-2.5S10.4 5 12 3.4z" />
+        <Path d="M20.6 12c-1.6 1.6-3.1 2.35-4.6 2.35S13.5 13.4 13.5 12s1-2.35 2.5-2.35S19 10.4 20.6 12z" />
+        <Path d="M12 20.6c-1.6-1.6-2.35-3.1-2.35-4.6s1-2.5 2.35-2.5 2.35 1 2.35 2.5-.75 3-2.35 4.6z" />
+        <Path d="M3.4 12c1.6-1.6 3.1-2.35 4.6-2.35s2.5 1 2.5 2.35-1 2.35-2.5 2.35S5 13.6 3.4 12z" />
+      </G>
+      <Circle cx={12} cy={12} r={1.1} fill={color} />
     </Svg>
   );
 }
@@ -446,33 +500,43 @@ export function PostSurgeryIcon({ size = 24, color = Colors.brand }: IconProps) 
 // 4. PROFILE / INFO-ROW UTILITY ICONS  (24 × 24)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/** PhoneMobileIcon — mobile phone (i-mobile). */
+/** PhoneMobileIcon — handset. Rounder chassis (rx 4) + bloom-dot home mark. */
 export function PhoneMobileIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Rect x={6} y={3} width={12} height={18} rx={2.5} stroke={color} {...S} />
-      <Path d="M10.5 5.5h3M12 18h.01" stroke={color} {...S} />
+      <Rect x={5.9} y={2.9} width={12.2} height={18.2} rx={4} stroke={color} {...S} />
+      <Path d="M10.6 5.9h2.8" stroke={color} {...S} opacity={0.7} />
+      <Circle cx={12} cy={17.9} r={0.95} fill={color} />
     </Svg>
   );
 }
 
-/** KeyIcon — key (i-key). */
+/**
+ * KeyIcon — account/security rows (~6 call sites). Bow is a ring with a bloom
+ * core; the shaft runs on the same 45deg diagonal as the search handles.
+ */
 export function KeyIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx={8} cy={8} r={3.6} stroke={color} {...S} />
-      <Path d="M10.6 10.6 20 20M16.5 16.5l2-2M14 14l1.6-1.6" stroke={color} {...S} />
+      <Circle cx={8.3} cy={8.3} r={3.8} stroke={color} {...S} />
+      <Path d="M11 11l8.6 8.6M16.6 16.6l1.9-1.9M14.1 14.1l1.6-1.6" stroke={color} {...S} />
+      <Circle cx={8.3} cy={8.3} r={1.15} fill={color} />
     </Svg>
   );
 }
 
-/** MedalIcon — medal (i-medal). */
+/**
+ * MedalIcon — artist credentials/experience. The inner star is replaced by a
+ * bloom core-and-ring (the tiny 5-point star turned to mush below ~18px, which
+ * is the size it's actually rendered at in profile rows).
+ */
 export function MedalIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx={12} cy={14.5} r={5} stroke={color} {...S} />
-      <Path d="M9 10 6.5 3.5M15 10l2.5-6.5M9.5 4h5" stroke={color} {...S} />
-      <Path d="M12 12.3l.8 1.6 1.7.2-1.3 1.2.4 1.7-1.6-.9-1.6.9.4-1.7-1.3-1.2 1.7-.2z" stroke={color} {...S} />
+      <Circle cx={12} cy={14.6} r={5.1} stroke={color} {...S} />
+      <Path d="M9 10.2 6.5 3.6M15 10.2l2.5-6.6M9.5 4.1h5" stroke={color} {...S} />
+      <Circle cx={12} cy={14.6} r={2.1} stroke={color} strokeWidth={SW_SOFT} fill="none" opacity={0.6} />
+      <Circle cx={12} cy={14.6} r={0.95} fill={color} />
     </Svg>
   );
 }
@@ -487,22 +551,30 @@ export function TranslateIcon({ size = 24, color = Colors.brand }: IconProps) {
   );
 }
 
-/** ClockIcon — clock (i-clock). */
+/**
+ * ClockIcon — durations/timing (~23 call sites). Dial matches LocateIcon and
+ * ProfileIcon's ring radius so all three circular glyphs share one footprint;
+ * hands pivot on a bloom dot.
+ */
 export function ClockIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Circle cx={12} cy={12} r={8.2} stroke={color} {...S} />
-      <Path d="M12 7.4V12l3.4 2.2" stroke={color} {...S} />
+      <Circle cx={12} cy={12} r={8.6} stroke={color} {...S} />
+      <Path d="M12 7.5V12l3.2 2.1" stroke={color} {...S} />
+      <Circle cx={12} cy={12} r={0.9} fill={color} />
     </Svg>
   );
 }
 
-/** PackageIcon — package box (i-package). */
+/**
+ * PackageIcon — service packages on artist profiles. Corners of the box are
+ * eased so the silhouette has the set's rounded feel at small sizes.
+ */
 export function PackageIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <Path d="M12 3 20.5 7.5v9L12 21 3.5 16.5v-9z" stroke={color} {...S} />
-      <Path d="M3.7 7.7 12 12l8.3-4.3M12 12v9M7.8 5.2 16.2 9.6" stroke={color} {...S} />
+      <Path d="M11 3.35a2 2 0 0 1 2 0l6.5 3.5a2 2 0 0 1 1 1.75v6.8a2 2 0 0 1-1 1.75L13 20.65a2 2 0 0 1-2 0l-6.5-3.5a2 2 0 0 1-1-1.75V8.6a2 2 0 0 1 1-1.75z" stroke={color} {...S} />
+      <Path d="M3.8 7.8 12 12.1l8.2-4.3M12 12.1v8.6" stroke={color} {...S} opacity={0.7} />
     </Svg>
   );
 }
