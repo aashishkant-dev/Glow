@@ -43,7 +43,10 @@ export function CountryPicker({ value, onChange, disabled }: CountryPickerProps)
         disabled={disabled}
       >
         <Text style={styles.flag}>{value.flag}</Text>
-        <Text style={styles.dialCode}>{value.dialCode}</Text>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.countryName} numberOfLines={1}>{value.name}</Text>
+          <Text style={styles.dialCode}>{value.dialCode}</Text>
+        </View>
         <Text style={styles.chevron}>▾</Text>
       </Pressable>
 
@@ -77,13 +80,15 @@ export function CountryPicker({ value, onChange, disabled }: CountryPickerProps)
 
 const styles = StyleSheet.create({
   badge: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
+    flexDirection: 'row', alignItems: 'center', gap: 8,
     backgroundColor: Colors.systemGroupedBackground, borderRadius: 16,
-    paddingHorizontal: 12,
+    paddingHorizontal: 12, paddingVertical: 8,
     borderWidth: 1, borderColor: Colors.separator,
+    minWidth: 128,
   },
-  flag: { fontSize: 18 },
-  dialCode: { fontSize: 16, fontFamily: Fonts.semibold, color: Colors.label },
+  flag: { fontSize: 20 },
+  countryName: { fontSize: 13.5, fontFamily: Fonts.semibold, color: Colors.label },
+  dialCode: { fontSize: 12, fontFamily: Fonts.regular, color: Colors.tertiaryLabel, marginTop: 1 },
   chevron: { fontSize: 11, color: Colors.tertiaryLabel, marginLeft: -1 },
 
   sheetBody: { paddingHorizontal: 20, paddingTop: 4, paddingBottom: 24, gap: 4 },

@@ -115,9 +115,9 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
               />
             </View>
             <Pressable
-              style={[styles.cta, phone.replace(/\D/g, '').length < 7 && styles.ctaDisabled]}
+              style={[styles.cta, phone.replace(/\D/g, '').length !== 10 && styles.ctaDisabled]}
               onPress={sendOtp}
-              disabled={loading || phone.replace(/\D/g, '').length < 7}
+              disabled={loading || phone.replace(/\D/g, '').length !== 10}
             >
               <Text style={styles.ctaText}>{loading ? 'Sending…' : 'Send code'}</Text>
             </Pressable>

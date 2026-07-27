@@ -144,8 +144,11 @@ export function PhoneScreen() {
     return `${country.dialCode}${d}`;
   }
 
+  // NANP (Canada) numbers are always exactly 10 digits; Nepal mobile numbers
+  // are also 10 digits (starting with 9). A loose ">= 7" check let obviously
+  // wrong numbers (e.g. 7 random digits) through to the OTP send call.
   function isPhoneValid() {
-    return phone.replace(/\D/g, '').length >= 7;
+    return phone.replace(/\D/g, '').length === 10;
   }
 
   function isFormValid() {
@@ -183,14 +186,18 @@ export function PhoneScreen() {
     setSendingOtp(false);
   }
 
-  // Step 2: verify the code and actually log in.
-  async function verifyOtp() {
-    if (otpCode.replace(/\D/g, '').length !== 6) return;
+  // Step 2: verify the code and actually log in. Takes the code explicitly
+  // (rather than reading `otpCode` state) so the auto-submit-on-6th-digit
+  // effect below can call this the instant the last digit lands, without
+  // waiting for a state update to flush first.
+  async function verifyOtp(codeOverride?: string) {
+    const code = codeOverride ?? otpCode;
+    if (code.replace(/\D/g, '').length !== 6) return;
     setLoading(true);
     try {
       const { token, user } = await apiLogin({
         phone: otpPhone,
-        otp:   otpCode.trim(),
+        otp:   code.trim(),
         name:  isNewUser ? name.trim() : undefined,
         role:  isNewUser ? pendingRoleRef.current : undefined,
       });
@@ -469,29 +476,27 @@ export function PhoneScreen() {
                       <TextInput
                         style={[styles.textInput, styles.otpInput]}
                         value={otpCode}
-                        onChangeText={v => setOtpCode(v.replace(/\D/g, '').slice(0, 6))}
+                        onChangeText={v => {
+                          const clean = v.replace(/\D/g, '').slice(0, 6);
+                          setOtpCode(clean);
+                          if (clean.length === 6) verifyOtp(clean);
+                        }}
                         placeholder="123456"
                         placeholderTextColor={Colors.tertiaryLabel}
                         keyboardType="number-pad"
                         maxLength={6}
                         autoFocus
+                        editable={!loading}
+                        textContentType="oneTimeCode"
+                        autoComplete={Platform.OS === 'android' ? 'sms-otp' : 'one-time-code'}
                         returnKeyType="done"
-                        onSubmitEditing={verifyOtp}
+                        onSubmitEditing={() => verifyOtp()}
                       />
                     </View>
 
-                    <Animated.View style={{ transform: [{ scale: ctaScale }] }}>
-                      <Pressable
-                        style={[styles.ctaBtn, otpCode.length !== 6 && styles.ctaBtnDisabled]}
-                        onPress={verifyOtp}
-                        onPressIn={() => pressCta(true)}
-                        onPressOut={() => pressCta(false)}
-                        disabled={otpCode.length !== 6 || loading}
-                      >
-                        <Text style={styles.ctaBtnText}>{loading ? 'Verifying…' : 'Verify & continue'}</Text>
-                        {!loading && <Text style={styles.ctaArrowText}>→</Text>}
-                      </Pressable>
-                    </Animated.View>
+                    {loading && (
+                      <Text style={[styles.disclaimer, { marginTop: 4 }]}>Verifying…</Text>
+                    )}
 
                     <Pressable
                       style={{ marginTop: 16, alignItems: 'center' }}
