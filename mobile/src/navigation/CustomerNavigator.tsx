@@ -3,6 +3,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import React, { useEffect, useRef } from 'react';
 import { addTapListener } from '../utils/notifications';
 import { Platform, StyleSheet, View } from 'react-native';
+import { Image } from 'expo-image';
 import { BlurView } from 'expo-blur';
 import { useAuth } from '../context/AuthContext';
 import { BookingDetailScreen } from '../screens/customer/BookingDetailScreen';
@@ -22,6 +23,27 @@ import { Booking } from '../api/client';
 import { joinUserRoom } from '../utils/socket';
 import { HomeIcon, CompassIcon, HeartIcon } from '../components/TabIcons';
 import { ProfileIcon } from '../components/CareIcons';
+
+// Profile tab shows the customer's own uploaded photo instead of a generic
+// person glyph, once they have one — same treatment as the Provider tab bar.
+function ProfileTabAvatar({ photoUrl, color, focused }: { photoUrl?: string | null; color: string; focused: boolean }) {
+  if (!photoUrl) return <ProfileIcon size={24} color={color} />;
+  return (
+    <Image
+      source={{ uri: photoUrl }}
+      style={[tabAvatarStyles.avatar, focused && tabAvatarStyles.avatarFocused]}
+      contentFit="cover"
+    />
+  );
+}
+
+const tabAvatarStyles = StyleSheet.create({
+  avatar: {
+    width: 24, height: 24, borderRadius: 12,
+    borderWidth: 1.5, borderColor: 'transparent',
+  },
+  avatarFocused: { borderColor: Colors.brand },
+});
 
 export type CustomerStackParams = {
   Home: undefined;
@@ -109,6 +131,7 @@ function GlassTabBarBackground() {
 }
 
 function HomeTabs() {
+  const { user } = useAuth();
   return (
     // `overflow: hidden` gives RN Web a clipping ancestor so horizontal rows
     // scroll instead of bleeding past the viewport. The floating tab bar is
@@ -189,7 +212,7 @@ function HomeTabs() {
         options={{
           tabBarLabel: 'Profile',
           tabBarIcon: ({ focused }) => (
-            <ProfileIcon size={24} color={focused ? ACTIVE : INACTIVE} />
+            <ProfileTabAvatar photoUrl={user?.photoUrl} color={focused ? ACTIVE : INACTIVE} focused={focused} />
           ),
         }}
       />

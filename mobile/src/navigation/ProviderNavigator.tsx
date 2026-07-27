@@ -3,6 +3,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { addTapListener, scheduleLocal } from '../utils/notifications';
 import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
 import { BlurView } from 'expo-blur';
 import { useAuth } from '../context/AuthContext';
 import { useChatUnread } from '../context/ChatUnreadContext';
@@ -27,6 +28,29 @@ import { getSocket, joinBookingRoom, joinUserRoom } from '../utils/socket';
 import { HomeIcon, SearchJobsIcon, CalendarIcon, PersonIcon } from '../components/TabIcons';
 import { useNavigation } from '@react-navigation/native';
 import { DEFAULT_REGION_NAME } from '../utils/region';
+
+// Profile tab shows the artist's own uploaded photo instead of a generic
+// person glyph, once they have one — matches how every competitor app (and
+// the OS itself) treats a "you" tab. Falls back to PersonIcon for accounts
+// that haven't uploaded a photo yet.
+function ProfileTabAvatar({ photoUrl, color, focused }: { photoUrl?: string | null; color: string; focused: boolean }) {
+  if (!photoUrl) return <PersonIcon size={24} color={color} />;
+  return (
+    <Image
+      source={{ uri: photoUrl }}
+      style={[tabAvatarStyles.avatar, focused && tabAvatarStyles.avatarFocused]}
+      contentFit="cover"
+    />
+  );
+}
+
+const tabAvatarStyles = StyleSheet.create({
+  avatar: {
+    width: 24, height: 24, borderRadius: 12,
+    borderWidth: 1.5, borderColor: 'transparent',
+  },
+  avatarFocused: { borderColor: Colors.brand },
+});
 
 export type PROVIDERStackParams = {
   ProviderHome: undefined;
@@ -240,7 +264,7 @@ function ProviderJobNotifier() {
 
 function ProviderTabs() {
   const { count: unreadCount, clear: clearUnread } = useChatUnread();
-  const { token } = useAuth();
+  const { token, user } = useAuth();
   const [hasActiveJob, setHasActiveJob] = useState(false);
   const [nearbyBadge, setNearbyBadge] = useState(0);
   const [reqBadge, setReqBadge] = useState(0);
@@ -437,7 +461,7 @@ function ProviderTabs() {
           name="ProfileTab"
           component={ProfileScreen}
           options={{
-            tabBarIcon: ({ color }) => <PersonIcon size={24} color={color} />,
+            tabBarIcon: ({ color, focused }) => <ProfileTabAvatar photoUrl={user?.photoUrl} color={color} focused={focused} />,
             tabBarLabel: 'Profile',
           }}
         />
