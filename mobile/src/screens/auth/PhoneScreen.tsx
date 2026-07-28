@@ -24,7 +24,7 @@ import { MirrorIcon, CrownIcon } from '../../components/BeautyIcons';
 import { apiLogin, apiGoogleSignIn, apiAppleSignIn, apiSendLoginOtp } from '../../api/client';
 import { Colors, Fonts } from '../../utils/colors';
 import { GlowLogo, GlowMark, GlowTagline } from '../../components/GlowLogo';
-import { CountryPicker, COUNTRIES, Country } from '../../components/CountryPicker';
+import { CountryPicker, Country } from '../../components/CountryPicker';
 import { DEFAULT_REGION_NAME } from '../../utils/region';
 import { useAuth } from '../../context/AuthContext';
 
@@ -68,7 +68,7 @@ export function PhoneScreen() {
   const insets = useSafeAreaInsets();
   const [isNewUser, setIsNewUser] = useState(true);
   const [name,    setName]    = useState('');
-  const [country, setCountry] = useState<Country>(COUNTRIES[0]);
+  const [country, setCountry] = useState<Country | null>(null);
   const [phone,   setPhone]   = useState('');
   const [role,    setRole]    = useState<Role>('CUSTOMER');
   const [loading, setLoading] = useState(false);
@@ -130,7 +130,7 @@ export function PhoneScreen() {
   // match that shape, so only Canada gets the auto-dash formatting.
   function formatPhone(raw: string) {
     const d = raw.replace(/\D/g, '');
-    if (country.code !== 'CA') return d;
+    if (country?.code !== 'CA') return d;
     if (d.length <= 3) return d;
     if (d.length <= 6) return `${d.slice(0, 3)}-${d.slice(3)}`;
     return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6, 10)}`;
@@ -151,7 +151,7 @@ export function PhoneScreen() {
 
   function getE164() {
     const d = phone.replace(/\D/g, '');
-    return `${country.dialCode}${d}`;
+    return `${country?.dialCode ?? ''}${d}`;
   }
 
   // NANP (Canada) numbers are always exactly 10 digits; Nepal mobile numbers
@@ -162,6 +162,7 @@ export function PhoneScreen() {
   }
 
   function isFormValid() {
+    if (!country) return false;
     if (!isPhoneValid()) return false;
     if (isNewUser && name.trim().length < 2) return false;
     if (isNewUser && !ageConfirmed) return false;
@@ -448,10 +449,11 @@ export function PhoneScreen() {
                           value={phone}
                           onChangeText={handlePhoneChange}
                           onBlur={() => setPhone(formatPhone(phone))}
-                          placeholder={country.code === 'CA' ? '705-555-0100' : '98XXXXXXXX'}
+                          placeholder={!country ? 'Select country first' : country.code === 'CA' ? '705-555-0100' : '98XXXXXXXX'}
                           placeholderTextColor={Colors.tertiaryLabel}
                           keyboardType="phone-pad"
                           maxLength={12}
+                          editable={!!country}
                           returnKeyType="done"
                           onSubmitEditing={() => requestOtp(role)}
                         />
@@ -529,7 +531,7 @@ export function PhoneScreen() {
 
                     <View style={styles.inputGroup}>
                       <Text style={styles.inputLabel}>Enter the 6-digit code</Text>
-                      <Text style={styles.otpSentTo}>Sent to {country.dialCode} {phone}</Text>
+                      <Text style={styles.otpSentTo}>Sent to {country?.dialCode} {phone}</Text>
                       <TextInput
                         style={[styles.textInput, styles.otpInput]}
                         value={otpCode}
@@ -629,8 +631,8 @@ const styles = StyleSheet.create({
   otpSentTo: { fontSize: 12.5, color: Colors.tertiaryLabel, marginTop: -4, marginBottom: 10, fontFamily: Fonts.regular },
   otpInput: { fontSize: 22, letterSpacing: 6, textAlign: 'center', fontFamily: Fonts.semibold },
 
-  phoneRow: { flexDirection: 'row', gap: 8, alignItems: 'stretch' },
-  phoneInput: { flex: 1, fontSize: 16, letterSpacing: 0.4 },
+  phoneRow: { flexDirection: 'row', gap: 8, alignItems: 'stretch', minWidth: 0 },
+  phoneInput: { flex: 1, minWidth: 0, fontSize: 16, letterSpacing: 0.4 },
 
   roleRow: { flexDirection: 'row', gap: 10 },
   roleCard: {

@@ -76,7 +76,7 @@ function CountryFlag({ code, size = 20 }: { code: Country['code']; size?: number
 }
 
 interface CountryPickerProps {
-  value: Country;
+  value: Country | null;
   onChange: (country: Country) => void;
   disabled?: boolean;
 }
@@ -91,11 +91,19 @@ export function CountryPicker({ value, onChange, disabled }: CountryPickerProps)
         onPress={() => { if (!disabled) { if (Platform.OS !== 'web') Haptics.selectionAsync(); setOpen(true); } }}
         disabled={disabled}
       >
-        <CountryFlag code={value.code} size={20} />
-        <View style={{ flex: 1 }}>
-          <Text style={styles.countryName} numberOfLines={1}>{value.name}</Text>
-          <Text style={styles.dialCode}>{value.dialCode}</Text>
-        </View>
+        {value ? (
+          <>
+            <CountryFlag code={value.code} size={20} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.countryName} numberOfLines={1}>{value.name}</Text>
+              <Text style={styles.dialCode}>{value.dialCode}</Text>
+            </View>
+          </>
+        ) : (
+          <View style={{ flex: 1 }}>
+            <Text style={styles.countryName} numberOfLines={1}>Select country</Text>
+          </View>
+        )}
         <Text style={styles.chevron}>▾</Text>
       </Pressable>
 
@@ -105,7 +113,7 @@ export function CountryPicker({ value, onChange, disabled }: CountryPickerProps)
           {COUNTRIES.map(c => (
             <Pressable
               key={c.code}
-              style={[styles.row, value.code === c.code && styles.rowSelected]}
+              style={[styles.row, value?.code === c.code && styles.rowSelected]}
               onPress={() => {
                 if (Platform.OS !== 'web') Haptics.selectionAsync();
                 onChange(c);
@@ -117,7 +125,7 @@ export function CountryPicker({ value, onChange, disabled }: CountryPickerProps)
                 <Text style={styles.rowName}>{c.name}</Text>
                 <Text style={styles.rowDial}>{c.dialCode}</Text>
               </View>
-              {value.code === c.code && <Text style={styles.rowCheck}>✓</Text>}
+              {value?.code === c.code && <Text style={styles.rowCheck}>✓</Text>}
             </Pressable>
           ))}
           <Text style={styles.moreNote}>More countries coming soon.</Text>
@@ -133,7 +141,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.systemGroupedBackground, borderRadius: 16,
     paddingHorizontal: 12, paddingVertical: 8,
     borderWidth: 1, borderColor: Colors.separator,
-    minWidth: 128,
+    minWidth: 100, maxWidth: 128, flexShrink: 0,
   },
   countryName: { fontSize: 13.5, fontFamily: Fonts.semibold, color: Colors.label },
   dialCode: { fontSize: 12, fontFamily: Fonts.regular, color: Colors.tertiaryLabel, marginTop: 1 },
