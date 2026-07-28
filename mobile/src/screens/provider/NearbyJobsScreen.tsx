@@ -22,11 +22,11 @@ import { LocationBanner } from '../../components/LocationBanner';
 import { JobCardSkeleton } from '../../components/SkeletonLoader';
 import { useLocation, useCoordsOrFallback } from '../../context/LocationContext';
 import { useAuth } from '../../context/AuthContext';
-import { Colors } from '../../utils/colors';
+import { Colors, Fonts } from '../../utils/colors';
 import { ServiceIcon } from '../../components/ServiceIcon';
 import { PulseIcon, PinIcon, MedalIcon, ProfileIcon, BellIcon, ShieldCheckIcon, ClockIcon } from '../../components/CareIcons';
 import { getDistanceKm } from '../../utils/distance';
-import { Radius, Spacing, Typography } from '../../utils/theme';
+import { Radius, Spacing } from '../../utils/theme';
 import { OSMMap, OSMMarker } from '../../components/OSMMap';
 import { DEFAULT_REGION, DEFAULT_REGION_NAME } from '../../utils/region';
 
@@ -1138,28 +1138,34 @@ export function NearbyJobsScreen() {
         </Animated.View>
       )}
 
-      {/* Header — one coherent control cluster: title + live-status chip share a row,
-          Map/List toggle sits opposite, tab bar anchors the bottom. The GPS badge is
-          folded into the title row as a small status chip rather than its own stacked
-          line, so the header reads as one unit instead of a pile of separate rows. */}
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+      {/* Header — editorial framing to match the Customer Explore screen: a warm
+          cream backdrop, an uppercase eyebrow label, and a large bold title with a
+          small accent icon, instead of a solid brand-colored dashboard bar. The
+          GPS status and Map/List toggle share the title row as light pill controls;
+          the New/Upcoming/Past tab bar anchors the bottom, styled like Explore's
+          white-pill tab toggle (active = solid dark fill). */}
+      <View style={[styles.header, { paddingTop: insets.top + 18 }]}>
+        <Text style={styles.eyebrow}>FIND WORK</Text>
         <View style={styles.headerRow}>
-          <View style={{ flex: 1, marginRight: 8 }}>
-            <Text style={styles.headerTitle} numberOfLines={1}>Fresh requests</Text>
-            <Pressable style={styles.gpsChip} onPress={requestLocation} hitSlop={4}>
-              <RadioOnIcon size={10} color={rawCoords ? '#34D399' : '#FCD34D'} />
-              <Text style={styles.gpsChipText} numberOfLines={1}>
-                {rawCoords ? 'Live GPS' : DEFAULT_REGION_NAME}
-              </Text>
-            </Pressable>
+          <View style={styles.titleRow}>
+            <Text style={styles.headerTitle} numberOfLines={1}>Nearby jobs</Text>
+            <BriefcaseIcon size={20} color={Colors.gold} />
           </View>
           {activeTab === 'new' && (
             <Pressable style={styles.toggleBtn} onPress={() => setViewMode(v => v === 'list' ? 'map' : 'list')}>
-              {viewMode === 'list' ? <MapIcon size={15} color="#fff" /> : <ListIcon size={15} color="#fff" />}
+              {viewMode === 'list' ? <MapIcon size={14} color={Colors.label} /> : <ListIcon size={14} color={Colors.label} />}
               <Text style={styles.toggleBtnText}>{viewMode === 'list' ? 'Map' : 'List'}</Text>
             </Pressable>
           )}
         </View>
+
+        <Pressable style={styles.gpsChip} onPress={requestLocation} hitSlop={4}>
+          <RadioOnIcon size={9} color={rawCoords ? Colors.trustGreen : Colors.urgentOrange} />
+          <Text style={styles.gpsChipText} numberOfLines={1}>
+            {rawCoords ? 'Live GPS' : DEFAULT_REGION_NAME}
+          </Text>
+        </Pressable>
+
         {/* Tab bar */}
         <View style={styles.tabBar}>
           {(['new', 'upcoming', 'past'] as const).map(tab => {
@@ -1388,7 +1394,7 @@ export function NearbyJobsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F1F5F4' },
+  container: { flex: 1, backgroundColor: Colors.systemGroupedBackground },
 
   newJobBanner: {
     position: 'absolute', left: 0, right: 0, zIndex: 100,
@@ -1401,28 +1407,36 @@ const styles = StyleSheet.create({
   newJobBannerIcon: { fontSize: 18 },
   newJobBannerText: { flex: 1, color: '#fff', fontSize: 14, fontWeight: '700' },
 
+  // Editorial header — warm cream backdrop (matches Customer ExploreScreen)
+  // instead of a solid brand-color dashboard bar.
   header: {
-    backgroundColor: Colors.brand,
+    backgroundColor: Colors.systemGroupedBackground,
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.md,
   },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  headerTitle: { ...Typography.title2, color: '#fff' },
+  eyebrow: { fontSize: 11, fontFamily: Fonts.semibold, color: Colors.brandDark, letterSpacing: 1.6 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 8 },
+  headerTitle: { fontSize: 28, fontFamily: Fonts.bold, color: Colors.label, letterSpacing: -0.8 },
 
-  // Live-status chip, folded into the title row instead of its own stacked line.
+  // Live-status chip — light pill, adjusted for contrast against the cream backdrop
+  // (was designed for the old solid brand-color header).
   gpsChip: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
-    alignSelf: 'flex-start', marginTop: 4,
+    alignSelf: 'flex-start', marginTop: 8,
+    backgroundColor: '#fff', borderWidth: 1, borderColor: Colors.separator,
+    borderRadius: 100, paddingHorizontal: 10, paddingVertical: 5,
   },
-  gpsChipText: { fontSize: 12.5, fontWeight: '600', color: 'rgba(255,255,255,0.8)' },
+  gpsChipText: { fontSize: 12, fontFamily: Fonts.medium, color: Colors.secondaryLabel },
 
   toggleBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    backgroundColor: 'rgba(255,255,255,0.15)',
+    backgroundColor: '#fff',
+    borderWidth: 1, borderColor: Colors.separator,
     paddingHorizontal: 12, paddingVertical: 8,
     borderRadius: Radius.full,
   },
-  toggleBtnText: { fontSize: 13, fontWeight: '600', color: '#fff' },
+  toggleBtnText: { fontSize: 13, fontFamily: Fonts.semibold, color: Colors.label },
 
   listHeader: { paddingHorizontal: 16, paddingTop: 14 },
 
@@ -1502,20 +1516,22 @@ const styles = StyleSheet.create({
   tabBar: {
     flexDirection: 'row',
     gap: 8,
-    paddingTop: 12,
+    paddingTop: 14,
     paddingBottom: 4,
   },
   tabPill: {
-    backgroundColor: Colors.systemGray5,
-    borderRadius: 20,
+    backgroundColor: '#fff',
+    borderWidth: 1,
+    borderColor: Colors.separator,
+    borderRadius: 100,
     paddingHorizontal: 16,
-    paddingVertical: 7,
+    paddingVertical: 9,
   },
-  tabPillActive: { backgroundColor: Colors.brand },
+  tabPillActive: { backgroundColor: Colors.label, borderColor: Colors.label },
   tabPillText: {
     fontSize: 13,
-    fontWeight: '600',
-    color: '#666',
+    fontFamily: Fonts.semibold,
+    color: Colors.secondaryLabel,
   },
   tabPillTextActive: { color: '#fff' },
 
