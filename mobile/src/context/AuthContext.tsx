@@ -66,11 +66,14 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [signOut]);
 
   const updatePhoto = useCallback((uri: string | null) => {
-    setState(s => ({
-      ...s,
-      photoUri: uri,
-      user: s.user ? { ...s.user, photoUrl: uri ?? undefined } : s.user,
-    }));
+    setState(s => {
+      const updatedUser = s.user ? { ...s.user, photoUrl: uri ?? undefined } : s.user;
+      // Persist the updated user (not just the raw photoUri) so a reload's
+      // `Storage.getUser()` doesn't hand back a stale `photoUrl` that then
+      // wins over the fresh one in the init-load precedence check below.
+      if (s.token && updatedUser) Storage.saveAuth(s.token, updatedUser).catch(() => {});
+      return { ...s, photoUri: uri, user: updatedUser };
+    });
     if (uri) Storage.savePhotoUri(uri).catch(() => {});
     else Storage.clearPhotoUri().catch(() => {});
   }, []);

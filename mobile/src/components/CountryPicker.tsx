@@ -16,13 +16,14 @@ import { GlowSheet } from './GlowSheet';
 import { Colors, Fonts } from '../utils/colors';
 
 export interface Country {
-  code: 'CA' | 'NP';
+  code: 'CA' | 'US' | 'NP';
   name: string;
   dialCode: string;
 }
 
 export const COUNTRIES: Country[] = [
   { code: 'CA', name: 'Canada', dialCode: '+1' },
+  { code: 'US', name: 'United States', dialCode: '+1' },
   { code: 'NP', name: 'Nepal',  dialCode: '+977' },
 ];
 
@@ -55,8 +56,23 @@ function FlagNP({ size = 20 }: { size?: number }) {
     </Svg>
   );
 }
+function FlagUS({ size = 20 }: { size?: number }) {
+  const h = size * 0.72;
+  const stripeH = 14 / 13;
+  return (
+    <Svg width={size} height={h} viewBox="0 0 20 14">
+      <Rect width="20" height="14" fill="#FFFFFF" />
+      {[0, 2, 4, 6, 8, 10, 12].map(i => (
+        <Rect key={i} x="0" y={i * stripeH} width="20" height={stripeH} fill="#B22234" />
+      ))}
+      <Rect width="9" height="7.5" fill="#3C3B6E" />
+    </Svg>
+  );
+}
 function CountryFlag({ code, size = 20 }: { code: Country['code']; size?: number }) {
-  return code === 'CA' ? <FlagCA size={size} /> : <FlagNP size={size} />;
+  if (code === 'CA') return <FlagCA size={size} />;
+  if (code === 'US') return <FlagUS size={size} />;
+  return <FlagNP size={size} />;
 }
 
 interface CountryPickerProps {
