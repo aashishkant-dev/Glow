@@ -375,7 +375,7 @@ export function ProfileScreen() {
   // Provider-only Profile sub-tabs — Business (pricing/hours/visibility/earnings)
   // vs Account (personal info/professional profile/documents/support/legal). The
   // hero stays shared above both. Customers never see this — single scroll, unchanged.
-  const [providerProfileTab, setProviderProfileTab] = useState<'business' | 'account'>('business');
+  const [providerProfileTab, setProviderProfileTab] = useState<'business' | 'account'>('account');
 
   const LANGUAGE_OPTIONS = ['English', 'French', 'Hindi', 'Nepali', 'Spanish', 'Mandarin', 'Punjabi', 'Arabic'];
 
@@ -1818,8 +1818,11 @@ export function ProfileScreen() {
           </View>
           </Group>
         </View>
+        </>
+        )}
 
-        {/* ── Sign Out ──────────────────────────────────────────────── */}
+        {/* ── Sign Out — always reachable regardless of Business/Account
+             sub-tab; it must never be hidden behind provider tab state. ── */}
         <View style={styles.sectionWrap}>
           <Pressable
             style={({ pressed }) => [styles.signOutBtn, pressed && { opacity: 0.8 }]}
@@ -1845,8 +1848,6 @@ export function ProfileScreen() {
             anonymized form as required by law. This cannot be undone.
           </Text>
         </View>
-        </>
-        )}
 
         <Text style={styles.footer}>
           © {new Date().getFullYear()} Glow · Beauty, on demand{'\n'}{DEFAULT_REGION_NAME}
