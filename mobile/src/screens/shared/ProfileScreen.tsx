@@ -375,7 +375,7 @@ export function ProfileScreen() {
   // Provider-only Profile sub-tabs — Business (pricing/hours/visibility/earnings)
   // vs Account (personal info/professional profile/documents/support/legal). The
   // hero stays shared above both. Customers never see this — single scroll, unchanged.
-  const [providerProfileTab, setProviderProfileTab] = useState<'business' | 'account'>('business');
+  const [providerProfileTab, setProviderProfileTab] = useState<'business' | 'account'>('account');
 
   const LANGUAGE_OPTIONS = ['English', 'French', 'Hindi', 'Nepali', 'Spanish', 'Mandarin', 'Punjabi', 'Arabic'];
 

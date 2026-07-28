@@ -426,7 +426,7 @@ function ProviderTabs() {
                 <SearchJobsIcon size={26} color="#fff" />
               </View>
             ),
-            tabBarLabel: () => null,
+            tabBarLabel: 'Jobs',
           }}
         />
 
