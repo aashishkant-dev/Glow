@@ -14,7 +14,7 @@ import { apiSendVerifyOtp, apiVerifyPhone } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { Colors, Fonts } from '../../utils/colors';
 import { GlowMark } from '../../components/GlowLogo';
-import { CountryPicker, COUNTRIES, Country } from '../../components/CountryPicker';
+import { CountryPicker, Country } from '../../components/CountryPicker';
 
 const OTP_LENGTH = 6;
 
@@ -22,7 +22,7 @@ export function ProviderVerifyPhoneScreen() {
   const insets = useSafeAreaInsets();
   const { updateUser } = useAuth();
   const [stage, setStage] = useState<'phone' | 'otp'>('phone');
-  const [country, setCountry] = useState<Country>(COUNTRIES[0]);
+  const [country, setCountry] = useState<Country | null>(null);
   const [phone, setPhone] = useState('');
   const [digits, setDigits] = useState(Array(OTP_LENGTH).fill(''));
   const [loading, setLoading] = useState(false);
@@ -31,7 +31,7 @@ export function ProviderVerifyPhoneScreen() {
 
   function getE164() {
     const d = phone.replace(/\D/g, '');
-    return `${country.dialCode}${d}`;
+    return `${country?.dialCode ?? ''}${d}`;
   }
 
   async function sendOtp() {
@@ -98,17 +98,18 @@ export function ProviderVerifyPhoneScreen() {
                 style={[styles.phoneInput, styles.phoneInputFlex]}
                 value={phone}
                 onChangeText={setPhone}
-                placeholder={country.code === 'CA' ? '705-555-0100' : '98XXXXXXXX'}
+                placeholder={!country ? 'Select country first' : country.code === 'CA' ? '705-555-0100' : '98XXXXXXXX'}
                 placeholderTextColor={Colors.tertiaryLabel}
                 keyboardType="phone-pad"
                 maxLength={12}
+                editable={!!country}
                 autoFocus
               />
             </View>
             <Pressable
-              style={[styles.cta, phone.replace(/\D/g, '').length < 7 && styles.ctaDisabled]}
+              style={[styles.cta, (!country || phone.replace(/\D/g, '').length < 7) && styles.ctaDisabled]}
               onPress={sendOtp}
-              disabled={loading || phone.replace(/\D/g, '').length < 7}
+              disabled={loading || !country || phone.replace(/\D/g, '').length < 7}
             >
               <Text style={styles.ctaText}>{loading ? 'Sending…' : 'Send code'}</Text>
             </Pressable>
@@ -116,7 +117,7 @@ export function ProviderVerifyPhoneScreen() {
         ) : (
           <>
             <Text style={styles.title}>Enter the code</Text>
-            <Text style={styles.subtitle}>{otpSent ? `We just texted a 6-digit code to ${country.dialCode} ${phone}.` : 'Verifying…'}</Text>
+            <Text style={styles.subtitle}>{otpSent ? `We just texted a 6-digit code to ${country?.dialCode} ${phone}.` : 'Verifying…'}</Text>
             <View style={styles.digitRow}>
               {digits.map((d, i) => (
                 <TextInput
@@ -151,13 +152,13 @@ const styles = StyleSheet.create({
   body: { width: '100%', maxWidth: 400, marginTop: 40, gap: 14 },
   title: { fontSize: 22, fontFamily: Fonts.bold, color: Colors.label },
   subtitle: { fontSize: 14, color: Colors.secondaryLabel, lineHeight: 20, fontFamily: Fonts.regular },
-  phoneRow: { flexDirection: 'row', gap: 8, alignItems: 'stretch' },
+  phoneRow: { flexDirection: 'row', gap: 8, alignItems: 'stretch', minWidth: 0 },
   phoneInput: {
     backgroundColor: Colors.systemGroupedBackground, borderRadius: 16,
     paddingHorizontal: 18, paddingVertical: 15, fontSize: 16, color: Colors.label,
     borderWidth: 1, borderColor: Colors.separator, fontFamily: Fonts.regular,
   },
-  phoneInputFlex: { flex: 1 },
+  phoneInputFlex: { flex: 1, minWidth: 0 },
   cta: { borderRadius: 18, backgroundColor: Colors.brand, paddingVertical: 16, alignItems: 'center', marginTop: 6 },
   ctaDisabled: { backgroundColor: Colors.systemGray4 },
   ctaText: { color: '#fff', fontSize: 16, fontFamily: Fonts.semibold },
