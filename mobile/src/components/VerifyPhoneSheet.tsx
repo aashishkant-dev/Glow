@@ -8,7 +8,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as Haptics from 'expo-haptics';
 import { GlowSheet } from './GlowSheet';
-import { CountryPicker, COUNTRIES, Country } from './CountryPicker';
+import { CountryPicker, Country } from './CountryPicker';
 import { apiSendVerifyOtp, apiVerifyPhone } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { Colors, Fonts } from '../utils/colors';
@@ -25,7 +25,7 @@ interface VerifyPhoneSheetProps {
 export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: VerifyPhoneSheetProps) {
   const { updateUser } = useAuth();
   const [stage, setStage] = useState<'phone' | 'otp'>(needsPhone ? 'phone' : 'otp');
-  const [country, setCountry] = useState<Country>(COUNTRIES[0]);
+  const [country, setCountry] = useState<Country | null>(null);
   const [phone, setPhone] = useState('');
   const [digits, setDigits] = useState(Array(OTP_LENGTH).fill(''));
   const [loading, setLoading] = useState(false);
@@ -43,7 +43,7 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
 
   function getE164() {
     const d = phone.replace(/\D/g, '');
-    return `${country.dialCode}${d}`;
+    return `${country?.dialCode ?? ''}${d}`;
   }
 
   async function sendOtp() {
@@ -108,16 +108,17 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
                 style={[styles.phoneInput, styles.phoneInputFlex]}
                 value={phone}
                 onChangeText={setPhone}
-                placeholder={country.code === 'CA' ? '705-555-0100' : '98XXXXXXXX'}
+                placeholder={!country ? 'Select country first' : country.code === 'CA' ? '705-555-0100' : '98XXXXXXXX'}
                 placeholderTextColor={Colors.tertiaryLabel}
                 keyboardType="phone-pad"
                 maxLength={12}
+                editable={!!country}
               />
             </View>
             <Pressable
-              style={[styles.cta, phone.replace(/\D/g, '').length !== 10 && styles.ctaDisabled]}
+              style={[styles.cta, (!country || phone.replace(/\D/g, '').length !== 10) && styles.ctaDisabled]}
               onPress={sendOtp}
-              disabled={loading || phone.replace(/\D/g, '').length !== 10}
+              disabled={loading || !country || phone.replace(/\D/g, '').length !== 10}
             >
               <Text style={styles.ctaText}>{loading ? 'Sending…' : 'Send code'}</Text>
             </Pressable>
@@ -152,13 +153,13 @@ const styles = StyleSheet.create({
   body: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 20, gap: 14 },
   title: { fontSize: 20, fontFamily: Fonts.bold, color: Colors.label },
   subtitle: { fontSize: 14, color: Colors.secondaryLabel, lineHeight: 20, fontFamily: Fonts.regular },
-  phoneRow: { flexDirection: 'row', gap: 8, alignItems: 'stretch' },
+  phoneRow: { flexDirection: 'row', gap: 8, alignItems: 'stretch', minWidth: 0 },
   phoneInput: {
     backgroundColor: Colors.systemGroupedBackground, borderRadius: 16,
     paddingHorizontal: 18, paddingVertical: 15, fontSize: 16, color: Colors.label,
     borderWidth: 1, borderColor: Colors.separator, fontFamily: Fonts.regular,
   },
-  phoneInputFlex: { flex: 1 },
+  phoneInputFlex: { flex: 1, minWidth: 0 },
   cta: { borderRadius: 18, backgroundColor: Colors.brand, paddingVertical: 16, alignItems: 'center' },
   ctaDisabled: { backgroundColor: Colors.systemGray4 },
   ctaText: { color: '#fff', fontSize: 16, fontFamily: Fonts.semibold },
