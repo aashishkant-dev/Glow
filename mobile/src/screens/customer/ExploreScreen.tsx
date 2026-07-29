@@ -14,9 +14,9 @@ import { LookSheet } from '../../components/LookSheet';
 import { ArtistCard } from '../../components/ArtistCard';
 import { apiPublicCatalog, apiPublicProviders, PublicProviderCard } from '../../api/client';
 import { SearchIcon } from '../../components/TabIcons';
-import { SparkleIcon } from '../../components/BeautyIcons';
 import { tapLight } from '../../utils/haptics';
 import { SEED_ARTISTS } from '../../data/seedArtists';
+import { ExploreHeaderAvatar } from '../../components/ExploreHeaderAvatar';
 
 type LookFilter = 'All' | LookCollection;
 type Tab = 'Looks' | 'Artists';
@@ -34,6 +34,7 @@ export function ExploreScreen() {
   const [artistFilter, setArtistFilter] = useState('All');
   const [artistSort, setArtistSort] = useState<ArtistSort>('rating');
   const [query, setQuery] = useState('');
+  const [searchOpen, setSearchOpen] = useState(false);
 
   useEffect(() => {
     apiPublicCatalog()
@@ -147,12 +148,14 @@ export function ExploreScreen() {
 
   return (
     <View style={styles.container}>
-      <View style={[styles.header, { paddingTop: insets.top + 18 }]}>
-        <Text style={styles.eyebrow}>EXPLORE</Text>
-        <View style={styles.titleRow}>
-          <Text style={styles.title}>{tab === 'Looks' ? 'Looks to fall\nin love with' : 'Artists near you'}</Text>
-          <SparkleIcon size={22} color={Colors.gold} />
+      <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
+        <ExploreHeaderAvatar />
+        <View style={styles.headerTitleGroup}>
+          <Text style={styles.igTitle}>{tab === 'Looks' ? 'Explore' : 'Artists near you'}</Text>
         </View>
+        <Pressable onPress={() => { tapLight(); setSearchOpen(o => !o); }} style={styles.headerIconBtn} hitSlop={8}>
+          <SearchIcon size={20} color={Colors.label} />
+        </Pressable>
       </View>
 
       {/* Tab toggle */}
@@ -167,19 +170,22 @@ export function ExploreScreen() {
         })}
       </View>
 
-      {/* Search — filters Looks by name/service, Artists by name/specialty */}
-      <View style={styles.searchBar}>
-        <SearchIcon size={17} color={Colors.tertiaryLabel} />
-        <TextInput
-          style={styles.searchInput}
-          value={query}
-          onChangeText={setQuery}
-          placeholder={tab === 'Looks' ? 'Search looks…' : 'Search artists or specialties…'}
-          placeholderTextColor={Colors.tertiaryLabel}
-          autoCapitalize="none"
-          autoCorrect={false}
-        />
-      </View>
+      {/* Search — tap-to-reveal, IG-style. Filters Looks by name/service, Artists by name/specialty */}
+      {searchOpen && (
+        <View style={styles.searchBar}>
+          <SearchIcon size={17} color={Colors.tertiaryLabel} />
+          <TextInput
+            style={styles.searchInput}
+            value={query}
+            onChangeText={setQuery}
+            placeholder={tab === 'Looks' ? 'Search looks…' : 'Search artists or specialties…'}
+            placeholderTextColor={Colors.tertiaryLabel}
+            autoCapitalize="none"
+            autoCorrect={false}
+            autoFocus
+          />
+        </View>
+      )}
 
       {tab === 'Looks' ? (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 130 }}>
@@ -286,10 +292,17 @@ export function ExploreScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.systemGroupedBackground },
-  header: { paddingHorizontal: 24, paddingBottom: 10 },
-  eyebrow: { fontSize: 11, fontFamily: Fonts.semibold, color: Colors.brandDark, letterSpacing: 1.6 },
-  titleRow: { flexDirection: 'row', alignItems: 'flex-end', justifyContent: 'space-between', marginTop: 6 },
-  title: { fontSize: 30, lineHeight: 35, fontFamily: Fonts.bold, color: Colors.label, letterSpacing: -0.8 },
+  header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingBottom: 12, gap: 12,
+  },
+  headerTitleGroup: { flex: 1 },
+  igTitle: { fontSize: 20, fontFamily: Fonts.bold, color: Colors.label, letterSpacing: -0.3 },
+  headerIconBtn: {
+    width: 34, height: 34, borderRadius: 17,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1.5, borderColor: Colors.separator, backgroundColor: Colors.systemBackground,
+  },
 
   tabBar: {
     flexDirection: 'row',
