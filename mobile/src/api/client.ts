@@ -358,6 +358,7 @@ export function apiDeleteAccount() {
 export function apiUpdateProfile(payload: {
   name?: string;
   bio?: string;
+  instagramHandle?: string;
   languages?: string[];
   specialties?: string[];
   photoUrl?: string;
@@ -766,6 +767,7 @@ export interface UserProfile {
     certifications: string[];
     experienceYears: number;
     bio?: string;
+    instagramHandle?: string;
     languages?: string[];
     photoUrl?: string;
     photos?: string[];
@@ -898,6 +900,7 @@ export interface ProviderPublicProfile {
   experienceYears?: number;
   specialties: string[];
   bio?: string;
+  instagramHandle?: string;
   policeCheckCleared: boolean;
   firstAidCertified: boolean;
   completedBookings: number;

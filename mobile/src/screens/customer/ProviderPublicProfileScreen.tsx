@@ -9,6 +9,7 @@ import {
   ActivityIndicator,
   Dimensions,
   FlatList,
+  Linking,
   NativeScrollEvent,
   NativeSyntheticEvent,
   Platform,
@@ -24,7 +25,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { apiGetProviderPublicProfile, ProviderPublicProfile } from '../../api/client';
 import { Colors, Fonts } from '../../utils/colors';
 import { CloseCircleIcon, StarIcon, CheckCircleIcon, ChevronForwardIcon } from '../../components/TabIcons';
-import { ShieldCheckIcon, CheckDecagramIcon, ClockIcon } from '../../components/CareIcons';
+import { ShieldCheckIcon, CheckDecagramIcon, ClockIcon, InstagramIcon } from '../../components/CareIcons';
 import { GlowMark } from '../../components/GlowLogo';
 import { ServiceIcon } from '../../components/ServiceIcon';
 import { OSMMap } from '../../components/OSMMap';
@@ -208,6 +209,24 @@ export function ProviderPublicProfileScreen() {
         {!!p.bio && (
           <View style={styles.section}>
             <Text style={styles.bioText}>{p.bio}</Text>
+          </View>
+        )}
+
+        {/* ── Instagram — tap opens their profile in the Instagram app (falls
+             back to the web profile if it's not installed). ── */}
+        {!!p.instagramHandle && (
+          <View style={styles.section}>
+            <Pressable
+              style={styles.instagramRow}
+              onPress={() => {
+                tapLight();
+                Linking.openURL(`https://instagram.com/${p.instagramHandle}`);
+              }}
+            >
+              <InstagramIcon size={20} color={Colors.brand} />
+              <Text style={styles.instagramText}>@{p.instagramHandle}</Text>
+              <ChevronForwardIcon size={16} color={Colors.tertiaryLabel} />
+            </Pressable>
           </View>
         )}
 
@@ -465,6 +484,13 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 20, fontFamily: Fonts.semibold, color: Colors.label, letterSpacing: -0.4, marginBottom: 14 },
 
   bioText: { fontSize: 15, color: Colors.label, lineHeight: 24, fontFamily: Fonts.regular },
+
+  instagramRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: Colors.separator,
+    paddingHorizontal: 16, paddingVertical: 14,
+  },
+  instagramText: { flex: 1, fontSize: 15, fontFamily: Fonts.semibold, color: Colors.label },
 
   trustCard: {
     backgroundColor: '#3B1520', borderRadius: 26, padding: 22, overflow: 'hidden',

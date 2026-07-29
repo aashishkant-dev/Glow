@@ -204,6 +204,8 @@ model ProviderProfile {
   approvedByAdmin    Boolean           @default(false)
   rejectionReason    String            @default("")
   bio                String            @default("")
+  // Handle only, no "@" and no full URL (e.g. "glowbeauty") — client renders the link.
+  instagramHandle    String            @default("")
 
   languages          String[]          @default(["English"])
   photoUrl           String            @default("")
