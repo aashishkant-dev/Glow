@@ -1218,6 +1218,9 @@ export function CreateBookingScreen() {
   const insets = useSafeAreaInsets();
   const locale = 'en-CA';
   const STEP_LABELS_SCHEDULED = [t.stepService, t.stepDateTime, t.stepChooseArtist, t.stepConfirm];
+  // Preselected-artist scheduled bookings skip the Choose Artist step (see goNext),
+  // so its pill is dropped from the progress row too — it was never visited.
+  const STEP_LABELS_SCHEDULED_PRESELECTED = [t.stepService, t.stepDateTime, t.stepConfirm];
   const STEP_LABELS_ONDEMAND  = [t.stepService, t.stepChooseArtist, t.stepConfirm];
   // `coords` keeps a fallback so the nearby-Provider search still returns local
   // results even before the user grants GPS. `realCoords` is null until we have
@@ -1231,6 +1234,10 @@ export function CreateBookingScreen() {
 
   const initService = route.params?.serviceType ?? '';
   const initMode    = (route.params?.bookingMode ?? 'scheduled') as 'ondemand' | 'scheduled';
+  // An artist was explicitly chosen before entering this screen (Glow Match,
+  // artist profile "Book" button) — booking should stay a confirm of that
+  // choice, not route back through the general provider-search step.
+  const hasPreselectedProvider = !!route.params?.providerId;
 
   const [step,          setStep]          = useState<Step>(1);
   const [bookingMode,   setBookingMode]   = useState<'ondemand' | 'scheduled'>(initMode);
@@ -1376,7 +1383,11 @@ export function CreateBookingScreen() {
   }, [route.params]);
 
   useEffect(() => {
-    if (step !== 3) return;
+    // Preselected-artist bookings fetch/resolve the provider in the background
+    // as soon as the screen mounts (not gated on reaching step 3) so the
+    // preselect is already resolved by the time goNext() decides whether to
+    // skip the provider-picking step entirely.
+    if (step !== 3 && !hasPreselectedProvider) return;
     // Set Provider mode default based on booking mode
     setProviderMode(bookingMode === 'ondemand' ? 'near' : 'browse');
     setLoadingProviders(true);
@@ -1408,7 +1419,7 @@ export function CreateBookingScreen() {
         setProviders(withSeed);
       }
     }).finally(() => setLoadingProviders(false));
-  }, [step]);
+  }, [step, hasPreselectedProvider]);
 
   function toggleDate(d: Date) {
     if (d < minSelectDate || d > maxSelectDate) return;
@@ -1577,6 +1588,8 @@ export function CreateBookingScreen() {
     if (step === 1) { nav.goBack(); return; }
     // On-demand: skip step 2 going backward (step 3 → step 1)
     if (step === 3 && bookingMode === 'ondemand') { setStep(1); return; }
+    // Preselected artist: skip step 3 going backward too (step 4 → step 2)
+    if (step === 4 && hasPreselectedProvider && bookingMode !== 'ondemand') { setStep(2); return; }
     setStep(s => (s - 1) as Step);
   }
 
@@ -1595,6 +1608,9 @@ export function CreateBookingScreen() {
     if (step === 1 && bookingMode === 'ondemand') { setStep(3); return; }
     // On-demand has 3 logical steps: 1 (Service) → 3 (Provider) → 4 (Confirm)
     if (step === 3 && bookingMode === 'ondemand') { setStep(4); return; }
+    // Preselected artist (scheduled mode): skip step 3's provider list —
+    // address (1) → date (2) → confirm (4) directly.
+    if (step === 2 && hasPreselectedProvider && selectedProvider) { setStep(4); return; }
     setStep(s => (s + 1) as Step);
   }
 
@@ -1666,13 +1682,19 @@ export function CreateBookingScreen() {
 
         {/* Step progress pills */}
         <View style={styles.stepRow}>
-          {(bookingMode === 'ondemand' ? STEP_LABELS_ONDEMAND : STEP_LABELS_SCHEDULED).map((label, i) => {
+          {(bookingMode === 'ondemand'
+            ? STEP_LABELS_ONDEMAND
+            : hasPreselectedProvider ? STEP_LABELS_SCHEDULED_PRESELECTED : STEP_LABELS_SCHEDULED
+          ).map((label, i) => {
             // Map display index to actual step numbers
             // ondemand: display 0→step1, 1→step3, 2→step4
+            // scheduled (preselected artist): display 0→step1, 1→step2, 2→step4
             // scheduled: display 0→step1, 1→step2, 2→step3, 3→step4
             const actualStep: Step = bookingMode === 'ondemand'
               ? ([1, 3, 4] as Step[])[i]
-              : (i + 1) as Step;
+              : hasPreselectedProvider
+                ? ([1, 2, 4] as Step[])[i]
+                : (i + 1) as Step;
             const active = actualStep === step;
             const done   = actualStep < step;
             // Completed steps are tappable to jump back. Forward steps stay locked
