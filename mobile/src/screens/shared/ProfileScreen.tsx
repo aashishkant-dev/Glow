@@ -1268,7 +1268,7 @@ export function ProfileScreen() {
 
               <Pressable
                 style={({ pressed }) => [styles.infoRow, pressed && { opacity: 0.6 }]}
-                onPress={() => nav.navigate('Saved', { initialTab: 'Artists' })}
+                onPress={() => nav.navigate('SavedTab', { initialTab: 'Artists' })}
               >
                 <View style={styles.infoLeft}>
                   <Text style={styles.infoLabel}>Favorite Artists</Text>
