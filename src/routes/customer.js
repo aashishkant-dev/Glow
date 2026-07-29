@@ -1176,15 +1176,6 @@ router.patch(
   }
 );
 
-// First name + last initial: "Maria Oliveira" → "Maria O." — mirrors public.js's
-// publicName() so favorited-provider cards match the public directory's privacy
-// convention exactly (same shape is fed into the same <ArtistCard/> on mobile).
-function publicName(fullName) {
-  const parts = String(fullName || '').trim().split(/\s+/);
-  if (parts.length === 1) return parts[0];
-  return `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.`;
-}
-
 // ── POST /providers/:id/favorite ─────────────────────────────────────────────
 // Idempotent: favoriting an already-favorited provider is a no-op (upsert on the
 // Favorite compound unique key), never a duplicate row or a 409.
@@ -1285,7 +1276,11 @@ router.get(
           const u = f.provider;
           return {
             id: u.id,
-            name: publicName(u.name),
+            // Full name, NOT publicName()'s masked "First L." form — GET /favorites
+            // is a private authenticated list of artists the customer already
+            // knows/chose (unlike public discovery, where masking protects
+            // providers from strangers browsing).
+            name: u.name,
             photoUrl: u.photoUrl || u.providerProfile?.photoUrl || '',
             rating: toNum(u.rating),
             ratingCount: u.ratingCount,

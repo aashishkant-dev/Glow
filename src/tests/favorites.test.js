@@ -164,7 +164,7 @@ describe('Favorites', () => {
     expect(res.status).toBe(404);
   });
 
-  test('GET /favorites returns the favorited provider shaped like a public provider card', async () => {
+  test('GET /favorites returns the favorited provider shaped like a public provider card, with the FULL name (not public-masked)', async () => {
     await request(app)
       .post(`/providers/${PROVIDER.id}/favorite`)
       .set('Authorization', `Bearer ${customerToken}`);
@@ -176,9 +176,13 @@ describe('Favorites', () => {
     expect(res.status).toBe(200);
     expect(res.body.providers).toHaveLength(1);
     const card = res.body.providers[0];
+    // Unlike GET /public/providers (which masks to "Maria O."), favorites is a
+    // private authenticated list of artists the customer already chose, so the
+    // full name is returned.
+    expect(card.name).toBe(PROVIDER.name);
     expect(card).toEqual({
       id: PROVIDER.id,
-      name: 'Maria O.',
+      name: PROVIDER.name,
       photoUrl: '',
       rating: 4.8,
       ratingCount: 12,
