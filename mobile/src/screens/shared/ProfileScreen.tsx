@@ -794,7 +794,6 @@ export function ProfileScreen() {
 
   const roleLabel = isCustomer ? 'Glow Client' : isProvider ? 'Beauty Artist' : 'Administrator';
   const initial   = user?.name?.[0]?.toUpperCase() ?? '?';
-  const accountId = user?.id ? `GLOW-${user.id.slice(-6).toUpperCase()}` : '—';
   const memberSince = fmtMemberSince(profile?.createdAt);
 
   const providerRating      = profile?.rating ?? 0;
@@ -1160,8 +1159,6 @@ export function ProfileScreen() {
             <View style={styles.chipRow}>
               <VerifiedChip label="Phone verified" />
             </View>
-            <Divider />
-            <InfoRow glyph="key-variant" label="Account ID" value={accountId} />
           </View>
 
           <Subhead title="Location" />
@@ -1179,11 +1176,6 @@ export function ProfileScreen() {
             <View style={{ flex: 1 }}>
               <Text style={styles.locationTitle}>{locationLabel}</Text>
               <Text style={styles.locationSub}>{locationSub}</Text>
-              {permissionStatus === 'granted' && coords ? (
-                <Text style={styles.locationCoords}>
-                  {coords.lat.toFixed(4)}, {coords.lng.toFixed(4)}
-                </Text>
-              ) : null}
             </View>
             {permissionStatus !== 'granted' && (
               <View style={styles.locationCta}>
@@ -1807,10 +1799,6 @@ export function ProfileScreen() {
           <Subhead title="App info" />
           <View style={styles.cardQuiet}>
             <InfoRow glyph="package-variant" label="Version" value={`v${appVersion}`} />
-            <Divider />
-            <InfoRow glyph="map" label="Region" value={DEFAULT_REGION_NAME} />
-            <Divider />
-            <InfoRow glyph="map-marker" label="Coverage" value="15 km radius" />
           </View>
 
           <Subhead title="Legal" />
