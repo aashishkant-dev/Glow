@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { apiAcceptJob, apiSkipJob, apiNearbyJobs, apiMyJobs, Booking } from '../../api/client';
 import { LocationBanner } from '../../components/LocationBanner';
+import { ExploreHeaderAvatar } from '../../components/ExploreHeaderAvatar';
 import { JobCardSkeleton } from '../../components/SkeletonLoader';
 import { useLocation, useCoordsOrFallback } from '../../context/LocationContext';
 import { useAuth } from '../../context/AuthContext';
@@ -1003,6 +1004,21 @@ export function NearbyJobsScreen() {
   // the Requests inbox, not here. So the whole sorted list is the open jobs.
   const openJobs = sorted as any[];
 
+  // Group the open pool into "NEW" (posted within the last 30 min, per Booking.createdAt)
+  // and "NEARBY" (everything else) sections so the list scans more easily. This is a
+  // pure display grouping over the already-sorted/filtered `openJobs` — it doesn't change
+  // ordering within each group, filtering, or which jobs are included overall.
+  const NEW_JOB_WINDOW_MS = 30 * 60 * 1000;
+  const newSectionJobs = openJobs.filter(j => Date.now() - new Date(j.createdAt).getTime() < NEW_JOB_WINDOW_MS);
+  const nearbySectionJobs = openJobs.filter(j => !newSectionJobs.includes(j));
+  type OpenJobsRow = { rowType: 'header'; key: string; label: string } | { rowType: 'job'; key: string; job: any };
+  const openJobsRows: OpenJobsRow[] = [
+    ...(newSectionJobs.length > 0 ? [{ rowType: 'header' as const, key: 'header-new', label: 'JUST POSTED' }] : []),
+    ...newSectionJobs.map(job => ({ rowType: 'job' as const, key: job._id, job })),
+    ...(nearbySectionJobs.length > 0 ? [{ rowType: 'header' as const, key: 'header-nearby', label: 'NEARBY' }] : []),
+    ...nearbySectionJobs.map(job => ({ rowType: 'job' as const, key: job._id, job })),
+  ];
+
   const potentialEarnings = filtered.reduce((s, j) => s + (Number(j.totalPrice) ?? 0), 0);
   // Prefer the Provider's real GPS; fall back to the first open job; only then the
   // regional centre. Avoids parking the map on a default city when the device
@@ -1138,19 +1154,28 @@ export function NearbyJobsScreen() {
         </Animated.View>
       )}
 
-      {/* Header — editorial framing to match the Customer Explore screen: a warm
-          cream backdrop, an uppercase eyebrow label, and a large bold title with a
-          small accent icon, instead of a solid brand-colored dashboard bar. The
-          GPS status and Map/List toggle share the title row as light pill controls;
-          the New/Upcoming/Past tab bar anchors the bottom, styled like Explore's
-          white-pill tab toggle (active = solid dark fill). */}
-      <View style={[styles.header, { paddingTop: insets.top + 18 }]}>
-        <Text style={styles.eyebrow}>FIND WORK</Text>
+      {/* Header — IG-home-style: small circular avatar, compact title, and the
+          Briefcase accent icon, matching the Customer Explore screen's header
+          treatment instead of the old big editorial eyebrow + title block.
+          The GPS status/Map-List toggle row and the New/Upcoming/Past tab bar
+          remain as separate rows below, unchanged from the prior round's
+          redesign. */}
+      <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
+        <ExploreHeaderAvatar />
+        <View style={styles.headerTitleGroup}>
+          <Text style={styles.igTitle}>Find work</Text>
+        </View>
+        <BriefcaseIcon size={20} color={Colors.gold} />
+      </View>
+
+      <View style={styles.headerSecondary}>
         <View style={styles.headerRow}>
-          <View style={styles.titleRow}>
-            <Text style={styles.headerTitle} numberOfLines={1}>Nearby jobs</Text>
-            <BriefcaseIcon size={20} color={Colors.gold} />
-          </View>
+          <Pressable style={styles.gpsChip} onPress={requestLocation} hitSlop={4}>
+            <RadioOnIcon size={9} color={rawCoords ? Colors.trustGreen : Colors.urgentOrange} />
+            <Text style={styles.gpsChipText} numberOfLines={1}>
+              {rawCoords ? 'Live GPS' : DEFAULT_REGION_NAME}
+            </Text>
+          </Pressable>
           {activeTab === 'new' && (
             <Pressable style={styles.toggleBtn} onPress={() => setViewMode(v => v === 'list' ? 'map' : 'list')}>
               {viewMode === 'list' ? <MapIcon size={14} color={Colors.label} /> : <ListIcon size={14} color={Colors.label} />}
@@ -1158,13 +1183,6 @@ export function NearbyJobsScreen() {
             </Pressable>
           )}
         </View>
-
-        <Pressable style={styles.gpsChip} onPress={requestLocation} hitSlop={4}>
-          <RadioOnIcon size={9} color={rawCoords ? Colors.trustGreen : Colors.urgentOrange} />
-          <Text style={styles.gpsChipText} numberOfLines={1}>
-            {rawCoords ? 'Live GPS' : DEFAULT_REGION_NAME}
-          </Text>
-        </Pressable>
 
         {/* Tab bar */}
         <View style={styles.tabBar}>
@@ -1233,8 +1251,8 @@ export function NearbyJobsScreen() {
               <FlatList
                 ref={listRef}
                 style={{ flex: 1 }}
-                data={loading ? [] : openJobs}
-                keyExtractor={i => i._id}
+                data={loading ? [] : openJobsRows}
+                keyExtractor={row => row.key}
                 contentContainerStyle={styles.list}
                 refreshControl={
                   <RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={Colors.brand} />
@@ -1272,17 +1290,23 @@ export function NearbyJobsScreen() {
                   </View>
                   </>
                 ) : null}
-                renderItem={({ item }) => (
-                  // Privacy-safe open-pool card: shows the kind of work nearby
-                  // (service, schedule, hours, pay, ~distance, coarse area) but NOT
-                  // the client's name, exact address or phone. Dedicated matched
-                  // requests (with client info) live in the Requests inbox.
-                  <OpenJobCard
-                    job={item}
-                    isNew={newIds.has(item._id)}
-                    onPress={() => nav.navigate('JobDetail', { job: item })}
-                  />
-                )}
+                renderItem={({ item: row }) => {
+                  if (row.rowType === 'header') {
+                    return <Text style={styles.sectionLabel}>{row.label}</Text>;
+                  }
+                  const item = row.job;
+                  return (
+                    // Privacy-safe open-pool card: shows the kind of work nearby
+                    // (service, schedule, hours, pay, ~distance, coarse area) but NOT
+                    // the client's name, exact address or phone. Dedicated matched
+                    // requests (with client info) live in the Requests inbox.
+                    <OpenJobCard
+                      job={item}
+                      isNew={newIds.has(item._id)}
+                      onPress={() => nav.navigate('JobDetail', { job: item })}
+                    />
+                  );
+                }}
               />
             </View>
           )}
@@ -1407,23 +1431,31 @@ const styles = StyleSheet.create({
   newJobBannerIcon: { fontSize: 18 },
   newJobBannerText: { flex: 1, color: '#fff', fontSize: 14, fontWeight: '700' },
 
-  // Editorial header — warm cream backdrop (matches Customer ExploreScreen)
-  // instead of a solid brand-color dashboard bar.
+  // IG-home-style header — small circular avatar, compact title, accent icon
+  // (matches Customer ExploreScreen's header treatment).
   header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingBottom: 10, gap: 12,
+    backgroundColor: Colors.systemGroupedBackground,
+  },
+  headerTitleGroup: { flex: 1 },
+  igTitle: { fontSize: 20, fontFamily: Fonts.bold, color: Colors.label, letterSpacing: -0.3 },
+
+  // Secondary row — GPS status/Map-List toggle and the tab bar, carried over
+  // unchanged from the prior round's redesign, now living below the compact
+  // IG-style header instead of inside the old editorial header block.
+  headerSecondary: {
     backgroundColor: Colors.systemGroupedBackground,
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.md,
   },
-  eyebrow: { fontSize: 11, fontFamily: Fonts.semibold, color: Colors.brandDark, letterSpacing: 1.6 },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 8 },
-  headerTitle: { fontSize: 28, fontFamily: Fonts.bold, color: Colors.label, letterSpacing: -0.8 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
 
   // Live-status chip — light pill, adjusted for contrast against the cream backdrop
   // (was designed for the old solid brand-color header).
   gpsChip: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
-    alignSelf: 'flex-start', marginTop: 8,
+    alignSelf: 'flex-start',
     backgroundColor: '#fff', borderWidth: 1, borderColor: Colors.separator,
     borderRadius: 100, paddingHorizontal: 10, paddingVertical: 5,
   },
@@ -1503,6 +1535,10 @@ const styles = StyleSheet.create({
   },
 
   list: { paddingTop: 4, paddingBottom: 40 },
+  sectionLabel: {
+    fontSize: 12, fontFamily: Fonts.semibold, color: Colors.tertiaryLabel,
+    letterSpacing: 1.2, marginHorizontal: 20, marginTop: 16, marginBottom: 8,
+  },
   empty: { alignItems: 'center', paddingVertical: 48, paddingHorizontal: 32 },
   emptyIconBubble: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#ECFDF5', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
   emptyTitle: { fontSize: 18, fontWeight: '800', color: Colors.label, marginBottom: 8 },
