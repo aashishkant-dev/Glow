@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { ArrowBackIcon, CameraIcon, CheckCircleIcon, PersonIcon, StarIcon } from '../../components/TabIcons';
 import { MapIcon, LocationIcon, CalendarSVGIcon } from '../../components/TabIcons';
-import { NoteIcon, EarningsIcon, BellIcon, HelpIcon } from '../../components/CareIcons';
+import { NoteIcon, EarningsIcon, BellIcon, HelpIcon, InstagramIcon } from '../../components/CareIcons';
 import {
   ShieldCheckIcon,
   CardAccountDetailsIcon,
@@ -177,6 +177,7 @@ function infoIcon(glyph: string): GlyphIconFC {
     'medal':                           MedalIcon,
     'star-outline':                    StarIcon,
     'check-circle':                    CheckCircleIcon,
+    'instagram':                       InstagramIcon,
   };
   return MAP[glyph] ?? PersonIcon;
 }
@@ -323,7 +324,7 @@ export function ProfileScreen() {
   const [specSaving,     setSpecSaving]     = useState(false);
   // Generic single-field text editor (name, bio) — a real modal + TextInput so it
   // works on iOS AND Android (Alert.prompt is iOS-only).
-  const [fieldModal,     setFieldModal]     = useState<null | { key: 'name' | 'bio'; title: string; value: string; multiline?: boolean }>(null);
+  const [fieldModal,     setFieldModal]     = useState<null | { key: 'name' | 'bio' | 'instagramHandle'; title: string; value: string; multiline?: boolean }>(null);
   const [fieldDraft,     setFieldDraft]     = useState('');
   const [fieldSaving,    setFieldSaving]    = useState(false);
   // Languages editor (multi-select chips, same UX as specialties).
@@ -403,7 +404,7 @@ export function ProfileScreen() {
     setPricesSaving(false);
   }
 
-  function openField(key: 'name' | 'bio', title: string, current: string, multiline = false) {
+  function openField(key: 'name' | 'bio' | 'instagramHandle', title: string, current: string, multiline = false) {
     setFieldDraft(current);
     setFieldModal({ key, title, value: current, multiline });
   }
@@ -1246,6 +1247,14 @@ export function ProfileScreen() {
                     onPress={() => { setLangDraft(providerP.languages ?? []); setLangModal(true); }}
                   />
                   <Divider />
+                  <InfoRow
+                    glyph="instagram"
+                    label="Instagram"
+                    value={providerP.instagramHandle?.trim() ? `@${providerP.instagramHandle}` : 'Add your Instagram'}
+                    valueColor={providerP.instagramHandle?.trim() ? '#C4667E' : undefined}
+                    onPress={() => openField('instagramHandle', 'Instagram handle', providerP.instagramHandle ?? '')}
+                  />
+                  <Divider />
                   {/* About you — full-width block so long bios wrap naturally */}
                   <Pressable
                     style={styles.bioBlock}
@@ -1865,9 +1874,11 @@ export function ProfileScreen() {
             <TextInput
               value={fieldDraft}
               onChangeText={setFieldDraft}
-              placeholder={fieldModal?.title}
+              placeholder={fieldModal?.key === 'instagramHandle' ? 'yourusername' : fieldModal?.title}
               placeholderTextColor={Colors.tertiaryLabel}
               multiline={fieldModal?.multiline}
+              autoCapitalize={fieldModal?.key === 'instagramHandle' ? 'none' : 'sentences'}
+              autoCorrect={fieldModal?.key !== 'instagramHandle'}
               style={[specStyles.input, fieldModal?.multiline && { height: 110, textAlignVertical: 'top' }]}
               autoFocus
             />

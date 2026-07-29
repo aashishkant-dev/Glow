@@ -543,6 +543,7 @@ router.get(
           experienceYears: true,
           specialties: true,
           bio: true,
+          instagramHandle: true,
           policeCheckCleared: true,
           firstAidCertified: true,
           approvedByAdmin: true,
@@ -607,6 +608,7 @@ router.get(
           experienceYears: profile.experienceYears,
           specialties: profile.specialties ?? [],
           bio: profile.bio,
+          instagramHandle: profile.instagramHandle || '',
           policeCheckCleared: profile.policeCheckCleared,
           firstAidCertified: profile.firstAidCertified,
           photos: profile.photos ?? [],
@@ -1113,6 +1115,19 @@ router.patch(
         const providerData = {};
         if (req.body.photoUrl) providerData.photoUrl = req.body.photoUrl;
         if (typeof req.body.bio === 'string') providerData.bio = req.body.bio.trim();
+        if (typeof req.body.instagramHandle === 'string') {
+          // Accepts "@handle", a full instagram.com/handle URL, or a bare handle —
+          // always stored as just the handle so the client builds the link itself.
+          const raw = req.body.instagramHandle.trim();
+          const stripped = raw
+            .replace(/^https?:\/\/(www\.)?instagram\.com\//i, '')
+            .replace(/^@/, '')
+            .replace(/\/.*$/, '');
+          if (stripped && !/^[a-zA-Z0-9._]{1,30}$/.test(stripped)) {
+            return res.status(400).json({ error: 'Instagram handle can only contain letters, numbers, periods and underscores.' });
+          }
+          providerData.instagramHandle = stripped;
+        }
         if (Array.isArray(req.body.languages)) {
           providerData.languages = req.body.languages
             .filter(l => typeof l === 'string' && l.trim())
