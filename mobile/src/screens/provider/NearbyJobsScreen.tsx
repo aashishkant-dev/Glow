@@ -1004,6 +1004,21 @@ export function NearbyJobsScreen() {
   // the Requests inbox, not here. So the whole sorted list is the open jobs.
   const openJobs = sorted as any[];
 
+  // Group the open pool into "NEW" (posted within the last 30 min, per Booking.createdAt)
+  // and "NEARBY" (everything else) sections so the list scans more easily. This is a
+  // pure display grouping over the already-sorted/filtered `openJobs` — it doesn't change
+  // ordering within each group, filtering, or which jobs are included overall.
+  const NEW_JOB_WINDOW_MS = 30 * 60 * 1000;
+  const newSectionJobs = openJobs.filter(j => Date.now() - new Date(j.createdAt).getTime() < NEW_JOB_WINDOW_MS);
+  const nearbySectionJobs = openJobs.filter(j => !newSectionJobs.includes(j));
+  type OpenJobsRow = { rowType: 'header'; key: string; label: string } | { rowType: 'job'; key: string; job: any };
+  const openJobsRows: OpenJobsRow[] = [
+    ...(newSectionJobs.length > 0 ? [{ rowType: 'header' as const, key: 'header-new', label: 'NEW' }] : []),
+    ...newSectionJobs.map(job => ({ rowType: 'job' as const, key: job._id, job })),
+    ...(nearbySectionJobs.length > 0 ? [{ rowType: 'header' as const, key: 'header-nearby', label: 'NEARBY' }] : []),
+    ...nearbySectionJobs.map(job => ({ rowType: 'job' as const, key: job._id, job })),
+  ];
+
   const potentialEarnings = filtered.reduce((s, j) => s + (Number(j.totalPrice) ?? 0), 0);
   // Prefer the Provider's real GPS; fall back to the first open job; only then the
   // regional centre. Avoids parking the map on a default city when the device
@@ -1236,8 +1251,8 @@ export function NearbyJobsScreen() {
               <FlatList
                 ref={listRef}
                 style={{ flex: 1 }}
-                data={loading ? [] : openJobs}
-                keyExtractor={i => i._id}
+                data={loading ? [] : openJobsRows}
+                keyExtractor={row => row.key}
                 contentContainerStyle={styles.list}
                 refreshControl={
                   <RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={Colors.brand} />
@@ -1275,17 +1290,23 @@ export function NearbyJobsScreen() {
                   </View>
                   </>
                 ) : null}
-                renderItem={({ item }) => (
-                  // Privacy-safe open-pool card: shows the kind of work nearby
-                  // (service, schedule, hours, pay, ~distance, coarse area) but NOT
-                  // the client's name, exact address or phone. Dedicated matched
-                  // requests (with client info) live in the Requests inbox.
-                  <OpenJobCard
-                    job={item}
-                    isNew={newIds.has(item._id)}
-                    onPress={() => nav.navigate('JobDetail', { job: item })}
-                  />
-                )}
+                renderItem={({ item: row }) => {
+                  if (row.rowType === 'header') {
+                    return <Text style={styles.sectionLabel}>{row.label}</Text>;
+                  }
+                  const item = row.job;
+                  return (
+                    // Privacy-safe open-pool card: shows the kind of work nearby
+                    // (service, schedule, hours, pay, ~distance, coarse area) but NOT
+                    // the client's name, exact address or phone. Dedicated matched
+                    // requests (with client info) live in the Requests inbox.
+                    <OpenJobCard
+                      job={item}
+                      isNew={newIds.has(item._id)}
+                      onPress={() => nav.navigate('JobDetail', { job: item })}
+                    />
+                  );
+                }}
               />
             </View>
           )}
@@ -1514,6 +1535,10 @@ const styles = StyleSheet.create({
   },
 
   list: { paddingTop: 4, paddingBottom: 40 },
+  sectionLabel: {
+    fontSize: 12, fontFamily: Fonts.semibold, color: Colors.tertiaryLabel,
+    letterSpacing: 1.2, marginHorizontal: 20, marginTop: 16, marginBottom: 8,
+  },
   empty: { alignItems: 'center', paddingVertical: 48, paddingHorizontal: 32 },
   emptyIconBubble: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#ECFDF5', alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
   emptyTitle: { fontSize: 18, fontWeight: '800', color: Colors.label, marginBottom: 8 },
