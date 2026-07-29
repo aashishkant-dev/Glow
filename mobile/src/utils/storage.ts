@@ -74,6 +74,9 @@ export interface StoredUser {
   role: 'CUSTOMER' | 'Provider' | 'ADMIN' | 'SALON';
   onboardingComplete?: boolean;
   photoUrl?: string;
+  skinTone?: 'FAIR' | 'LIGHT' | 'MEDIUM' | 'TAN' | 'DEEP' | 'RICH';
+  skinType?: 'DRY' | 'OILY' | 'COMBINATION' | 'NORMAL' | 'SENSITIVE';
+  preferredOccasions?: string[];
 }
 
 export const Storage = {

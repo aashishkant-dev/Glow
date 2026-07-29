@@ -57,6 +57,8 @@ import { Storage } from '../../utils/storage';
 import { Colors, Fonts } from '../../utils/colors';
 import { GlowMark } from '../../components/GlowLogo';
 import { DEFAULT_REGION_NAME } from '../../utils/region';
+import { useFavorites } from '../../utils/favorites';
+import { LOOK_OCCASIONS } from '../../data/looks';
 
 // ── Design tokens — soft beauty / girly palette ────────────────────────────────
 // Soft blush hero, warm cream bg, rose + gold accents. No healthcare navy/gray.
@@ -67,6 +69,11 @@ const BRAND      = Colors.brandDark;   // #C4667E
 const GOLD       = Colors.gold;        // #D4AF37
 const BG         = Colors.systemGroupedBackground; // #FFF9F8 warm cream
 const CARD       = '#FFFFFF';
+
+// Representative swatch colors for each skin tone option in the Beauty Profile section.
+const SKIN_TONE_COLORS: Record<string, string> = {
+  FAIR: '#F5DCC7', LIGHT: '#E8C4A0', MEDIUM: '#C68863', TAN: '#A56B42', DEEP: '#6B4226', RICH: '#3D2314',
+};
 const LABEL      = Colors.secondaryLabel;
 const VALUE      = Colors.label;
 const DIVIDER_C  = Colors.separatorSoft;
@@ -319,6 +326,9 @@ export function ProfileScreen() {
   const [photoError,     setPhotoError]     = useState<string | null>(null);
   const [profile,        setProfile]        = useState<UserProfile | null>(null);
   const [docCount,       setDocCount]       = useState(0);
+  const [skinTone, setSkinTone] = useState<string | undefined>(user?.skinTone);
+  const [skinType, setSkinType] = useState<string | undefined>(user?.skinType);
+  const [preferredOccasions, setPreferredOccasions] = useState<string[]>(user?.preferredOccasions ?? []);
   const [specModal,      setSpecModal]      = useState(false);
   const [specDraft,      setSpecDraft]      = useState<string[]>([]);
   const [specSaving,     setSpecSaving]     = useState(false);
@@ -495,6 +505,23 @@ export function ProfileScreen() {
   const isCustomer = user?.role === 'CUSTOMER' || user?.role === 'SALON';
   const isProvider      = user?.role === 'Provider';
   const isAdmin    = user?.role === 'ADMIN';
+  const favoriteCount = useFavorites().length;
+
+  async function saveSkinTone(tone: string) {
+    setSkinTone(tone);
+    try { await apiUpdateProfile({ skinTone: tone as any }); } catch {}
+  }
+  async function saveSkinType(type: string) {
+    setSkinType(type);
+    try { await apiUpdateProfile({ skinType: type as any }); } catch {}
+  }
+  async function toggleOccasion(occ: string) {
+    const next = preferredOccasions.includes(occ)
+      ? preferredOccasions.filter(o => o !== occ)
+      : [...preferredOccasions, occ];
+    setPreferredOccasions(next);
+    try { await apiUpdateProfile({ preferredOccasions: next }); } catch {}
+  }
 
   useEffect(() => {
     Storage.getPhotoUri().then(uri => { if (uri && uri.length > 4) setPhotoUri(uri); });
@@ -1191,6 +1218,67 @@ export function ProfileScreen() {
           </Pressable>
           </Group>
         </View>
+        )}
+
+        {/* ── Beauty profile group (Customer only) — skin tone/type, preferred
+             occasions, and a shortcut to favorited artists. Helps artists prep
+             for the client ahead of a booking. ── */}
+        {isCustomer && (
+          <View style={styles.sectionWrap}>
+            <Group title="Beauty profile" caption="Helps artists prep for you">
+              <Subhead title="Skin tone" />
+              <View style={styles.skinToneRow}>
+                {(['FAIR', 'LIGHT', 'MEDIUM', 'TAN', 'DEEP', 'RICH'] as const).map(tone => (
+                  <Pressable
+                    key={tone}
+                    style={[styles.skinSwatch, SKIN_TONE_COLORS[tone] && { backgroundColor: SKIN_TONE_COLORS[tone] }, skinTone === tone && styles.skinSwatchActive]}
+                    onPress={() => { if (Platform.OS !== 'web') Haptics.selectionAsync(); saveSkinTone(tone); }}
+                    accessibilityLabel={tone}
+                  />
+                ))}
+              </View>
+
+              <Subhead title="Skin type" />
+              <View style={styles.chipWrapRow}>
+                {(['DRY', 'OILY', 'COMBINATION', 'NORMAL', 'SENSITIVE'] as const).map(type => (
+                  <Pressable
+                    key={type}
+                    style={[styles.beautyChip, skinType === type && styles.beautyChipActive]}
+                    onPress={() => { if (Platform.OS !== 'web') Haptics.selectionAsync(); saveSkinType(type); }}
+                  >
+                    <Text style={[styles.beautyChipText, skinType === type && styles.beautyChipTextActive]}>
+                      {type.charAt(0) + type.slice(1).toLowerCase()}
+                    </Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <Subhead title="Preferred for" />
+              <View style={styles.chipWrapRow}>
+                {LOOK_OCCASIONS.map(occ => (
+                  <Pressable
+                    key={occ}
+                    style={[styles.beautyChip, preferredOccasions.includes(occ) && styles.beautyChipActive]}
+                    onPress={() => { if (Platform.OS !== 'web') Haptics.selectionAsync(); toggleOccasion(occ); }}
+                  >
+                    <Text style={[styles.beautyChipText, preferredOccasions.includes(occ) && styles.beautyChipTextActive]}>{occ}</Text>
+                  </Pressable>
+                ))}
+              </View>
+
+              <Pressable
+                style={({ pressed }) => [styles.infoRow, pressed && { opacity: 0.6 }]}
+                onPress={() => nav.navigate('Saved', { initialTab: 'Artists' })}
+              >
+                <View style={styles.infoLeft}>
+                  <Text style={styles.infoLabel}>Favorite Artists</Text>
+                </View>
+                <View style={styles.infoRight}>
+                  <Text style={styles.infoValue}>{favoriteCount} saved</Text>
+                </View>
+              </Pressable>
+            </Group>
+          </View>
         )}
 
         {/* ── Public profile group (Provider) — Account sub-tab.
@@ -2284,6 +2372,20 @@ const styles = StyleSheet.create({
   // Continuation of the group directly above — small gap so the card reads as
   // part of that group rather than as a new peer section.
   sectionWrapTight: { paddingHorizontal: 16, marginTop: 12 },
+
+  // ── Beauty profile (Customer only) — skin tone swatches + skin type /
+  // preferred-occasion chips, matching the pill styling used elsewhere.
+  skinToneRow: { flexDirection: 'row', gap: 10, paddingHorizontal: 16, marginBottom: 4 },
+  skinSwatch: { width: 36, height: 36, borderRadius: 18, borderWidth: 2, borderColor: 'transparent' },
+  skinSwatchActive: { borderColor: Colors.brand },
+  chipWrapRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 16, marginBottom: 4 },
+  beautyChip: {
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 100,
+    backgroundColor: '#fff', borderWidth: 1, borderColor: Colors.separator,
+  },
+  beautyChipActive: { backgroundColor: Colors.label, borderColor: Colors.label },
+  beautyChipText: { fontSize: 13, fontFamily: Fonts.medium, color: Colors.secondaryLabel },
+  beautyChipTextActive: { color: '#fff' },
 
   // ── Group (primary tier) ──
   // A named tier that owns several cards. The rose accent BAR is replaced by a
