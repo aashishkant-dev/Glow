@@ -40,7 +40,7 @@ export const LOOKS: Look[] = [
     name: 'Soft Glam',
     vibe: 'Diffused shimmer, sculpted warmth',
     collection: 'Trending',
-    occasion: 'Party',
+    occasion: 'Party/Glam',
     serviceType: 'Party Makeup',
     includes: ['Makeup', 'Lashes', 'Touch-up kit'],
     durationMin: 75,
@@ -107,7 +107,7 @@ export const LOOKS: Look[] = [
     name: 'Arabic Glam',
     vibe: 'Bold liner, unapologetic drama',
     collection: 'Luxury',
-    occasion: 'Party',
+    occasion: 'Party/Glam',
     serviceType: 'Party Makeup',
     includes: ['Full glam makeup', 'Dramatic lashes', 'Contour & liner'],
     durationMin: 90,
@@ -222,11 +222,50 @@ export const LOOKS: Look[] = [
     from: '#5EAAA8', to: '#2E5F5E',
     tall: true,
   },
+  {
+    id: 'brow-threading',
+    name: 'Brow Threading',
+    vibe: 'Sharp, clean shape in minutes',
+    collection: 'Minimal',
+    occasion: 'Threading & Brows',
+    serviceType: 'Threading',
+    includes: ['Brow shaping', 'Clean-up'],
+    durationMin: 20,
+    fromPrice: 10,
+    products: ['Anastasia Beverly Hills'],
+    from: '#F0C9B4', to: '#C08A6E',
+  },
+  {
+    id: 'full-face-threading',
+    name: 'Full Face Threading',
+    vibe: 'Brows, lip, chin — all done',
+    collection: 'Minimal',
+    occasion: 'Threading & Brows',
+    serviceType: 'Threading',
+    includes: ['Brow shaping', 'Lip', 'Chin'],
+    durationMin: 35,
+    fromPrice: 18,
+    products: [],
+    from: '#E9A0B1', to: '#A34D63',
+  },
 ];
 
 export const LOOK_COLLECTIONS: LookCollection[] = [
   'Trending', 'Bridal', 'Date Night', 'Festival', 'Natural', 'Luxury', 'Minimal',
 ];
+
+// Occasion/need-based grouping — this is what drives the Explore chips.
+// Matches how people actually search ("bridal makeup", "threading near me")
+// rather than abstract style collections.
+export const LOOK_OCCASIONS = [
+  'Bridal',
+  'Party/Glam',
+  'Everyday',
+  'Date Night',
+  'Festival',
+  'Office',
+  'Threading & Brows',
+] as const;
 
 export function lookById(id: string): Look | undefined {
   return LOOKS.find(l => l.id === id);

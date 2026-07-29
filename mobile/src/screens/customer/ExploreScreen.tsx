@@ -8,7 +8,7 @@ import { ActivityIndicator, Alert, FlatList, Platform, Pressable, ScrollView, St
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Colors, Fonts } from '../../utils/colors';
-import { LOOKS, LOOK_COLLECTIONS, Look, LookCollection } from '../../data/looks';
+import { LOOKS, LOOK_OCCASIONS, Look } from '../../data/looks';
 import { LookTile } from '../../components/LookTile';
 import { LookSheet } from '../../components/LookSheet';
 import { ArtistCard } from '../../components/ArtistCard';
@@ -18,7 +18,7 @@ import { tapLight } from '../../utils/haptics';
 import { SEED_ARTISTS } from '../../data/seedArtists';
 import { ExploreHeaderAvatar } from '../../components/ExploreHeaderAvatar';
 
-type LookFilter = 'All' | LookCollection;
+type LookFilter = 'All' | typeof LOOK_OCCASIONS[number];
 type Tab = 'Looks' | 'Artists';
 type ArtistSort = 'rating' | 'priceLow' | 'experience';
 
@@ -54,7 +54,7 @@ export function ExploreScreen() {
   }, []);
 
   const looks = useMemo(
-    () => (lookFilter === 'All' ? LOOKS : LOOKS.filter(l => l.collection === lookFilter)),
+    () => (lookFilter === 'All' ? LOOKS : LOOKS.filter(l => l.occasion === lookFilter)),
     [lookFilter],
   );
 
@@ -192,7 +192,7 @@ export function ExploreScreen() {
           {/* Collection chips */}
           <View style={styles.chipBar}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={{ width: '100%' }}>
-              {(['All', ...LOOK_COLLECTIONS] as LookFilter[]).map(f => {
+              {(['All', ...LOOK_OCCASIONS] as LookFilter[]).map(f => {
                 const active = lookFilter === f;
                 return (
                   <Pressable key={f} style={[styles.chip, active && styles.chipActive]} onPress={() => { tapLight(); setLookFilter(f); }}>
