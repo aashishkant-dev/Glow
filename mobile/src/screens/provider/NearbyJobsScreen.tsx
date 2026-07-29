@@ -1013,7 +1013,7 @@ export function NearbyJobsScreen() {
   const nearbySectionJobs = openJobs.filter(j => !newSectionJobs.includes(j));
   type OpenJobsRow = { rowType: 'header'; key: string; label: string } | { rowType: 'job'; key: string; job: any };
   const openJobsRows: OpenJobsRow[] = [
-    ...(newSectionJobs.length > 0 ? [{ rowType: 'header' as const, key: 'header-new', label: 'NEW' }] : []),
+    ...(newSectionJobs.length > 0 ? [{ rowType: 'header' as const, key: 'header-new', label: 'JUST POSTED' }] : []),
     ...newSectionJobs.map(job => ({ rowType: 'job' as const, key: job._id, job })),
     ...(nearbySectionJobs.length > 0 ? [{ rowType: 'header' as const, key: 'header-nearby', label: 'NEARBY' }] : []),
     ...nearbySectionJobs.map(job => ({ rowType: 'job' as const, key: job._id, job })),

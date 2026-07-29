@@ -153,7 +153,7 @@ export function ExploreScreen() {
         <View style={styles.headerTitleGroup}>
           <Text style={styles.igTitle}>{tab === 'Looks' ? 'Explore' : 'Artists near you'}</Text>
         </View>
-        <Pressable onPress={() => { tapLight(); setSearchOpen(o => !o); }} style={styles.headerIconBtn} hitSlop={8}>
+        <Pressable onPress={() => { tapLight(); setSearchOpen(o => { if (o) setQuery(''); return !o; }); }} style={styles.headerIconBtn} hitSlop={8}>
           <SearchIcon size={20} color={Colors.label} />
         </Pressable>
       </View>
