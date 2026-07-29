@@ -19,6 +19,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { apiAcceptJob, apiSkipJob, apiNearbyJobs, apiMyJobs, Booking } from '../../api/client';
 import { LocationBanner } from '../../components/LocationBanner';
+import { ExploreHeaderAvatar } from '../../components/ExploreHeaderAvatar';
 import { JobCardSkeleton } from '../../components/SkeletonLoader';
 import { useLocation, useCoordsOrFallback } from '../../context/LocationContext';
 import { useAuth } from '../../context/AuthContext';
@@ -1138,19 +1139,28 @@ export function NearbyJobsScreen() {
         </Animated.View>
       )}
 
-      {/* Header — editorial framing to match the Customer Explore screen: a warm
-          cream backdrop, an uppercase eyebrow label, and a large bold title with a
-          small accent icon, instead of a solid brand-colored dashboard bar. The
-          GPS status and Map/List toggle share the title row as light pill controls;
-          the New/Upcoming/Past tab bar anchors the bottom, styled like Explore's
-          white-pill tab toggle (active = solid dark fill). */}
-      <View style={[styles.header, { paddingTop: insets.top + 18 }]}>
-        <Text style={styles.eyebrow}>FIND WORK</Text>
+      {/* Header — IG-home-style: small circular avatar, compact title, and the
+          Briefcase accent icon, matching the Customer Explore screen's header
+          treatment instead of the old big editorial eyebrow + title block.
+          The GPS status/Map-List toggle row and the New/Upcoming/Past tab bar
+          remain as separate rows below, unchanged from the prior round's
+          redesign. */}
+      <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
+        <ExploreHeaderAvatar />
+        <View style={styles.headerTitleGroup}>
+          <Text style={styles.igTitle}>Find work</Text>
+        </View>
+        <BriefcaseIcon size={20} color={Colors.gold} />
+      </View>
+
+      <View style={styles.headerSecondary}>
         <View style={styles.headerRow}>
-          <View style={styles.titleRow}>
-            <Text style={styles.headerTitle} numberOfLines={1}>Nearby jobs</Text>
-            <BriefcaseIcon size={20} color={Colors.gold} />
-          </View>
+          <Pressable style={styles.gpsChip} onPress={requestLocation} hitSlop={4}>
+            <RadioOnIcon size={9} color={rawCoords ? Colors.trustGreen : Colors.urgentOrange} />
+            <Text style={styles.gpsChipText} numberOfLines={1}>
+              {rawCoords ? 'Live GPS' : DEFAULT_REGION_NAME}
+            </Text>
+          </Pressable>
           {activeTab === 'new' && (
             <Pressable style={styles.toggleBtn} onPress={() => setViewMode(v => v === 'list' ? 'map' : 'list')}>
               {viewMode === 'list' ? <MapIcon size={14} color={Colors.label} /> : <ListIcon size={14} color={Colors.label} />}
@@ -1158,13 +1168,6 @@ export function NearbyJobsScreen() {
             </Pressable>
           )}
         </View>
-
-        <Pressable style={styles.gpsChip} onPress={requestLocation} hitSlop={4}>
-          <RadioOnIcon size={9} color={rawCoords ? Colors.trustGreen : Colors.urgentOrange} />
-          <Text style={styles.gpsChipText} numberOfLines={1}>
-            {rawCoords ? 'Live GPS' : DEFAULT_REGION_NAME}
-          </Text>
-        </Pressable>
 
         {/* Tab bar */}
         <View style={styles.tabBar}>
@@ -1407,23 +1410,31 @@ const styles = StyleSheet.create({
   newJobBannerIcon: { fontSize: 18 },
   newJobBannerText: { flex: 1, color: '#fff', fontSize: 14, fontWeight: '700' },
 
-  // Editorial header — warm cream backdrop (matches Customer ExploreScreen)
-  // instead of a solid brand-color dashboard bar.
+  // IG-home-style header — small circular avatar, compact title, accent icon
+  // (matches Customer ExploreScreen's header treatment).
   header: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 20, paddingBottom: 10, gap: 12,
+    backgroundColor: Colors.systemGroupedBackground,
+  },
+  headerTitleGroup: { flex: 1 },
+  igTitle: { fontSize: 20, fontFamily: Fonts.bold, color: Colors.label, letterSpacing: -0.3 },
+
+  // Secondary row — GPS status/Map-List toggle and the tab bar, carried over
+  // unchanged from the prior round's redesign, now living below the compact
+  // IG-style header instead of inside the old editorial header block.
+  headerSecondary: {
     backgroundColor: Colors.systemGroupedBackground,
     paddingHorizontal: Spacing.lg,
     paddingBottom: Spacing.md,
   },
-  eyebrow: { fontSize: 11, fontFamily: Fonts.semibold, color: Colors.brandDark, letterSpacing: 1.6 },
-  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginTop: 6 },
-  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, marginRight: 8 },
-  headerTitle: { fontSize: 28, fontFamily: Fonts.bold, color: Colors.label, letterSpacing: -0.8 },
+  headerRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
 
   // Live-status chip — light pill, adjusted for contrast against the cream backdrop
   // (was designed for the old solid brand-color header).
   gpsChip: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
-    alignSelf: 'flex-start', marginTop: 8,
+    alignSelf: 'flex-start',
     backgroundColor: '#fff', borderWidth: 1, borderColor: Colors.separator,
     borderRadius: 100, paddingHorizontal: 10, paddingVertical: 5,
   },
