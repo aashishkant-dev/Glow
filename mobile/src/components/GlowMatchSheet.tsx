@@ -5,12 +5,12 @@
  */
 import React, { useEffect, useMemo, useState } from 'react';
 import { Image } from 'expo-image';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { GlowSheet } from './GlowSheet';
 import { Colors, Fonts } from '../utils/colors';
 import { apiPublicProviders, PublicProviderCard } from '../api/client';
-import { StarIcon, ChevronBackIcon } from './TabIcons';
+import { StarIcon, ChevronBackIcon, ChevronForwardIcon } from './TabIcons';
 import {
   CrownIcon, SparkleIcon, LipstickIcon, HennaIcon, MirrorIcon, FacialIcon,
 } from './BeautyIcons';
@@ -115,6 +115,20 @@ export function GlowMatchSheet({ visible, onClose }: { visible: boolean; onClose
 
   function next() { setStep(s => Math.min(s + 1, 4)); }
   function back() { setStep(s => Math.max(s - 1, 0)); }
+
+  function viewProfile(m: Match) {
+    // Seed artists are demo data with no real backend account — their public
+    // profile fetch 404s. Match ExploreScreen's guard instead of dead-ending
+    // the user on a blank profile with no Instagram/gallery.
+    if (m.artist.id.startsWith('seed-')) {
+      const msg = 'This is a demo artist — their profile isn\'t available yet.';
+      if (Platform.OS === 'web') alert(msg);
+      else Alert.alert('Demo Artist', msg);
+      return;
+    }
+    onClose();
+    nav.navigate('ProviderPublicProfile', { providerId: m.artist.id, providerName: m.artist.name });
+  }
 
   function bookArtist(m: Match) {
     if (!occasion || !when) return;
@@ -259,13 +273,12 @@ export function GlowMatchSheet({ visible, onClose }: { visible: boolean; onClose
                       </View>
                     </View>
                     <Pressable
+                      style={({ pressed }) => [styles.profileBtn, pressed && { opacity: 0.7 }]}
                       hitSlop={8}
-                      onPress={() => {
-                        onClose();
-                        nav.navigate('ProviderPublicProfile', { providerId: m.artist.id, providerName: m.artist.name });
-                      }}
+                      onPress={() => viewProfile(m)}
                     >
-                      <Text style={styles.profileLink}>Profile</Text>
+                      <Text style={styles.profileBtnText}>Profile</Text>
+                      <ChevronForwardIcon size={13} color={Colors.brandDeep} />
                     </Pressable>
                   </View>
                   {m.reasons.length > 0 && (
@@ -362,7 +375,13 @@ const styles = StyleSheet.create({
   matchName: { fontSize: 16.5, fontFamily: Fonts.semibold, color: Colors.label },
   matchMeta: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 3 },
   matchMetaText: { fontSize: 12.5, color: Colors.secondaryLabel, fontFamily: Fonts.medium },
-  profileLink: { fontSize: 13, fontFamily: Fonts.medium, color: Colors.brandDark },
+  profileBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 3,
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderRadius: 100, borderWidth: 1, borderColor: Colors.separator,
+    backgroundColor: Colors.secondarySystemBackground,
+  },
+  profileBtnText: { fontSize: 13, fontFamily: Fonts.medium, color: Colors.brandDark },
 
   reasonRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, marginTop: 12 },
   reasonChip: { backgroundColor: Colors.secondarySystemBackground, borderWidth: 1, borderColor: Colors.separator, borderRadius: 100, paddingHorizontal: 11, paddingVertical: 5 },

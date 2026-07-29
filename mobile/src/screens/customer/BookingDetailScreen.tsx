@@ -419,7 +419,7 @@ export function BookingDetailScreen() {
               {booking.status === 'REQUESTED' && !booking.provider && (
                 <Pressable
                   style={({ pressed }) => [styles.chooseArtistBtn, pressed && { opacity: 0.85 }]}
-                  onPress={() => nav.navigate('CreateBooking', {
+                  onPress={() => nav.navigate('NewBooking', {
                     reassignBookingId: booking._id,
                     serviceType: booking.serviceType,
                     _t: Date.now(),

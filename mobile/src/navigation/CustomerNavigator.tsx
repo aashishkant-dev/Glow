@@ -47,7 +47,6 @@ const tabAvatarStyles = StyleSheet.create({
 
 export type CustomerStackParams = {
   Home: undefined;
-  CreateBooking: { reassignBookingId?: string; serviceType?: string; _t?: number } | undefined;
   NewBooking: { reassignBookingId?: string; serviceType?: string; bookingMode?: string; providerId?: string; _t?: number } | undefined;
   Bookings: undefined;
   BookingDetail: { booking: Booking };
@@ -237,7 +236,6 @@ export function CustomerNavigator() {
           route keeps the historical name `NewBooking` — every entry point
           (Glow Match, occasion cards, look sheets, artist profiles) targets it. */}
       <Stack.Screen name="NewBooking" component={CreateBookingScreen} options={{ headerShown: false }} />
-      <Stack.Screen name="CreateBooking" component={CreateBookingScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Bookings" component={BookingsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="BookingDetail" component={BookingDetailScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Help" component={HelpScreen} options={{ headerShown: false }} />
