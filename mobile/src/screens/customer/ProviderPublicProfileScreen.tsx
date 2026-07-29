@@ -29,8 +29,9 @@ import { ShieldCheckIcon, CheckDecagramIcon, ClockIcon, InstagramIcon } from '..
 import { GlowMark } from '../../components/GlowLogo';
 import { ServiceIcon } from '../../components/ServiceIcon';
 import { OSMMap } from '../../components/OSMMap';
-import { LocationIcon } from '../../components/TabIcons';
+import { LocationIcon, HeartIcon } from '../../components/TabIcons';
 import { tapLight } from '../../utils/haptics';
+import { useFavorites, toggleFavorite } from '../../utils/favorites';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const PHOTO_H = 380;
@@ -106,6 +107,8 @@ export function ProviderPublicProfileScreen() {
   const [provider, setProvider] = useState<ProviderPublicProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
+  const favoriteIds = useFavorites();
+  const favorited = provider ? favoriteIds.includes(provider.id) : false;
 
   useEffect(() => {
     if (!providerId) { setError('No artist selected'); setLoading(false); return; }
@@ -178,6 +181,14 @@ export function ProviderPublicProfileScreen() {
           <PhotoCarousel photos={p.photos ?? []} name={p.name} photoUrl={p.photoUrl} />
           <Pressable style={[styles.floatBack, { top: insets.top + 8 }]} onPress={() => nav.goBack()} hitSlop={12}>
             <Text style={styles.floatBackText}>‹</Text>
+          </Pressable>
+          <Pressable
+            style={[styles.floatHeart, { top: insets.top + 8 }]}
+            onPress={() => { tapLight(); toggleFavorite(p.id); }}
+            hitSlop={12}
+            accessibilityLabel={favorited ? 'Remove from favorites' : 'Favorite artist'}
+          >
+            <HeartIcon size={18} color={favorited ? Colors.brand : '#fff'} filled={favorited} />
           </Pressable>
           <View style={styles.nameOverlay}>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' }}>
@@ -466,6 +477,10 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(20,8,12,0.4)', alignItems: 'center', justifyContent: 'center',
   },
   floatBackText: { color: '#fff', fontSize: 24, fontFamily: Fonts.semibold, marginTop: -2 },
+  floatHeart: {
+    position: 'absolute', right: 16, width: 40, height: 40, borderRadius: 20,
+    backgroundColor: 'rgba(20,8,12,0.4)', alignItems: 'center', justifyContent: 'center',
+  },
 
   nameOverlay: { position: 'absolute', bottom: 0, left: 0, right: 0, paddingHorizontal: 24, paddingBottom: 26 },
   overlayName: { fontSize: 30, fontFamily: Fonts.bold, color: '#fff', letterSpacing: -0.6 },
