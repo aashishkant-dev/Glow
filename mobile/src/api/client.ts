@@ -363,6 +363,9 @@ export function apiUpdateProfile(payload: {
   specialties?: string[];
   photoUrl?: string;
   photos?: string[];
+  skinTone?: 'FAIR' | 'LIGHT' | 'MEDIUM' | 'TAN' | 'DEEP' | 'RICH';
+  skinType?: 'DRY' | 'OILY' | 'COMBINATION' | 'NORMAL' | 'SENSITIVE';
+  preferredOccasions?: string[];
 }) {
   return request<{ user: UserProfile }>('PATCH', '/profile', payload);
 }
@@ -953,6 +956,18 @@ export interface PublicProviderCard {
 
 export function apiPublicProviders() {
   return request<{ total: number; providers: PublicProviderCard[] }>('GET', '/public/providers');
+}
+
+export function apiFavoriteProvider(providerId: string) {
+  return request<void>('POST', `/providers/${providerId}/favorite`);
+}
+
+export function apiUnfavoriteProvider(providerId: string) {
+  return request<void>('DELETE', `/providers/${providerId}/favorite`);
+}
+
+export function apiGetFavorites() {
+  return request<{ providers: PublicProviderCard[] }>('GET', '/favorites');
 }
 
 export interface CatalogService {
