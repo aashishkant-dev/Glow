@@ -1076,12 +1076,21 @@ router.patch(
     body('languages').optional().isArray({ max: 12 }).withMessage('languages must be an array'),
     body('specialties').optional().isArray({ max: 20 }).withMessage('specialties must be an array'),
     body('photos').optional().isArray({ max: 10 }).withMessage('photos must be an array'),
+    body('skinTone').optional().isIn(['FAIR', 'LIGHT', 'MEDIUM', 'TAN', 'DEEP', 'RICH']).withMessage('invalid skinTone'),
+    body('skinType').optional().isIn(['DRY', 'OILY', 'COMBINATION', 'NORMAL', 'SENSITIVE']).withMessage('invalid skinType'),
+    body('preferredOccasions').optional().isArray({ max: 7 }).withMessage('preferredOccasions must be an array'),
   ],
   validate,
   async (req, res) => {
     try {
-      const allowed = ['name', 'email', 'address', 'emergencyContact', 'preferredLanguage', 'gender', 'photoUrl'];
+      const allowed = ['name', 'email', 'address', 'emergencyContact', 'preferredLanguage', 'gender', 'photoUrl', 'skinTone', 'skinType', 'preferredOccasions'];
       const raw = Object.fromEntries(Object.entries(req.body).filter(([k]) => allowed.includes(k)));
+
+      const VALID_OCCASIONS = ['Bridal', 'Party/Glam', 'Everyday', 'Date Night', 'Festival', 'Office', 'Threading & Brows'];
+      if (raw.preferredOccasions && !raw.preferredOccasions.every(o => VALID_OCCASIONS.includes(o))) {
+        return res.status(400).json({ error: 'preferredOccasions contains an invalid value' });
+      }
+
       if (raw.name) raw.name = sanitizeName(raw.name);
 
       // Flatten emergencyContact to separate fields
@@ -1160,6 +1169,147 @@ router.patch(
       safeUser.rating = toNum(safeUser.rating) ?? 0;
       if (providerProfile) safeUser.providerProfile = providerProfile;
       res.json({ message: 'Profile updated', user: safeUser });
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+// First name + last initial: "Maria Oliveira" → "Maria O." — mirrors public.js's
+// publicName() so favorited-provider cards match the public directory's privacy
+// convention exactly (same shape is fed into the same <ArtistCard/> on mobile).
+function publicName(fullName) {
+  const parts = String(fullName || '').trim().split(/\s+/);
+  if (parts.length === 1) return parts[0];
+  return `${parts[0]} ${parts[parts.length - 1][0].toUpperCase()}.`;
+}
+
+// ── POST /providers/:id/favorite ─────────────────────────────────────────────
+// Idempotent: favoriting an already-favorited provider is a no-op (upsert on the
+// Favorite compound unique key), never a duplicate row or a 409.
+router.post(
+  '/providers/:id/favorite',
+  authenticate,
+  async (req, res) => {
+    try {
+      const providerId = req.params.id;
+      const provider = await prisma.user.findUnique({ where: { id: providerId } });
+      if (!provider || provider.role !== 'Provider') {
+        return res.status(404).json({ error: 'Provider not found' });
+      }
+      await prisma.favorite.upsert({
+        where: { customerId_providerId: { customerId: req.user.id, providerId } },
+        update: {},
+        create: { customerId: req.user.id, providerId },
+      });
+      res.status(204).end();
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+// ── DELETE /providers/:id/favorite ───────────────────────────────────────────
+// Idempotent: unfavoriting a non-favorited provider is a no-op (deleteMany
+// matches zero rows rather than erroring).
+router.delete(
+  '/providers/:id/favorite',
+  authenticate,
+  async (req, res) => {
+    try {
+      await prisma.favorite.deleteMany({
+        where: { customerId: req.user.id, providerId: req.params.id },
+      });
+      res.status(204).end();
+    } catch (err) {
+      console.error(err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+// ── GET /favorites ────────────────────────────────────────────────────────────
+// Response shape is IDENTICAL to GET /public/providers' provider-card shape
+// (see src/routes/public.js) so mobile can type apiGetFavorites() as
+// PublicProviderCard[] and pass results directly into <ArtistCard/> with zero
+// mapping. Field list/order/null-handling must stay in lockstep with public.js.
+router.get(
+  '/favorites',
+  authenticate,
+  async (req, res) => {
+    try {
+      const favorites = await prisma.favorite.findMany({
+        where: { customerId: req.user.id },
+        orderBy: { createdAt: 'desc' },
+        include: {
+          provider: {
+            select: {
+              id: true,
+              name: true,
+              photoUrl: true,
+              rating: true,
+              ratingCount: true,
+              lat: true,
+              lng: true,
+              deletedAt: true,
+              role: true,
+              providerProfile: {
+                select: {
+                  qualificationType: true,
+                  experienceYears: true,
+                  bio: true,
+                  specialties: true,
+                  languages: true,
+                  policeCheckCleared: true,
+                  firstAidCertified: true,
+                  photoUrl: true,
+                  services: {
+                    where: { active: true },
+                    select: { id: true, name: true, price: true, active: true },
+                  },
+                },
+              },
+              _count: {
+                select: { bookingsAsProvider: { where: { status: 'COMPLETED' } } },
+              },
+            },
+          },
+        },
+      });
+
+      const providers = favorites
+        .filter(f => f.provider && !f.provider.deletedAt && f.provider.role === 'Provider')
+        .map(f => {
+          const u = f.provider;
+          return {
+            id: u.id,
+            name: publicName(u.name),
+            photoUrl: u.photoUrl || u.providerProfile?.photoUrl || '',
+            rating: toNum(u.rating),
+            ratingCount: u.ratingCount,
+            completedVisits: u._count.bookingsAsProvider,
+            qualificationType: u.providerProfile?.qualificationType || 'Provider',
+            experienceYears: u.providerProfile?.experienceYears || 0,
+            bio: (u.providerProfile?.bio || '').slice(0, 140),
+            specialties: (u.providerProfile?.specialties || []).slice(0, 4),
+            languages: u.providerProfile?.languages || ['English'],
+            policeCheckCleared: !!u.providerProfile?.policeCheckCleared,
+            firstAidCertified: !!u.providerProfile?.firstAidCertified,
+            startingPrice: (() => {
+              const prices = (u.providerProfile?.services || [])
+                .filter(s => s.active)
+                .map(s => Number(s.price))
+                .filter(p => Number.isFinite(p) && p > 0);
+              return prices.length > 0 ? Math.min(...prices) : null;
+            })(),
+            lat: u.lat,
+            lng: u.lng,
+          };
+        });
+
+      res.json({ providers });
     } catch (err) {
       console.error(err);
       res.status(500).json({ error: 'Server error' });
