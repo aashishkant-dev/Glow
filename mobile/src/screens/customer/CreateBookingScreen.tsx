@@ -91,7 +91,6 @@ const SERVICES = [
   'Massage',
 ];
 
-const HOURS_OPTIONS = [1, 2, 3, 4, 5];
 const START_HOURS   = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 
 function fmtHour(h: number) {
@@ -186,8 +185,6 @@ const t = {
   stepChooseArtist:       'Choose Artist',
   stepConfirm:            'Confirm',
   sectionCareType:        'Which service would you like?',
-  sectionLength:          'Session length',
-  sessionLengthSub:       'Minimum 3 hours',
   sectionAddress:         'Service address',
   addressSub:             'Where should the Artist come? Include a postal code so we can map it.',
   addressPlaceholder:     'e.g. 123 Main St',
@@ -214,8 +211,6 @@ const t = {
   available:              'Available',
   sectionConfirm:         'Confirm your booking',
   confirmService:         'Service',
-  confirmDuration:        'Duration',
-  confirmDurationVal:     (n: number) => `${n} hour${n > 1 ? 's' : ''}`,
   confirmWhen:            'When',
   confirmWhenOnDemand:    'Today · As soon as possible',
   confirmDates:           'Date(s)',
@@ -1901,24 +1896,6 @@ export function CreateBookingScreen() {
                 })}
               </View>
 
-              <Text style={[styles.sectionTitle, { marginTop: 28 }]}>{t.sectionLength}</Text>
-              <Text style={styles.sectionSub}>{t.sessionLengthSub}</Text>
-              <View style={styles.chipRow}>
-                {HOURS_OPTIONS.map(h => {
-                  const chipPrice = calcTotalPrice(selectedProvider, serviceType, h, 1);
-                  return (
-                    <Pressable
-                      key={h}
-                      style={[styles.chip, hours === h && styles.chipActive]}
-                      onPress={() => { tapLight(); setHours(h); }}
-                    >
-                      <Text style={[styles.chipText, hours === h && styles.chipTextActive]}>{h}h</Text>
-                      <Text style={[styles.chipSub, hours === h && { color: '#fff' }]}>${chipPrice}</Text>
-                    </Pressable>
-                  );
-                })}
-              </View>
-
               <Text
                 style={[styles.sectionTitle, { marginTop: 28 }]}
                 onLayout={e => { addressYRef.current = e.nativeEvent.layout.y; }}
@@ -2186,7 +2163,6 @@ export function CreateBookingScreen() {
 
               <View style={styles.confirmCard}>
                 <ConfirmRow label={t.confirmService}  value={serviceType} />
-                <ConfirmRow label={t.confirmDuration} value={t.confirmDurationVal(hours)} />
                 {bookingMode === 'ondemand' ? (
                   <ConfirmRow label={t.confirmWhen} value={t.confirmWhenOnDemand} />
                 ) : (

@@ -1031,8 +1031,8 @@ export function NearbyJobsScreen() {
   const upcomingJobs = myJobs.filter(j => ['ACCEPTED', 'ON_MY_WAY', 'STARTED'].includes(j.status));
   const pastJobs = myJobs.filter(j => j.status === 'COMPLETED');
 
-  // Sort & filter now lives as a trailing chip in the service-chip row below
-  // (see `listHeader`), instead of a standalone pill outside the FlatList.
+  // Sort & filter lives as a small icon button in the header itself (see the
+  // header render below), matching Explore's compact icon-button placement.
   const activeFilterCount = filtersActiveCount(filters);
 
   const listHeader = (
@@ -1053,15 +1053,6 @@ export function NearbyJobsScreen() {
               </Pressable>
             );
           })}
-          <Pressable
-            style={[styles.chip, activeFilterCount > 0 && styles.chipActive, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}
-            onPress={() => { setSheetOpen(true); if (Platform.OS !== 'web') Haptics.selectionAsync(); }}
-          >
-            <TuneIcon size={14} color={activeFilterCount > 0 ? '#fff' : Colors.brand} />
-            <Text style={[styles.chipText, activeFilterCount > 0 && styles.chipTextActive]}>
-              {activeFilterCount > 0 ? `Sort & Filter (${activeFilterCount})` : 'Sort & Filter'}
-            </Text>
-          </Pressable>
         </ScrollView>
       )}
 
@@ -1132,9 +1123,13 @@ export function NearbyJobsScreen() {
         </Animated.View>
       )}
 
-      {/* Header — IG-home-style: small circular avatar, compact title, and the
-          Briefcase accent icon, matching the Customer Explore screen's header
-          treatment instead of the old big editorial eyebrow + title block.
+      {/* Header — IG-home-style: small circular avatar, compact title, and a
+          Sort & Filter icon button, matching the Customer Explore screen's
+          header treatment (avatar + title + small circular icon button) both
+          in placement and visual weight. The trigger used to live as a
+          text+icon+badge chip inside the horizontal service-chip scroll row,
+          which read as noticeably heavier/bigger than Explore's icon-only
+          header button sitting in the equivalent spot — moved here to match.
           The GPS status/Map-List toggle row and the New/Upcoming/Past tab bar
           remain as separate rows below, unchanged from the prior round's
           redesign. */}
@@ -1143,7 +1138,18 @@ export function NearbyJobsScreen() {
         <View style={styles.headerTitleGroup}>
           <Text style={styles.igTitle}>Job Requests</Text>
         </View>
-        <BriefcaseIcon size={20} color={Colors.gold} />
+        <Pressable
+          onPress={() => { setSheetOpen(true); if (Platform.OS !== 'web') Haptics.selectionAsync(); }}
+          style={styles.headerIconBtn}
+          hitSlop={8}
+        >
+          <TuneIcon size={18} color={Colors.label} />
+          {activeFilterCount > 0 && (
+            <View style={styles.headerIconBtnBadge}>
+              <Text style={styles.headerIconBtnBadgeText}>{activeFilterCount}</Text>
+            </View>
+          )}
+        </Pressable>
       </View>
 
       <View style={styles.headerSecondary}>
@@ -1417,6 +1423,21 @@ const styles = StyleSheet.create({
   },
   headerTitleGroup: { flex: 1 },
   igTitle: { fontSize: 20, fontFamily: Fonts.bold, color: Colors.label, letterSpacing: -0.3 },
+  // Matches Customer ExploreScreen's headerIconBtn exactly — small circular
+  // icon-only button, same size/border/background — so the two screens'
+  // headers read as one consistent system instead of Provider's control
+  // looking visually heavier.
+  headerIconBtn: {
+    width: 34, height: 34, borderRadius: 17,
+    alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1.5, borderColor: Colors.separator, backgroundColor: Colors.systemBackground,
+  },
+  headerIconBtnBadge: {
+    position: 'absolute', top: -4, right: -4,
+    minWidth: 16, height: 16, borderRadius: 8, paddingHorizontal: 3,
+    backgroundColor: Colors.brand, alignItems: 'center', justifyContent: 'center',
+  },
+  headerIconBtnBadgeText: { fontSize: 10, fontFamily: Fonts.semibold, color: '#fff' },
 
   // Secondary row — GPS status/Map-List toggle and the tab bar, carried over
   // unchanged from the prior round's redesign, now living below the compact

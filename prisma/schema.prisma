@@ -301,7 +301,12 @@ model Booking {
   provider                   User?         @relation("ProviderBookings", fields: [providerId], references: [id])
 
   serviceType           String
-  hours                 Int           // Business rule: minimum 3
+  // Not customer-facing — Glow's services are flat-rate-per-service (set by
+  // the Provider or the platform catalog), not hourly. This only matters for
+  // the FALLBACK_RATE * hours pricing path when a Provider has no explicit
+  // price set for a service, and for scheduling/conflict-window math. See
+  // CreateBookingScreen.tsx's calcTotalPrice() comment for the full picture.
+  hours                 Int
   status                BookingStatus @default(REQUESTED)
   scheduledAt           DateTime
 
