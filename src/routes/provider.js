@@ -421,14 +421,26 @@ router.post(
 
       // If this Provider was the one the client requested, declining must release the
       // assignment so the client can pick someone else. NEVER touches payment.
-      const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
-      if (booking && booking.providerId === req.user.id && ['REQUESTED', 'ACCEPTED', 'ON_MY_WAY'].includes(booking.status)) {
-        await prisma.booking.update({
-          where: { id: bookingId },
-          // Back to "needs a Provider" AND opened to the whole nearby pool so any Provider
-          // can pick it up — the client isn't stuck re-choosing. Payment unchanged.
-          data:  { providerId: null, status: 'REQUESTED', openToPool: true },
-        });
+      //
+      // updateMany's `where` re-asserts BOTH "still assigned to me" and "still
+      // in a declinable status" at write time — a plain findUnique-then-update
+      // has a gap where the booking could be reassigned/cancelled by another
+      // request between the read and this write, and an unconditional update
+      // would blindly stomp that outcome back to REQUESTED. If `count` is 0,
+      // something else already changed this booking's assignment/status —
+      // this skip correctly becomes a no-op instead of clobbering it.
+      const declineClaim = await prisma.booking.updateMany({
+        where: {
+          id: bookingId,
+          providerId: req.user.id,
+          status: { in: ['REQUESTED', 'ACCEPTED', 'ON_MY_WAY'] },
+        },
+        // Back to "needs a Provider" AND opened to the whole nearby pool so any Provider
+        // can pick it up — the client isn't stuck re-choosing. Payment unchanged.
+        data:  { providerId: null, status: 'REQUESTED', openToPool: true },
+      });
+      if (declineClaim.count > 0) {
+        const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
         const io = req.app.get('io');
         if (io) {
           io.to(`user-${booking.customerId}`).emit('booking-status-changed', {
@@ -500,17 +512,26 @@ router.post(
         }
       }
 
-      // Atomic claim: only update if still REQUESTED
-      const existing = await prisma.booking.findFirst({ where: { id: req.params.id, status: 'REQUESTED' } });
-      if (!existing) {
-        return res.status(404).json({ error: 'Booking not found or already claimed' });
+      // Atomic claim: updateMany's `where` (not just its `data`) carries the
+      // `status: 'REQUESTED'` guard, so the UPDATE statement itself only
+      // matches a row still in that state — the read-then-write gap above
+      // (find, conflict check, this claim) is a real window where two
+      // Providers can both pass every check before either write commits.
+      // A plain `update({ where: { id } })` has no status guard on the WRITE
+      // and would let the second writer silently overwrite the first
+      // (double-booking, no error to either side). `updateMany` + `count`
+      // is Prisma's compare-and-swap: only one concurrent request's WHERE
+      // clause still matches by the time its UPDATE actually runs.
+      const claim = await prisma.booking.updateMany({
+        where: { id: req.params.id, status: 'REQUESTED' },
+        data:  { providerId: req.user.id, status: 'ACCEPTED', openToPool: false },
+      });
+      if (claim.count === 0) {
+        return res.status(409).json({ error: 'This job was just claimed by another Provider.' });
       }
 
-      const booking = await prisma.booking.update({
+      const booking = await prisma.booking.findUnique({
         where: { id: req.params.id },
-        // Claim it for this Provider + take it out of the open pool. Works whether it
-        // was an open job, a declined dedicated request, or a timed-out one.
-        data:  { providerId: req.user.id, status: 'ACCEPTED', openToPool: false },
         include: {
           customer: { select: { id: true, name: true, phone: true, address: true, photoUrl: true } },
           provider:      { select: { id: true, name: true, phone: true, photoUrl: true } },

@@ -32,12 +32,20 @@ async function sweepOnce(io) {
 
   for (const b of stale) {
     try {
-      await prisma.booking.update({
-        where: { id: b.id },
+      // updateMany's `where` re-checks `status: 'REQUESTED'` at write time —
+      // between this sweep's read (above) and this write, the same booking
+      // could have been accepted or skipped by the chosen Provider. A plain
+      // `update({ where: { id } })` has no such guard and could re-open (or
+      // otherwise clobber) a booking that's no longer REQUESTED. If a
+      // concurrent accept/skip already changed the status, `count` is 0 and
+      // this sweep correctly no-ops instead of overwriting that outcome.
+      const claim = await prisma.booking.updateMany({
+        where: { id: b.id, status: 'REQUESTED' },
         // Open to the pool but KEEP the original providerId so the chosen Provider can still
         // accept from their inbox; the accept/skip handlers clear it appropriately.
         data:  { openToPool: true },
       });
+      if (claim.count === 0) continue;
       if (io) {
         io.to(`user-${b.customerId}`).emit('booking-status-changed', {
           bookingId: b.id, status: 'REQUESTED', reason: 'opened-to-pool',

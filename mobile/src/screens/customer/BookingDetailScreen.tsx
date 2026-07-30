@@ -1,9 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ActivityIndicator, Alert, Dimensions, KeyboardAvoidingView, Platform, Pressable, ScrollView, StyleSheet,
-  Text, TextInput, View,
+  Text, View,
 } from 'react-native';
-import { ArrowBackIcon, LocationIcon, CallIcon, ChatIcon, NavigateIcon, CheckCircleIcon } from '../../components/TabIcons';
+import { ArrowBackIcon, LocationIcon, CallIcon, ChatIcon, NavigateIcon } from '../../components/TabIcons';
 // Brand SVG icons (no emoji) — BellIcon for the help header, EmailIcon/ClockIcon for support rows.
 import { BellIcon, EmailIcon, ClockIcon } from '../../components/CareIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -87,9 +87,7 @@ export function BookingDetailScreen() {
   const [rated,      setRated]      = useState<boolean>(!!paramBooking?.ratingGiven);
   const [showRateModal, setShowRateModal] = useState(false);
   const [cancelling, setCancelling] = useState(false);
-  const [tipAmount,  setTipAmount]  = useState('');
-  const [tipSending, setTipSending] = useState(false);
-  const [tipSent,    setTipSent]    = useState(false);
+  const [tipDismissed, setTipDismissed] = useState(false);
 
   const pollRef    = useRef<ReturnType<typeof setInterval> | null>(null);
   const scrollRef  = useRef<ScrollView>(null);
@@ -265,14 +263,6 @@ export function BookingDetailScreen() {
         destructive: true,
         onConfirm: doCancel,
       });
-    }
-  }
-
-  async function handleTip() {
-    if (Platform.OS === 'web') {
-      window.alert('Online tipping coming soon! Please e-transfer your Artist directly.');
-    } else {
-      Alert.alert('Coming Soon', 'Online tipping will be available in a future update.');
     }
   }
 
@@ -594,55 +584,24 @@ export function BookingDetailScreen() {
           </View>
         )}
 
-        {/* Tip prompt */}
-        {rated && !tipSent && booking?.status === 'COMPLETED' && (
+        {/* Tip prompt — no in-app payment processor exists yet, so this is
+            honest informational copy only. It previously rendered a full
+            amount-picker + "Send $X Tip" button that said "Processing..."
+            and then "Tip sent!" on tap, and ALSO showed "Tip sent!" if the
+            customer tapped "No thanks" — none of that ever charged
+            anything or reached the Artist. Fixed to never claim a tip was
+            sent when it wasn't. */}
+        {rated && !tipDismissed && booking?.status === 'COMPLETED' && (
           <View style={styles.section}>
             <Text style={styles.sectionLabel}>LEAVE A TIP</Text>
             <View style={styles.card}>
               <Text style={styles.tipPrompt}>Want to tip your Artist?</Text>
-              <Text style={styles.tipSub}>100% goes directly to your Artist</Text>
-              <View style={styles.tipAmounts}>
-                {[5, 10, 20].map(amt => (
-                  <Pressable
-                    key={amt}
-                    style={[styles.tipBtn, tipAmount === String(amt) && styles.tipBtnActive]}
-                    onPress={() => setTipAmount(String(amt))}
-                  >
-                    <Text style={[styles.tipBtnText, tipAmount === String(amt) && styles.tipBtnTextActive]}>
-                      ${amt}
-                    </Text>
-                  </Pressable>
-                ))}
-              </View>
-              <TextInput
-                style={styles.tipInput}
-                value={tipAmount}
-                onChangeText={setTipAmount}
-                placeholder="Custom amount ($)"
-                keyboardType="decimal-pad"
-                placeholderTextColor="#8E8E93"
-              />
-              <Pressable
-                style={[styles.tipSendBtn, (!tipAmount || tipSending) && { opacity: 0.5 }]}
-                onPress={handleTip}
-                disabled={!tipAmount || tipSending}
-              >
-                <Text style={styles.tipSendBtnText}>
-                  {tipSending ? 'Processing...' : `Send $${tipAmount || '0'} Tip`}
-                </Text>
+              <Text style={styles.tipSub}>
+                In-app tipping isn't available yet — e-transfer your Artist directly if you'd like to say thanks.
+              </Text>
+              <Pressable onPress={() => setTipDismissed(true)} style={styles.tipSkip}>
+                <Text style={styles.tipSkipText}>Got it</Text>
               </Pressable>
-              <Pressable onPress={() => setTipSent(true)} style={styles.tipSkip}>
-                <Text style={styles.tipSkipText}>No thanks</Text>
-              </Pressable>
-            </View>
-          </View>
-        )}
-
-        {tipSent && rated && (
-          <View style={styles.section}>
-            <View style={[styles.ratedBanner, { backgroundColor: '#F0FDF4' }]}>
-              <CheckCircleIcon size={20} color={Colors.onlineGreen} />
-              <Text style={[styles.ratedText, { color: Colors.onlineGreen }]}>Tip sent! Thank you for your generosity.</Text>
             </View>
           </View>
         )}
@@ -882,14 +841,6 @@ const styles = StyleSheet.create({
   // Tip flow
   tipPrompt: { fontSize: 17, fontWeight: '700', color: '#1C1C1E', marginBottom: 4 },
   tipSub: { fontSize: 13, color: '#8E8E93', marginBottom: 16 },
-  tipAmounts: { flexDirection: 'row', gap: 10, marginBottom: 14 },
-  tipBtn: { flex: 1, borderWidth: 1.5, borderColor: '#E5E7EB', borderRadius: 12, paddingVertical: 12, alignItems: 'center' },
-  tipBtnActive: { borderColor: Colors.brand, backgroundColor: Colors.brandLight },
-  tipBtnText: { fontSize: 16, fontWeight: '700', color: '#8E8E93' },
-  tipBtnTextActive: { color: Colors.brand },
-  tipInput: { borderWidth: 1, borderColor: '#E5E7EB', borderRadius: 12, paddingHorizontal: 14, paddingVertical: 12, fontSize: 16, color: '#1C1C1E', marginBottom: 12 },
-  tipSendBtn: { backgroundColor: Colors.brand, borderRadius: 14, paddingVertical: 16, alignItems: 'center', marginBottom: 10 },
-  tipSendBtnText: { color: '#fff', fontSize: 16, fontWeight: '800' },
   tipSkip: { alignItems: 'center', paddingVertical: 10 },
   tipSkipText: { color: '#8E8E93', fontSize: 14 },
 
