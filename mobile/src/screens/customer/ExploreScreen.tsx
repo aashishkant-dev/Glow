@@ -1,10 +1,11 @@
 /**
- * Explore — Two tabs: Looks (Pinterest grid) and Artists (provider grid).
+ * Explore — Two tabs: Looks (Pinterest grid) and Artists (specialty sections).
  * Looks tab: masonry of complete looks with collection filters.
- * Artists tab: 2-column grid of celebrity/seed artists with specialty filter chips.
+ * Artists tab: horizontal-scroll rows of celebrity/seed + real artists,
+ * one section per specialty, sorted by artist count (Bridal always last).
  */
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Alert, FlatList, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { Colors, Fonts } from '../../utils/colors';
@@ -31,7 +32,6 @@ export function ExploreScreen() {
   const [catalogPrices, setCatalogPrices] = useState<Record<string, number>>({});
   const [artists, setArtists] = useState<PublicProviderCard[]>([]);
   const [artistsLoading, setArtistsLoading] = useState(true);
-  const [artistFilter, setArtistFilter] = useState('All');
   const [artistSort, setArtistSort] = useState<ArtistSort>('rating');
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
@@ -82,50 +82,58 @@ export function ExploreScreen() {
     return [...seedOnly, ...artists];
   }, [artists]);
 
-  // Specialty chips derived from the actual artist pool, not a hand-maintained
-  // list — new specialties (real Providers, future seed additions) show up
-  // automatically instead of silently having no filter for them.
-  const artistSpecialties = useMemo(() => {
-    const set = new Set<string>();
-    allArtists.forEach(a => {
-      const seedSpecialty = (a as any).specialty as string | undefined;
-      if (seedSpecialty) set.add(seedSpecialty);
-      a.specialties?.forEach(s => set.add(s));
-    });
-    return ['All', ...Array.from(set).sort()];
-  }, [allArtists]);
+  // Sections: one per specialty with ≥1 artist, ranked by artist count
+  // (most-common first), with Bridal always pinned last — bridal browsing
+  // is a deliberate, lower-frequency search; everyday specialties (Mehendi,
+  // Nails, Hair Styling) should be immediately visible without scrolling.
+  // 'Bridal Makeup' is the only specialty string real Provider data and seed
+  // data use for bridal work (see SPECIALTY_OPTIONS in ProviderOnboardingScreen.tsx
+  // and mobile/src/data/seedArtists.ts — no plain 'Bridal' specialty exists;
+  // that string is only used for the unrelated Looks-tab LookOccasion taxonomy).
+  const BRIDAL_SPECIALTIES = ['Bridal Makeup'];
 
-  const displayArtists = useMemo(() => {
+  const artistSections = useMemo(() => {
     const q = query.trim().toLowerCase();
-    let list = allArtists.filter(a => {
-      const matchesFilter = artistFilter === 'All' ||
-        (a as any).specialty === artistFilter ||
-        a.specialties?.includes(artistFilter) ||
-        a.qualificationType?.replace(/_/g, ' ').toLowerCase().includes(artistFilter.toLowerCase());
-      if (!matchesFilter) return false;
-      if (!q) return true;
-      return a.name.toLowerCase().includes(q) ||
-        a.specialties?.some(s => s.toLowerCase().includes(q)) ||
-        a.qualificationType?.replace(/_/g, ' ').toLowerCase().includes(q);
+    const bySpecialty = new Map<string, PublicProviderCard[]>();
+
+    allArtists.forEach(a => {
+      const specs = new Set<string>();
+      const seedSpecialty = (a as any).specialty as string | undefined;
+      if (seedSpecialty) specs.add(seedSpecialty);
+      a.specialties?.forEach(s => specs.add(s));
+      specs.forEach(s => {
+        if (!bySpecialty.has(s)) bySpecialty.set(s, []);
+        bySpecialty.get(s)!.push(a);
+      });
     });
 
-    list = [...list].sort((a, b) => {
-      if (artistSort === 'rating') return (b.rating ?? 0) - (a.rating ?? 0) || b.ratingCount - a.ratingCount;
-      if (artistSort === 'priceLow') {
-        const ap = a.startingPrice ?? Infinity, bp = b.startingPrice ?? Infinity;
-        return ap - bp;
-      }
-      // experience
-      return (b.experienceYears ?? 0) - (a.experienceYears ?? 0);
-    });
-    return list;
-  }, [allArtists, artistFilter, artistSort, query]);
+    let sections = Array.from(bySpecialty.entries()).map(([specialty, artists]) => {
+      const filtered = q
+        ? artists.filter(a =>
+            a.name.toLowerCase().includes(q) ||
+            a.specialties?.some(s => s.toLowerCase().includes(q)) ||
+            a.qualificationType?.replace(/_/g, ' ').toLowerCase().includes(q))
+        : artists;
+      const sorted = [...filtered].sort((a, b) => {
+        if (artistSort === 'rating') return (b.rating ?? 0) - (a.rating ?? 0) || b.ratingCount - a.ratingCount;
+        if (artistSort === 'priceLow') {
+          const ap = a.startingPrice ?? Infinity, bp = b.startingPrice ?? Infinity;
+          return ap - bp;
+        }
+        return (b.experienceYears ?? 0) - (a.experienceYears ?? 0);
+      });
+      return { specialty, artists: sorted };
+    }).filter(s => s.artists.length > 0);
 
-  const artistColumns = useMemo(() => {
-    const cols: PublicProviderCard[][] = [[], []];
-    displayArtists.forEach((a, i) => cols[i % 2].push(a));
-    return cols;
-  }, [displayArtists]);
+    sections.sort((a, b) => {
+      const aBridal = BRIDAL_SPECIALTIES.includes(a.specialty);
+      const bBridal = BRIDAL_SPECIALTIES.includes(b.specialty);
+      if (aBridal !== bBridal) return aBridal ? 1 : -1;
+      return b.artists.length - a.artists.length;
+    });
+
+    return sections;
+  }, [allArtists, artistSort, query]);
 
   function openArtist(artist: PublicProviderCard) {
     // Seed artists are demo data with no real backend account — booking against
@@ -225,21 +233,7 @@ export function ExploreScreen() {
       ) : (
         /* ── Artists tab ── */
         <View style={{ flex: 1 }}>
-          {/* Specialty filter chips */}
-          <View style={styles.chipBar}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={{ width: '100%' }}>
-              {artistSpecialties.map(s => {
-                const active = artistFilter === s;
-                return (
-                  <Pressable key={s} style={[styles.chip, active && styles.chipActive]} onPress={() => { tapLight(); setArtistFilter(s); }}>
-                    <Text style={[styles.chipText, active && styles.chipTextActive]}>{s}</Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-          </View>
-
-          {/* Sort control */}
+          {/* Sort control — applies within each section below */}
           <View style={styles.chipBar}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={{ width: '100%' }}>
               {SORT_OPTIONS.map(o => {
@@ -257,30 +251,27 @@ export function ExploreScreen() {
             <View style={styles.emptyState}>
               <ActivityIndicator color={Colors.brand} />
             </View>
-          ) : displayArtists.length === 0 ? (
+          ) : artistSections.length === 0 ? (
             <View style={styles.emptyState}>
               <Text style={styles.emptyStateText}>
                 {query ? `No artists match "${query}".` : 'No artists match this filter yet.'}
               </Text>
             </View>
           ) : (
-            <FlatList
-              data={artistColumns}
-              keyExtractor={(_, i) => String(i)}
-              numColumns={2}
-              contentContainerStyle={{ paddingHorizontal: 24, paddingBottom: 130, paddingTop: 10 }}
-              columnWrapperStyle={{ gap: 14 }}
-              showsVerticalScrollIndicator={false}
-              renderItem={({ item: column }) => (
-                <View style={{ flex: 1 }}>
-                  {column.map(artist => (
-                    <View key={artist.id} style={{ marginBottom: 10 }}>
-                      <ArtistCard artist={artist} showFavorite onPress={() => openArtist(artist)} />
-                    </View>
-                  ))}
+            <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 130 }}>
+              {artistSections.map(({ specialty, artists }) => (
+                <View key={specialty} style={{ marginBottom: 20 }}>
+                  <Text style={styles.sectionHeaderText}>{specialty}</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24, gap: 14 }}>
+                    {artists.map(artist => (
+                      <View key={artist.id} style={{ width: 160 }}>
+                        <ArtistCard artist={artist} showFavorite onPress={() => openArtist(artist)} />
+                      </View>
+                    ))}
+                  </ScrollView>
                 </View>
-              )}
-            />
+              ))}
+            </ScrollView>
           )}
         </View>
       )}
@@ -352,4 +343,9 @@ const styles = StyleSheet.create({
 
   masonry: { flexDirection: 'row', paddingHorizontal: 24, gap: 14, marginTop: 10 },
   column: { flex: 1 },
+
+  sectionHeaderText: {
+    fontSize: 17, fontFamily: Fonts.bold, color: Colors.label,
+    paddingHorizontal: 24, marginBottom: 10,
+  },
 });
