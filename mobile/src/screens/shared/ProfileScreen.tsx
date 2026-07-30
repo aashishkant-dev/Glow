@@ -528,6 +528,9 @@ export function ProfileScreen() {
     if (!token) return;
     apiGetProfile().then(res => {
       setProfile(res.user);
+      if (res.user.skinTone) setSkinTone(res.user.skinTone);
+      if (res.user.skinType) setSkinType(res.user.skinType);
+      if (Array.isArray(res.user.preferredOccasions)) setPreferredOccasions(res.user.preferredOccasions);
       if (res.user.providerProfile?.photos?.length) setGalleryPhotos(res.user.providerProfile.photos);
       if (typeof res.user.providerProfile?.publicProfile === 'boolean') setPublicProfile(res.user.providerProfile.publicProfile);
       const backendPhoto = (res.user as any).photoUrl || res.user.providerProfile?.photoUrl;

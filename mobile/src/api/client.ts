@@ -763,6 +763,10 @@ export interface UserProfile {
   // Provider stats
   totalSessions?: number;
   totalEarned?: number;
+  // Beauty profile (customer)
+  skinTone?: 'FAIR' | 'LIGHT' | 'MEDIUM' | 'TAN' | 'DEEP' | 'RICH';
+  skinType?: 'DRY' | 'OILY' | 'COMBINATION' | 'NORMAL' | 'SENSITIVE';
+  preferredOccasions?: string[];
   providerProfile?: {
     approvedByAdmin: boolean;
     availability: boolean;

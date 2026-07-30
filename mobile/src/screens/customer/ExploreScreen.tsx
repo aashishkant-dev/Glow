@@ -275,7 +275,7 @@ export function ExploreScreen() {
                 <View style={{ flex: 1 }}>
                   {column.map(artist => (
                     <View key={artist.id} style={{ marginBottom: 10 }}>
-                      <ArtistCard artist={artist} onPress={() => openArtist(artist)} />
+                      <ArtistCard artist={artist} showFavorite onPress={() => openArtist(artist)} />
                     </View>
                   ))}
                 </View>
