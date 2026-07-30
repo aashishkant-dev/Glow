@@ -881,8 +881,8 @@ export function apiOnMyWay(jobId: string) {
 
 // ─── Photo Upload ─────────────────────────────────────────────────────────────
 
-export function apiUploadPhoto(photoBase64: string, mimeType = 'image/jpeg') {
-  return request<{ photoUrl: string }>('POST', '/profile/photo', { photoBase64, mimeType });
+export function apiUploadPhoto(photoBase64: string, mimeType = 'image/jpeg', purpose: 'avatar' | 'gallery' = 'avatar') {
+  return request<{ photoUrl: string }>('POST', '/profile/photo', { photoBase64, mimeType, purpose });
 }
 
 // ─── Provider Reviews & Tips ───────────────────────────────────────────────────────

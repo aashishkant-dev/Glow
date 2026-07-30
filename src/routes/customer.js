@@ -9,7 +9,7 @@ const validate  = require('../middleware/validate');
 const { sendPush, pushTo } = require('../utils/push');
 const { notify } = require('../utils/notify');
 const { cacheGet, cacheSet, cacheDel, cacheFlushPattern } = require('../utils/cache');
-const { uploadFile } = require('../utils/storage');
+const { uploadFile, deleteFile } = require('../utils/storage');
 const sharp = require('sharp');
 
 // Name sanitization
@@ -1154,6 +1154,19 @@ router.patch(
             .filter(u => typeof u === 'string' && u.startsWith('http'))
             .slice(0, 10);
         }
+
+        // Delete any gallery photo the client dropped from the array — otherwise
+        // it stays in Blob storage forever, unreferenced and still billed for.
+        if (providerData.photos) {
+          const existing = await prisma.providerProfile.findUnique({
+            where: { userId: req.user.id },
+            select: { photos: true },
+          });
+          const removed = (existing?.photos ?? []).filter(u => !providerData.photos.includes(u));
+          for (const url of removed) {
+            deleteFile(url).catch(() => {});
+          }
+        }
         if (Object.keys(providerData).length > 0) {
           providerProfile = await prisma.providerProfile.upsert({
             where:  { userId: req.user.id },
@@ -1318,7 +1331,7 @@ router.post(
   authenticate,
   async (req, res) => {
     try {
-      const { photoBase64, mimeType = 'image/jpeg' } = req.body;
+      const { photoBase64, mimeType = 'image/jpeg', purpose = 'avatar' } = req.body;
       if (!photoBase64) return res.status(400).json({ error: 'photoBase64 required' });
       if (photoBase64.length > 8_000_000) return res.status(413).json({ error: 'Image too large. Maximum 6 MB.' });
 
@@ -1341,14 +1354,20 @@ router.post(
       }
       const photoUrl = result.url;
 
-      await prisma.user.update({ where: { id: req.user.id }, data: { photoUrl } });
+      // Only overwrite the avatar (User.photoUrl / ProviderProfile.photoUrl) for
+      // an actual avatar upload — gallery photos share this same endpoint but must
+      // never clobber the profile picture. Gallery photos are appended to
+      // ProviderProfile.photos separately, by the caller, via PATCH /profile.
+      if (purpose !== 'gallery') {
+        await prisma.user.update({ where: { id: req.user.id }, data: { photoUrl } });
 
-      if (req.user.role === 'Provider') {
-        await prisma.providerProfile.upsert({
-          where:  { userId: req.user.id },
-          update: { photoUrl },
-          create: { userId: req.user.id, photoUrl },
-        });
+        if (req.user.role === 'Provider') {
+          await prisma.providerProfile.upsert({
+            where:  { userId: req.user.id },
+            update: { photoUrl },
+            create: { userId: req.user.id, photoUrl },
+          });
+        }
       }
 
       res.json({ photoUrl });

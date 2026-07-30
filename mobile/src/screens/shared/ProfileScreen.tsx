@@ -482,7 +482,7 @@ export function ProfileScreen() {
     if (!asset.base64) { Alert.alert('Could not read image'); return; }
     setGalleryUploading(true);
     try {
-      const { photoUrl } = await apiUploadPhoto(asset.base64, asset.mimeType ?? 'image/jpeg');
+      const { photoUrl } = await apiUploadPhoto(asset.base64, asset.mimeType ?? 'image/jpeg', 'gallery');
       const updated = [...galleryPhotos, photoUrl].slice(0, 10);
       await apiUpdateProfile({ photos: updated });
       setGalleryPhotos(updated);
@@ -531,7 +531,7 @@ export function ProfileScreen() {
       if (res.user.skinTone) setSkinTone(res.user.skinTone);
       if (res.user.skinType) setSkinType(res.user.skinType);
       if (Array.isArray(res.user.preferredOccasions)) setPreferredOccasions(res.user.preferredOccasions);
-      if (res.user.providerProfile?.photos?.length) setGalleryPhotos(res.user.providerProfile.photos);
+      if (Array.isArray(res.user.providerProfile?.photos)) setGalleryPhotos(res.user.providerProfile.photos);
       if (typeof res.user.providerProfile?.publicProfile === 'boolean') setPublicProfile(res.user.providerProfile.publicProfile);
       const backendPhoto = (res.user as any).photoUrl || res.user.providerProfile?.photoUrl;
       if (backendPhoto && backendPhoto.length > 4) {
@@ -696,7 +696,7 @@ export function ProfileScreen() {
         const finalMime = mimeMatch?.[1] || 'image/jpeg';
         if (!base64Data) throw new Error('Could not read image data');
         const { apiUploadPhoto } = await import('../../api/client');
-        const { photoUrl } = await apiUploadPhoto(base64Data, finalMime);
+        const { photoUrl } = await apiUploadPhoto(base64Data, finalMime, 'avatar');
         updatePhoto(photoUrl);
         setPhotoUri(photoUrl);
         await Storage.savePhotoUri(photoUrl);
