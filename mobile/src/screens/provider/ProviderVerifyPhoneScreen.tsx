@@ -98,7 +98,7 @@ export function ProviderVerifyPhoneScreen() {
                 style={[styles.phoneInput, styles.phoneInputFlex]}
                 value={phone}
                 onChangeText={setPhone}
-                placeholder={!country ? 'Select country first' : country.code === 'CA' ? '705-555-0100' : '98XXXXXXXX'}
+                placeholder={!country ? 'Select country first' : country.code === 'CA' || country.code === 'US' ? '705-555-0100' : country.code === 'UK' ? '7911 123456' : '98XXXXXXXX'}
                 placeholderTextColor={Colors.tertiaryLabel}
                 keyboardType="phone-pad"
                 maxLength={12}

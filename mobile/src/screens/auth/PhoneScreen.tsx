@@ -449,7 +449,7 @@ export function PhoneScreen() {
                           value={phone}
                           onChangeText={handlePhoneChange}
                           onBlur={() => setPhone(formatPhone(phone))}
-                          placeholder={!country ? 'Select country first' : country.code === 'CA' ? '705-555-0100' : '98XXXXXXXX'}
+                          placeholder={!country ? 'Select country first' : country.code === 'CA' || country.code === 'US' ? '705-555-0100' : country.code === 'UK' ? '7911 123456' : '98XXXXXXXX'}
                           placeholderTextColor={Colors.tertiaryLabel}
                           keyboardType="phone-pad"
                           maxLength={12}

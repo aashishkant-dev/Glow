@@ -1,11 +1,9 @@
 /**
  * CountryPicker — flag + dial code badge that opens a GlowSheet dropdown to
- * choose the phone country. Launch countries only (matches the backend's
- * per-country OTP routing in src/utils/smsProviders/index.js): Canada (Twilio,
- * live) and Nepal (routed but falls back to Twilio's dev-log path until a
- * real Nepal SMS provider is wired up — see that file's TODO). USA shares
- * Canada's +1/Twilio route and will be added once Nepal's provider lands and
- * the full three-country list is worth exposing at once.
+ * choose the phone country. Matches the backend's per-country OTP routing in
+ * src/utils/smsProviders/index.js: Canada/USA (Twilio, North American
+ * number), UK (Twilio, separate TWILIO_UK_PHONE_NUMBER sender), and Nepal
+ * (routed via NepalOTP, falls back to Twilio's dev-log path if unconfigured).
  */
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
@@ -16,7 +14,7 @@ import { GlowSheet } from './GlowSheet';
 import { Colors, Fonts } from '../utils/colors';
 
 export interface Country {
-  code: 'CA' | 'US' | 'NP';
+  code: 'CA' | 'US' | 'UK' | 'NP';
   name: string;
   dialCode: string;
 }
@@ -24,6 +22,7 @@ export interface Country {
 export const COUNTRIES: Country[] = [
   { code: 'CA', name: 'Canada', dialCode: '+1' },
   { code: 'US', name: 'United States', dialCode: '+1' },
+  { code: 'UK', name: 'United Kingdom', dialCode: '+44' },
   { code: 'NP', name: 'Nepal',  dialCode: '+977' },
 ];
 
@@ -69,9 +68,22 @@ function FlagUS({ size = 20 }: { size?: number }) {
     </Svg>
   );
 }
+function FlagUK({ size = 20 }: { size?: number }) {
+  const h = size * 0.72;
+  return (
+    <Svg width={size} height={h} viewBox="0 0 20 14">
+      <Rect width="20" height="14" fill="#00247D" />
+      <Path d="M0 0L20 14M20 0L0 14" stroke="#FFFFFF" strokeWidth="2.4" />
+      <Path d="M0 0L20 14M20 0L0 14" stroke="#CF142B" strokeWidth="0.9" />
+      <Path d="M8.5 0V14M0 5.5H20" stroke="#FFFFFF" strokeWidth="4" />
+      <Path d="M8.5 0V14M0 5.5H20" stroke="#CF142B" strokeWidth="2.2" />
+    </Svg>
+  );
+}
 function CountryFlag({ code, size = 20 }: { code: Country['code']; size?: number }) {
   if (code === 'CA') return <FlagCA size={size} />;
   if (code === 'US') return <FlagUS size={size} />;
+  if (code === 'UK') return <FlagUK size={size} />;
   return <FlagNP size={size} />;
 }
 
