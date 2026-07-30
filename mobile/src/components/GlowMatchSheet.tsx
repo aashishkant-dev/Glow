@@ -74,7 +74,11 @@ function buildReasons(a: PublicProviderCard, occasionKeywords: string[], tierKey
 }
 
 function scoreArtist(a: PublicProviderCard, keywords: string[]): number {
-  const spec = a.specialties.some(s => keywords.some(k => s.toLowerCase().includes(k))) ? 3 : 0;
+  // Weighted by COUNT of matching specialties, not a binary any-match flag —
+  // an artist with 2 matching specialties should clearly outrank one with a
+  // single incidental keyword hit, instead of both scoring identically.
+  const matchCount = a.specialties.filter(s => keywords.some(k => s.toLowerCase().includes(k))).length;
+  const spec = Math.min(matchCount * 1.5, 4.5); // caps at 3 matches so it can't dwarf rating/experience
   const rating = Number(a.rating) || 0;
   const volume = Math.log(a.ratingCount + 1) * 0.5 + Math.log(a.completedVisits + 1) * 0.3;
   const exp = Math.min(a.experienceYears ?? 0, 10) * 0.08;
