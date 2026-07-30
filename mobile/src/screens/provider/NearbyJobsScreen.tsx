@@ -1031,40 +1031,9 @@ export function NearbyJobsScreen() {
   const upcomingJobs = myJobs.filter(j => ['ACCEPTED', 'ON_MY_WAY', 'STARTED'].includes(j.status));
   const pastJobs = myJobs.filter(j => j.status === 'COMPLETED');
 
-  // Control cluster (sort/filter) lives OUTSIDE the FlatList, same reason as
-  // before: rendered as ListHeaderComponent it gets rebuilt every render (we
-  // poll every 6s) and would lose focus/state on every re-render. As a fixed
-  // sibling it's stable.
-  //
-  // The separate search-icon toggle was dropped — service search is already
-  // covered by the chip row below, and a second, visually-quiet ghost/outline
-  // button next to a solid brand pill read as an odd, half-finished control.
-  // One full-width, solidly brand-colored Sort & filter pill is the header's
-  // only action here, so it reads as a clear, intentional call to action
-  // instead of a muted secondary button.
+  // Sort & filter now lives as a trailing chip in the service-chip row below
+  // (see `listHeader`), instead of a standalone pill outside the FlatList.
   const activeFilterCount = filtersActiveCount(filters);
-  const searchBar = (
-    <View style={[styles.listHeader, { paddingBottom: 0 }]}>
-      <View style={styles.controlRow}>
-        <Pressable
-          style={styles.controlPillBtn}
-          onPress={() => { setSheetOpen(true); if (Platform.OS !== 'web') Haptics.selectionAsync(); }}
-        >
-          <TuneIcon size={15} color="#fff" />
-          <Text style={styles.controlPillText} numberOfLines={1}>
-            {activeFilterCount > 0
-              ? `Filters${SORT_OPTIONS.find(o => o.key === sort)?.shortLabel !== 'Distance' ? ` · ${SORT_OPTIONS.find(o => o.key === sort)?.shortLabel}` : ''}`
-              : `Sort: ${SORT_OPTIONS.find(o => o.key === sort)?.shortLabel}`}
-          </Text>
-          {activeFilterCount > 0 && (
-            <View style={styles.controlPillBadge}>
-              <Text style={styles.controlPillBadgeText}>{activeFilterCount}</Text>
-            </View>
-          )}
-        </Pressable>
-      </View>
-    </View>
-  );
 
   const listHeader = (
     <View style={[styles.listHeader, { paddingTop: 4 }]}>
@@ -1084,6 +1053,15 @@ export function NearbyJobsScreen() {
               </Pressable>
             );
           })}
+          <Pressable
+            style={[styles.chip, activeFilterCount > 0 && styles.chipActive, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}
+            onPress={() => { setSheetOpen(true); if (Platform.OS !== 'web') Haptics.selectionAsync(); }}
+          >
+            <TuneIcon size={14} color={activeFilterCount > 0 ? '#fff' : Colors.brand} />
+            <Text style={[styles.chipText, activeFilterCount > 0 && styles.chipTextActive]}>
+              {activeFilterCount > 0 ? `Sort & Filter (${activeFilterCount})` : 'Sort & Filter'}
+            </Text>
+          </Pressable>
         </ScrollView>
       )}
 
@@ -1163,7 +1141,7 @@ export function NearbyJobsScreen() {
       <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
         <ExploreHeaderAvatar />
         <View style={styles.headerTitleGroup}>
-          <Text style={styles.igTitle}>Find work</Text>
+          <Text style={styles.igTitle}>Job Requests</Text>
         </View>
         <BriefcaseIcon size={20} color={Colors.gold} />
       </View>
@@ -1247,7 +1225,6 @@ export function NearbyJobsScreen() {
           {!pendingApproval && viewMode === 'list' && (
             <View style={{ flex: 1 }}>
               <LocationBanner />
-              {searchBar}
               <FlatList
                 ref={listRef}
                 style={{ flex: 1 }}
@@ -1481,26 +1458,6 @@ const styles = StyleSheet.create({
     marginBottom: 10,
   },
   weekPillText: { fontSize: 12, fontWeight: '700', color: Colors.brand },
-
-  // ── Unified control cluster (search + sort/filter) ──────────────────────────
-  // Single full-width, solidly brand-colored pill — the header's one clear
-  // call to action, not a muted/outline button beside a ghost search toggle.
-  controlRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    marginBottom: 12,
-  },
-  controlPillBtn: {
-    flex: 1,
-    flexDirection: 'row', alignItems: 'center', gap: 7,
-    height: 44, paddingHorizontal: 16, borderRadius: 14,
-    backgroundColor: Colors.brandDark,
-  },
-  controlPillText: { fontSize: 13.5, fontWeight: '700', color: '#fff' },
-  controlPillBadge: {
-    minWidth: 18, height: 18, borderRadius: 9, paddingHorizontal: 5,
-    alignItems: 'center', justifyContent: 'center', backgroundColor: 'rgba(255,255,255,0.3)',
-  },
-  controlPillBadgeText: { fontSize: 10.5, fontWeight: '800', color: '#fff' },
 
   chip: {
     paddingHorizontal: 14, paddingVertical: 7, borderRadius: 20,
