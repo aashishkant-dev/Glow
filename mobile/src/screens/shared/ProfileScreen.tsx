@@ -1381,61 +1381,6 @@ export function ProfileScreen() {
                     <Divider />
                   </>
 
-                  {/* Gallery photos */}
-                  <View style={{ marginBottom: 4 }}>
-                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                        <View style={styles.infoIconWrap}>
-                          <CameraIcon size={18} color={BRAND} />
-                        </View>
-                        <Text style={styles.infoLabel}>Profile Gallery</Text>
-                      </View>
-                      {galleryPhotos.length < 10 && (
-                        <Pressable onPress={addGalleryPhoto} disabled={galleryUploading} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                          {galleryUploading
-                            ? <ActivityIndicator size="small" color={BRAND} />
-                            : <Text style={{ color: BRAND, fontFamily: Fonts.semibold, fontSize: 13 }}>+ Add Photo</Text>
-                          }
-                        </Pressable>
-                      )}
-                    </View>
-                    {galleryPhotos.length === 0 ? (
-                      <Pressable onPress={addGalleryPhoto} style={styles.galleryEmpty}>
-                        <CameraIcon size={28} color={Colors.tertiaryLabel} />
-                        <Text style={styles.galleryEmptyText}>Add photos so clients can see you at work</Text>
-                        <Text style={styles.galleryEmptyHint}>Up to 10 photos · Tap to add</Text>
-                      </Pressable>
-                    ) : (
-                      <View style={styles.galleryGrid}>
-                        {galleryPhotos.map((url, i) => (
-                          <View key={url + i} style={styles.galleryThumb}>
-                            <Image source={{ uri: url }} style={styles.galleryThumbImg} contentFit="cover" cachePolicy="memory-disk" />
-                            <Pressable
-                              style={styles.galleryRemoveBtn}
-                              onPress={() => {
-                                Alert.alert('Remove photo?', 'This will remove it from your public profile.', [
-                                  { text: 'Cancel', style: 'cancel' },
-                                  { text: 'Remove', style: 'destructive', onPress: () => removeGalleryPhoto(url) },
-                                ]);
-                              }}
-                            >
-                              <Text style={styles.galleryRemoveBtnText}>✕</Text>
-                            </Pressable>
-                          </View>
-                        ))}
-                        {galleryPhotos.length < 10 && (
-                          <Pressable style={styles.galleryAddTile} onPress={addGalleryPhoto} disabled={galleryUploading}>
-                            {galleryUploading
-                              ? <ActivityIndicator color={BRAND} />
-                              : <Text style={styles.galleryAddTileText}>+</Text>
-                            }
-                          </Pressable>
-                        )}
-                      </View>
-                    )}
-                  </View>
-                  <Divider />
-
                   {/* Verification grid — 4 even cells. Police check is OPTIONAL:
                       it only reads "Cleared" when actually verified (admin flag or
                       approved document), "Under review" once submitted, and offers
@@ -1485,6 +1430,69 @@ export function ProfileScreen() {
                   <Text style={styles.noProfileText}>
                     Complete your credential onboarding to see verification status.
                   </Text>
+                </View>
+              )}
+            </View>
+            </Group>
+          </View>
+        )}
+
+        {/* ── Provider gallery — its own section, right after Profile
+             Strength, so it reads as a distinct, visually prioritized
+             step rather than a buried row inside Professional details. ── */}
+        {isProvider && providerProfileTab === 'account' && (
+          <View style={styles.sectionWrap}>
+            <Group title="Your gallery" caption="Show clients your work — aim for at least 3 photos">
+            {/* Gallery photos */}
+            <View style={{ marginBottom: 4 }}>
+              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 }}>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                  <View style={styles.infoIconWrap}>
+                    <CameraIcon size={18} color={BRAND} />
+                  </View>
+                  <Text style={styles.infoLabel}>Profile Gallery</Text>
+                </View>
+                {galleryPhotos.length < 10 && (
+                  <Pressable onPress={addGalleryPhoto} disabled={galleryUploading} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
+                    {galleryUploading
+                      ? <ActivityIndicator size="small" color={BRAND} />
+                      : <Text style={{ color: BRAND, fontFamily: Fonts.semibold, fontSize: 13 }}>+ Add Photo</Text>
+                    }
+                  </Pressable>
+                )}
+              </View>
+              {galleryPhotos.length === 0 ? (
+                <Pressable onPress={addGalleryPhoto} style={styles.galleryEmpty}>
+                  <CameraIcon size={28} color={Colors.tertiaryLabel} />
+                  <Text style={styles.galleryEmptyText}>Add photos so clients can see you at work</Text>
+                  <Text style={styles.galleryEmptyHint}>Up to 10 photos · Tap to add</Text>
+                </Pressable>
+              ) : (
+                <View style={styles.galleryGrid}>
+                  {galleryPhotos.map((url, i) => (
+                    <View key={url + i} style={styles.galleryThumb}>
+                      <Image source={{ uri: url }} style={styles.galleryThumbImg} contentFit="cover" cachePolicy="memory-disk" />
+                      <Pressable
+                        style={styles.galleryRemoveBtn}
+                        onPress={() => {
+                          Alert.alert('Remove photo?', 'This will remove it from your public profile.', [
+                            { text: 'Cancel', style: 'cancel' },
+                            { text: 'Remove', style: 'destructive', onPress: () => removeGalleryPhoto(url) },
+                          ]);
+                        }}
+                      >
+                        <Text style={styles.galleryRemoveBtnText}>✕</Text>
+                      </Pressable>
+                    </View>
+                  ))}
+                  {galleryPhotos.length < 10 && (
+                    <Pressable style={styles.galleryAddTile} onPress={addGalleryPhoto} disabled={galleryUploading}>
+                      {galleryUploading
+                        ? <ActivityIndicator color={BRAND} />
+                        : <Text style={styles.galleryAddTileText}>+</Text>
+                      }
+                    </Pressable>
+                  )}
                 </View>
               )}
             </View>
