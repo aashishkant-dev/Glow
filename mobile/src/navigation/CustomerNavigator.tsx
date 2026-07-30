@@ -58,7 +58,14 @@ export type CustomerStackParams = {
   ProviderPublicProfile: { providerId: string; providerName?: string };
 };
 
-const Tab = createBottomTabNavigator();
+export type CustomerTabParams = {
+  HomeTab: undefined;
+  ExploreTab: undefined;
+  SavedTab: { initialTab?: 'Looks' | 'Artists' } | undefined;
+  ProfileTab: undefined;
+};
+
+const Tab = createBottomTabNavigator<CustomerTabParams>();
 const Stack = createNativeStackNavigator<CustomerStackParams>();
 
 const ACTIVE = Colors.brand;
