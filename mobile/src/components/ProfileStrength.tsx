@@ -13,6 +13,7 @@ export interface ProviderProfileShape {
   photoUrl?: string;
   specialties?: string[];
   policeCheckCleared?: boolean;
+  photos?: string[];
 }
 
 interface CheckItem {
@@ -87,6 +88,13 @@ function computeStrength(
       hint: 'Highlights your training to matching clients',
       done: (providerP?.specialties?.length ?? 0) > 0,
       onFix: onFixSpecialties,
+    },
+    {
+      key: 'gallery',
+      label: 'Gallery photos',
+      hint: 'Show at least 3 photos of your work',
+      done: (providerP?.photos?.length ?? 0) >= 3,
+      onFix: undefined, // no jump-to callback — gallery has its own dedicated section now (Task 2)
     },
     {
       key: 'documents',

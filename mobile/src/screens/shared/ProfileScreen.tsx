@@ -1297,7 +1297,7 @@ export function ProfileScreen() {
               caption="What clients see before they book you"
             >
             <ProfileStrength
-              providerProfile={providerP}
+              providerProfile={providerP ? { ...providerP, photos: galleryPhotos } : providerP}
               hasPhoto={!!photoUri}
               phoneVerified
               onFixBio={() => openField('bio', 'About you', providerP?.bio ?? '', true)}
