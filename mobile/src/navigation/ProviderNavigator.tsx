@@ -17,6 +17,8 @@ import { ProviderOnboardingScreen } from '../screens/provider/ProviderOnboarding
 import { ProviderVerifyPhoneScreen } from '../screens/provider/ProviderVerifyPhoneScreen';
 import { EarningsScreen } from '../screens/provider/EarningsScreen';
 import { RequestsScreen } from '../screens/provider/RequestsScreen';
+import { RequestsHubScreen } from '../screens/provider/RequestsHubScreen';
+import { PostsScreen } from '../screens/provider/PostsScreen';
 import { requestsBadge } from '../utils/providerBadges';
 import { HelpScreen } from '../screens/shared/HelpScreen';
 import { ProfileScreen } from '../screens/shared/ProfileScreen';
@@ -25,7 +27,8 @@ import { NotificationsScreen } from '../screens/shared/NotificationsScreen';
 import { Colors } from '../utils/colors';
 import { Booking, apiNearbyJobs, apiMyJobs, apiGetRequests } from '../api/client';
 import { getSocket, joinBookingRoom, joinUserRoom } from '../utils/socket';
-import { HomeIcon, SearchJobsIcon, CalendarIcon, PersonIcon } from '../components/TabIcons';
+import { HomeIcon, CameraIcon, PersonIcon } from '../components/TabIcons';
+import { BellIcon } from '../components/CareIcons';
 import { useNavigation } from '@react-navigation/native';
 import { DEFAULT_REGION_NAME } from '../utils/region';
 
@@ -310,8 +313,7 @@ function ProviderTabs() {
               backgroundColor: 'rgba(255,255,255,0.72)',
               // @ts-expect-error — web-only CSS property, RN's types don't include it
               backdropFilter: 'blur(20px) saturate(180%)',
-              borderTopLeftRadius: 32,
-              borderTopRightRadius: 32,
+              borderRadius: 100,
             },
           ]}
         />
@@ -321,7 +323,7 @@ function ProviderTabs() {
       <BlurView
         intensity={78}
         tint="light"
-        style={[StyleSheet.absoluteFill, { borderTopLeftRadius: 32, borderTopRightRadius: 32, overflow: 'hidden' }]}
+        style={[StyleSheet.absoluteFill, { borderRadius: 100, overflow: 'hidden' }]}
       />
     );
   }
@@ -340,28 +342,33 @@ function ProviderTabs() {
             marginTop: 2,
           },
           tabBarBackground: GlassTabBarBackground,
+          // Floating iOS-style pill bar — detached from the screen edges,
+          // matching CustomerNavigator's tab bar treatment (see that file's
+          // HomeTabs for the equivalent styling).
           tabBarStyle: {
-            borderTopColor: 'transparent',
+            position: 'absolute' as const,
+            left: 16, right: 16,
+            bottom: Platform.OS === 'ios' ? 24 : 14,
             borderTopWidth: 0,
             backgroundColor: 'transparent',
-            height: Platform.OS === 'ios' ? 88 : 72,
+            height: 70,
+            paddingBottom: 10,
             paddingTop: 10,
-            paddingBottom: Platform.OS === 'ios' ? 28 : 12,
-            paddingHorizontal: 0,
-            shadowColor: '#000',
-            shadowOffset: { width: 0, height: -2 },
-            shadowOpacity: 0.06,
-            shadowRadius: 10,
-            elevation: 10,
-            borderTopLeftRadius: 32,
-            borderTopRightRadius: 32,
-            // Without this, the rounded top corners clip the center FAB
-            // (marginTop: -24) that's meant to poke up above the bar.
-            overflow: 'visible',
+            paddingHorizontal: 8,
+            borderRadius: 100,
+            borderWidth: 1,
+            borderColor: 'rgba(255,255,255,0.5)',
+            shadowColor: Colors.cardShadow,
+            shadowOffset: { width: 0, height: 12 },
+            shadowOpacity: 0.14,
+            shadowRadius: 30,
+            elevation: 12,
+            overflow: 'visible' as const,
+            zIndex: 5,
           },
         }}
       >
-        {/* ── Tab 1: Dashboard / Home ── */}
+        {/* ── Tab 1: Home ── */}
         <Tab.Screen
           name="Dashboard"
           component={ProviderDashboardScreen}
@@ -380,79 +387,37 @@ function ProviderTabs() {
           }}
         />
 
-        {/* ── Tab 2: Find Jobs (center FAB) ── */}
+        {/* ── Tab 2: Requests (folds the old FAB "Jobs" browse + "Calendar"
+             upcoming-jobs tab into one screen with an internal toggle — see
+             RequestsHubScreen.tsx). Route name "RequestsHub" is new; nothing
+             navigated to a route by this name before, so no call sites break. ── */}
         <Tab.Screen
-          name="NearbyJobs"
-          component={NearbyJobsScreen}
-          options={{
-            tabBarIcon: () => (
-              <View style={{
-                width: 58,
-                height: 58,
-                borderRadius: 29,
-                backgroundColor: Colors.brand,
-                alignItems: 'center',
-                justifyContent: 'center',
-                marginTop: -24,
-                shadowColor: Colors.brand,
-                shadowOffset: { width: 0, height: 6 },
-                shadowOpacity: 0.45,
-                shadowRadius: 14,
-                elevation: 12,
-                borderWidth: 3,
-                borderColor: '#fff',
-              }}>
-                {nearbyBadge > 0 && (
-                  <View style={{
-                    position: 'absolute',
-                    top: 0,
-                    right: 0,
-                    minWidth: 18,
-                    height: 18,
-                    borderRadius: 9,
-                    backgroundColor: '#EF4444',
-                    alignItems: 'center',
-                    justifyContent: 'center',
-                    paddingHorizontal: 4,
-                    borderWidth: 2,
-                    borderColor: '#FFFFFF',
-                    zIndex: 1,
-                  }}>
-                    <Text style={{ color: '#fff', fontSize: 9, fontWeight: '800' }}>
-                      {nearbyBadge > 99 ? '99+' : nearbyBadge}
-                    </Text>
-                  </View>
-                )}
-                <SearchJobsIcon size={26} color="#fff" />
-              </View>
-            ),
-            tabBarLabel: 'Jobs',
-          }}
-        />
-
-        {/* ── Tab 3: Calendar (route name kept as "MyJobs" — several nav.navigate('MyJobs')
-             call sites across RequestsScreen/ChatUnreadContext/ProviderDashboardScreen
-             target this route by name; renaming the route would silently break those
-             deep-links, so only the label/icon/screen component changed here). ── */}
-        <Tab.Screen
-          name="MyJobs"
-          component={ProviderCalendarScreen}
+          name="RequestsHub"
+          component={RequestsHubScreen}
           options={{
             tabBarIcon: ({ color }) => (
               <View>
-                <CalendarIcon size={24} color={color} />
-                {hasActiveJob && (
-                  <View style={{
-                    position: 'absolute', top: -2, right: -4,
-                    width: 8, height: 8, borderRadius: 4,
-                    backgroundColor: Colors.onlineGreen,
-                    borderWidth: 1.5,
-                    borderColor: '#FFFFFF',
-                  }} />
+                <BellIcon size={24} color={color} />
+                {(reqBadge > 0 || nearbyBadge > 0 || hasActiveJob) && (
+                  <View style={tabBadgeStyles.badge}>
+                    <Text style={tabBadgeStyles.badgeText}>
+                      {(reqBadge + nearbyBadge) > 9 ? '9+' : (reqBadge + nearbyBadge || '•')}
+                    </Text>
+                  </View>
                 )}
               </View>
             ),
-            tabBarLabel: 'Calendar',
+            tabBarLabel: 'Requests',
+          }}
+        />
+
+        {/* ── Tab 3: Posts ── */}
+        <Tab.Screen
+          name="PostsTab"
+          component={PostsScreen}
+          options={{
+            tabBarIcon: ({ color }) => <CameraIcon size={22} color={color} />,
+            tabBarLabel: 'Posts',
           }}
         />
 
@@ -464,6 +429,30 @@ function ProviderTabs() {
             tabBarIcon: ({ color, focused }) => <ProfileTabAvatar photoUrl={user?.photoUrl} color={color} focused={focused} />,
             tabBarLabel: 'Profile',
           }}
+        />
+
+        {/* ── Hidden routes: NOT shown as tab buttons (tabBarButton: () => null),
+             but kept registered in the Tab.Navigator because several call sites
+             navigate to them directly by name — nav.navigate('NearbyJobs'),
+             nav.navigate('MyJobs'), and nav.navigate('ProviderHome', { screen:
+             'MyJobs' | 'NearbyJobs' }) — from RequestsScreen.tsx,
+             ProviderCalendarScreen.tsx, ProviderDashboardScreen.tsx, and
+             ChatUnreadContext.tsx. Removing these Tab.Screen entries entirely
+             (rather than just hiding their tab-bar button) would silently break
+             those deep-links, since React Navigation resolves navigate-by-name
+             against the registered route config, not just the visible tab list.
+             The new RequestsHub tab is what's visible in the bar; these two
+             remain reachable "behind" it for existing flows (accept → land on
+             MyJobs, "Find Jobs" quick action → land on NearbyJobs, etc). ── */}
+        <Tab.Screen
+          name="NearbyJobs"
+          component={NearbyJobsScreen}
+          options={{ tabBarButton: () => null }}
+        />
+        <Tab.Screen
+          name="MyJobs"
+          component={ProviderCalendarScreen}
+          options={{ tabBarButton: () => null }}
         />
 
       </Tab.Navigator>
