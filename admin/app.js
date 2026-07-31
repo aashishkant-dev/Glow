@@ -609,20 +609,43 @@ function renderProviderDocs(providerId, docs) {
     </div>`;
   }
 
+  // A Provider re-submitting a rejected document uploads a brand new row
+  // (src/routes/documents.js never updates/reuses the old one) — so the old
+  // REJECTED row and the new PENDING row for the same docType both showed as
+  // full action cards here. An admin working through the list could act on
+  // the stale rejected card without noticing a fresh submission sat right
+  // next to it, which read as "resubmitting does nothing, still rejected."
+  // Collapse to the single latest submission per docType for the actionable
+  // list; older submissions for that type are folded into a small history
+  // note on that card instead of their own duplicate card.
+  const latestByType = new Map();
+  const historyByType = new Map();
+  // docs arrives newest-first (submittedAt desc, per the API) — keep the
+  // first one seen per docType as "latest," collect the rest as history.
+  docs.forEach(d => {
+    if (!latestByType.has(d.docType)) {
+      latestByType.set(d.docType, d);
+      historyByType.set(d.docType, []);
+    } else {
+      historyByType.get(d.docType).push(d);
+    }
+  });
+  const latestDocs = Array.from(latestByType.values());
+
   // Sort: PENDING first, then APPROVED, then REJECTED
-  const sorted = [...docs].sort((a, b) => {
+  const sorted = [...latestDocs].sort((a, b) => {
     const order = { PENDING: 0, APPROVED: 1, REJECTED: 2 };
     return (order[a.status] ?? 3) - (order[b.status] ?? 3);
   });
 
-  const pending  = docs.filter(d => d.status === 'PENDING').length;
-  const approved = docs.filter(d => d.status === 'APPROVED').length;
-  const requiredApproved = docs.filter(d => REQUIRED_DOCS.includes(d.docType) && d.status === 'APPROVED').length;
+  const pending  = latestDocs.filter(d => d.status === 'PENDING').length;
+  const approved = latestDocs.filter(d => d.status === 'APPROVED').length;
+  const requiredApproved = latestDocs.filter(d => REQUIRED_DOCS.includes(d.docType) && d.status === 'APPROVED').length;
   const allRequiredDone  = requiredApproved === REQUIRED_DOCS.length;
 
   let html = `
     <div class="docs-summary">
-      <span>${docs.length} document${docs.length !== 1 ? 's' : ''} · <strong>${approved} approved</strong> · ${pending} pending</span>
+      <span>${latestDocs.length} document${latestDocs.length !== 1 ? 's' : ''} · <strong>${approved} approved</strong> · ${pending} pending</span>
       <span class="docs-required ${allRequiredDone ? 'req-done' : 'req-missing'}">${requiredApproved}/${REQUIRED_DOCS.length} required ✓</span>
     </div>
   `;
@@ -680,6 +703,12 @@ function renderProviderDocs(providerId, docs) {
         <div class="doc-status-banner doc-status-rejected">
           ❌ Rejected${d.rejectionReason ? ': ' + d.rejectionReason : ''}
         </div>` : ''}
+
+        ${historyByType.get(d.docType)?.length ? `
+        <div class="doc-history-note">
+          ${historyByType.get(d.docType).length} earlier submission${historyByType.get(d.docType).length !== 1 ? 's' : ''} for this document —
+          ${historyByType.get(d.docType).map(h => h.status === 'REJECTED' ? `rejected${h.rejectionReason ? ' (' + escapeHtml(h.rejectionReason) + ')' : ''}` : h.status.toLowerCase()).join(', ')}
+        </div>` : ''}
       </div>
     `;
   });
@@ -714,9 +743,10 @@ async function approveDocInline(docId, providerId, btn) {
     banner.className = 'doc-status-banner doc-status-approved';
     banner.textContent = `✅ Approved · ${new Date().toLocaleDateString('en-CA')}`;
     card.appendChild(banner);
-    bust('/admin/documents', `/admin/providers/${providerId}`);
+    bust('/admin/documents', '/admin/providers');
     showToast('Document approved!', 'success');
     refreshDocsSummary();
+    loadProviders();
     // Re-render Provider info panel (left side) so verification checklist updates
     if (currentProvider) {
       const _providerId = currentProvider.id;
@@ -755,9 +785,10 @@ async function rejectDocInline(docId, providerId, btn) {
     banner.className = 'doc-status-banner doc-status-rejected';
     banner.textContent = `❌ Rejected: ${reason}`;
     card.appendChild(banner);
-    bust('/admin/documents', `/admin/providers/${providerId}`);
+    bust('/admin/documents', '/admin/providers');
     showToast('Document rejected.', 'info');
     refreshDocsSummary();
+    loadProviders();
     // Re-render Provider info panel (left side) so verification checklist updates
     if (currentProvider) {
       const _providerId = currentProvider.id;
