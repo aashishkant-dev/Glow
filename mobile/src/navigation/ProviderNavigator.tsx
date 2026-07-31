@@ -401,7 +401,7 @@ function ProviderTabs() {
                 {(reqBadge > 0 || nearbyBadge > 0 || hasActiveJob) && (
                   <View style={tabBadgeStyles.badge}>
                     <Text style={tabBadgeStyles.badgeText}>
-                      {(reqBadge + nearbyBadge) > 9 ? '9+' : (reqBadge + nearbyBadge || '•')}
+                      {reqBadge > 9 ? '9+' : (reqBadge || '•')}
                     </Text>
                   </View>
                 )}
