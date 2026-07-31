@@ -13,7 +13,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { StarIcon, CalendarIcon, CameraIcon } from '../../components/TabIcons';
+import { StarIcon, CalendarIcon } from '../../components/TabIcons';
 import { GlowLogo, GlowMark } from '../../components/GlowLogo';
 import {
   apiMyBookings,
@@ -27,7 +27,7 @@ import { useLocation } from '../../context/LocationContext';
 import { Colors, Fonts } from '../../utils/colors';
 import { BellIcon, CheckDecagramIcon } from '../../components/CareIcons';
 import {
-  SparkleIcon, CrownIcon, LipstickIcon, HennaIcon, MirrorIcon, FacialIcon, ScissorsIcon,
+  SparkleIcon, CrownIcon, LipstickIcon, HennaIcon, MirrorIcon, ScissorsIcon,
 } from '../../components/BeautyIcons';
 import { StatusBadge } from '../../components/StatusBadge';
 import { LocationPrompt } from '../../components/LocationPrompt';
@@ -36,34 +36,18 @@ import { GlowMatchSheet } from '../../components/GlowMatchSheet';
 import { LookSheet } from '../../components/LookSheet';
 import { LookTile } from '../../components/LookTile';
 import { LOOKS, Look } from '../../data/looks';
+import { OCCASIONS, IconComp } from '../../data/occasions';
 import { Storage } from '../../utils/storage';
 import { useChatUnread } from '../../context/ChatUnreadContext';
 import { tapLight } from '../../utils/haptics';
-
-type IconComp = (p: { size?: number; color?: string }) => React.ReactElement;
 
 /**
  * Occasion-first home. Nobody wakes up wanting "a makeup artist" — they have
  * a wedding next week, a date tonight. Every card answers that moment and
  * lands in the booking flow with the right service already chosen.
+ * OCCASIONS itself now lives in ../../data/occasions.ts, shared with
+ * CreateBookingScreen's "For an occasion" section.
  */
-const OCCASIONS: {
-  id: string; name: string; sub: string; Icon: IconComp;
-  serviceType: string | null; // null → opens a role picker (Wedding)
-  tint: string; big?: boolean;
-}[] = [
-  { id: 'wedding',    name: 'Wedding',       sub: 'Your big day, handled',   Icon: CrownIcon,    serviceType: null,            tint: '#FCECEF', big: true },
-  { id: 'engagement', name: 'Engagement',    sub: 'Ring-light ready',        Icon: SparkleIcon,  serviceType: 'Bridal Makeup', tint: '#F6EBC9' },
-  { id: 'reception',  name: 'Reception',     sub: 'Second-look sparkle',     Icon: MirrorIcon,   serviceType: 'Party Makeup',  tint: '#FCECEF' },
-  { id: 'party',      name: 'Party',         sub: 'Full glam night',         Icon: SparkleIcon,  serviceType: 'Party Makeup',  tint: '#FCECEF' },
-  { id: 'date',       name: 'Date Night',    sub: 'Soft & radiant',          Icon: LipstickIcon, serviceType: 'Makeup',        tint: '#F6EBC9' },
-  { id: 'birthday',   name: 'Birthday',      sub: 'Main-character glow',     Icon: SparkleIcon,  serviceType: 'Party Makeup',  tint: '#FCECEF' },
-  { id: 'festival',   name: 'Festival',      sub: 'Mehendi & shimmer',       Icon: HennaIcon,    serviceType: 'Mehendi',       tint: '#F6EBC9' },
-  { id: 'office',     name: 'Office Event',  sub: 'Polished, not loud',      Icon: MirrorIcon,   serviceType: 'Makeup',        tint: '#FCECEF' },
-  { id: 'photoshoot', name: 'Photoshoot',    sub: 'Camera-proof finish',     Icon: CameraIcon as IconComp, serviceType: 'Makeup', tint: '#F6EBC9' },
-  { id: 'graduation', name: 'Graduation',    sub: 'Cap-and-gown glam',       Icon: CrownIcon,    serviceType: 'Party Makeup',  tint: '#FCECEF' },
-  { id: 'everyday',   name: 'Everyday Glow', sub: 'Skin-first beauty',       Icon: FacialIcon,   serviceType: 'Facial',        tint: '#F6EBC9' },
-];
 
 /** Wedding roles — the only occasion that earns a follow-up question. */
 const WEDDING_ROLES: { label: string; sub: string; serviceType: string; Icon: IconComp }[] = [
