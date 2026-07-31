@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Image } from 'expo-image';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -109,6 +109,14 @@ export function PostsScreen() {
                 <Pressable
                   style={styles.removeBtn}
                   onPress={() => {
+                    // Alert.alert with a multi-button array is a no-op on RN-Web —
+                    // the confirm dialog never appears, so the button looked broken.
+                    if (Platform.OS === 'web') {
+                      if (typeof window !== 'undefined' && window.confirm('Delete this post? This cannot be undone.')) {
+                        deletePost(post.id);
+                      }
+                      return;
+                    }
                     Alert.alert('Delete post?', 'This cannot be undone.', [
                       { text: 'Cancel', style: 'cancel' },
                       { text: 'Delete', style: 'destructive', onPress: () => deletePost(post.id) },

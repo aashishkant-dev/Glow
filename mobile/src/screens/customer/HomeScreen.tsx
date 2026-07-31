@@ -87,6 +87,54 @@ function Touch({ children, onPress, style }: { children: React.ReactNode; onPres
   );
 }
 
+/**
+ * Sparkle-burst button — pure delight, no navigation. Tapping fans out a ring
+ * of small sparkle glyphs from the icon that scale/fade outward, then reset,
+ * so it can be tapped again.
+ */
+function SparkleBurstButton() {
+  const BURST_COUNT = 6;
+  const anims = useRef(Array.from({ length: BURST_COUNT }, () => new Animated.Value(0))).current;
+  const [bursting, setBursting] = useState(false);
+
+  function burst() {
+    if (bursting) return;
+    setBursting(true);
+    anims.forEach(v => v.setValue(0));
+    Animated.stagger(
+      30,
+      anims.map(v => Animated.timing(v, { toValue: 1, duration: 550, easing: Easing.out(Easing.cubic), useNativeDriver: true })),
+    ).start(() => setBursting(false));
+  }
+
+  return (
+    <Pressable onPress={burst} hitSlop={10} style={{ width: 16, height: 16, alignItems: 'center', justifyContent: 'center' }}>
+      <SparkleIcon size={16} color={Colors.gold} />
+      {anims.map((v, i) => {
+        const angle = (i / BURST_COUNT) * 2 * Math.PI;
+        const distance = 22;
+        const translateX = v.interpolate({ inputRange: [0, 1], outputRange: [0, Math.cos(angle) * distance] });
+        const translateY = v.interpolate({ inputRange: [0, 1], outputRange: [0, Math.sin(angle) * distance] });
+        const scale = v.interpolate({ inputRange: [0, 0.3, 1], outputRange: [0, 1, 0.3] });
+        const opacity = v.interpolate({ inputRange: [0, 0.15, 1], outputRange: [0, 1, 0] });
+        return (
+          <Animated.View
+            key={i}
+            pointerEvents="none"
+            style={{
+              position: 'absolute',
+              transform: [{ translateX }, { translateY }, { scale }],
+              opacity,
+            }}
+          >
+            <SparkleIcon size={12} color={Colors.gold} />
+          </Animated.View>
+        );
+      })}
+    </Pressable>
+  );
+}
+
 /** Editorial artist card — soft rose canvas, avatar, gold-verified. */
 function ArtistCard({ artist, onPress }: { artist: PublicProviderCard; onPress: () => void }) {
   const initial = artist.name?.[0]?.toUpperCase() ?? '?';
@@ -344,7 +392,7 @@ export function HomeScreen() {
             <>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Loved by clients</Text>
-                <SparkleIcon size={16} color={Colors.gold} />
+                <SparkleBurstButton />
               </View>
               <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll} contentContainerStyle={styles.artistRow}>
                 {topArtists.map(a => (

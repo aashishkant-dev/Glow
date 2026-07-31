@@ -1499,6 +1499,14 @@ export function ProfileScreen() {
                       <Pressable
                         style={styles.galleryRemoveBtn}
                         onPress={() => {
+                          // Alert.alert with a multi-button array is a no-op on RN-Web —
+                          // the confirm dialog never appears, so the button looked broken.
+                          if (Platform.OS === 'web') {
+                            if (typeof window !== 'undefined' && window.confirm('Remove this photo? This will remove it from your public profile.')) {
+                              removeGalleryPhoto(url);
+                            }
+                            return;
+                          }
                           Alert.alert('Remove photo?', 'This will remove it from your public profile.', [
                             { text: 'Cancel', style: 'cancel' },
                             { text: 'Remove', style: 'destructive', onPress: () => removeGalleryPhoto(url) },

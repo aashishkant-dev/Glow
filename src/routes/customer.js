@@ -65,13 +65,13 @@ async function priceForBooking(serviceType, hours, providerUserId, proposedPrice
       }
 
       // If the provider allows negotiation and the client proposed a price, use it
-      // (within ±50% of the listed price to prevent abuse)
+      // (negotiation is a discount, not a way to pay more — offer must be strictly
+      // below the listed price, down to 50% of it to prevent lowball abuse)
       if (listedPrice != null && profile.priceNegotiable && proposedPrice != null) {
         const proposed = Number(proposedPrice);
         if (!isNaN(proposed) && proposed > 0) {
           const lowerBound = listedPrice * 0.5;
-          const upperBound = listedPrice * 1.5;
-          if (proposed >= lowerBound && proposed <= upperBound) {
+          if (proposed >= lowerBound && proposed < listedPrice) {
             return Math.round(proposed * 100) / 100;
           }
         }

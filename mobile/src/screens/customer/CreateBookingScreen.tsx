@@ -1375,14 +1375,16 @@ export function CreateBookingScreen() {
     if (!Number.isFinite(parsedProposedPrice) || parsedProposedPrice <= 0) return false;
     const listed = calcTotalPrice(selectedProvider, serviceType, hours, 1);
     if (listed <= 0) return true; // no listed price to compare against — can't range-check
-    return parsedProposedPrice >= listed * 0.5 && parsedProposedPrice <= listed * 1.5;
+    // Negotiation is a discount ask, not a way to pay more — offer must be
+    // strictly below the listed price, down to 50% of it to prevent lowballing.
+    return parsedProposedPrice >= listed * 0.5 && parsedProposedPrice < listed;
   }
   function proposedPriceErrorMsg(): string {
     if (!Number.isFinite(parsedProposedPrice) || parsedProposedPrice <= 0) {
       return 'Enter a valid amount.';
     }
     const listed = calcTotalPrice(selectedProvider, serviceType, hours, 1);
-    return `Offer must be between $${Math.round(listed * 0.5)} and $${Math.round(listed * 1.5)}.`;
+    return `Offer must be between $${Math.round(listed * 0.5)} and $${Math.round(listed)}.`;
   }
 
   const canNext =
@@ -1503,6 +1505,30 @@ export function CreateBookingScreen() {
         Alert.alert('Location unavailable', 'Could not get your current location. Please enter your address manually.');
         return;
       }
+
+      // expo-location's reverseGeocodeAsync always returns [] on web (the
+      // Geocoding API was removed from the web shim in Expo SDK 49) — use
+      // OpenStreetMap's free Nominatim API there instead, same OSM stack the
+      // app already uses for maps elsewhere (no API key/billing needed).
+      if (Platform.OS === 'web') {
+        const res = await fetch(
+          `https://nominatim.openstreetmap.org/reverse?lat=${useCoords.lat}&lon=${useCoords.lng}&format=json`,
+          { headers: { 'Accept-Language': 'en' } },
+        );
+        const data = await res.json();
+        const addr = data?.address;
+        if (!addr) {
+          Alert.alert('Location unavailable', 'Could not determine an address for your current location. Please enter it manually.');
+          return;
+        }
+        const streetLine = [addr.house_number, addr.road].filter(Boolean).join(' ');
+        if (streetLine) setStreet(streetLine);
+        const city = addr.city || addr.town || addr.village || addr.suburb;
+        if (city) setCity(city);
+        if (addr.postcode) setPostal(addr.postcode);
+        return;
+      }
+
       const Location = await import('expo-location');
       const hits = await Location.reverseGeocodeAsync({ latitude: useCoords.lat, longitude: useCoords.lng });
       const hit = hits[0];
@@ -2311,7 +2337,7 @@ export function CreateBookingScreen() {
                   <View style={{ flex: 1 }}>
                     <Text style={[styles.escrowTitle, { color: '#92400E' }]}>Propose a Price</Text>
                     <Text style={[styles.escrowText, { color: '#A16207' }]}>
-                      This provider accepts price negotiation. Enter your offer below (within ±50% of the listed price).
+                      This provider accepts price negotiation. Enter a lower offer below (50–99% of the listed price).
                     </Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 }}>
                       <Text style={{ fontSize: 18, fontWeight: '800', color: '#92400E' }}>$</Text>
