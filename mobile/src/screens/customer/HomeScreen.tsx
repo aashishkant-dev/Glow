@@ -355,6 +355,25 @@ export function HomeScreen() {
             </Touch>
           )}
 
+          {/* ── Top rated artists ── */}
+          {topArtists.length > 0 && (
+            <>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Loved by clients</Text>
+                <SparkleIcon size={16} color={Colors.gold} />
+              </View>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll} contentContainerStyle={styles.artistRow}>
+                {topArtists.map(a => (
+                  <ArtistCard
+                    key={a.id}
+                    artist={a}
+                    onPress={() => nav.navigate('ProviderPublicProfile', { providerId: a.id, providerName: a.name })}
+                  />
+                ))}
+              </ScrollView>
+            </>
+          )}
+
           {/* ── Occasion grid — the heart of the home screen ── */}
           <View style={styles.occGrid}>
             {(showAllOccasions ? OCCASIONS : OCCASIONS.slice(0, 6)).map(o => (
@@ -406,25 +425,6 @@ export function HomeScreen() {
               </View>
             ))}
           </ScrollView>
-
-          {/* ── Top rated artists ── */}
-          {topArtists.length > 0 && (
-            <>
-              <View style={styles.sectionHeader}>
-                <Text style={styles.sectionTitle}>Loved by clients</Text>
-                <SparkleIcon size={16} color={Colors.gold} />
-              </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll} contentContainerStyle={styles.artistRow}>
-                {topArtists.map(a => (
-                  <ArtistCard
-                    key={a.id}
-                    artist={a}
-                    onPress={() => nav.navigate('ProviderPublicProfile', { providerId: a.id, providerName: a.name })}
-                  />
-                ))}
-              </ScrollView>
-            </>
-          )}
 
           {/* ── Trust strip ── */}
           <View style={styles.sectionPad}>
