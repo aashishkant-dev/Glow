@@ -1,6 +1,6 @@
 {
   "outputDirectory": "dist",
-  "buildCommand": "",
+  "buildCommand": "npm run build:web",
   "rewrites": [{ "source": "/((?!_expo|assets|favicon|manifest|icon|apple|sw\\.js|metadata).*)", "destination": "/index.html" }],
   "headers": [
     {
