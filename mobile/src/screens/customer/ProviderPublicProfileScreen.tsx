@@ -318,6 +318,32 @@ export function ProviderPublicProfileScreen() {
           </View>
         )}
 
+        {/* ── Posts — the Provider's feed content, distinct from the static
+             portfolio gallery above. ── */}
+        {!!p.posts?.length && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Posts</Text>
+            <View style={styles.postsGrid}>
+              {p.posts.map(post => (
+                <View key={post.id} style={styles.postThumb}>
+                  <Image
+                    source={{ uri: post.photoUrl }}
+                    style={styles.postThumbImg}
+                    contentFit="cover"
+                    cachePolicy="memory-disk"
+                    transition={200}
+                  />
+                  {post.likeCount > 0 && (
+                    <View style={styles.postLikeBadge}>
+                      <Text style={styles.postLikeBadgeText}>♥ {post.likeCount}</Text>
+                    </View>
+                  )}
+                </View>
+              ))}
+            </View>
+          </View>
+        )}
+
         {/* ── Specialties ── */}
         {p.specialties.length > 0 && (
           <View style={styles.section}>
@@ -548,6 +574,18 @@ const styles = StyleSheet.create({
     width: '100%', height: 260, borderRadius: 24, marginBottom: 12,
     backgroundColor: Colors.brandLight,
   },
+
+  postsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  postThumb: {
+    width: '31%', aspectRatio: 1, borderRadius: 14, overflow: 'hidden',
+    backgroundColor: Colors.brandLight,
+  },
+  postThumbImg: { width: '100%', height: '100%' },
+  postLikeBadge: {
+    position: 'absolute', bottom: 6, right: 6, backgroundColor: 'rgba(0,0,0,0.55)',
+    borderRadius: 999, paddingHorizontal: 8, paddingVertical: 3,
+  },
+  postLikeBadgeText: { color: '#fff', fontSize: 11, fontWeight: '700' },
 
   workCard: {
     backgroundColor: '#fff', borderRadius: 20, padding: 16,

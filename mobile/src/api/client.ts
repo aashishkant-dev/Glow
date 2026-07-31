@@ -969,6 +969,14 @@ export interface ProviderPublicProfile {
   businessHours?: BusinessHours;
   lat?: number;
   lng?: number;
+  posts?: {
+    id: string;
+    photoUrl: string;
+    caption: string | null;
+    likeCount: number;
+    createdAt: string;
+    service: { id: string; name: string; price: number } | null;
+  }[];
 }
 
 export function apiGetProviderPublicProfile(providerId: string) {
