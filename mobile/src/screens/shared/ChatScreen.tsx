@@ -148,7 +148,7 @@ export function ChatScreen() {
         <Avatar name={otherName} photoUrl={otherPhotoUrl} size={38} style={{ marginRight: 10 }} />
         <View style={{ flex: 1 }}>
           <Text style={styles.headerName}>{otherName}</Text>
-          <Text style={styles.headerRole}>{otherRole === 'Provider' ? 'Personal Support Worker' : 'Client'}</Text>
+          <Text style={styles.headerRole}>{otherRole === 'Provider' ? 'Beauty Artist' : 'Client'}</Text>
         </View>
       </LinearGradient>
 

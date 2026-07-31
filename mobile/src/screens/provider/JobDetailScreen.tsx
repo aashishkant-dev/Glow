@@ -9,6 +9,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import * as Linking from 'expo-linking';
 import { apiAcceptJob, apiCompleteJob, apiGetBooking, apiOnMyWay, apiRateCustomer, apiStartJob, Booking } from '../../api/client';
+import { getSocket } from '../../utils/socket';
 import { Avatar } from '../../components/Avatar';
 import { RatingModal } from '../../components/RatingModal';
 import { StatusBadge } from '../../components/StatusBadge';
@@ -190,6 +191,29 @@ export function JobDetailScreen() {
       });
     }).catch(() => {});
     return () => { cancelled = true; };
+  }, [paramJobId]);
+
+  // This screen previously never refreshed after mount — no poll, no
+  // useFocusEffect, no socket subscription. If a client cancelled the
+  // booking (or anything else changed its status) while a Provider had this
+  // screen open, the action buttons (On My Way / I've Arrived / Complete
+  // Job) stayed live for a booking that was already gone server-side, and
+  // tapping them just produced a generic "Booking not found" alert instead
+  // of the screen reflecting reality. The backend already emits
+  // `booking-status-changed` with `{ bookingId, status }` on every
+  // accept/skip/cancel/complete transition (ChatUnreadContext's global
+  // listener uses the same event for its toast banner) — this listener is
+  // scoped to just this screen's own booking and re-fetches the full
+  // object so `job` state always reflects the live server status.
+  useEffect(() => {
+    if (!paramJobId) return;
+    const socket = getSocket();
+    const onStatusChanged = (d: any) => {
+      if (String(d?.bookingId) !== String(paramJobId)) return;
+      apiGetBooking(paramJobId, true).then(({ booking }) => setJob(booking)).catch(() => {});
+    };
+    socket.on('booking-status-changed', onStatusChanged);
+    return () => { socket.off('booking-status-changed', onStatusChanged); };
   }, [paramJobId]);
 
   useEffect(() => {
