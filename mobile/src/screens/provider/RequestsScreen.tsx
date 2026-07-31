@@ -33,7 +33,7 @@ function fmtDistance(km?: number): string | null {
   return km < 1 ? `${Math.round(km * 1000)} m away` : `${km.toFixed(1)} km away`;
 }
 
-export function RequestsScreen() {
+export function RequestsScreen({ embedded = false }: { embedded?: boolean } = {}) {
   const insets = useSafeAreaInsets();
   const nav    = useNavigation<any>();
   const [requests, setRequests] = useState<Booking[]>([]);
@@ -111,15 +111,17 @@ export function RequestsScreen() {
 
   return (
     <View style={styles.container}>
-      <LinearGradient colors={[Colors.brand, Colors.brandDark]} style={[styles.header, { paddingTop: insets.top + 14 }]}>
+      <LinearGradient colors={[Colors.brand, Colors.brandDark]} style={[styles.header, { paddingTop: embedded ? 14 : insets.top + 14 }]}>
         <View style={styles.headerRow}>
-          <Pressable
-            onPress={() => { if (nav.canGoBack()) nav.goBack(); else nav.navigate('ProviderHome'); }}
-            style={styles.headerBack}
-            hitSlop={8}
-          >
-            <ArrowBackIcon size={22} color="#fff" />
-          </Pressable>
+          {!embedded && (
+            <Pressable
+              onPress={() => { if (nav.canGoBack()) nav.goBack(); else nav.navigate('ProviderHome'); }}
+              style={styles.headerBack}
+              hitSlop={8}
+            >
+              <ArrowBackIcon size={22} color="#fff" />
+            </Pressable>
+          )}
           <View style={styles.headerTextBlock}>
             <Text style={styles.headerTitle}>Care Requests</Text>
             <Text style={styles.headerSub}>
@@ -246,7 +248,7 @@ const styles = StyleSheet.create({
   headerTextBlock: { flex: 1 },
   headerTitle: { color: '#fff', fontSize: 26, fontWeight: '800', lineHeight: 30 },
   headerSub: { color: 'rgba(255,255,255,0.8)', fontSize: 14, marginTop: 2 },
-  list: { padding: 16, paddingBottom: 40 },
+  list: { padding: 16, paddingBottom: 130 },
 
   card: {
     backgroundColor: Colors.systemBackground, borderRadius: 18, padding: 16, marginBottom: 14,

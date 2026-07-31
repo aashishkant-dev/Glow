@@ -259,7 +259,7 @@ export function ProviderDashboardScreen() {
     <View style={{ flex: 1, backgroundColor: Colors.systemGroupedBackground }}>
       <ScrollView
         style={styles.container}
-        contentContainerStyle={{ paddingBottom: 60 }}
+        contentContainerStyle={{ paddingBottom: 130 }}
         showsVerticalScrollIndicator={false}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={Colors.brand} progressBackgroundColor={Colors.cardBackground} />

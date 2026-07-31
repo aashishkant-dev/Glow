@@ -517,7 +517,7 @@ const toggleStyles = StyleSheet.create({
 });
 
 // ── Screen ─────────────────────────────────────────────────────────────────────
-export function ProviderCalendarScreen() {
+export function ProviderCalendarScreen({ embedded = false }: { embedded?: boolean } = {}) {
   const nav    = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const { token } = useAuth();
@@ -611,7 +611,7 @@ export function ProviderCalendarScreen() {
   return (
     <View style={styles.container}>
       {/* ── Header ── */}
-      <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
+      <View style={[styles.header, { paddingTop: embedded ? 12 : insets.top + 12 }]}>
         <Text style={styles.headerTitle}>Calendar</Text>
         <Text style={styles.headerSub}>Your accepted and completed bookings</Text>
 
@@ -814,7 +814,7 @@ const styles = StyleSheet.create({
   earningsLabel: { color: 'rgba(255,255,255,0.75)', fontSize: 10, fontWeight: '600', textTransform: 'uppercase', letterSpacing: 0.5 },
 
   // List
-  list: { paddingTop: 14, paddingBottom: 48 },
+  list: { paddingTop: 14, paddingBottom: 130 },
 
   // Section header — pill style
   sectionHeader: {

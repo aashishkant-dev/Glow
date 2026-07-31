@@ -1323,7 +1323,7 @@ export function NearbyJobsScreen() {
                 style={{ flex: 1 }}
                 data={displayJobs}
                 keyExtractor={j => j._id}
-                contentContainerStyle={{ paddingTop: 12, paddingBottom: 40 }}
+                contentContainerStyle={{ paddingTop: 12, paddingBottom: 130 }}
                 renderItem={({ item: job }) => (
                   <Pressable
                     onPress={() => nav.navigate('JobDetail', { bookingId: job._id })}
@@ -1512,7 +1512,7 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 8, elevation: 6,
   },
 
-  list: { paddingTop: 4, paddingBottom: 40 },
+  list: { paddingTop: 4, paddingBottom: 130 },
   sectionLabel: {
     fontSize: 12, fontFamily: Fonts.semibold, color: Colors.tertiaryLabel,
     letterSpacing: 1.2, marginHorizontal: 20, marginTop: 16, marginBottom: 8,

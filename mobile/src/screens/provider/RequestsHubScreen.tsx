@@ -32,7 +32,7 @@ export function RequestsHubScreen() {
         </Pressable>
       </View>
       <View style={{ flex: 1 }}>
-        {tab === 'requests' ? <RequestsScreen /> : <ProviderCalendarScreen />}
+        {tab === 'requests' ? <RequestsScreen embedded /> : <ProviderCalendarScreen embedded />}
       </View>
     </View>
   );
