@@ -26,6 +26,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, ServiceAccentColors } from '../../utils/colors';
 import { ServiceIcon } from '../../components/ServiceIcon';
 import { PinIcon, SearchIcon, CreditCardIcon, KeyIcon } from '../../components/CareIcons';
+import { LocationIcon } from '../../components/TabIcons';
 import { apiCreateBooking, apiGetAvailableProviders, apiNearbyProviders, AvailableProvider } from '../../api/client';
 import { useCoordsOrFallback, useLocation } from '../../context/LocationContext';
 import { OSMMap, OSMMarker } from '../../components/OSMMap';
@@ -1238,7 +1239,7 @@ export function CreateBookingScreen() {
   // the device's actual location — used for the map's "You" pin so we never
   // drop a fake marker on a default city.
   const coords = useCoordsOrFallback();
-  const { coords: realCoords } = useLocation();
+  const { coords: realCoords, requestLocation } = useLocation();
   const route  = useRoute<any>();
   const { user } = useAuth();
   const [showVerifySheet, setShowVerifySheet] = useState(false);
@@ -1262,6 +1263,7 @@ export function CreateBookingScreen() {
   const [city,          setCity]          = useState('');
   const [postal,        setPostal]        = useState('');
   const [geocoding,     setGeocoding]     = useState(false);
+  const [locatingAddress, setLocatingAddress] = useState(false);
   // Combined, human-readable address string sent to the backend + shown on the booking.
   const address = [street.trim(), unit.trim() ? `Unit ${unit.trim()}` : '', city.trim(), postal.trim().toUpperCase()]
     .filter(Boolean)
@@ -1486,6 +1488,39 @@ export function CreateBookingScreen() {
     LayoutAnimation.configureNext(LayoutAnimation.create(180, 'easeInEaseOut', 'opacity'));
     if (calMonth === 11) { setCalMonth(0); setCalYear(y => y + 1); }
     else setCalMonth(m => m + 1);
+  }
+
+  // Reverse-geocodes the device's current GPS position into the structured
+  // address fields (street/city/postal). Pure convenience prefill — every
+  // field it touches stays a normal controlled TextInput, so the customer can
+  // freely edit over any of them afterward. requestLocation() resolves with
+  // the freshly-fetched coords directly (see LocationContext), so there's no
+  // need to guess when to re-read the reactive `realCoords` after a permission
+  // prompt — we just use whatever this call resolves with.
+  async function autofillFromCurrentLocation() {
+    setLocatingAddress(true);
+    try {
+      const useCoords = realCoords ?? await requestLocation();
+      if (!useCoords) {
+        Alert.alert('Location unavailable', 'Could not get your current location. Please enter your address manually.');
+        return;
+      }
+      const Location = await import('expo-location');
+      const hits = await Location.reverseGeocodeAsync({ latitude: useCoords.lat, longitude: useCoords.lng });
+      const hit = hits[0];
+      if (!hit) {
+        Alert.alert('Location unavailable', 'Could not determine an address for your current location. Please enter it manually.');
+        return;
+      }
+      const streetLine = [hit.streetNumber, hit.street].filter(Boolean).join(' ');
+      if (streetLine) setStreet(streetLine);
+      if (hit.city) setCity(hit.city);
+      if (hit.postalCode) setPostal(hit.postalCode);
+    } catch {
+      Alert.alert('Location unavailable', 'Could not get your current location. Please enter your address manually.');
+    } finally {
+      setLocatingAddress(false);
+    }
   }
 
   async function handleBook() {
@@ -1975,6 +2010,16 @@ export function CreateBookingScreen() {
                 onLayout={e => { addressYRef.current = e.nativeEvent.layout.y; }}
               >{t.sectionAddress}</Text>
               <Text style={styles.sectionSub}>{t.addressSub}</Text>
+              <Pressable
+                style={[styles.autofillBtn, locatingAddress && { opacity: 0.6 }]}
+                onPress={autofillFromCurrentLocation}
+                disabled={locatingAddress}
+              >
+                {locatingAddress
+                  ? <ActivityIndicator size="small" color={BRAND_MID} />
+                  : <LocationIcon size={16} color={BRAND_MID} />}
+                <Text style={styles.autofillBtnText}>Use current location</Text>
+              </Pressable>
               <TextInput
                 style={styles.addressInput}
                 value={street}
@@ -3022,6 +3067,12 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOffset: { width: 0, height: 1 },
     shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
   },
+  autofillBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
+    paddingHorizontal: 12, paddingVertical: 8, borderRadius: 10, marginBottom: 10,
+    backgroundColor: Colors.brandLight, borderWidth: 1, borderColor: Colors.brand,
+  },
+  autofillBtnText: { fontSize: 13, fontWeight: '700', color: BRAND_MID },
   emptyBox: { alignItems: 'center', paddingVertical: 48, gap: 10 },
   emptyText: { fontSize: 15, color: '#64748B', textAlign: 'center' },
 

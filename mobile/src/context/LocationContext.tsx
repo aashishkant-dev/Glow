@@ -26,7 +26,8 @@ export type LocationPermissionStatus =
 interface LocationContextValue {
   coords: Coords | null;
   permissionStatus: LocationPermissionStatus;
-  requestLocation: () => Promise<void>;
+  /** Resolves with the freshly-fetched coords (or null if denied/unavailable). */
+  requestLocation: () => Promise<Coords | null>;
 }
 
 const REFRESH_MS = 5 * 60 * 1000; // 5 minutes
@@ -86,17 +87,18 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     return () => { mountedRef.current = false; };
   }, []);
 
-  const fetchCoords = useCallback(async () => {
+  const fetchCoords = useCallback(async (): Promise<Coords | null> => {
     let servedLastKnown = false;
     try {
       if (Platform.OS === 'web') {
         const c = await getWebPosition();
         if (mountedRef.current) { setCoords(c); setPermissionStatus('granted'); }
+        return c;
       } else {
         const { status } = await Location.getForegroundPermissionsAsync();
         if (status !== 'granted') {
           if (mountedRef.current) setPermissionStatus('denied');
-          return;
+          return null;
         }
         // iOS: getCurrentPositionAsync has no timeout and can hang for minutes
         // indoors while CoreLocation waits for a fresh fix — the app looked
@@ -105,8 +107,10 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
         // fresh fix capped at 15s so a cold GPS can never wedge this path.
         const last = await Location.getLastKnownPositionAsync().catch(() => null);
         servedLastKnown = !!last;
+        let latest: Coords | null = null;
         if (last && mountedRef.current) {
-          setCoords({ lat: last.coords.latitude, lng: last.coords.longitude });
+          latest = { lat: last.coords.latitude, lng: last.coords.longitude };
+          setCoords(latest);
           setPermissionStatus('granted');
         }
         const pos = await Promise.race([
@@ -115,35 +119,40 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
             setTimeout(() => reject(Object.assign(new Error('location timeout'), { code: 3 })), 15_000),
           ),
         ]);
+        latest = { lat: pos.coords.latitude, lng: pos.coords.longitude };
         if (mountedRef.current) {
-          setCoords({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+          setCoords(latest);
           setPermissionStatus('granted');
         }
+        return latest;
       }
     } catch (e: any) {
-      if (!mountedRef.current) return;
+      if (!mountedRef.current) return null;
       // A fresh-fix timeout with a last-known position already served is not a
       // failure — keep 'granted' so the UI doesn't flash the enable-location UX.
-      if (e?.code === 3 && (servedLastKnown || coordsRef.current)) return;
+      if (e?.code === 3 && (servedLastKnown || coordsRef.current)) return coordsRef.current;
       setPermissionStatus(classifyGeoError(e));
+      return null;
     }
   }, []);
 
-  const requestLocation = useCallback(async () => {
+  const requestLocation = useCallback(async (): Promise<Coords | null> => {
     if (Platform.OS === 'web') {
       try {
         const c = await getWebPosition();
         if (mountedRef.current) { setCoords(c); setPermissionStatus('granted'); }
+        return c;
       } catch (e: any) {
         if (mountedRef.current) setPermissionStatus(classifyGeoError(e));
+        return null;
       }
-      return;
     }
     const { status } = await Location.requestForegroundPermissionsAsync();
-    if (!mountedRef.current) return;
+    if (!mountedRef.current) return null;
     if (status === 'granted') {
-      await fetchCoords();
+      const c = await fetchCoords();
       if (mountedRef.current) setPermissionStatus('granted');
+      return c;
     } else if (status === 'denied') {
       if (mountedRef.current) setPermissionStatus('denied');
       Alert.alert(
@@ -155,6 +164,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
         ]
       );
     }
+    return null;
   }, [fetchCoords]);
 
   // On mount: check permission without showing a dialog.
