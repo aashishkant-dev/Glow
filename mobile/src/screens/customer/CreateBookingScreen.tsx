@@ -91,6 +91,22 @@ const SERVICES = [
   'Massage',
 ];
 
+// Occasion packages — same catalog as HomeScreen's occasion grid, offered here
+// as a second, lower-priority section so simple single services stay the
+// default fast path.
+const OCCASIONS: { id: string; name: string; sub: string; serviceType: string }[] = [
+  { id: 'engagement', name: 'Engagement',    sub: 'Ring-light ready',      serviceType: 'Bridal Makeup' },
+  { id: 'reception',  name: 'Reception',     sub: 'Second-look sparkle',   serviceType: 'Party Makeup' },
+  { id: 'party',      name: 'Party',         sub: 'Full glam night',      serviceType: 'Party Makeup' },
+  { id: 'date',       name: 'Date Night',    sub: 'Soft & radiant',       serviceType: 'Makeup' },
+  { id: 'birthday',   name: 'Birthday',      sub: 'Main-character glow',  serviceType: 'Party Makeup' },
+  { id: 'festival',   name: 'Festival',      sub: 'Mehendi & shimmer',    serviceType: 'Mehendi' },
+  { id: 'office',     name: 'Office Event',  sub: 'Polished, not loud',   serviceType: 'Makeup' },
+  { id: 'photoshoot', name: 'Photoshoot',    sub: 'Camera-proof finish',  serviceType: 'Makeup' },
+  { id: 'graduation', name: 'Graduation',    sub: 'Cap-and-gown glam',    serviceType: 'Party Makeup' },
+  { id: 'everyday',   name: 'Everyday Glow', sub: 'Skin-first beauty',    serviceType: 'Facial' },
+];
+
 const START_HOURS   = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 
 function fmtHour(h: number) {
@@ -1912,6 +1928,37 @@ export function CreateBookingScreen() {
                         active && { color: accent, fontWeight: '800' },
                       ]}>
                         {s}
+                      </Text>
+                      {active && (
+                        <View style={[styles.serviceCheck, { backgroundColor: accent }]}>
+                          <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>✓</Text>
+                        </View>
+                      )}
+                    </Pressable>
+                  );
+                })}
+              </View>
+
+              <Text style={[styles.sectionTitle, { marginTop: 28 }]}>For an occasion</Text>
+              <View style={styles.serviceGrid}>
+                {OCCASIONS.map(o => {
+                  const accent = ServiceAccentColors[o.serviceType] ?? BRAND_MID;
+                  const active = serviceType === o.serviceType;
+                  return (
+                    <Pressable
+                      key={o.id}
+                      style={[
+                        styles.serviceCard,
+                        active && { borderColor: accent, borderWidth: 2, backgroundColor: '#fff' },
+                      ]}
+                      onPress={() => { tapLight(); setServiceType(o.serviceType); }}
+                    >
+                      <ServiceIcon serviceType={o.serviceType} size={30} color={accent} bubble={false} />
+                      <Text style={[
+                        styles.serviceCardLabel,
+                        active && { color: accent, fontWeight: '800' },
+                      ]}>
+                        {o.name}
                       </Text>
                       {active && (
                         <View style={[styles.serviceCheck, { backgroundColor: accent }]}>
