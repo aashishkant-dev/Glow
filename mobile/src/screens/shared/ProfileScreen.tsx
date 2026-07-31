@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Image } from 'expo-image';
 import {
   ActivityIndicator,
@@ -382,6 +382,15 @@ export function ProfileScreen() {
   const [jobs, setJobs] = useState<Booking[]>([]);
   const [isOnline, setIsOnline] = useState(false);
   const [onlineToggling, setOnlineToggling] = useState(false);
+  // Guards a background refresh from clobbering a toggle the user JUST made
+  // on THIS screen — same pattern ProviderDashboardScreen already uses for
+  // its own copy of this same isOnline toggle. Two independent copies of
+  // this state exist because both screens are tabs kept mounted
+  // simultaneously by React Navigation: without polling + this guard here,
+  // toggling on Dashboard never updated Profile's isOnline (and vice versa)
+  // until the tab was force-remounted — a Provider could see conflicting
+  // online/offline states across the two screens in the same session.
+  const userToggledOnlineRef = useRef(false);
 
   // Provider-only Profile sub-tabs — Business (pricing/hours/visibility/earnings)
   // vs Account (personal info/professional profile/documents/support/legal). The
@@ -564,10 +573,24 @@ export function ProfileScreen() {
     if (typeof profile?.providerProfile?.priceNegotiable === 'boolean') {
       setPriceNegotiable(profile.providerProfile.priceNegotiable);
     }
-    if (typeof profile?.providerProfile?.availability === 'boolean') {
+    // Don't let a background refresh (see the poll below) stomp a toggle the
+    // user just made on this screen before the server round-trip catches up.
+    if (typeof profile?.providerProfile?.availability === 'boolean' && !userToggledOnlineRef.current) {
       setIsOnline(profile.providerProfile.availability);
     }
   }, [profile?.providerProfile?.priceNegotiable, profile?.providerProfile?.availability]);
+
+  // Background poll so this screen's availability toggle stays in sync with
+  // ProviderDashboardScreen's copy of the same state — both are tabs React
+  // Navigation keeps mounted simultaneously, so without this a toggle made
+  // on the other tab would never be reflected here until a force-remount.
+  useEffect(() => {
+    if (user?.role !== 'Provider' || !token) return;
+    const timer = setInterval(() => {
+      apiGetProfile().then(res => setProfile(res.user)).catch(() => {});
+    }, 15_000);
+    return () => clearInterval(timer);
+  }, [user?.role, token]);
 
   useEffect(() => {
     const pp = profile?.providerProfile as any;
@@ -616,6 +639,7 @@ export function ProfileScreen() {
   async function toggleOnline() {
     if (onlineToggling) return;
     const next = !isOnline;
+    userToggledOnlineRef.current = true;
     setOnlineToggling(true);
     setIsOnline(next);
     try {

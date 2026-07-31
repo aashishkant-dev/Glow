@@ -1348,11 +1348,35 @@ export function CreateBookingScreen() {
   const [calYear,  setCalYear]  = useState(minSelectDate.getFullYear());
   const [calMonth, setCalMonth] = useState(minSelectDate.getMonth());
 
+  // Real validation for the price-negotiation offer, matching the screen's
+  // own stated "±50% of the listed price" claim. `parsedProposedPrice` is
+  // NaN for empty/non-numeric input — every check below correctly rejects
+  // NaN via the comparisons (NaN comparisons are always false), so an empty
+  // field just isn't "valid" on its own; canNext separately treats an empty
+  // field as "no offer, not blocking" rather than "invalid offer."
+  const parsedProposedPrice = Number(proposedPrice);
+  function isProposedPriceValid(): boolean {
+    if (!Number.isFinite(parsedProposedPrice) || parsedProposedPrice <= 0) return false;
+    const listed = calcTotalPrice(selectedProvider, serviceType, hours, 1);
+    if (listed <= 0) return true; // no listed price to compare against — can't range-check
+    return parsedProposedPrice >= listed * 0.5 && parsedProposedPrice <= listed * 1.5;
+  }
+  function proposedPriceErrorMsg(): string {
+    if (!Number.isFinite(parsedProposedPrice) || parsedProposedPrice <= 0) {
+      return 'Enter a valid amount.';
+    }
+    const listed = calcTotalPrice(selectedProvider, serviceType, hours, 1);
+    return `Offer must be between $${Math.round(listed * 0.5)} and $${Math.round(listed * 1.5)}.`;
+  }
+
   const canNext =
     step === 1 ? (!!serviceType && street.trim().length > 2) :
     step === 2 ? selectedDates.length > 0 :
     step === 3 ? !!selectedProvider :
-    true;
+    // Step 4 (Confirm): only blocked by an out-of-range/invalid price offer
+    // when negotiation is actually visible and the customer typed something.
+    // An empty proposedPrice means "no offer" — that's valid, not a gate.
+    (proposedPrice.trim() === '' || isProposedPriceValid());
 
   // React Navigation reuses mounted tab screens — params change but useState doesn't re-init.
   // Watch route.params and sync serviceType + bookingMode whenever they change.
@@ -1526,7 +1550,10 @@ export function CreateBookingScreen() {
             lng: bookingCoords?.lng,
             providerId: selectedProvider._id,
             address: address.trim(),
-            proposedPrice: proposedPrice ? Number(proposedPrice) : undefined,
+            // Only send a real, in-range offer — never NaN/0/negative from a
+            // malformed field, and never an out-of-±50%-range value that
+            // slipped past canNext's gate somehow.
+            proposedPrice: proposedPrice.trim() !== '' && isProposedPriceValid() ? parsedProposedPrice : undefined,
           });
         })
       );
@@ -2197,7 +2224,7 @@ export function CreateBookingScreen() {
                       This provider accepts price negotiation. Enter your offer below (within ±50% of the listed price).
                     </Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 }}>
-                      <Text style={{ fontSize: 18, fontWeight: '800', color: '#92400E' }}>Rs</Text>
+                      <Text style={{ fontSize: 18, fontWeight: '800', color: '#92400E' }}>$</Text>
                       <TextInput
                         style={[styles.addressInput, { flex: 1, marginTop: 0, borderColor: '#FDE68A', backgroundColor: '#FFFBEB' }]}
                         value={proposedPrice}
@@ -2208,6 +2235,18 @@ export function CreateBookingScreen() {
                         maxLength={6}
                       />
                     </View>
+                    {/* The screen's copy claims "±50% of the listed price" but
+                        nothing previously enforced that — free-text input fed
+                        straight into Number(proposedPrice) at submission with
+                        no min/max/positive check, so non-numeric input became
+                        NaN (silently dropped by JSON.stringify, offer lost
+                        with no error shown) and there was no floor/ceiling at
+                        all. Real validation, matching the stated claim. */}
+                    {proposedPrice.trim() !== '' && !isProposedPriceValid() && (
+                      <Text style={{ fontSize: 12, color: '#B45309', marginTop: 6 }}>
+                        {proposedPriceErrorMsg()}
+                      </Text>
+                    )}
                   </View>
                 </View>
               )}

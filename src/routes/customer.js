@@ -92,7 +92,11 @@ async function priceForBooking(serviceType, hours, providerUserId, proposedPrice
 
 function computeFees(price) {
   const platformFee = Math.max(Math.round(price * COMMISSION_RATE * 100) / 100, COMMISSION_MIN);
-  const providerPayout   = Math.round((price - platformFee) * 100) / 100;
+  // Floored at 0 — COMMISSION_MIN is env-configurable and not schema-bounded
+  // against the actual price. Not reachable with today's real prices/default
+  // $2 minimum, but a low real service price combined with a raised
+  // COMMISSION_MIN could otherwise drive this negative with no defense.
+  const providerPayout   = Math.max(0, Math.round((price - platformFee) * 100) / 100);
   return { platformFee, providerPayout };
 }
 

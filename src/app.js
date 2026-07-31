@@ -161,7 +161,19 @@ app.get('/', (_req, res) => res.redirect('/health'));
 app.use((_req, res) => res.status(404).json({ error: 'Not found' }));
 app.use((err, _req, res, _next) => {
   console.error(err);
-  res.status(err.status || 500).json({ error: err.message || 'Internal server error' });
+  const status = err.status || 500;
+  // Below this handler, individual routes' own try/catch blocks already
+  // return a generic 'Server error' string — this top-level handler only
+  // fires for errors that escape those (malformed JSON body parsing, the
+  // CORS origin check, multer file-filter errors, etc). Those raw messages
+  // (body-parser's internal text, an Error object's .message) were being
+  // echoed straight to any client in production with no NODE_ENV gate at
+  // all. A genuine 5xx (unexpected crash) never leaks its message in
+  // production; a deliberate sub-500 error (validation-style, intentionally
+  // thrown with a real client-facing message) still does, since those are
+  // meant to be shown to the user.
+  const safeToShow = status < 500 || process.env.NODE_ENV !== 'production';
+  res.status(status).json({ error: safeToShow ? (err.message || 'Internal server error') : 'Internal server error' });
 });
 
 module.exports = app;
