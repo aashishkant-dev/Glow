@@ -169,19 +169,6 @@ export function ProviderOnboardingScreen() {
   }
 
   async function submitProfile() {
-    // STEP4_DOCS marks id_proof/provider_certificate as required (shown with
-    // a red asterisk in the UI), but nothing previously enforced that — a
-    // Provider could tap Submit Profile having uploaded zero documents and
-    // land in the full app with onboardingComplete=true. The UI actively
-    // misrepresented itself as gating on this. Real block, not just a label.
-    const missingRequired = STEP4_DOCS.filter(d => d.required && !docStates[d.id]?.uploadedUrl);
-    if (missingRequired.length > 0) {
-      const names = missingRequired.map(d => d.label).join(' and ');
-      const msg = `Please upload ${names} before submitting — these are required to get approved.`;
-      if (Platform.OS === 'web') alert(msg);
-      else Alert.alert('Missing required documents', msg);
-      return;
-    }
     setLoading(true);
     try {
       await apiSubmitProviderOnboarding({
@@ -324,11 +311,6 @@ export function ProviderOnboardingScreen() {
   }
 
   const anyUploading = Object.values(docStates).some(d => d.uploading);
-  // Only relevant/checked at step 4 (Documents) — the footer button must stay
-  // enabled on every other step so a Provider can actually reach step 4 to
-  // upload these in the first place.
-  const missingRequiredDocsAtStep4 = step === 4
-    && STEP4_DOCS.some(d => d.required && !docStates[d.id]?.uploadedUrl);
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === 'ios' ? 'padding' : undefined}>
@@ -680,9 +662,9 @@ export function ProviderOnboardingScreen() {
             </Pressable>
           )}
           <Pressable
-            style={[styles.nextBtn, (loading || anyUploading || missingRequiredDocsAtStep4) && { opacity: 0.65 }]}
+            style={[styles.nextBtn, (loading || anyUploading) && { opacity: 0.65 }]}
             onPress={handleFooterNext}
-            disabled={loading || anyUploading || missingRequiredDocsAtStep4}
+            disabled={loading || anyUploading}
             accessibilityRole="button"
           >
             <LinearGradient
