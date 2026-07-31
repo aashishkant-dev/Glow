@@ -6,17 +6,27 @@ const bcrypt = require('bcryptjs');
 const prisma = require('../lib/prisma');
 const { sendOTPSms } = require('./smsProviders');
 const { sendViaNepalOTP, verifyViaNepalOTP } = require('./smsProviders/nepalotp');
+const { sendViaTwilioVerify, verifyViaTwilioVerify } = require('./smsProviders/twilioVerify');
 
 const MAX_ATTEMPTS = 5;
 
-// NepalOTP owns both generation AND verification for +977 numbers — unlike
-// Twilio (a blind SMS transport for a code WE generate), there is no local
-// code to hash/compare. The OTP row's `otp` column stores their opaque
-// request id instead of a bcrypt hash, tagged with this prefix so verifyOTP
-// knows to delegate rather than bcrypt.compare against it.
+// NepalOTP and Twilio Verify both own generation AND verification for their
+// numbers — unlike plain Twilio SMS (a blind transport for a code WE
+// generate), there is no local code to hash/compare. The OTP row's `otp`
+// column stores their opaque request id/marker instead of a bcrypt hash,
+// tagged with these prefixes so verifyOTP knows to delegate rather than
+// bcrypt.compare against it.
 const NEPALOTP_MARKER = 'nepalotp:';
+const TWILIO_VERIFY_MARKER = 'twilioverify:';
 function isNepalNumber(phone) {
   return phone.startsWith('+977');
+}
+// UK carriers filter/require registration for SMS from a purchased long-code
+// number — a slow compliance process. Twilio Verify sends from Twilio's own
+// managed senders and needs no dedicated UK number, so +44 delegates to it
+// the same way +977 delegates to NepalOTP.
+function isUKNumber(phone) {
+  return phone.startsWith('+44');
 }
 
 function getTTLMs() {
@@ -86,6 +96,26 @@ async function generateOTP(phone) {
     console.warn(`[OTP] ${phone} → NepalOTP unavailable, falling back to locally-generated code`);
   }
 
+  if (isUKNumber(phone)) {
+    const sent = await sendViaTwilioVerify(phone);
+    // Same fallback logic as NepalOTP: if Twilio Verify couldn't be reached
+    // (missing credentials, network/API error), fall through to the local
+    // generate/verify path instead of writing a marker row that verifyOTP
+    // could never actually check.
+    if (sent) {
+      if (existing) {
+        await prisma.oTP.update({ where: { phone }, data: { otp: TWILIO_VERIFY_MARKER, expiresAt, attempts: 0, lastGeneratedAt: now } });
+      } else {
+        await prisma.oTP.create({ data: { phone, otp: TWILIO_VERIFY_MARKER, expiresAt, attempts: 0, lastGeneratedAt: now } });
+      }
+      if (process.env.NODE_ENV !== 'production' || process.env.LOG_OTP === '1') {
+        console.log(`[OTP] ${phone} → delegated to Twilio Verify`);
+      }
+      return;
+    }
+    console.warn(`[OTP] ${phone} → Twilio Verify unavailable, falling back to locally-generated code`);
+  }
+
   const otp     = crypto.randomInt(100_000, 1_000_000).toString();
   const otpHash = await bcrypt.hash(otp, 10);
 
@@ -123,6 +153,16 @@ async function verifyOTP(phone, code) {
 
   if (entry.otp.startsWith(NEPALOTP_MARKER)) {
     const result = await verifyViaNepalOTP(phone, code);
+    if (!result.valid) {
+      await prisma.oTP.update({ where: { phone }, data: { attempts: { increment: 1 } } });
+      return result;
+    }
+    await prisma.oTP.delete({ where: { phone } }); // one-time use
+    return { valid: true };
+  }
+
+  if (entry.otp === TWILIO_VERIFY_MARKER) {
+    const result = await verifyViaTwilioVerify(phone, code);
     if (!result.valid) {
       await prisma.oTP.update({ where: { phone }, data: { attempts: { increment: 1 } } });
       return result;
