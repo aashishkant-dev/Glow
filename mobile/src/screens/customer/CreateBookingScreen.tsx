@@ -34,6 +34,7 @@ import { DEFAULT_REGION, DEFAULT_REGION_NAME } from '../../utils/region';
 import { VerifyPhoneSheet } from '../../components/VerifyPhoneSheet';
 import { useAuth } from '../../context/AuthContext';
 import { SEED_ARTISTS } from '../../data/seedArtists';
+import { OCCASIONS } from '../../data/occasions';
 
 // Seed artists (Explore's curated showcase) shown as pickable cards here too, so
 // the booking flow doesn't look empty before real Providers are onboarded — but
@@ -92,21 +93,13 @@ const SERVICES = [
   'Massage',
 ];
 
-// Occasion packages — same catalog as HomeScreen's occasion grid, offered here
-// as a second, lower-priority section so simple single services stay the
-// default fast path.
-const OCCASIONS: { id: string; name: string; sub: string; serviceType: string }[] = [
-  { id: 'engagement', name: 'Engagement',    sub: 'Ring-light ready',      serviceType: 'Bridal Makeup' },
-  { id: 'reception',  name: 'Reception',     sub: 'Second-look sparkle',   serviceType: 'Party Makeup' },
-  { id: 'party',      name: 'Party',         sub: 'Full glam night',      serviceType: 'Party Makeup' },
-  { id: 'date',       name: 'Date Night',    sub: 'Soft & radiant',       serviceType: 'Makeup' },
-  { id: 'birthday',   name: 'Birthday',      sub: 'Main-character glow',  serviceType: 'Party Makeup' },
-  { id: 'festival',   name: 'Festival',      sub: 'Mehendi & shimmer',    serviceType: 'Mehendi' },
-  { id: 'office',     name: 'Office Event',  sub: 'Polished, not loud',   serviceType: 'Makeup' },
-  { id: 'photoshoot', name: 'Photoshoot',    sub: 'Camera-proof finish',  serviceType: 'Makeup' },
-  { id: 'graduation', name: 'Graduation',    sub: 'Cap-and-gown glam',    serviceType: 'Party Makeup' },
-  { id: 'everyday',   name: 'Everyday Glow', sub: 'Skin-first beauty',    serviceType: 'Facial' },
-];
+// Occasion packages — same shared catalog as HomeScreen's occasion grid
+// (src/data/occasions.ts), offered here as a second, lower-priority section
+// so simple single services stay the default fast path. 'Wedding' is filtered
+// out below since it needs HomeScreen's role-picker follow-up (serviceType:
+// null), which this screen doesn't implement.
+const BOOKABLE_OCCASIONS = OCCASIONS.filter(o => o.serviceType !== null) as
+  (Omit<typeof OCCASIONS[number], 'serviceType'> & { serviceType: string })[];
 
 const START_HOURS   = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 
@@ -1254,6 +1247,11 @@ export function CreateBookingScreen() {
   const [step,          setStep]          = useState<Step>(1);
   const [bookingMode,   setBookingMode]   = useState<'ondemand' | 'scheduled'>(initMode);
   const [serviceType,   setServiceType]   = useState(initService);
+  // Tracks which occasion CARD is selected, separate from serviceType — several
+  // occasions share the same serviceType (e.g. Reception/Party/Birthday/Graduation
+  // all map to 'Party Makeup'), so deriving "active" from serviceType alone lit up
+  // every card sharing that value at once. See occasion grid's onPress below.
+  const [selectedOccasion, setSelectedOccasion] = useState<string | null>(null);
   // Structured address — captured as discrete fields so we always collect a full,
   // geocodable address (incl. postal code) instead of a single short free-text line.
   const [street,        setStreet]        = useState('');
@@ -1955,7 +1953,7 @@ export function CreateBookingScreen() {
                         // opaque grey box, which looked broken).
                         active && { borderColor: accent, borderWidth: 2, backgroundColor: '#fff' },
                       ]}
-                      onPress={() => { tapLight(); setServiceType(s); }}
+                      onPress={() => { tapLight(); setServiceType(s); setSelectedOccasion(null); }}
                     >
                       <ServiceIcon serviceType={s} size={30} color={accent} bubble={false} />
                       <Text style={[
@@ -1976,9 +1974,9 @@ export function CreateBookingScreen() {
 
               <Text style={[styles.sectionTitle, { marginTop: 28 }]}>For an occasion</Text>
               <View style={styles.serviceGrid}>
-                {OCCASIONS.map(o => {
+                {BOOKABLE_OCCASIONS.map(o => {
                   const accent = ServiceAccentColors[o.serviceType] ?? BRAND_MID;
-                  const active = serviceType === o.serviceType;
+                  const active = selectedOccasion === o.id;
                   return (
                     <Pressable
                       key={o.id}
@@ -1986,7 +1984,7 @@ export function CreateBookingScreen() {
                         styles.serviceCard,
                         active && { borderColor: accent, borderWidth: 2, backgroundColor: '#fff' },
                       ]}
-                      onPress={() => { tapLight(); setServiceType(o.serviceType); }}
+                      onPress={() => { tapLight(); setServiceType(o.serviceType); setSelectedOccasion(o.id); }}
                     >
                       <ServiceIcon serviceType={o.serviceType} size={30} color={accent} bubble={false} />
                       <Text style={[
