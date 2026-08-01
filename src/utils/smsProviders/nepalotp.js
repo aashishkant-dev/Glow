@@ -6,14 +6,14 @@
 // call against their service, not a local bcrypt compare. So unlike Twilio,
 // this file owns both send AND verify; src/utils/otp.js delegates the whole
 // generate/verify cycle to it for +977 numbers instead of just the SMS leg.
-const API_BASE = 'https://api.nepalotp.com/v1';
+const API_BASE = 'https://nepalotp.com/api/v1';
 
 function getApiKey() {
   return process.env.NEPALOTP_API_KEY;
 }
 
 /**
- * Requests an OTP send from NepalOTP. Returns their opaque request id (needed
+ * Requests an OTP send from NepalOTP. Returns their opaque otp_id (needed
  * later to verify), or null if delivery couldn't be requested (missing
  * credentials, network/API error) — caller falls back to dev-log behavior.
  * Never throws — same best-effort contract as the Twilio provider.
@@ -32,15 +32,15 @@ async function sendViaNepalOTP(phone) {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ phone, channel: 'sms' }),
+      body: JSON.stringify({ phone }),
     });
     const data = await res.json();
-    if (!res.ok || !data.id) {
+    if (!res.ok || !data.success || !data.otp_id) {
       console.error(`[SMS:nepalotp] send failed for ${phone} — status: ${res.status} body: ${JSON.stringify(data)}`);
       return null;
     }
-    if (process.env.NODE_ENV !== 'production') console.log(`[SMS:nepalotp] Sent to ${phone}, request id ${data.id}`);
-    return data.id;
+    if (process.env.NODE_ENV !== 'production') console.log(`[SMS:nepalotp] Sent to ${phone}, otp_id ${data.otp_id}`);
+    return data.otp_id;
   } catch (err) {
     console.error(`[SMS:nepalotp] error sending to ${phone}:`, err.message);
     return null;
@@ -50,9 +50,10 @@ async function sendViaNepalOTP(phone) {
 /**
  * Verifies a code against NepalOTP's own verification endpoint (the code
  * itself is never known to or checked by our backend for +977 numbers).
+ * otpId is the value returned from sendViaNepalOTP, persisted in the OTP row.
  * Returns { valid: true } or { valid: false, error }.
  */
-async function verifyViaNepalOTP(phone, code) {
+async function verifyViaNepalOTP(otpId, code) {
   const apiKey = getApiKey();
   if (!apiKey) {
     return { valid: false, error: 'OTP verification is temporarily unavailable. Please try again shortly.' };
@@ -65,14 +66,14 @@ async function verifyViaNepalOTP(phone, code) {
         Authorization: `Bearer ${apiKey}`,
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ phone, code }),
+      body: JSON.stringify({ otp_id: otpId, otp: code }),
     });
     const data = await res.json();
-    if (res.ok && data.status === 'verified') return { valid: true };
+    if (res.ok && data.success) return { valid: true };
     if (res.status === 429) return { valid: false, error: 'Too many attempts. Please request a new OTP.' };
     return { valid: false, error: 'Invalid OTP. Please check the code and try again.' };
   } catch (err) {
-    console.error(`[SMS:nepalotp] error verifying for ${phone}:`, err.message);
+    console.error(`[SMS:nepalotp] error verifying otp_id ${otpId}:`, err.message);
     return { valid: false, error: 'Could not verify code right now. Please try again.' };
   }
 }

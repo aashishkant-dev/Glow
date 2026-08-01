@@ -152,7 +152,8 @@ async function verifyOTP(phone, code) {
   }
 
   if (entry.otp.startsWith(NEPALOTP_MARKER)) {
-    const result = await verifyViaNepalOTP(phone, code);
+    const otpId = entry.otp.slice(NEPALOTP_MARKER.length);
+    const result = await verifyViaNepalOTP(otpId, code);
     if (!result.valid) {
       await prisma.oTP.update({ where: { phone }, data: { attempts: { increment: 1 } } });
       return result;
