@@ -4,7 +4,7 @@ import { Colors, ServiceAccentColors } from '../utils/colors';
 import { SERVICE_ICON_MAP, PersonalCareIcon, ServiceIconComponent } from './CareIcons';
 import {
   HairdryerIcon, NailPolishIcon, ThreadNeedleIcon, WaxWarmerIcon, LipstickBrushIcon,
-  FacialProfileIcon, BrideProfileIcon, HennaConeIcon, MassageHandsIcon,
+  FacialProfileIcon, BrideProfileIcon, HennaConeIcon, MassageHandsIcon, HairDyeIcon,
 } from './IllustratedIcons';
 
 // Fallback for any service type not in the map.
@@ -23,6 +23,7 @@ const ILLUSTRATED_SERVICE_ICON_MAP: Record<string, ServiceIconComponent> = {
   'Bridal Makeup': BrideProfileIcon,
   'Mehendi':       HennaConeIcon,
   'Massage':       MassageHandsIcon,
+  'Hair Coloring': HairDyeIcon,
 };
 
 /**

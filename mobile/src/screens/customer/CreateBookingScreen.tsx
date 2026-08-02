@@ -2166,7 +2166,7 @@ export function CreateBookingScreen() {
                         accessibilityState={{ checked: active }}
                         accessibilityLabel={`${svc.name}, $${svc.price}, ${fmtDuration(svc.durationMin)}`}
                       >
-                        <ServiceIcon serviceType={svc.name} size={30} color={accent} bubble={false} />
+                        <ServiceIcon serviceType={svc.name} size={44} color={accent} />
                         <Text style={[
                           styles.serviceCardLabel,
                           active && { color: accent, fontWeight: '800' },
