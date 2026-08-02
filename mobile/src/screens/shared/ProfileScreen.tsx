@@ -808,7 +808,7 @@ export function ProfileScreen() {
   const approvalStatus: 'pending' | 'approved' | 'rejected' =
     !providerP ? 'pending' : providerP.approvedByAdmin ? 'approved' : 'pending';
 
-  const roleLabel = isCustomer ? 'Glow Client' : isProvider ? 'Beauty Artist' : 'Administrator';
+  const roleLabel = isCustomer ? 'Glow Beauty' : isProvider ? 'Beauty Artist' : 'Administrator';
   const initial   = user?.name?.[0]?.toUpperCase() ?? '?';
   const memberSince = fmtMemberSince(profile?.createdAt);
 
@@ -953,7 +953,7 @@ export function ProfileScreen() {
             )}
             {isCustomer && (
               <View style={styles.glassChip}>
-                <Text style={styles.glassChipText}>Glow Client</Text>
+                <Text style={styles.glassChipText}>Glow Beauty</Text>
               </View>
             )}
             {memberSince ? (

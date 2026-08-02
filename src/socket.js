@@ -139,7 +139,7 @@ function initSocket(httpServer) {
               recipient.expoPushToken,
               `💬 ${msg.senderName}`,
               msg.text.slice(0, 100),
-              { bookingId, type: 'message' },
+              { bookingId, type: 'message', senderName: msg.senderName, senderRole: msg.senderRole },
               'chat',
             ).catch(() => {});
           }

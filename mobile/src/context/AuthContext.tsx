@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { Storage, StoredUser } from '../utils/storage';
 import { connectSocket, disconnectSocket } from '../utils/socket';
-import { initNotifications } from '../utils/notifications';
+import { initNotifications, addPushTokenRefreshListener } from '../utils/notifications';
 import { registerUnauthorizedHandler } from '../api/client';
 
 interface AuthState {
@@ -29,6 +29,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (typeof navigator !== 'undefined' && navigator.storage && typeof (navigator.storage as any).persist === 'function') {
       (navigator.storage as any).persist();
     }
+    const sub = addPushTokenRefreshListener();
     (async () => {
       const [token, user, photoUri] = await Promise.all([
         Storage.getToken(),
@@ -42,6 +43,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       if (token) connectSocket(token);
       if (token) initNotifications().catch(() => {});
     })();
+    return () => sub?.remove();
   }, []);
 
   const signIn = useCallback(async (token: string, user: StoredUser) => {

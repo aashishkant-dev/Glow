@@ -111,6 +111,20 @@ export async function initNotifications(): Promise<void> {
 }
 
 /**
+ * Expo push tokens can rotate during a long-lived session (reinstall, credential
+ * refresh, etc). initNotifications() only saves the token once at boot/sign-in —
+ * without this listener a rotated token is never re-saved and pushes silently
+ * stop reaching the device. Call once at app boot, regardless of auth state
+ * (the API call itself is a no-op-safe save keyed off the current session).
+ */
+export function addPushTokenRefreshListener(): Notifications.EventSubscription | null {
+  if (Platform.OS === 'web') return null;
+  return Notifications.addPushTokenListener(({ data }) => {
+    apiSavePushToken(data).catch(() => {});
+  });
+}
+
+/**
  * Schedule an immediate local notification (foreground alert).
  * No-op on web.
  */
@@ -141,6 +155,15 @@ export function addTapListener(
   return Notifications.addNotificationResponseReceivedListener(async response => {
     if (!navigationRef.isReady()) return;
     const data = (response.notification.request.content.data ?? {}) as Record<string, string>;
+
+    if (data.type === 'message' && data.bookingId) {
+      (navigationRef as any).navigate('Chat', {
+        bookingId: data.bookingId,
+        otherName: data.senderName || (role === 'Provider' ? 'Client' : 'Your Artist'),
+        otherRole: data.senderRole,
+      });
+      return;
+    }
 
     if (role === 'Provider') {
       if (data.type === 'approved') {

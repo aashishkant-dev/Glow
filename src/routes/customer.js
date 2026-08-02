@@ -76,18 +76,22 @@ async function notifyNearbyProviders(booking, lat, lng, io) {
     select: { id: true, lat: true, lng: true, expoPushToken: true },
   });
 
-  const toNotify = providerUsers.filter(u => {
-    if (u.lat === 0 && u.lng === 0) return false;
-    return haversineKm(u.lat, u.lng, lat, lng) <= radiusKm;
-  });
+  const toNotify = providerUsers
+    .map(u => ({ ...u, distanceKm: haversineKm(u.lat, u.lng, lat, lng) }))
+    .filter(u => {
+      if (u.lat === 0 && u.lng === 0) return false;
+      return u.distanceKm <= radiusKm;
+    });
 
   if (!toNotify.length) return;
 
   // Open-pool booking — price isn't set yet (it's resolved to each artist's own
   // rate only when they accept), so the broadcast can't quote a dollar amount here.
+  // Distance IS known per-provider though, so lead with that instead of a bare
+  // service/duration line.
   const messages = toNotify.map(u => ({
     to:   u.expoPushToken,
-    title: 'New job nearby',
+    title: `New job · ${u.distanceKm.toFixed(1)} km away`,
     body:  `${booking.serviceType} · ${booking.hours}h · ${booking.address || 'Your area'}`,
     data:  { bookingId: booking.id, type: 'job' },
     channelId: 'jobs',
@@ -99,7 +103,7 @@ async function notifyNearbyProviders(booking, lat, lng, io) {
         bookingId:   booking.id,
         serviceType: booking.serviceType,
         hours:       booking.hours,
-        totalPrice:  price,
+        totalPrice:  toNum(booking.price),
         address:     booking.address || 'Your area',
       });
     }
