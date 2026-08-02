@@ -142,6 +142,15 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
                 />
               ))}
             </View>
+            {/* Fallback for iOS: QuickType autofill sometimes fills the digit
+                boxes without firing the per-keystroke auto-submit check below. */}
+            <Pressable
+              style={[styles.cta, digits.some(d => !d) && styles.ctaDisabled]}
+              onPress={() => verify(digits.join(''))}
+              disabled={loading || digits.some(d => !d)}
+            >
+              <Text style={styles.ctaText}>{loading ? 'Verifying…' : 'Verify'}</Text>
+            </Pressable>
           </>
         )}
       </View>
