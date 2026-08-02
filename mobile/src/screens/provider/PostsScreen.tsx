@@ -6,6 +6,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { apiCreatePost, apiDeletePost, apiGetMyPosts, Post } from '../../api/client';
 import { Colors } from '../../utils/colors';
 import { CameraIcon } from '../../components/TabIcons';
+import { CATEGORIES } from '../../data/categories';
 
 // Picked-but-not-yet-posted image, staged while the caption sheet is open.
 interface StagedAsset { uri: string; base64: string; mimeType: string; }
@@ -14,6 +15,7 @@ export function PostsScreen() {
   const insets = useSafeAreaInsets();
   const [myPosts, setMyPosts] = useState<Post[]>([]);
   const [postCaption, setPostCaption] = useState('');
+  const [postCategory, setPostCategory] = useState<string | null>(null);
   const [stagedAsset, setStagedAsset] = useState<StagedAsset | null>(null);
   const [creatingPost, setCreatingPost] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -58,8 +60,10 @@ export function PostsScreen() {
         photoBase64: stagedAsset.base64,
         mimeType: stagedAsset.mimeType,
         caption: postCaption.trim() || undefined,
+        category: postCategory || undefined,
       });
       setPostCaption('');
+      setPostCategory(null);
       setStagedAsset(null);
       await loadMyPosts();
     } catch (e: any) {
@@ -71,6 +75,7 @@ export function PostsScreen() {
   function cancelStagedPost() {
     setStagedAsset(null);
     setPostCaption('');
+    setPostCategory(null);
   }
 
   async function deletePost(postId: string) {
@@ -150,6 +155,21 @@ export function PostsScreen() {
               multiline
               maxLength={280}
             />
+            <Text style={styles.categoryLabel}>Category (helps clients find it)</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }} contentContainerStyle={{ gap: 8 }}>
+              {CATEGORIES.map(c => {
+                const active = postCategory === c.name;
+                return (
+                  <Pressable
+                    key={c.id}
+                    style={[styles.categoryChip, active && styles.categoryChipActive]}
+                    onPress={() => setPostCategory(active ? null : c.name)}
+                  >
+                    <Text style={[styles.categoryChipText, active && styles.categoryChipTextActive]}>{c.name}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
             <View style={styles.sheetBtnRow}>
               <Pressable style={styles.cancelBtn} onPress={cancelStagedPost} disabled={creatingPost}>
                 <Text style={styles.cancelBtnText}>Cancel</Text>
@@ -193,6 +213,14 @@ const styles = StyleSheet.create({
   sheet: { backgroundColor: Colors.systemBackground, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 },
   sheetTitle: { fontSize: 18, fontWeight: '800', color: Colors.label, marginBottom: 12 },
   stagedPreview: { width: '100%', aspectRatio: 4 / 5, borderRadius: 14, marginBottom: 12, backgroundColor: Colors.systemGray6 },
+  categoryLabel: { fontSize: 12.5, fontWeight: '700', color: Colors.secondaryLabel, marginBottom: 8 },
+  categoryChip: {
+    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 16,
+    backgroundColor: Colors.systemGray6, borderWidth: 1, borderColor: Colors.separator,
+  },
+  categoryChipActive: { backgroundColor: Colors.brand, borderColor: Colors.brand },
+  categoryChipText: { fontSize: 13, fontWeight: '600', color: Colors.secondaryLabel },
+  categoryChipTextActive: { color: '#fff' },
   sheetBtnRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
   cancelBtn: { flex: 1, paddingVertical: 13, borderRadius: 14, alignItems: 'center', backgroundColor: Colors.systemGray6 },
   cancelBtnText: { fontSize: 15, fontWeight: '700', color: Colors.secondaryLabel },

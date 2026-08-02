@@ -75,16 +75,23 @@ export function ExploreScreen() {
       .finally(() => setArtistsLoading(false));
   }, []);
 
+  // Server-side category filter (post.category, set at upload time) — the
+  // filter used to run client-side against p.service?.name, which only
+  // matched posts whose linked ProviderService menu item happened to share
+  // the category's exact serviceType string. Most posts have no serviceId
+  // at all, so that filter silently matched almost nothing.
+  const postCategoryName = postCategory === 'All' ? undefined : CATEGORIES.find(c => c.id === postCategory)?.name;
+
   useEffect(() => {
     setPostsLoading(true);
-    apiGetExplorePosts(postSort)
+    apiGetExplorePosts(postSort, undefined, 20, postCategoryName)
       .then(({ posts: data, nextCursor }) => {
         setPosts(data);
         setPostsCursor(nextCursor);
       })
       .catch(() => {})
       .finally(() => setPostsLoading(false));
-  }, [postSort]);
+  }, [postSort, postCategoryName]);
 
   // Re-fetch page 1 of the current sort whenever the Posts tab regains focus,
   // so like state edited on PostDetailScreen (like count, isLikedByMe) isn't
@@ -94,33 +101,28 @@ export function ExploreScreen() {
   useFocusEffect(
     React.useCallback(() => {
       if (tab !== 'Posts') return;
-      apiGetExplorePosts(postSort)
+      apiGetExplorePosts(postSort, undefined, 20, postCategoryName)
         .then(({ posts: data, nextCursor }) => {
           setPosts(data);
           setPostsCursor(nextCursor);
         })
         .catch(() => {});
-    }, [tab, postSort]),
+    }, [tab, postSort, postCategoryName]),
   );
 
-  const filteredPosts = useMemo(() => {
-    if (postCategory === 'All') return posts;
-    const cat = CATEGORIES.find(c => c.id === postCategory);
-    if (!cat) return posts;
-    return posts.filter(p => p.service?.name === cat.serviceType);
-  }, [posts, postCategory]);
+  const filteredPosts = posts;
 
   const loadMorePosts = useCallback(() => {
     if (postsLoadingMore || !postsCursor) return;
     setPostsLoadingMore(true);
-    apiGetExplorePosts(postSort, postsCursor)
+    apiGetExplorePosts(postSort, postsCursor, 20, postCategoryName)
       .then(({ posts: data, nextCursor }) => {
         setPosts(prev => [...prev, ...data]);
         setPostsCursor(nextCursor);
       })
       .catch(() => {})
       .finally(() => setPostsLoadingMore(false));
-  }, [postSort, postsCursor, postsLoadingMore]);
+  }, [postSort, postsCursor, postsLoadingMore, postCategoryName]);
 
   const looks = useMemo(
     () => (lookFilter === 'All' ? LOOKS : LOOKS.filter(l => l.occasion === lookFilter)),

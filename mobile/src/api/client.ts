@@ -908,6 +908,7 @@ export interface Post {
   id: string;
   photoUrl: string;
   caption: string | null;
+  category?: string | null;
   likeCount: number;
   createdAt: string;
   provider?: { id: string; name?: string; photoUrl?: string };
@@ -915,7 +916,7 @@ export interface Post {
   isLikedByMe?: boolean;
 }
 
-export function apiCreatePost(payload: { photoBase64: string; mimeType?: string; caption?: string; serviceId?: string }) {
+export function apiCreatePost(payload: { photoBase64: string; mimeType?: string; caption?: string; serviceId?: string; category?: string }) {
   return request<{ post: Post }>('POST', '/posts', payload);
 }
 
@@ -935,8 +936,12 @@ export function apiUnlikePost(postId: string) {
   return request<{ success: boolean }>('DELETE', `/posts/${postId}/like`);
 }
 
-export function apiGetExplorePosts(sort: 'recent' | 'top', cursor?: string, limit = 20) {
-  const params = new URLSearchParams({ sort, limit: String(limit), ...(cursor ? { cursor } : {}) });
+export function apiGetExplorePosts(sort: 'recent' | 'top', cursor?: string, limit = 20, category?: string) {
+  const params = new URLSearchParams({
+    sort, limit: String(limit),
+    ...(cursor ? { cursor } : {}),
+    ...(category ? { category } : {}),
+  });
   return request<{ posts: Post[]; nextCursor: string | null }>('GET', `/posts/explore?${params.toString()}`);
 }
 

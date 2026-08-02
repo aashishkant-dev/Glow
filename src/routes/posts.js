@@ -9,16 +9,27 @@ const { authenticate, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 
+// Same 9 categories used across the mobile app's Home grid and Glow Match —
+// kept as a fixed list (not tied to ProviderService) so any artist can tag a
+// post regardless of pricing model or whether they've set up a service menu.
+const POST_CATEGORIES = [
+  'Hair', 'Nails', 'Brows & Lashes', 'Waxing', 'Makeup',
+  'Facials & Skin', 'Bridal', 'Henna', 'Spa & Massage',
+];
+
 router.post(
   '/',
   authenticate,
   requireRole('Provider'),
   async (req, res) => {
     try {
-      const { photoBase64, mimeType = 'image/jpeg', caption, serviceId } = req.body;
+      const { photoBase64, mimeType = 'image/jpeg', caption, serviceId, category } = req.body;
       if (!photoBase64) return res.status(400).json({ error: 'photoBase64 required' });
       if (photoBase64.length > 8_000_000) return res.status(413).json({ error: 'Image too large. Maximum 6 MB.' });
       if (caption && caption.length > 500) return res.status(400).json({ error: 'Caption must be 500 characters or fewer' });
+      if (category && !POST_CATEGORIES.includes(category)) {
+        return res.status(400).json({ error: `category must be one of: ${POST_CATEGORIES.join(', ')}` });
+      }
 
       const profile = await prisma.providerProfile.findUnique({ where: { userId: req.user.id } });
       if (!profile) return res.status(400).json({ error: 'Provider profile not found' });
@@ -53,6 +64,7 @@ router.post(
           photoUrl: result.url,
           caption: caption || null,
           serviceId: serviceId || null,
+          category: category || null,
         },
       });
 
@@ -171,6 +183,10 @@ router.get(
       if (sort !== 'recent' && sort !== 'top') {
         return res.status(400).json({ error: 'sort must be "recent" or "top"' });
       }
+      const category = req.query.category;
+      if (category && !POST_CATEGORIES.includes(category)) {
+        return res.status(400).json({ error: `category must be one of: ${POST_CATEGORIES.join(', ')}` });
+      }
       const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
       const cursor = req.query.cursor;
 
@@ -178,6 +194,7 @@ router.get(
         where: {
           active: true,
           profile: { approvedByAdmin: true },
+          ...(category ? { category } : {}),
         },
         orderBy: sort === 'top' ? { likeCount: 'desc' } : { createdAt: 'desc' },
         take: limit + 1,
@@ -199,6 +216,7 @@ router.get(
         id: p.id,
         photoUrl: p.photoUrl,
         caption: p.caption,
+        category: p.category,
         likeCount: p.likeCount,
         createdAt: p.createdAt,
         provider: { id: p.profile.id, name: p.profile.user.name, photoUrl: p.profile.photoUrl },
