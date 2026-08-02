@@ -78,3 +78,9 @@ google-services.json
 GoogleService-Info.plist
 !src/tests/
 !src/tests/**
+
+# WSL/Windows download metadata
+*:Zone.Identifier
+
+# curl cookie jar (contains session cookies - never commit)
+/url
