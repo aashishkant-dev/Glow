@@ -51,9 +51,11 @@ async function priceForBooking(serviceType, hours, providerUserId, proposedPrice
     );
   }
 
-  // If the provider allows negotiation and the client proposed a price, use it
-  // (negotiation is a discount, not a way to pay more — offer must be strictly
-  // below the listed price, down to 50% of it to prevent lowball abuse)
+  // If the provider allows negotiation and the client proposed a price, use it.
+  // Any amount at or above 50% of listed is accepted — including offers ABOVE
+  // listed price. Glow has no say in the final price either way; the 50% floor
+  // is only noise-reduction against accidental/junk low offers, not a platform
+  // price control. The artist can still reject any offer they don't like.
   if (proposedPrice != null) {
     const profile = await prisma.providerProfile.findUnique({
       where: { userId: providerUserId },
@@ -63,7 +65,7 @@ async function priceForBooking(serviceType, hours, providerUserId, proposedPrice
       const proposed = Number(proposedPrice);
       if (!isNaN(proposed) && proposed > 0) {
         const lowerBound = listedPrice * 0.5;
-        if (proposed >= lowerBound && proposed < listedPrice) {
+        if (proposed >= lowerBound) {
           return Math.round(proposed * 100) / 100;
         }
       }

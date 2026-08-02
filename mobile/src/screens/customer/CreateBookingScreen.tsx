@@ -1370,16 +1370,16 @@ export function CreateBookingScreen() {
     if (!Number.isFinite(parsedProposedPrice) || parsedProposedPrice <= 0) return false;
     const listed = calcTotalPrice(selectedProvider, serviceType, hours, 1);
     if (listed <= 0) return true; // no listed price to compare against — can't range-check
-    // Negotiation is a discount ask, not a way to pay more — offer must be
-    // strictly below the listed price, down to 50% of it to prevent lowballing.
-    return parsedProposedPrice >= listed * 0.5 && parsedProposedPrice < listed;
+    // Offers at or above listed price are allowed (Glow doesn't control final
+    // price either way) — the 50% floor is only anti-lowball noise reduction.
+    return parsedProposedPrice >= listed * 0.5;
   }
   function proposedPriceErrorMsg(): string {
     if (!Number.isFinite(parsedProposedPrice) || parsedProposedPrice <= 0) {
       return 'Enter a valid amount.';
     }
     const listed = calcTotalPrice(selectedProvider, serviceType, hours, 1);
-    return `Offer must be between $${Math.round(listed * 0.5)} and $${Math.round(listed)}.`;
+    return `Offer must be at least $${Math.round(listed * 0.5)}.`;
   }
 
   const canNext =
