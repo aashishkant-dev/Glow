@@ -16,15 +16,25 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
 }
 
+// Grouped by completedAt (updatedAt at the moment status flips to COMPLETED),
+// not scheduledAt — a job scheduled long ago but completed today belongs in
+// "Today", not wherever its original schedule date happened to fall.
+function completedAt(j: Booking): string {
+  return j.updatedAt ?? j.scheduledAt;
+}
+
 function groupByPeriod(jobs: Booking[]) {
   const today = jobs.filter(j =>
-    new Date(j.scheduledAt).toDateString() === new Date().toDateString(),
+    new Date(completedAt(j)).toDateString() === new Date().toDateString(),
   );
   const thisWeek = jobs.filter(j => {
-    const diff = (Date.now() - new Date(j.scheduledAt).getTime()) / 86400000;
-    return diff <= 7 && new Date(j.scheduledAt).toDateString() !== new Date().toDateString();
+    const diff = (Date.now() - new Date(completedAt(j)).getTime()) / 86400000;
+    return diff <= 7 && diff >= 0 && new Date(completedAt(j)).toDateString() !== new Date().toDateString();
   });
-  const older = jobs.filter(j => (Date.now() - new Date(j.scheduledAt).getTime()) / 86400000 > 7);
+  const older = jobs.filter(j => {
+    const diff = (Date.now() - new Date(completedAt(j)).getTime()) / 86400000;
+    return diff > 7 || diff < 0;
+  });
   return { today, thisWeek, older };
 }
 
@@ -148,7 +158,7 @@ export function EarningsScreen() {
 
   const now = new Date();
   const thisMonthJobs = jobs.filter(j => {
-    const d = new Date(j.scheduledAt);
+    const d = new Date(completedAt(j));
     return d.getMonth() === now.getMonth() && d.getFullYear() === now.getFullYear();
   });
   const thisMonthEarned = thisMonthJobs.reduce((s, j) => s + (j.providerPayout ?? j.totalPrice ?? 0), 0);
@@ -161,7 +171,7 @@ export function EarningsScreen() {
     d.setDate(d.getDate() - (6 - i));
     const dayStr = d.toDateString();
     const earned = jobs
-      .filter(j => new Date(j.scheduledAt).toDateString() === dayStr)
+      .filter(j => new Date(completedAt(j)).toDateString() === dayStr)
       .reduce((s, j) => s + (j.providerPayout ?? j.totalPrice ?? 0), 0);
     return {
       label: d.toLocaleDateString('en-CA', { weekday: 'short' }).slice(0, 1),

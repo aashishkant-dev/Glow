@@ -117,16 +117,20 @@ export function ProviderDashboardScreen() {
   // opens), not one booking's chat count.
   const { notifications } = useChatUnread();
   const unreadCount = notifications.filter(n => !n.read).length;
+  // Keyed off updatedAt (when the job actually flipped to COMPLETED), not
+  // scheduledAt — a job scheduled 10+ days ago but completed today was being
+  // excluded from "today"/"this week", while a job scheduled for this week
+  // but completed later was counted before it was actually earned.
   const todayEarnings = jobs
-    .filter(j => j.status === 'COMPLETED' && new Date(j.scheduledAt).toDateString() === new Date().toDateString())
+    .filter(j => j.status === 'COMPLETED' && new Date(j.updatedAt ?? j.scheduledAt).toDateString() === new Date().toDateString())
     .reduce((sum, j) => sum + j.totalPrice, 0);
   const weekEarnings = jobs
     .filter(j => {
       if (j.status !== 'COMPLETED') return false;
-      const d = new Date(j.scheduledAt);
+      const d = new Date(j.updatedAt ?? j.scheduledAt);
       const now = new Date();
       const diff = (now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24);
-      return diff <= 7;
+      return diff <= 7 && diff >= 0;
     })
     .reduce((sum, j) => sum + j.totalPrice, 0);
 
@@ -348,7 +352,7 @@ export function ProviderDashboardScreen() {
               });
               const sums = days.map(d =>
                 jobs
-                  .filter(j => j.status === 'COMPLETED' && new Date(j.scheduledAt).toDateString() === d.toDateString())
+                  .filter(j => j.status === 'COMPLETED' && new Date(j.updatedAt ?? j.scheduledAt).toDateString() === d.toDateString())
                   .reduce((s, j) => s + j.totalPrice, 0),
               );
               const max = Math.max(...sums, 1);
