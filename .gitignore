@@ -21,6 +21,7 @@ glow.env
 
 # Dev docs / AI plans
 docs/superpowers/
+.superpowers/
 CLAUDE.md
 DEPLOYMENT_TODO.md
 EXPANSION_PROMPT.md
