@@ -120,6 +120,15 @@ function addDays(date: Date, n: number) {
 
 type Step = 1 | 2 | 3 | 4;
 
+// One service the customer has selected, carrying the chosen artist's OWN
+// price and duration (from ProviderService via AvailableProvider.services).
+export type SelectedService = {
+  name: string;
+  price: number;
+  durationMin: number;
+  serviceItemId?: string | null;
+};
+
 // ─── Provider pricing helpers ──────────────────────────────────────────────
 // Per-service catalog pricing is the primary (and normally only) model — every
 // bookable service has a real price from the platform catalog or the Artist's
@@ -142,15 +151,32 @@ function providerHourlyRate(provider: { services?: { name: string; price: number
   return FALLBACK_RATE;
 }
 
-function calcTotalPrice(
-  provider: { services?: { name: string; price: number }[] } | null,
-  serviceType: string,
-  hours: number,
-  numSessions: number,
-): number {
-  const svcPrice = providerServicePrice(provider, serviceType);
-  if (svcPrice != null) return svcPrice * numSessions;
-  return FALLBACK_RATE * hours * numSessions;
+// Sum of the selected line items — the listed total ONE session costs. Multiply
+// by the number of selected dates at the call site for a multi-date estimate;
+// the server prices each date's booking independently from the same bundle.
+function servicesTotal(services: SelectedService[]): number {
+  return Math.round(services.reduce((sum, s) => sum + s.price, 0) * 100) / 100;
+}
+
+function servicesDurationMin(services: SelectedService[]): number {
+  return services.reduce((sum, s) => sum + s.durationMin, 0);
+}
+
+function fmtDuration(totalMin: number): string {
+  const h = Math.floor(totalMin / 60);
+  const m = totalMin % 60;
+  if (h === 0) return `${m}m`;
+  if (m === 0) return `${h}h`;
+  return `${h}h ${m}m`;
+}
+
+// Session end time = start + combined duration of every selected service.
+function endTimeFor(start: Date, totalMin: number): Date {
+  return new Date(start.getTime() + totalMin * 60 * 1000);
+}
+
+function fmtClock(d: Date, locale: string = 'en-CA'): string {
+  return d.toLocaleTimeString(locale, { hour: 'numeric', minute: '2-digit' });
 }
 
 const DAYS_HEADER = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun'];
@@ -185,7 +211,15 @@ const t = {
   stepDateTime:           'Date & Time',
   stepChooseArtist:       'Choose Artist',
   stepConfirm:            'Confirm',
-  sectionCareType:        'Which service would you like?',
+  sectionCareType:        'Which services would you like?',
+  servicesSub:            'Tap to add as many as you like — prices are this artist\'s own.',
+  noArtistMenu:           'This artist hasn\'t published a service menu yet.',
+  noArtistMenuSub:        'Pick a different artist to continue.',
+  summaryBarEmpty:        'Select at least one service',
+  summaryBarCount:        (n: number) => `${n} service${n !== 1 ? 's' : ''}`,
+  confirmServices:        'Services',
+  confirmDuration:        'Duration',
+  confirmWindow:          'Time',
   sectionAddress:         'Service address',
   addressSub:             'Where should the Artist come? Include a postal code so we can map it.',
   addressPlaceholder:     'e.g. 123 Main St',
@@ -217,7 +251,7 @@ const t = {
   confirmDates:           'Date(s)',
   confirmStartTime:       'Start time',
   confirmAddress:         'Address',
-  confirmEstTotal:        'Est. total',
+  confirmEstTotal:        'Total',
   confirmDays:            (n: number) => `· ${n} day${n > 1 ? 's' : ''}`,
   paymentSection:         'Payment',
   payDebitCredit:         'Debit / Credit',
@@ -1222,11 +1256,12 @@ export function CreateBookingScreen() {
   const nav    = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const locale = 'en-CA';
-  const STEP_LABELS_SCHEDULED = [t.stepService, t.stepDateTime, t.stepChooseArtist, t.stepConfirm];
+  const STEP_LABELS_SCHEDULED = [t.stepChooseArtist, t.stepService, t.stepDateTime, t.stepConfirm];
   // Preselected-artist scheduled bookings skip the Choose Artist step (see goNext),
   // so its pill is dropped from the progress row too — it was never visited.
   const STEP_LABELS_SCHEDULED_PRESELECTED = [t.stepService, t.stepDateTime, t.stepConfirm];
-  const STEP_LABELS_ONDEMAND  = [t.stepService, t.stepChooseArtist, t.stepConfirm];
+  const STEP_LABELS_ONDEMAND  = [t.stepChooseArtist, t.stepService, t.stepConfirm];
+  const STEP_LABELS_ONDEMAND_PRESELECTED = [t.stepService, t.stepConfirm];
   // `coords` keeps a fallback so the nearby-Provider search still returns local
   // results even before the user grants GPS. `realCoords` is null until we have
   // the device's actual location — used for the map's "You" pin so we never
@@ -1244,9 +1279,18 @@ export function CreateBookingScreen() {
   // choice, not route back through the general provider-search step.
   const hasPreselectedProvider = !!route.params?.providerId;
 
-  const [step,          setStep]          = useState<Step>(1);
+  // Preselected-artist entries (Home's Loved-by-clients, a post's chip, Find My
+  // Glow, an artist profile's Book button) already chose the artist — start
+  // directly on Services (slot 2), same fast-path behaviour as before, just at
+  // a different slot now that Choose Artist moved to slot 1.
+  const [step,          setStep]          = useState<Step>(hasPreselectedProvider ? 2 : 1);
   const [bookingMode,   setBookingMode]   = useState<'ondemand' | 'scheduled'>(initMode);
-  const [serviceType,   setServiceType]   = useState(initService);
+  // Multi-select: one entry per service the customer has chosen from THIS
+  // artist's menu. `initService` (a bare name from a Home category card / post
+  // chip) can't be priced until an artist is chosen, so it's held here and
+  // applied by the artist-menu effect below once the menu loads.
+  const [selectedServices, setSelectedServices] = useState<SelectedService[]>([]);
+  const [pendingServiceName, setPendingServiceName] = useState<string>(initService);
   // Structured address — captured as discrete fields so we always collect a full,
   // geocodable address (incl. postal code) instead of a single short free-text line.
   const [street,        setStreet]        = useState('');
@@ -1267,6 +1311,81 @@ export function CreateBookingScreen() {
   const [providers,          setProviders]          = useState<AvailableProvider[]>([]);
   const [selectedProvider,   setSelectedProvider]   = useState<AvailableProvider | null>(null);
   const [proposedPrice,      setProposedPrice]      = useState<string>('');
+
+  // The chosen artist's real, bookable menu. Never the hardcoded SERVICES
+  // list — that's a platform catalog, not a promise that THIS artist offers
+  // any of it. An empty menu means the artist can't be booked yet, which the
+  // Services step surfaces explicitly rather than showing an empty grid.
+  const artistMenu: SelectedService[] = React.useMemo(
+    () => (selectedProvider?.services ?? [])
+      .filter(s => s.price > 0)
+      .map(s => ({ name: s.name, price: s.price, durationMin: s.durationMin })),
+    [selectedProvider],
+  );
+
+  function toggleService(svc: SelectedService) {
+    tapLight();
+    setSelectedServices(prev =>
+      prev.some(s => s.name === svc.name)
+        ? prev.filter(s => s.name !== svc.name)
+        : [...prev, svc],
+    );
+  }
+
+  const totalPriceOneSession = servicesTotal(selectedServices);
+  const totalDurationMin     = servicesDurationMin(selectedServices);
+
+  // Real validation for the price-negotiation offer, matching the screen's
+  // own stated "±50% of the listed price" claim. `parsedProposedPrice` is
+  // NaN for empty/non-numeric input — every check below correctly rejects
+  // NaN via the comparisons (NaN comparisons are always false), so an empty
+  // field just isn't "valid" on its own; canNext separately treats an empty
+  // field as "no offer, not blocking" rather than "invalid offer."
+  const parsedProposedPrice = Number(proposedPrice);
+  function isProposedPriceValid(): boolean {
+    if (!Number.isFinite(parsedProposedPrice) || parsedProposedPrice <= 0) return false;
+    const listed = servicesTotal(selectedServices);
+    if (listed <= 0) return true; // no listed price to compare against — can't range-check
+    // Offers at or above listed price are allowed (Glow doesn't control final
+    // price either way) — the 50% floor is only anti-lowball noise reduction.
+    // Negotiation is against the SUMMED total, never per line item.
+    return parsedProposedPrice >= listed * 0.5;
+  }
+  function proposedPriceErrorMsg(): string {
+    if (!Number.isFinite(parsedProposedPrice) || parsedProposedPrice <= 0) {
+      return 'Enter a valid amount.';
+    }
+    const listed = servicesTotal(selectedServices);
+    return `Offer must be at least $${Math.round(listed * 0.5)}.`;
+  }
+
+  // A service name arrived via route params (Home category card, occasion card,
+  // a post's service chip) BEFORE any artist was chosen, so it had no price.
+  // Once this artist's menu is available, promote it to a real selection if
+  // they actually offer it — otherwise silently drop it rather than booking a
+  // service the artist doesn't provide.
+  useEffect(() => {
+    if (!pendingServiceName || artistMenu.length === 0) return;
+    const match = artistMenu.find(s => s.name === pendingServiceName);
+    if (match) setSelectedServices(prev => (prev.some(s => s.name === match.name) ? prev : [...prev, match]));
+    setPendingServiceName('');
+  }, [pendingServiceName, artistMenu]);
+
+  // Switching artists invalidates every selection — the prices and durations
+  // belonged to the previous artist's menu. Keep only services the new artist
+  // also offers, re-priced at THEIR rate.
+  const prevProviderIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    const id = selectedProvider ? String(selectedProvider._id) : null;
+    if (prevProviderIdRef.current === id) return;
+    prevProviderIdRef.current = id;
+    setSelectedServices(prev =>
+      prev
+        .map(sel => artistMenu.find(m => m.name === sel.name))
+        .filter((s): s is SelectedService => !!s),
+    );
+  }, [selectedProvider, artistMenu]);
+
   const [loading,       setLoading]       = useState(false);
   const [loadingProviders,   setLoadingProviders]   = useState(false);
   const [providerMode,       setProviderMode]       = useState<'near' | 'browse'>('near');
@@ -1359,34 +1478,14 @@ export function CreateBookingScreen() {
   const [calYear,  setCalYear]  = useState(minSelectDate.getFullYear());
   const [calMonth, setCalMonth] = useState(minSelectDate.getMonth());
 
-  // Real validation for the price-negotiation offer, matching the screen's
-  // own stated "±50% of the listed price" claim. `parsedProposedPrice` is
-  // NaN for empty/non-numeric input — every check below correctly rejects
-  // NaN via the comparisons (NaN comparisons are always false), so an empty
-  // field just isn't "valid" on its own; canNext separately treats an empty
-  // field as "no offer, not blocking" rather than "invalid offer."
-  const parsedProposedPrice = Number(proposedPrice);
-  function isProposedPriceValid(): boolean {
-    if (!Number.isFinite(parsedProposedPrice) || parsedProposedPrice <= 0) return false;
-    const listed = calcTotalPrice(selectedProvider, serviceType, hours, 1);
-    if (listed <= 0) return true; // no listed price to compare against — can't range-check
-    // Offers at or above listed price are allowed (Glow doesn't control final
-    // price either way) — the 50% floor is only anti-lowball noise reduction.
-    return parsedProposedPrice >= listed * 0.5;
-  }
-  function proposedPriceErrorMsg(): string {
-    if (!Number.isFinite(parsedProposedPrice) || parsedProposedPrice <= 0) {
-      return 'Enter a valid amount.';
-    }
-    const listed = calcTotalPrice(selectedProvider, serviceType, hours, 1);
-    return `Offer must be at least $${Math.round(listed * 0.5)}.`;
-  }
-
   const canNext =
-    step === 1 ? (!!serviceType && street.trim().length > 2) :
-    step === 2 ? selectedDates.length > 0 :
-    step === 3 ? !!selectedProvider :
-    // Step 4 (Confirm): only blocked by an out-of-range/invalid price offer
+    // Slot 1 — Choose Artist
+    step === 1 ? !!selectedProvider :
+    // Slot 2 — Services (>= 1) + address
+    step === 2 ? (selectedServices.length > 0 && street.trim().length > 2) :
+    // Slot 3 — Date & Time
+    step === 3 ? selectedDates.length > 0 :
+    // Slot 4 (Confirm): only blocked by an out-of-range/invalid price offer
     // when negotiation is actually visible and the customer typed something.
     // An empty proposedPrice means "no offer" — that's valid, not a gate.
     (proposedPrice.trim() === '' || isProposedPriceValid());
@@ -1401,7 +1500,7 @@ export function CreateBookingScreen() {
     if (!changed) return;
     const prevT = prevParamsRef.current?._t;
     prevParamsRef.current = params;
-    if (params.serviceType) setServiceType(params.serviceType);
+    if (params.serviceType) setPendingServiceName(params.serviceType);
     if (params.bookingMode) setBookingMode(params.bookingMode as 'ondemand' | 'scheduled');
     // Reassign: the booking already exists, so we only need to pick a Provider.
     // Use on-demand mode (no date step) and keep the preset service.
@@ -1414,6 +1513,7 @@ export function CreateBookingScreen() {
     if (params._t && params._t !== prevT) {
       setStep(1);
       setSelectedProvider(null);
+      setSelectedServices([]);
       setSelectedDates([]);
       setStreet('');
       setUnit('');
@@ -1426,7 +1526,9 @@ export function CreateBookingScreen() {
     // as soon as the screen mounts (not gated on reaching step 3) so the
     // preselect is already resolved by the time goNext() decides whether to
     // skip the provider-picking step entirely.
-    if (step !== 3 && !hasPreselectedProvider) return;
+    // Choose Artist is now slot 1, so the artist list must load on mount for
+    // every booking, not just preselected ones.
+    if (step !== 1 && !hasPreselectedProvider) return;
     // Set Provider mode default based on booking mode
     setProviderMode(bookingMode === 'ondemand' ? 'near' : 'browse');
     setLoadingProviders(true);
@@ -1684,32 +1786,27 @@ export function CreateBookingScreen() {
   }
 
   function goBack() {
-    if (step === 1) { nav.goBack(); return; }
-    // On-demand: skip step 2 going backward (step 3 → step 1)
-    if (step === 3 && bookingMode === 'ondemand') { setStep(1); return; }
-    // Preselected artist: skip step 3 going backward too (step 4 → step 2)
-    if (step === 4 && hasPreselectedProvider && bookingMode !== 'ondemand') { setStep(2); return; }
+    // Preselected artist: slot 1 (Choose Artist) is never shown, so leaving
+    // slot 2 exits the screen entirely.
+    if (step === 1 || (step === 2 && hasPreselectedProvider)) { nav.goBack(); return; }
+    // On-demand: no Date & Time slot, so Confirm (4) goes back to Services (2).
+    if (step === 4 && bookingMode === 'ondemand') { setStep(2); return; }
     setStep(s => (s - 1) as Step);
   }
 
   function goNext() {
     if (!canNext) {
-      // Step 1's Care address fields live below the fold on small screens —
-      // users tapped a greyed Continue with no idea what was missing. Scroll
-      // the missing address section into view instead of doing nothing.
-      if (step === 1 && !!serviceType) {
+      // Slot 2's address fields live below the fold on small screens — users
+      // tapped a greyed Continue with no idea what was missing. Scroll the
+      // missing address section into view instead of doing nothing.
+      if (step === 2 && selectedServices.length > 0) {
         mainScrollRef.current?.scrollTo({ y: Math.max(addressYRef.current - 12, 0), animated: true });
       }
       return;
     }
     if (step === 4) { handleBook(); return; }
-    // On-demand: skip step 2 (Date & Time) and jump from step 1 → step 3
-    if (step === 1 && bookingMode === 'ondemand') { setStep(3); return; }
-    // On-demand has 3 logical steps: 1 (Service) → 3 (Provider) → 4 (Confirm)
-    if (step === 3 && bookingMode === 'ondemand') { setStep(4); return; }
-    // Preselected artist (scheduled mode): skip step 3's provider list —
-    // address (1) → date (2) → confirm (4) directly.
-    if (step === 2 && hasPreselectedProvider && selectedProvider) { setStep(4); return; }
+    // On-demand: skip slot 3 (Date & Time) — Services (2) → Confirm (4).
+    if (step === 2 && bookingMode === 'ondemand') { setStep(4); return; }
     setStep(s => (s + 1) as Step);
   }
 
@@ -1782,18 +1879,17 @@ export function CreateBookingScreen() {
         {/* Step progress pills */}
         <View style={styles.stepRow}>
           {(bookingMode === 'ondemand'
-            ? STEP_LABELS_ONDEMAND
-            : hasPreselectedProvider ? STEP_LABELS_SCHEDULED_PRESELECTED : STEP_LABELS_SCHEDULED
+            ? (hasPreselectedProvider ? STEP_LABELS_ONDEMAND_PRESELECTED : STEP_LABELS_ONDEMAND)
+            : (hasPreselectedProvider ? STEP_LABELS_SCHEDULED_PRESELECTED : STEP_LABELS_SCHEDULED)
           ).map((label, i) => {
-            // Map display index to actual step numbers
-            // ondemand: display 0→step1, 1→step3, 2→step4
-            // scheduled (preselected artist): display 0→step1, 1→step2, 2→step4
-            // scheduled: display 0→step1, 1→step2, 2→step3, 3→step4
+            // Map display index to actual slot numbers:
+            //   scheduled:               0→1, 1→2, 2→3, 3→4
+            //   scheduled (preselected): 0→2, 1→3, 2→4
+            //   ondemand:                0→1, 1→2, 2→4
+            //   ondemand (preselected):  0→2, 1→4
             const actualStep: Step = bookingMode === 'ondemand'
-              ? ([1, 3, 4] as Step[])[i]
-              : hasPreselectedProvider
-                ? ([1, 2, 4] as Step[])[i]
-                : (i + 1) as Step;
+              ? (hasPreselectedProvider ? ([2, 4] as Step[])[i] : ([1, 2, 4] as Step[])[i])
+              : (hasPreselectedProvider ? ([2, 3, 4] as Step[])[i] : ((i + 1) as Step));
             const active = actualStep === step;
             const done   = actualStep < step;
             // Completed steps are tappable to jump back. Forward steps stay locked
@@ -1828,7 +1924,7 @@ export function CreateBookingScreen() {
       </LinearGradient>
 
       {/* ── Step 3 Near Me: Uber-style full-screen map + bottom sheet ── */}
-      {step === 3 && providerMode === 'near' ? (
+      {step === 1 && providerMode === 'near' ? (
         <View style={{ flex: 1 }}>
           {/* Mode toggle — floats over map */}
           <View style={nearStyles.modeToggleOverlay}>
@@ -1964,41 +2060,55 @@ export function CreateBookingScreen() {
         >
 
           {/* ── Step 1: Service type + duration ── */}
-          {step === 1 && (
+          {step === 2 && (
             <View>
               <Text style={styles.sectionTitle}>{t.sectionCareType}</Text>
-              <View style={styles.serviceGrid}>
-                {SERVICES.map(s => {
-                  const accent = ServiceAccentColors[s] ?? BRAND_MID;
-                  const active = serviceType === s;
-                  return (
-                    <Pressable
-                      key={s}
-                      style={[
-                        styles.serviceCard,
-                        // Use a white card + colored border when active (NOT an
-                        // 8-digit #RRGGBBAA fill — Android RN renders that as an
-                        // opaque grey box, which looked broken).
-                        active && { borderColor: accent, borderWidth: 2, backgroundColor: '#fff' },
-                      ]}
-                      onPress={() => { tapLight(); setServiceType(s); }}
-                    >
-                      <ServiceIcon serviceType={s} size={30} color={accent} bubble={false} />
-                      <Text style={[
-                        styles.serviceCardLabel,
-                        active && { color: accent, fontWeight: '800' },
-                      ]}>
-                        {s}
-                      </Text>
-                      {active && (
-                        <View style={[styles.serviceCheck, { backgroundColor: accent }]}>
-                          <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>✓</Text>
-                        </View>
-                      )}
-                    </Pressable>
-                  );
-                })}
-              </View>
+              <Text style={styles.sectionSub}>{t.servicesSub}</Text>
+              {artistMenu.length === 0 ? (
+                <View style={styles.emptyBox}>
+                  <Text style={styles.emptyText}>{t.noArtistMenu}</Text>
+                  <Text style={[styles.emptyText, { fontSize: 13, marginTop: 4 }]}>{t.noArtistMenuSub}</Text>
+                </View>
+              ) : (
+                <View style={styles.serviceGrid}>
+                  {artistMenu.map(svc => {
+                    const accent = ServiceAccentColors[svc.name] ?? BRAND_MID;
+                    const active = selectedServices.some(s => s.name === svc.name);
+                    return (
+                      <Pressable
+                        key={svc.name}
+                        style={[
+                          styles.serviceCard,
+                          // Use a white card + colored border when active (NOT an
+                          // 8-digit #RRGGBBAA fill — Android RN renders that as an
+                          // opaque grey box, which looked broken).
+                          active && { borderColor: accent, borderWidth: 2, backgroundColor: '#fff' },
+                        ]}
+                        onPress={() => toggleService(svc)}
+                        accessibilityRole="checkbox"
+                        accessibilityState={{ checked: active }}
+                        accessibilityLabel={`${svc.name}, $${svc.price}, ${fmtDuration(svc.durationMin)}`}
+                      >
+                        <ServiceIcon serviceType={svc.name} size={30} color={accent} bubble={false} />
+                        <Text style={[
+                          styles.serviceCardLabel,
+                          active && { color: accent, fontWeight: '800' },
+                        ]}>
+                          {svc.name}
+                        </Text>
+                        <Text style={styles.serviceCardPrice}>
+                          ${svc.price} · {fmtDuration(svc.durationMin)}
+                        </Text>
+                        {active && (
+                          <View style={[styles.serviceCheck, { backgroundColor: accent }]}>
+                            <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>✓</Text>
+                          </View>
+                        )}
+                      </Pressable>
+                    );
+                  })}
+                </View>
+              )}
 
               <Text
                 style={[styles.sectionTitle, { marginTop: 28 }]}
@@ -2057,7 +2167,7 @@ export function CreateBookingScreen() {
           )}
 
           {/* ── Step 2: Calendar + time ── */}
-          {step === 2 && (
+          {step === 3 && (
             <View>
               <Text style={styles.sectionTitle}>{t.sectionDates}</Text>
               <Text style={styles.sectionSub}>{t.datesSub}</Text>
@@ -2172,7 +2282,7 @@ export function CreateBookingScreen() {
           )}
 
           {/* ── Step 3: Provider picker (loading / empty / browse mode) ── */}
-          {step === 3 && (
+          {step === 1 && (
             <View>
               <Text style={styles.sectionTitle}>{t.chooseArtist}</Text>
 
@@ -2360,22 +2470,35 @@ export function CreateBookingScreen() {
       )}
 
       {/* ── Footer CTA — hidden when near-me split-screen renders its own ── */}
-      {!(step === 3 && providerMode === 'near') && (
+      {!(step === 1 && providerMode === 'near') && (
         <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
+          {/* Live running total — updates as services are added/removed on the
+              Services step, and stays visible through Confirm so the number the
+              customer agreed to never disappears. */}
+          {(step === 2 || step === 4) && (
+            <View style={styles.summaryBar}>
+              <Text style={styles.summaryBarLeft}>
+                {selectedServices.length === 0
+                  ? t.summaryBarEmpty
+                  : `${t.summaryBarCount(selectedServices.length)} · ${fmtDuration(totalDurationMin)}`}
+              </Text>
+              <Text style={styles.summaryBarRight}>
+                {selectedServices.length === 0 ? '' : `$${totalPriceOneSession}`}
+              </Text>
+            </View>
+          )}
           {/* Tell the user exactly WHY Continue is grey — a silent disabled
               button reads as broken (real user report). */}
           {!canNext && !loading && (
             <Text style={styles.ctaHint}>
               {step === 1
-                ? (!serviceType
-                    ? 'Choose a service'
-                    : street.trim().length <= 2
-                      ? 'Enter your street address'
-                      : 'Enter your postal code (e.g. P3A 2T4)')
+                ? 'Tap "Select" on an Artist to continue'
                 : step === 2
-                  ? 'Pick at least one date'
+                  ? (selectedServices.length === 0
+                      ? 'Choose at least one service'
+                      : 'Enter your street address')
                   : step === 3
-                    ? 'Tap "Select" on an Artist to continue'
+                    ? 'Pick at least one date'
                     : ''}
             </Text>
           )}
@@ -2858,11 +2981,19 @@ const styles = StyleSheet.create({
   },
   serviceCardIcon:  { fontSize: 28 },
   serviceCardLabel: { fontSize: 12, fontWeight: '600', color: '#64748B', textAlign: 'center' },
+  serviceCardPrice: { fontSize: 11, fontWeight: '700', color: BRAND_MID, textAlign: 'center' },
   serviceCheck: {
     position: 'absolute', top: 8, right: 8,
     width: 18, height: 18, borderRadius: 9,
     alignItems: 'center', justifyContent: 'center',
   },
+  summaryBar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingHorizontal: 14, paddingVertical: 10,
+    backgroundColor: MIST, borderRadius: 14, marginBottom: 10,
+  },
+  summaryBarLeft:  { fontSize: 13, fontWeight: '700', color: BRAND_DARK },
+  summaryBarRight: { fontSize: 17, fontWeight: '800', color: BRAND_DARK },
 
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
   chip: {
