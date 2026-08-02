@@ -21,6 +21,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CommonActions, useNavigation, useRoute } from '@react-navigation/native';
+import DateTimePicker from '@react-native-community/datetimepicker';
 import { tapLight, tapSuccess } from '../../utils/haptics';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, ServiceAccentColors } from '../../utils/colors';
@@ -98,6 +99,13 @@ function fmtHour(h: number) {
   if (h < 12) return `${h}:00 AM`;
   if (h === 12) return '12:00 PM';
   return `${h - 12}:00 PM`;
+}
+
+function fmtHourMinute(h: number, m: number) {
+  const mm = String(m).padStart(2, '0');
+  if (h < 12) return `${h === 0 ? 12 : h}:${mm} AM`;
+  if (h === 12) return `12:${mm} PM`;
+  return `${h - 12}:${mm} PM`;
 }
 
 function fmtShort(d: Date, locale: string = 'en-CA') {
@@ -269,6 +277,7 @@ const t = {
   datesSub:               'Tap to pick up to 7 dates · starts tomorrow',
   todayNotBookable:       "Today can't be booked — bookings start tomorrow at the earliest.",
   sectionStartTime:       'Start time',
+  customTime:             'Custom',
   chooseArtist:           'Choose your Artist',
   nearMe:                 'Near Me',
   browseProfiles:         'Browse Profiles',
@@ -1347,6 +1356,8 @@ export function CreateBookingScreen() {
     .join(', ');
   const [selectedDates, setSelectedDates] = useState<Date[]>([]);
   const [startHour,     setStartHour]     = useState(9);
+  const [startMinute,   setStartMinute]   = useState(0);
+  const [customTimeOpen, setCustomTimeOpen] = useState(false);
   const [providers,          setProviders]          = useState<AvailableProvider[]>([]);
   const [selectedProvider,   setSelectedProvider]   = useState<AvailableProvider | null>(null);
   const [proposedPrice,      setProposedPrice]      = useState<string>('');
@@ -1793,7 +1804,7 @@ export function CreateBookingScreen() {
         datesToBook.map(date => {
           const scheduledAt = bookingMode === 'ondemand'
             ? date
-            : (() => { const d = new Date(date); d.setHours(startHour, 0, 0, 0); return d; })();
+            : (() => { const d = new Date(date); d.setHours(startHour, startMinute, 0, 0); return d; })();
           return apiCreateBooking({
             services: selectedServices.map(s => ({ name: s.name, serviceItemId: s.serviceItemId ?? null })),
             scheduledAt: scheduledAt.toISOString(),
@@ -2346,15 +2357,50 @@ export function CreateBookingScreen() {
                 {START_HOURS.map(h => (
                   <Pressable
                     key={h}
-                    style={[styles.chip, startHour === h && styles.chipActive]}
-                    onPress={() => { tapLight(); setStartHour(h); }}
+                    style={[styles.chip, !customTimeOpen && startHour === h && startMinute === 0 && styles.chipActive]}
+                    onPress={() => { tapLight(); setStartHour(h); setStartMinute(0); setCustomTimeOpen(false); }}
                   >
-                    <Text style={[styles.chipText, startHour === h && styles.chipTextActive]}>
+                    <Text style={[styles.chipText, !customTimeOpen && startHour === h && startMinute === 0 && styles.chipTextActive]}>
                       {fmtHour(h)}
                     </Text>
                   </Pressable>
                 ))}
+                <Pressable
+                  style={[styles.chip, customTimeOpen && styles.chipActive]}
+                  onPress={() => { tapLight(); setCustomTimeOpen(true); }}
+                >
+                  <Text style={[styles.chipText, customTimeOpen && styles.chipTextActive]}>
+                    {customTimeOpen ? fmtHourMinute(startHour, startMinute) : t.customTime}
+                  </Text>
+                </Pressable>
               </View>
+
+              {customTimeOpen && Platform.OS === 'web' ? (
+                <input
+                  type="time"
+                  value={`${String(startHour).padStart(2, '0')}:${String(startMinute).padStart(2, '0')}`}
+                  onChange={(e: any) => {
+                    const [h, m] = e.target.value.split(':').map(Number);
+                    if (!Number.isNaN(h) && !Number.isNaN(m)) { setStartHour(h); setStartMinute(m); }
+                  }}
+                  style={{
+                    marginTop: 12, padding: '10px 14px', borderRadius: 12,
+                    border: '1px solid #E5E7EB', fontSize: 15, fontFamily: 'inherit',
+                  }}
+                />
+              ) : null}
+
+              {customTimeOpen && Platform.OS !== 'web' && (
+                <DateTimePicker
+                  value={(() => { const d = new Date(); d.setHours(startHour, startMinute, 0, 0); return d; })()}
+                  mode="time"
+                  display={Platform.OS === 'ios' ? 'spinner' : 'default'}
+                  onChange={(_event: any, selected?: Date) => {
+                    if (Platform.OS === 'android') setCustomTimeOpen(false);
+                    if (selected) { setStartHour(selected.getHours()); setStartMinute(selected.getMinutes()); }
+                  }}
+                />
+              )}
             </View>
           )}
 
@@ -2512,7 +2558,7 @@ export function CreateBookingScreen() {
                       label={t.confirmWindow}
                       value={(() => {
                         const start = new Date(selectedDates[0] ?? new Date());
-                        start.setHours(startHour, 0, 0, 0);
+                        start.setHours(startHour, startMinute, 0, 0);
                         return `${fmtClock(start, locale)} – ${fmtClock(endTimeFor(start, totalDurationMin), locale)}`;
                       })()}
                     />
