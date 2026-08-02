@@ -434,7 +434,7 @@ export function HomeScreen() {
               <Touch key={c.id} style={styles.occWrap} onPress={() => openCategory(c)}>
                 <View style={[styles.occCard, { backgroundColor: c.tint }]}>
                   <View style={styles.occIcon}>
-                    <c.Icon size={20} color="#fff" />
+                    <c.Icon size={26} />
                   </View>
                   <Text style={styles.occName}>{c.name}</Text>
                 </View>
@@ -631,11 +631,10 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 1,
   },
   occIcon: {
-    width: 38, height: 38, borderRadius: 19,
-    // Solid brandDeep fill (was translucent white, which barely lifted off the
-    // equally-pale card tint). brandDeep + white icon measures 5.5:1 contrast
-    // (WCAG AA pass); the mid-tone `brand` shade only reached 2.9:1 against white.
-    backgroundColor: Colors.brandDeep,
+    width: 44, height: 44, borderRadius: 22,
+    // Illustrated icons carry their own baked-in color, so the bubble is a
+    // near-white surface that lifts them off the card's pastel tint.
+    backgroundColor: 'rgba(255,255,255,0.75)',
     alignItems: 'center', justifyContent: 'center',
     marginBottom: 12,
   },

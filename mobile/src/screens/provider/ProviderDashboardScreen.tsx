@@ -17,11 +17,13 @@ import {
   BellIcon,
   ChevronForwardIcon,
   ShieldCheckIcon,
-  FindJobsIcon,
-  EarningsIcon,
-  ProfileIcon,
-  HelpIcon,
 } from '../../components/CareIcons';
+import {
+  ShoppingBagIcon,
+  WalletIcon,
+  UserProfileFilledIcon,
+  SupportIcon,
+} from '../../components/IllustratedIcons';
 import { ServiceIcon } from '../../components/ServiceIcon';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
@@ -438,14 +440,14 @@ export function ProviderDashboardScreen() {
           <Text style={styles.sectionTitle}>Quick Actions</Text>
           <View style={styles.quickGrid}>
             {([
-              { Icon: FindJobsIcon,  label: 'Find Jobs', sub: 'Browse open jobs', color: Colors.brand,        bg: Colors.brandLight,  go: () => nav.navigate('ProviderHome', { screen: 'NearbyJobs' }) },
-              { Icon: EarningsIcon,  label: 'Earnings',  sub: 'Wallet & payouts', color: Colors.earningsGold,  bg: '#FEF3C7',          go: () => nav.navigate('Earnings') },
-              { Icon: ProfileIcon,   label: 'Profile',   sub: 'Your details',     color: Colors.systemBlue,    bg: '#DBEAFE',          go: () => nav.navigate('Profile') },
-              { Icon: HelpIcon,      label: 'Help',      sub: 'Support & FAQ',    color: Colors.systemPurple,  bg: '#EDE9FE',          go: () => nav.navigate('Help') },
+              { Icon: ShoppingBagIcon,      label: 'Find Jobs', sub: 'Browse open jobs', bg: Colors.brandLight, go: () => nav.navigate('ProviderHome', { screen: 'NearbyJobs' }) },
+              { Icon: WalletIcon,           label: 'Earnings',  sub: 'Wallet & payouts', bg: '#FEF3C7',         go: () => nav.navigate('Earnings') },
+              { Icon: UserProfileFilledIcon, label: 'Profile',   sub: 'Your details',     bg: '#DBEAFE',         go: () => nav.navigate('Profile') },
+              { Icon: SupportIcon,          label: 'Help',      sub: 'Support & FAQ',    bg: '#EDE9FE',         go: () => nav.navigate('Help') },
             ]).map(a => (
               <Pressable key={a.label} style={({ pressed }) => [styles.quickCard, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]} onPress={a.go}>
                 <View style={[styles.quickIconBubble, { backgroundColor: a.bg }]}>
-                  <a.Icon size={26} color={a.color} />
+                  <a.Icon size={28} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.quickLabel} numberOfLines={1}>{a.label}</Text>
