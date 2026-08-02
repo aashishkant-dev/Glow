@@ -175,6 +175,12 @@ jobs:
     runs-on: ubuntu-latest
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     needs: [mobile-check, backend-test, pwa-build]
+    # Legitimate worst case: vercel deploy (~1min) + API health retry (18×10s=3min)
+    # + PWA bundle retry (10×90s=15min) ≈ 20min. 25min gives headroom without
+    # letting a genuine hang (e.g. a curl call stalling past --max-time on a
+    # connect-phase issue) run indefinitely — this job had no ceiling before and
+    # was observed hanging 30+ min twice in a row with build/test already green.
+    timeout-minutes: 25
 
     steps:
       - uses: actions/checkout@v4.2.2
