@@ -3,6 +3,7 @@ import { Image } from 'expo-image';
 import {
   Animated,
   Easing,
+  Linking,
   Platform,
   Pressable,
   RefreshControl,
@@ -13,7 +14,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { StarIcon, CalendarIcon } from '../../components/TabIcons';
+import { StarIcon, CalendarIcon, SearchIcon } from '../../components/TabIcons';
 import { GlowLogo, GlowMark } from '../../components/GlowLogo';
 import {
   apiMyBookings,
@@ -26,41 +27,22 @@ import { useAuth } from '../../context/AuthContext';
 import { useLocation } from '../../context/LocationContext';
 import { Colors, Fonts } from '../../utils/colors';
 import { BellIcon, CheckDecagramIcon } from '../../components/CareIcons';
-import {
-  SparkleIcon, CrownIcon, LipstickIcon, HennaIcon, MirrorIcon, ScissorsIcon,
-} from '../../components/BeautyIcons';
+import { SparkleIcon } from '../../components/BeautyIcons';
 import { StatusBadge } from '../../components/StatusBadge';
-import { LocationPrompt } from '../../components/LocationPrompt';
-import { GlowSheet } from '../../components/GlowSheet';
 import { GlowMatchSheet } from '../../components/GlowMatchSheet';
 import { LookSheet } from '../../components/LookSheet';
 import { LookTile } from '../../components/LookTile';
 import { LOOKS, Look } from '../../data/looks';
-import { OCCASIONS, IconComp } from '../../data/occasions';
+import { CATEGORIES } from '../../data/categories';
 import { Storage } from '../../utils/storage';
 import { useChatUnread } from '../../context/ChatUnreadContext';
 import { tapLight } from '../../utils/haptics';
 
 /**
- * Occasion-first home. Nobody wakes up wanting "a makeup artist" — they have
- * a wedding next week, a date tonight. Every card answers that moment and
- * lands in the booking flow with the right service already chosen.
- * OCCASIONS itself now lives in ../../data/occasions.ts, shared with
- * CreateBookingScreen's "For an occasion" section.
+ * Category-first home. Every card is a real ServiceItem grouping (see
+ * ../../data/categories.ts) and lands in the booking flow with the right
+ * service already chosen.
  */
-
-/** Wedding roles — the only occasion that earns a follow-up question. */
-const WEDDING_ROLES: { label: string; sub: string; serviceType: string; Icon: IconComp }[] = [
-  { label: 'Bride',                  sub: 'Full bridal glam',        serviceType: 'Bridal Makeup', Icon: CrownIcon },
-  { label: 'Bridesmaid',             sub: 'Party-perfect glam',      serviceType: 'Party Makeup',  Icon: SparkleIcon },
-  { label: 'Mother of the Bride',    sub: 'Elegant & timeless',      serviceType: 'Makeup',        Icon: MirrorIcon },
-  { label: 'Guest Makeup',           sub: 'Celebration-ready',       serviceType: 'Makeup',        Icon: LipstickIcon },
-  { label: 'Reception',              sub: 'Evening second look',     serviceType: 'Party Makeup',  Icon: SparkleIcon },
-  { label: 'Engagement Ceremony',    sub: 'Soft bridal glow',        serviceType: 'Bridal Makeup', Icon: SparkleIcon },
-  { label: 'Hair Styling',           sub: 'Updos, waves & more',     serviceType: 'Hair Styling',  Icon: ScissorsIcon },
-  { label: 'Saree Draping & Jewelry', sub: 'Set to perfection',      serviceType: 'Bridal Makeup', Icon: CrownIcon },
-  { label: 'Mehendi',                sub: 'Bridal henna',            serviceType: 'Mehendi',       Icon: HennaIcon },
-];
 
 const ACTIVE_STATUSES = new Set(['REQUESTED', 'ACCEPTED', 'ON_MY_WAY', 'STARTED']);
 
@@ -175,20 +157,17 @@ function ArtistCard({ artist, onPress }: { artist: PublicProviderCard; onPress: 
 
 export function HomeScreen() {
   const { user, photoUri } = useAuth();
-  const { requestLocation, permissionStatus } = useLocation();
+  const { coords, requestLocation, permissionStatus } = useLocation();
   const nav    = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const [bookings,   setBookings]   = useState<Booking[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [showIOSHint, setShowIOSHint] = useState(false);
-  const [showLocationPrompt, setShowLocationPrompt] = useState(false);
-  const [locationPromptedBefore, setLocationPromptedBefore] = useState(true);
+  const [cityName, setCityName] = useState<string | null>(null);
+  const [locating, setLocating] = useState(false);
   const [artists, setArtists] = useState<PublicProviderCard[]>([]);
   const [catalogPrices, setCatalogPrices] = useState<Record<string, number>>({});
   const [showMatch, setShowMatch] = useState(false);
-  const [showWeddingRoles, setShowWeddingRoles] = useState(false);
-  // Keep the home screen calm: six occasions up front, the rest behind one tap.
-  const [showAllOccasions, setShowAllOccasions] = useState(false);
   const [openLook, setOpenLook] = useState<Look | null>(null);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fadeIn = useRef(new Animated.Value(0)).current;
@@ -202,38 +181,34 @@ export function HomeScreen() {
     Animated.timing(fadeIn, { toValue: 1, duration: 600, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
   }, []);
 
+  // Once real GPS coords land, resolve them to a city/region name for
+  // display. No full-screen "Enable Location" sheet — just this pill,
+  // tapped on demand.
   useEffect(() => {
-    Storage.getLocationPrompted().then(v => setLocationPromptedBefore(v));
-  }, []);
+    if (!coords) { setCityName(null); return; }
+    let cancelled = false;
+    import('expo-location').then(Location =>
+      Location.reverseGeocodeAsync({ latitude: coords.lat, longitude: coords.lng })
+        .then(hits => {
+          if (cancelled || !hits[0]) return;
+          const h = hits[0];
+          const name = [h.city ?? h.subregion, h.region].filter(Boolean).join(', ');
+          if (name) setCityName(name);
+        })
+        .catch(() => {}),
+    );
+    return () => { cancelled = true; };
+  }, [coords]);
 
-  useEffect(() => {
-    if (locationPromptedBefore) return;
-    if (permissionStatus === 'denied' || permissionStatus === 'unavailable') {
-      const t = setTimeout(() => setShowLocationPrompt(true), 800);
-      return () => clearTimeout(t);
+  const handleLocationPress = async () => {
+    if (locating) return;
+    if (permissionStatus === 'denied' && Platform.OS !== 'web') {
+      Linking.openSettings();
+      return;
     }
-  }, [permissionStatus, locationPromptedBefore]);
-
-  // Auto-dismiss once permission granted (e.g. user enabled in Settings).
-  useEffect(() => {
-    if (permissionStatus === 'granted' && showLocationPrompt) {
-      setShowLocationPrompt(false);
-      Storage.saveLocationPrompted();
-      setLocationPromptedBefore(true);
-    }
-  }, [permissionStatus, showLocationPrompt]);
-
-  const handleLocationRequest = async () => {
+    setLocating(true);
     await requestLocation();
-    setShowLocationPrompt(false);
-    Storage.saveLocationPrompted();
-    setLocationPromptedBefore(true);
-  };
-
-  const handleLocationSkip = () => {
-    setShowLocationPrompt(false);
-    Storage.saveLocationPrompted();
-    setLocationPromptedBefore(true);
+    setLocating(false);
   };
 
   const load = useCallback(async (showRefresh = false) => {
@@ -296,10 +271,9 @@ export function HomeScreen() {
 
   function dismissIOSHint() { Storage.saveInstallDismissed(); setShowIOSHint(false); }
 
-  function openOccasion(o: typeof OCCASIONS[number]) {
+  function openCategory(c: typeof CATEGORIES[number]) {
     tapLight();
-    if (o.serviceType === null) { setShowWeddingRoles(true); return; }
-    nav.navigate('NewBooking', { serviceType: o.serviceType, bookingMode: 'scheduled', _t: Date.now() });
+    nav.navigate('NewBooking', { serviceType: c.serviceType, bookingMode: 'scheduled', _t: Date.now() });
   }
 
   const firstName = user?.name?.split(' ')[0] ?? 'there';
@@ -361,11 +335,32 @@ export function HomeScreen() {
 
           {/* ── The one question this screen answers ── */}
           <View style={styles.greetingBlock}>
-            <Text style={styles.greetingEyebrow}>{greeting}, {firstName} ✨</Text>
+            <View style={styles.greetingTopRow}>
+              <Text style={styles.greetingEyebrow}>{greeting}, {firstName} ✨</Text>
+              <Pressable
+                style={({ pressed }) => [styles.locationPill, pressed && { opacity: 0.7 }]}
+                onPress={handleLocationPress}
+                accessibilityRole="button"
+                accessibilityLabel={cityName ? `Location: ${cityName}` : 'Enable location'}
+              >
+                <Text style={styles.locationPillText} numberOfLines={1}>
+                  {locating ? 'Locating…' : cityName ? `📍 ${cityName}` : '📍 Enable location'}
+                </Text>
+              </Pressable>
+            </View>
             <Text style={styles.greetingMain}>
-              What are we{'\n'}getting ready for
+              What are you{'\n'}looking for
               <Text style={styles.greetingDot}>?</Text>
             </Text>
+            <Pressable
+              style={({ pressed }) => [styles.searchBar, pressed && { opacity: 0.85 }]}
+              onPress={() => { tapLight(); nav.navigate('ExploreTab', { openSearch: true }); }}
+              accessibilityRole="button"
+              accessibilityLabel="Search"
+            >
+              <SearchIcon size={17} color={Colors.tertiaryLabel} />
+              <Text style={styles.searchBarText}>What are you looking for?</Text>
+            </Pressable>
           </View>
 
           {/* ── Active booking ── */}
@@ -387,6 +382,20 @@ export function HomeScreen() {
             </Touch>
           )}
 
+          {/* ── Category grid — the heart of the home screen ── */}
+          <View style={styles.occGrid}>
+            {CATEGORIES.map(c => (
+              <Touch key={c.id} style={styles.occWrap} onPress={() => openCategory(c)}>
+                <View style={[styles.occCard, { backgroundColor: c.tint }]}>
+                  <View style={styles.occIcon}>
+                    <c.Icon size={20} color="#fff" />
+                  </View>
+                  <Text style={styles.occName}>{c.name}</Text>
+                </View>
+              </Touch>
+            ))}
+          </View>
+
           {/* ── Top rated artists ── */}
           {topArtists.length > 0 && (
             <>
@@ -405,38 +414,6 @@ export function HomeScreen() {
               </ScrollView>
             </>
           )}
-
-          {/* ── Occasion grid — the heart of the home screen ── */}
-          <View style={styles.occGrid}>
-            {(showAllOccasions ? OCCASIONS : OCCASIONS.slice(0, 6)).map(o => (
-              <Touch
-                key={o.id}
-                style={o.big ? styles.occBigWrap : styles.occWrap}
-                onPress={() => openOccasion(o)}
-              >
-                <View style={[styles.occCard, { backgroundColor: o.tint }, o.big && styles.occCardBig]}>
-                  <View style={styles.occIcon}>
-                    <o.Icon size={o.big ? 24 : 20} color="#fff" />
-                  </View>
-                  {o.big && (
-                    <View style={styles.occBigGlow} pointerEvents="none" />
-                  )}
-                  <View>
-                    <Text style={[styles.occName, o.big && styles.occNameBig]}>{o.name}</Text>
-                    <Text style={styles.occSub}>{o.sub}</Text>
-                  </View>
-                </View>
-              </Touch>
-            ))}
-          </View>
-          <Pressable
-            style={({ pressed }) => [styles.occMore, pressed && { opacity: 0.7 }]}
-            onPress={() => { tapLight(); setShowAllOccasions(v => !v); }}
-          >
-            <Text style={styles.occMoreText}>
-              {showAllOccasions ? 'Show less' : `More occasions (${OCCASIONS.length - 6})`}
-            </Text>
-          </Pressable>
 
           {/* ── Trending looks — outcomes, not services ── */}
           <View style={styles.sectionHeader}>
@@ -500,43 +477,11 @@ export function HomeScreen() {
         </Touch>
       </View>
 
-      {/* Wedding role picker — the only follow-up question we ever ask */}
-      <GlowSheet visible={showWeddingRoles} onClose={() => setShowWeddingRoles(false)}>
-        <Text style={styles.rolesKicker}>WEDDING</Text>
-        <Text style={styles.rolesTitle}>Who's getting ready?</Text>
-        <ScrollView bounces={false} showsVerticalScrollIndicator={false} contentContainerStyle={styles.rolesContent}>
-          {WEDDING_ROLES.map(r => (
-            <Pressable
-              key={r.label}
-              style={({ pressed }) => [styles.roleRow, pressed && styles.rolePressed]}
-              onPress={() => {
-                tapLight();
-                setShowWeddingRoles(false);
-                nav.navigate('NewBooking', { serviceType: r.serviceType, bookingMode: 'scheduled', _t: Date.now() });
-              }}
-            >
-              <View style={styles.roleIcon}><r.Icon size={19} color={Colors.brandDeep} /></View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.roleLabel}>{r.label}</Text>
-                <Text style={styles.roleSub}>{r.sub}</Text>
-              </View>
-              <Text style={styles.roleArrow}>→</Text>
-            </Pressable>
-          ))}
-        </ScrollView>
-      </GlowSheet>
-
       <GlowMatchSheet visible={showMatch} onClose={() => setShowMatch(false)} />
       <LookSheet
         look={openLook}
         priceOverride={openLook ? catalogPrices[openLook.serviceType] : undefined}
         onClose={() => setOpenLook(null)}
-      />
-      <LocationPrompt
-        visible={showLocationPrompt}
-        onRequest={handleLocationRequest}
-        onSkip={handleLocationSkip}
-        isDenied={permissionStatus === 'denied'}
       />
     </View>
   );
@@ -588,9 +533,21 @@ const styles = StyleSheet.create({
   bgBlob: { position: 'absolute', borderRadius: 999 },
 
   greetingBlock: { paddingHorizontal: 24, marginBottom: 24 },
-  greetingEyebrow: { fontSize: 15, color: Colors.secondaryLabel, fontFamily: Fonts.regular, marginBottom: 6 },
+  greetingTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 6 },
+  greetingEyebrow: { fontSize: 15, color: Colors.secondaryLabel, fontFamily: Fonts.regular, flexShrink: 1 },
   greetingMain: { fontSize: 34, lineHeight: 40, fontFamily: Fonts.bold, color: Colors.label, letterSpacing: -1 },
   greetingDot: { color: Colors.gold },
+  locationPill: {
+    maxWidth: 150, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 100,
+    backgroundColor: '#fff', borderWidth: 1, borderColor: Colors.separator,
+  },
+  locationPillText: { fontSize: 11.5, fontFamily: Fonts.medium, color: Colors.secondaryLabel },
+  searchBar: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: Colors.separator,
+    paddingHorizontal: 16, paddingVertical: 13, marginTop: 18,
+  },
+  searchBarText: { fontSize: 14.5, fontFamily: Fonts.regular, color: Colors.tertiaryLabel },
 
   sectionPad: { paddingHorizontal: 24 },
 
@@ -603,27 +560,20 @@ const styles = StyleSheet.create({
   activeTitle: { fontSize: 14, fontFamily: Fonts.semibold, color: Colors.label },
   activeSub:   { fontSize: 12.5, color: Colors.secondaryLabel, marginTop: 2, fontFamily: Fonts.regular },
 
-  // Occasion grid — two columns, Wedding full-width lead
+  // Category grid — two columns
   occGrid: {
     flexDirection: 'row', flexWrap: 'wrap',
     paddingHorizontal: 24, gap: 12,
   },
   occWrap: { width: '47%', flexGrow: 1 },
-  occBigWrap: { width: '100%' },
   occCard: {
-    borderRadius: 24, padding: 16, minHeight: 118,
-    justifyContent: 'space-between', overflow: 'hidden',
+    borderRadius: 24, padding: 16, minHeight: 100,
+    justifyContent: 'flex-end', overflow: 'hidden',
     // A real border + shadow so the card reads as a distinct surface against the
     // near-white page background — the previous borderless pale-tint-on-near-white
     // card was almost impossible to make out (tint and page bg were both ~#FFF9F8).
     borderWidth: 1, borderColor: 'rgba(0,0,0,0.06)',
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 1,
-  },
-  occCardBig: { minHeight: 140, padding: 20 },
-  occBigGlow: {
-    position: 'absolute', top: -46, right: -32,
-    width: 150, height: 150, borderRadius: 75,
-    backgroundColor: 'rgba(255,255,255,0.5)',
   },
   occIcon: {
     width: 38, height: 38, borderRadius: 19,
@@ -634,14 +584,8 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
     marginBottom: 12,
   },
-  occMore: { alignSelf: 'center', marginTop: 16, paddingVertical: 8, paddingHorizontal: 18 },
-  occMoreText: { fontSize: 13.5, fontFamily: Fonts.medium, color: Colors.brandDark },
 
   occName: { fontSize: 15.5, fontFamily: Fonts.semibold, color: Colors.label },
-  occNameBig: { fontSize: 20, letterSpacing: -0.3 },
-  // Darker than secondaryLabel — that token read as washed-out gray on the pale
-  // tinted cards; label-adjacent weight keeps the subtitle legible at a glance.
-  occSub: { fontSize: 12.5, color: Colors.label, opacity: 0.72, marginTop: 2, fontFamily: Fonts.medium },
 
   // Clamps every horizontal row to the screen width on web — without an
   // explicit style, RN Web can size a ScrollView to its content instead of
@@ -719,23 +663,4 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.55)',
   },
   matchCtaText: { color: '#fff', fontSize: 15.5, fontFamily: Fonts.semibold, letterSpacing: 0.2 },
-
-  rolesKicker: { textAlign: 'center', fontSize: 11, fontFamily: Fonts.semibold, color: Colors.brandDark, letterSpacing: 1.6, marginTop: 4 },
-  rolesTitle: { textAlign: 'center', fontSize: 24, fontFamily: Fonts.bold, color: Colors.label, letterSpacing: -0.5, marginTop: 6, marginBottom: 6 },
-  rolesContent: { padding: 20, paddingTop: 12 },
-  roleRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 14,
-    backgroundColor: Colors.secondarySystemBackground,
-    borderWidth: 1, borderColor: Colors.separator,
-    borderRadius: 18, padding: 15, marginBottom: 10,
-  },
-  rolePressed: { transform: [{ scale: 0.985 }], backgroundColor: Colors.brandLight },
-  roleIcon: {
-    width: 38, height: 38, borderRadius: 19,
-    backgroundColor: '#fff', borderWidth: 1, borderColor: Colors.separator,
-    alignItems: 'center', justifyContent: 'center',
-  },
-  roleLabel: { fontSize: 15, fontFamily: Fonts.semibold, color: Colors.label },
-  roleSub: { fontSize: 12, color: Colors.secondaryLabel, marginTop: 1, fontFamily: Fonts.regular },
-  roleArrow: { fontSize: 15, color: Colors.brandDark, fontFamily: Fonts.medium },
 });

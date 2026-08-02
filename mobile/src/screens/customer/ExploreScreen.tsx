@@ -7,7 +7,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { Colors, Fonts } from '../../utils/colors';
 import { LOOKS, LOOK_OCCASIONS, Look } from '../../data/looks';
 import { LookTile } from '../../components/LookTile';
@@ -26,6 +26,7 @@ type ArtistSort = 'rating' | 'priceLow' | 'experience';
 export function ExploreScreen() {
   const insets = useSafeAreaInsets();
   const nav = useNavigation<any>();
+  const route = useRoute<any>();
   const [tab, setTab] = useState<Tab>('Looks');
   const [lookFilter, setLookFilter] = useState<LookFilter>('All');
   const [openLook, setOpenLook] = useState<Look | null>(null);
@@ -35,6 +36,17 @@ export function ExploreScreen() {
   const [artistSort, setArtistSort] = useState<ArtistSort>('rating');
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+
+  // Home's search bar navigates here with { openSearch: true } — auto-open
+  // the search field so the customer lands with it already active.
+  useFocusEffect(
+    React.useCallback(() => {
+      if (route.params?.openSearch) {
+        setSearchOpen(true);
+        nav.setParams({ openSearch: undefined });
+      }
+    }, [route.params?.openSearch]),
+  );
 
   useEffect(() => {
     apiPublicCatalog()

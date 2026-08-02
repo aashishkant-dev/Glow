@@ -60,7 +60,7 @@ export type CustomerStackParams = {
 
 export type CustomerTabParams = {
   HomeTab: undefined;
-  ExploreTab: undefined;
+  ExploreTab: { openSearch?: boolean } | undefined;
   SavedTab: { initialTab?: 'Looks' | 'Artists' } | undefined;
   ProfileTab: undefined;
 };

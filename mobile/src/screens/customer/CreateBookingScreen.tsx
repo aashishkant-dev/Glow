@@ -368,6 +368,7 @@ function ProviderProfileModal({
   onSelect: (p: AvailableProvider) => void;
 }) {
   const insets = useSafeAreaInsets();
+  const nav = useNavigation<any>();
   const [bioExpanded, setBioExpanded] = useState(false);
 
   if (!provider) return null;
@@ -426,6 +427,14 @@ function ProviderProfileModal({
           <Text style={modalStyles.closeBtnText}>✕</Text>
         </Pressable>
       </View>
+
+      {/* Same destination "Loved by clients" uses on Home — keeps the two
+          "view profile" entry points in the app consistent. */}
+      <Pressable
+        onPress={() => { tapLight(); onClose(); nav.navigate('ProviderPublicProfile', { providerId: String(provider._id), providerName: provider.name }); }}
+      >
+        <Text style={modalStyles.viewFullProfile}>View full profile →</Text>
+      </Pressable>
 
       <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: SCREEN_H * 0.55 }}>
         {/* Bio */}
@@ -2274,7 +2283,10 @@ export function CreateBookingScreen() {
                       provider={provider}
                       selected={selectedProvider?._id === provider._id}
                       onSelect={() => { tapLight(); setSelectedProvider(prev => prev?._id === provider._id ? null : provider); }}
-                      onViewProfile={() => openProfile(provider)}
+                      onViewProfile={() => {
+                        tapLight();
+                        nav.navigate('ProviderPublicProfile', { providerId: String(provider._id), providerName: provider.name });
+                      }}
                     />
                   ))}
                 </>
@@ -2778,6 +2790,10 @@ const modalStyles = StyleSheet.create({
   },
   closeBtnText: {
     fontSize: 14, color: '#6B7280', fontWeight: '700',
+  },
+  viewFullProfile: {
+    fontSize: 13, fontWeight: '700', color: BRAND_MID,
+    marginTop: 4, marginBottom: 14,
   },
   section: {
     marginBottom: 20,
