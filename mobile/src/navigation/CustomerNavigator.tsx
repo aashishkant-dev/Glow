@@ -18,8 +18,9 @@ import { ProfileScreen } from '../screens/shared/ProfileScreen';
 import { ChatScreen } from '../screens/shared/ChatScreen';
 import { NotificationsScreen } from '../screens/shared/NotificationsScreen';
 import { ProviderPublicProfileScreen } from '../screens/customer/ProviderPublicProfileScreen';
+import { PostDetailScreen } from '../screens/customer/PostDetailScreen';
 import { Colors } from '../utils/colors';
-import { Booking } from '../api/client';
+import { Booking, Post } from '../api/client';
 import { joinUserRoom } from '../utils/socket';
 import { HomeIcon, CompassIcon, HeartIcon } from '../components/TabIcons';
 import { ProfileIcon } from '../components/CareIcons';
@@ -56,6 +57,7 @@ export type CustomerStackParams = {
   Tracking: { bookingId: string; bookingLocation?: { lat: number; lng: number } };
   Chat: { bookingId: string; otherName: string; otherPhotoUrl?: string; otherRole: string };
   ProviderPublicProfile: { providerId: string; providerName?: string };
+  PostDetail: { post: Post };
 };
 
 export type CustomerTabParams = {
@@ -251,6 +253,7 @@ export function CustomerNavigator() {
       <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ headerShown: false }} />
       <Stack.Screen name="ProviderPublicProfile" component={ProviderPublicProfileScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="PostDetail" component={PostDetailScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 }
