@@ -332,7 +332,7 @@ const styles = StyleSheet.create({
 
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   gridCard: {
-    width: '47.5%', flexGrow: 1,
+    width: '47.5%',
     backgroundColor: Colors.secondarySystemBackground,
     borderWidth: 1, borderColor: Colors.separator,
     borderRadius: 20, padding: 16, alignItems: 'flex-start', gap: 10,

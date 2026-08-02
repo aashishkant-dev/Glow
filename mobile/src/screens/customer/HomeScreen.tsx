@@ -711,11 +711,11 @@ const styles = StyleSheet.create({
   matchCta: {
     backgroundColor: Colors.brand,
     borderRadius: 100,
-    paddingVertical: 11, paddingHorizontal: 22,
+    paddingVertical: 15, paddingHorizontal: 30,
     shadowColor: Colors.brand,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25, shadowRadius: 8, elevation: 4,
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.4, shadowRadius: 20, elevation: 10,
     borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.55)',
   },
-  matchCtaText: { color: '#fff', fontSize: 14, fontFamily: Fonts.semibold, letterSpacing: 0.2 },
+  matchCtaText: { color: '#fff', fontSize: 15.5, fontFamily: Fonts.semibold, letterSpacing: 0.2 },
 });
