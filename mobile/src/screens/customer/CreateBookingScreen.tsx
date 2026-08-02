@@ -1511,7 +1511,7 @@ export function CreateBookingScreen() {
     // provider now selected), this is the SAME booking resuming, not a new
     // one — resetting here was the "profile → book loops back to step 1" bug.
     if (params._t && params._t !== prevT) {
-      setStep(1);
+      setStep(hasPreselectedProvider ? 2 : 1);
       setSelectedProvider(null);
       setSelectedServices([]);
       setSelectedDates([]);
@@ -1522,12 +1522,10 @@ export function CreateBookingScreen() {
   }, [route.params]);
 
   useEffect(() => {
-    // Preselected-artist bookings fetch/resolve the provider in the background
-    // as soon as the screen mounts (not gated on reaching step 3) so the
-    // preselect is already resolved by the time goNext() decides whether to
-    // skip the provider-picking step entirely.
-    // Choose Artist is now slot 1, so the artist list must load on mount for
-    // every booking, not just preselected ones.
+    // Choose Artist is slot 1, so the artist list loads on mount for every
+    // booking (not gated on reaching a later step), and also loads whenever
+    // hasPreselectedProvider is true so the preselect is already resolved by
+    // the time goNext() decides whether to skip the provider-picking step.
     if (step !== 1 && !hasPreselectedProvider) return;
     // Set Provider mode default based on booking mode
     setProviderMode(bookingMode === 'ondemand' ? 'near' : 'browse');
@@ -1923,7 +1921,7 @@ export function CreateBookingScreen() {
         </View>
       </LinearGradient>
 
-      {/* ── Step 3 Near Me: Uber-style full-screen map + bottom sheet ── */}
+      {/* ── Slot 1 Near Me: Uber-style full-screen map + bottom sheet ── */}
       {step === 1 && providerMode === 'near' ? (
         <View style={{ flex: 1 }}>
           {/* Mode toggle — floats over map */}
@@ -2059,7 +2057,7 @@ export function CreateBookingScreen() {
           keyboardShouldPersistTaps="handled"
         >
 
-          {/* ── Step 1: Service type + duration ── */}
+          {/* ── Slot 2: Services multi-select ── */}
           {step === 2 && (
             <View>
               <Text style={styles.sectionTitle}>{t.sectionCareType}</Text>
@@ -2166,7 +2164,7 @@ export function CreateBookingScreen() {
             </View>
           )}
 
-          {/* ── Step 2: Calendar + time ── */}
+          {/* ── Slot 3: Date & Time ── */}
           {step === 3 && (
             <View>
               <Text style={styles.sectionTitle}>{t.sectionDates}</Text>
@@ -2281,7 +2279,7 @@ export function CreateBookingScreen() {
             </View>
           )}
 
-          {/* ── Step 3: Provider picker (loading / empty / browse mode) ── */}
+          {/* ── Slot 1: Choose Artist (loading / empty / browse mode) ── */}
           {step === 1 && (
             <View>
               <Text style={styles.sectionTitle}>{t.chooseArtist}</Text>
