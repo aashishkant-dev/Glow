@@ -184,9 +184,31 @@ export function HomeScreen() {
   // Once real GPS coords land, resolve them to a city/region name for
   // display. No full-screen "Enable Location" sheet — just this pill,
   // tapped on demand.
+  //
+  // expo-location's reverseGeocodeAsync always returns [] on web (the
+  // Geocoding API was removed from the web shim in Expo SDK 49) — use
+  // OpenStreetMap's free Nominatim API there instead, same fallback
+  // CreateBookingScreen already uses for the same reason.
   useEffect(() => {
     if (!coords) { setCityName(null); return; }
     let cancelled = false;
+
+    if (Platform.OS === 'web') {
+      fetch(`https://nominatim.openstreetmap.org/reverse?lat=${coords.lat}&lon=${coords.lng}&format=json`, {
+        headers: { 'Accept-Language': 'en' },
+      })
+        .then(res => res.json())
+        .then(data => {
+          if (cancelled) return;
+          const addr = data?.address;
+          if (!addr) return;
+          const name = [addr.city ?? addr.town ?? addr.village ?? addr.county, addr.state].filter(Boolean).join(', ');
+          if (name) setCityName(name);
+        })
+        .catch(() => {});
+      return () => { cancelled = true; };
+    }
+
     import('expo-location').then(Location =>
       Location.reverseGeocodeAsync({ latitude: coords.lat, longitude: coords.lng })
         .then(hits => {

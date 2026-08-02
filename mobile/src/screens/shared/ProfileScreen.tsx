@@ -349,7 +349,6 @@ export function ProfileScreen() {
   // Police check is optional — track whether the artist submitted one so the
   // profile can show Cleared / Under review / Add instead of a false "Cleared".
   const [policeDoc, setPoliceDoc] = useState<'none' | 'submitted' | 'approved'>('none');
-  const [galleryUploading, setGalleryUploading] = useState(false);
 
   // Real per-service pricing — fetched from the artist's actual service menu
   // (ProviderService rows), not the pricing-model badge that used to stand in
@@ -471,44 +470,6 @@ export function ProfileScreen() {
       Alert.alert('Could not save', e?.message || 'Please try again.');
     }
     setSpecSaving(false);
-  }
-
-  async function addGalleryPhoto() {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') { Alert.alert('Permission needed', 'Allow photo access to add gallery photos.'); return; }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      // Portrait 4:5 (not square) — portfolio/work-sample shots read better tall,
-      // matching the StyleSeat/Fresha convention of square-only for the avatar
-      // and a taller frame for gallery/work photos.
-      aspect: [4, 5],
-      quality: 0.8,
-      base64: true,
-    });
-    if (result.canceled || !result.assets[0]) return;
-    const asset = result.assets[0];
-    if (!asset.base64) { Alert.alert('Could not read image'); return; }
-    setGalleryUploading(true);
-    try {
-      const { photoUrl } = await apiUploadPhoto(asset.base64, asset.mimeType ?? 'image/jpeg', 'gallery');
-      const updated = [...galleryPhotos, photoUrl].slice(0, 10);
-      await apiUpdateProfile({ photos: updated });
-      setGalleryPhotos(updated);
-    } catch (e: any) {
-      Alert.alert('Upload failed', e?.message || 'Please try again.');
-    }
-    setGalleryUploading(false);
-  }
-
-  async function removeGalleryPhoto(url: string) {
-    const updated = galleryPhotos.filter(u => u !== url);
-    try {
-      await apiUpdateProfile({ photos: updated });
-      setGalleryPhotos(updated);
-    } catch {
-      Alert.alert('Could not remove', 'Please try again.');
-    }
   }
 
   const isCustomer = user?.role === 'CUSTOMER' || user?.role === 'SALON';
@@ -1454,77 +1415,6 @@ export function ProfileScreen() {
                   <Text style={styles.noProfileText}>
                     Complete your credential onboarding to see verification status.
                   </Text>
-                </View>
-              )}
-            </View>
-            </Group>
-          </View>
-        )}
-
-        {/* ── Provider gallery — its own section, right after Profile
-             Strength, so it reads as a distinct, visually prioritized
-             step rather than a buried row inside Professional details. ── */}
-        {isProvider && providerProfileTab === 'account' && (
-          <View style={styles.sectionWrap}>
-            <Group title="Your gallery" caption="Show clients your work — aim for at least 3 photos">
-            {/* Gallery photos */}
-            <View style={{ marginBottom: 4 }}>
-              <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingVertical: 10 }}>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                  <View style={styles.infoIconWrap}>
-                    <CameraIcon size={18} color={BRAND} />
-                  </View>
-                  <Text style={styles.infoLabel}>Profile Gallery</Text>
-                </View>
-                {galleryPhotos.length < 10 && (
-                  <Pressable onPress={addGalleryPhoto} disabled={galleryUploading} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                    {galleryUploading
-                      ? <ActivityIndicator size="small" color={BRAND} />
-                      : <Text style={{ color: BRAND, fontFamily: Fonts.semibold, fontSize: 13 }}>+ Add Photo</Text>
-                    }
-                  </Pressable>
-                )}
-              </View>
-              {galleryPhotos.length === 0 ? (
-                <Pressable onPress={addGalleryPhoto} style={styles.galleryEmpty}>
-                  <CameraIcon size={28} color={Colors.tertiaryLabel} />
-                  <Text style={styles.galleryEmptyText}>Add photos so clients can see you at work</Text>
-                  <Text style={styles.galleryEmptyHint}>Up to 10 photos · Tap to add</Text>
-                </Pressable>
-              ) : (
-                <View style={styles.galleryGrid}>
-                  {galleryPhotos.map((url, i) => (
-                    <View key={url + i} style={styles.galleryThumb}>
-                      <Image source={{ uri: url }} style={styles.galleryThumbImg} contentFit="cover" cachePolicy="memory-disk" />
-                      <Pressable
-                        style={styles.galleryRemoveBtn}
-                        onPress={() => {
-                          // Alert.alert with a multi-button array is a no-op on RN-Web —
-                          // the confirm dialog never appears, so the button looked broken.
-                          if (Platform.OS === 'web') {
-                            if (typeof window !== 'undefined' && window.confirm('Remove this photo? This will remove it from your public profile.')) {
-                              removeGalleryPhoto(url);
-                            }
-                            return;
-                          }
-                          Alert.alert('Remove photo?', 'This will remove it from your public profile.', [
-                            { text: 'Cancel', style: 'cancel' },
-                            { text: 'Remove', style: 'destructive', onPress: () => removeGalleryPhoto(url) },
-                          ]);
-                        }}
-                      >
-                        <Text style={styles.galleryRemoveBtnText}>✕</Text>
-                      </Pressable>
-                    </View>
-                  ))}
-                  {galleryPhotos.length < 10 && (
-                    <Pressable style={styles.galleryAddTile} onPress={addGalleryPhoto} disabled={galleryUploading}>
-                      {galleryUploading
-                        ? <ActivityIndicator color={BRAND} />
-                        : <Text style={styles.galleryAddTileText}>+</Text>
-                      }
-                    </Pressable>
-                  )}
                 </View>
               )}
             </View>
@@ -2556,29 +2446,6 @@ const styles = StyleSheet.create({
     paddingLeft: 52,
     fontStyle: 'italic',
   },
-
-  // Portfolio grid — Pinterest tile treatment: softer dashed prompt, larger
-  // radius on the thumbs so photos read as a gallery, not as form attachments.
-  galleryEmpty: {
-    backgroundColor: Colors.surfaceCream, borderRadius: R_WELL, borderWidth: 1.5, borderColor: Colors.brandAccent,
-    borderStyle: 'dashed', paddingVertical: 30, alignItems: 'center', gap: 8, marginBottom: 6,
-  },
-  galleryEmptyText: { ...Type.body, fontSize: 14, fontFamily: Fonts.medium, color: Colors.secondaryLabel, textAlign: 'center', marginTop: 4 },
-  galleryEmptyHint: { ...Type.caption, fontSize: 12, color: Colors.tertiaryLabel },
-  galleryGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginBottom: 6 },
-  galleryThumb: { width: 96, height: 96, borderRadius: R_WELL, overflow: 'hidden', position: 'relative' },
-  galleryThumbImg: { width: 96, height: 96 },
-  galleryRemoveBtn: {
-    position: 'absolute', top: 5, right: 5,
-    width: 22, height: 22, borderRadius: 11,
-    backgroundColor: 'rgba(61,35,41,0.62)', alignItems: 'center', justifyContent: 'center',
-  },
-  galleryRemoveBtnText: { color: '#fff', fontSize: 11, fontFamily: Fonts.semibold },
-  galleryAddTile: {
-    width: 96, height: 96, borderRadius: R_WELL, borderWidth: 1.5, borderColor: Colors.brandAccent,
-    borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.surfaceCream,
-  },
-  galleryAddTileText: { fontSize: 26, color: BRAND, fontFamily: Fonts.light, marginTop: -2 },
 
   specialtiesBlock: { gap: 11, paddingVertical: 6 },
   specialtiesLabel: { ...Type.overline, color: Colors.tertiaryLabel, textTransform: 'uppercase' },
