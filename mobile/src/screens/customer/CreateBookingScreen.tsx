@@ -34,7 +34,6 @@ import { DEFAULT_REGION, DEFAULT_REGION_NAME } from '../../utils/region';
 import { VerifyPhoneSheet } from '../../components/VerifyPhoneSheet';
 import { useAuth } from '../../context/AuthContext';
 import { SEED_ARTISTS } from '../../data/seedArtists';
-import { OCCASIONS } from '../../data/occasions';
 
 // Seed artists (Explore's curated showcase) shown as pickable cards here too, so
 // the booking flow doesn't look empty before real Providers are onboarded — but
@@ -92,14 +91,6 @@ const SERVICES = [
   'Mehendi',
   'Massage',
 ];
-
-// Occasion packages — same shared catalog as HomeScreen's occasion grid
-// (src/data/occasions.ts), offered here as a second, lower-priority section
-// so simple single services stay the default fast path. 'Wedding' is filtered
-// out below since it needs HomeScreen's role-picker follow-up (serviceType:
-// null), which this screen doesn't implement.
-const BOOKABLE_OCCASIONS = OCCASIONS.filter(o => o.serviceType !== null) as
-  (Omit<typeof OCCASIONS[number], 'serviceType'> & { serviceType: string })[];
 
 const START_HOURS   = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 
@@ -1256,11 +1247,6 @@ export function CreateBookingScreen() {
   const [step,          setStep]          = useState<Step>(1);
   const [bookingMode,   setBookingMode]   = useState<'ondemand' | 'scheduled'>(initMode);
   const [serviceType,   setServiceType]   = useState(initService);
-  // Tracks which occasion CARD is selected, separate from serviceType — several
-  // occasions share the same serviceType (e.g. Reception/Party/Birthday/Graduation
-  // all map to 'Party Makeup'), so deriving "active" from serviceType alone lit up
-  // every card sharing that value at once. See occasion grid's onPress below.
-  const [selectedOccasion, setSelectedOccasion] = useState<string | null>(null);
   // Structured address — captured as discrete fields so we always collect a full,
   // geocodable address (incl. postal code) instead of a single short free-text line.
   const [street,        setStreet]        = useState('');
@@ -1995,7 +1981,7 @@ export function CreateBookingScreen() {
                         // opaque grey box, which looked broken).
                         active && { borderColor: accent, borderWidth: 2, backgroundColor: '#fff' },
                       ]}
-                      onPress={() => { tapLight(); setServiceType(s); setSelectedOccasion(null); }}
+                      onPress={() => { tapLight(); setServiceType(s); }}
                     >
                       <ServiceIcon serviceType={s} size={30} color={accent} bubble={false} />
                       <Text style={[
@@ -2003,37 +1989,6 @@ export function CreateBookingScreen() {
                         active && { color: accent, fontWeight: '800' },
                       ]}>
                         {s}
-                      </Text>
-                      {active && (
-                        <View style={[styles.serviceCheck, { backgroundColor: accent }]}>
-                          <Text style={{ color: '#fff', fontSize: 10, fontWeight: '800' }}>✓</Text>
-                        </View>
-                      )}
-                    </Pressable>
-                  );
-                })}
-              </View>
-
-              <Text style={[styles.sectionTitle, { marginTop: 28 }]}>For an occasion</Text>
-              <View style={styles.serviceGrid}>
-                {BOOKABLE_OCCASIONS.map(o => {
-                  const accent = ServiceAccentColors[o.serviceType] ?? BRAND_MID;
-                  const active = selectedOccasion === o.id;
-                  return (
-                    <Pressable
-                      key={o.id}
-                      style={[
-                        styles.serviceCard,
-                        active && { borderColor: accent, borderWidth: 2, backgroundColor: '#fff' },
-                      ]}
-                      onPress={() => { tapLight(); setServiceType(o.serviceType); setSelectedOccasion(o.id); }}
-                    >
-                      <ServiceIcon serviceType={o.serviceType} size={30} color={accent} bubble={false} />
-                      <Text style={[
-                        styles.serviceCardLabel,
-                        active && { color: accent, fontWeight: '800' },
-                      ]}>
-                        {o.name}
                       </Text>
                       {active && (
                         <View style={[styles.serviceCheck, { backgroundColor: accent }]}>
