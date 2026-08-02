@@ -103,7 +103,7 @@ export function ProviderPublicProfileScreen() {
   const nav    = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const route  = useRoute<any>();
-  const { providerId } = route.params ?? {};
+  const { providerId, fromBooking } = route.params ?? {};
   const [provider, setProvider] = useState<ProviderPublicProfile | null>(null);
   const [loading, setLoading] = useState(true);
   const [error,   setError]   = useState('');
@@ -121,6 +121,18 @@ export function ProviderPublicProfileScreen() {
   function book(serviceType?: string) {
     if (!provider) return;
     tapLight();
+    // Opened from an in-progress booking's Choose Artist step (View Profile) —
+    // just select this provider and pop back to that same booking. Sending a
+    // fresh `_t` here would trip CreateBookingScreen's route.params watcher,
+    // which resets step/selection on ANY param change — restarting the whole
+    // flow instead of resuming it (the "profile → book loops back to step 1" bug).
+    if (fromBooking) {
+      nav.navigate('NewBooking', {
+        providerId: provider.id,
+        ...(serviceType ? { serviceType } : null),
+      });
+      return;
+    }
     nav.navigate('NewBooking', {
       bookingMode: 'scheduled',
       providerId: provider.id,

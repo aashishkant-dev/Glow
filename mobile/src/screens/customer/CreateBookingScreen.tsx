@@ -431,7 +431,7 @@ function ProviderProfileModal({
       {/* Same destination "Loved by clients" uses on Home — keeps the two
           "view profile" entry points in the app consistent. */}
       <Pressable
-        onPress={() => { tapLight(); onClose(); nav.navigate('ProviderPublicProfile', { providerId: String(provider._id), providerName: provider.name }); }}
+        onPress={() => { tapLight(); onClose(); nav.navigate('ProviderPublicProfile', { providerId: String(provider._id), providerName: provider.name, fromBooking: true }); }}
       >
         <Text style={modalStyles.viewFullProfile}>View full profile →</Text>
       </Pressable>
@@ -1413,19 +1413,26 @@ export function CreateBookingScreen() {
     if (!params) return;
     const changed = JSON.stringify(params) !== JSON.stringify(prevParamsRef.current);
     if (!changed) return;
+    const prevT = prevParamsRef.current?._t;
     prevParamsRef.current = params;
     if (params.serviceType) setServiceType(params.serviceType);
     if (params.bookingMode) setBookingMode(params.bookingMode as 'ondemand' | 'scheduled');
     // Reassign: the booking already exists, so we only need to pick a Provider.
     // Use on-demand mode (no date step) and keep the preset service.
     if (params.reassignBookingId) setBookingMode('ondemand');
-    // Reset to step 1 so address is always collected
-    setStep(1);
-    setSelectedProvider(null);
-    setSelectedDates([]);
-    setStreet('');
-    setUnit('');
-    setPostal('');
+    // A fresh `_t` means "start a new booking" (Home category cards, occasion
+    // cards, Find My Glow, a post's service chip) — reset to step 1. Without a
+    // new `_t` (e.g. returning here from a "View Profile" detour with a
+    // provider now selected), this is the SAME booking resuming, not a new
+    // one — resetting here was the "profile → book loops back to step 1" bug.
+    if (params._t && params._t !== prevT) {
+      setStep(1);
+      setSelectedProvider(null);
+      setSelectedDates([]);
+      setStreet('');
+      setUnit('');
+      setPostal('');
+    }
   }, [route.params]);
 
   useEffect(() => {
@@ -2285,7 +2292,7 @@ export function CreateBookingScreen() {
                       onSelect={() => { tapLight(); setSelectedProvider(prev => prev?._id === provider._id ? null : provider); }}
                       onViewProfile={() => {
                         tapLight();
-                        nav.navigate('ProviderPublicProfile', { providerId: String(provider._id), providerName: provider.name });
+                        nav.navigate('ProviderPublicProfile', { providerId: String(provider._id), providerName: provider.name, fromBooking: true });
                       }}
                     />
                   ))}
