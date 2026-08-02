@@ -2,9 +2,28 @@ import React, { type ComponentType } from 'react';
 import { View, ViewStyle } from 'react-native';
 import { Colors, ServiceAccentColors } from '../utils/colors';
 import { SERVICE_ICON_MAP, PersonalCareIcon, ServiceIconComponent } from './CareIcons';
+import {
+  HairdryerIcon, NailPolishIcon, ThreadNeedleIcon, WaxWarmerIcon, LipstickBrushIcon,
+  FacialProfileIcon, BrideProfileIcon, HennaConeIcon, MassageHandsIcon,
+} from './IllustratedIcons';
 
 // Fallback for any service type not in the map.
 const FallbackIcon = PersonalCareIcon;
+
+// Service types with a matching illustrated (fixed-color) icon from the
+// custom set — these render without color pass-through, since the artwork's
+// color is baked in rather than driven by the `color` prop.
+const ILLUSTRATED_SERVICE_ICON_MAP: Record<string, ServiceIconComponent> = {
+  'Hair Styling':  HairdryerIcon,
+  'Nails':         NailPolishIcon,
+  'Threading':     ThreadNeedleIcon,
+  'Waxing':        WaxWarmerIcon,
+  'Makeup':        LipstickBrushIcon,
+  'Facial':        FacialProfileIcon,
+  'Bridal Makeup': BrideProfileIcon,
+  'Mehendi':       HennaConeIcon,
+  'Massage':       MassageHandsIcon,
+};
 
 /**
  * serviceGlyph — kept for backwards compatibility with call sites that use the
@@ -44,11 +63,12 @@ export function ServiceIcon({
   style?: ViewStyle;
 }) {
   const accent = color || (serviceType && ServiceAccentColors[serviceType]) || Colors.brand;
+  const illustrated = serviceType ? ILLUSTRATED_SERVICE_ICON_MAP[serviceType] : undefined;
   const IconComponent: React.ComponentType<{ size?: number; color?: string }> =
-    SERVICE_ICON_MAP[serviceType ?? ''] ?? FallbackIcon;
+    illustrated ?? SERVICE_ICON_MAP[serviceType ?? ''] ?? FallbackIcon;
 
   if (!bubble) {
-    return <IconComponent size={size} color={accent} />;
+    return illustrated ? <IconComponent size={size} /> : <IconComponent size={size} color={accent} />;
   }
 
   const wrap = bubbleSize ?? Math.round(size * 1.9);
@@ -59,14 +79,16 @@ export function ServiceIcon({
           width: wrap,
           height: wrap,
           borderRadius: wrap * 0.3,
-          backgroundColor: accent + '15',
+          // Illustrated icons carry their own baked-in color, so their bubble
+          // is a neutral tint instead of the service's accent color.
+          backgroundColor: illustrated ? 'rgba(0,0,0,0.04)' : accent + '15',
           alignItems: 'center',
           justifyContent: 'center',
         },
         style,
       ]}
     >
-      <IconComponent size={size} color={accent} />
+      {illustrated ? <IconComponent size={size} /> : <IconComponent size={size} color={accent} />}
     </View>
   );
 }
