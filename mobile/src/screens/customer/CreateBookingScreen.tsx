@@ -641,19 +641,40 @@ function ProviderProfileModal({
 // ─── Leaflet helpers ─────────────────────────────────────────────────────────────
 declare global { interface Window { L: any } }
 
+let leafletLoadPromise: Promise<void> | null = null;
+
+// Loads the Leaflet script/CSS from CDN exactly once per page load. Previously
+// had no onload/onerror rejection path — a blocked or slow CDN request left
+// the returned Promise pending forever, so the map silently never rendered
+// with no error or retry. Now rejects on failure/timeout so callers can show
+// a fallback instead of hanging indefinitely.
 function loadLeaflet(): Promise<void> {
-  return new Promise(resolve => {
-    if (typeof window === 'undefined') { resolve(); return; }
-    if (window.L) { resolve(); return; }
+  if (typeof window === 'undefined') return Promise.resolve();
+  if (window.L) return Promise.resolve();
+  if (leafletLoadPromise) return leafletLoadPromise;
+
+  leafletLoadPromise = new Promise((resolve, reject) => {
     const link = document.createElement('link');
     link.rel = 'stylesheet';
     link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
     document.head.appendChild(link);
+
+    const timeout = setTimeout(() => {
+      leafletLoadPromise = null;
+      reject(new Error('Leaflet script load timed out'));
+    }, 10000);
+
     const script = document.createElement('script');
     script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-    script.onload = () => resolve();
+    script.onload = () => { clearTimeout(timeout); resolve(); };
+    script.onerror = () => {
+      clearTimeout(timeout);
+      leafletLoadPromise = null;
+      reject(new Error('Leaflet script failed to load'));
+    };
     document.head.appendChild(script);
   });
+  return leafletLoadPromise;
 }
 
 
@@ -714,7 +735,7 @@ function injectPulseCSS() {
   document.head.appendChild(style);
 }
 
-function makeProviderPinHTML(name: string, isSelected: boolean, rate: number = 25): string {
+function makeProviderPinHTML(name: string, isSelected: boolean, rate: number = 25, photoUrl?: string): string {
   const size = isSelected ? 44 : 36;
   const bg   = isSelected ? Colors.brandDark : '#fff';
   const fg   = isSelected ? '#fff' : Colors.brand;
@@ -723,10 +744,17 @@ function makeProviderPinHTML(name: string, isSelected: boolean, rate: number = 2
   const pulse = isSelected
     ? `<div class="cn-pin-selected-ring"></div>`
     : '';
+  // Escape for safe embedding in an HTML attribute — provider names/URLs are
+  // user-controlled data injected straight into a divIcon's innerHTML.
+  const safeUrl = (photoUrl ?? '').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
+  const avatarInner = photoUrl
+    ? `<img src="${safeUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:${size / 2}px;" onerror="this.style.display='none';this.nextSibling.style.display='flex';" />` +
+      `<div style="display:none;width:100%;height:100%;align-items:center;justify-content:center;font-size:${isSelected ? 15 : 13}px;font-weight:800;color:${fg};">${initial}</div>`
+    : `<div style="display:flex;width:100%;height:100%;align-items:center;justify-content:center;font-size:${isSelected ? 15 : 13}px;font-weight:800;color:${fg};">${initial}</div>`;
   return (
     `<div style="position:relative;display:flex;flex-direction:column;align-items:center;cursor:pointer;">` +
       pulse +
-      `<div style="width:${size}px;height:${size}px;border-radius:${size / 2}px;background:${bg};border:2.5px solid ${border};display:flex;align-items:center;justify-content:center;font-size:${isSelected ? 15 : 13}px;font-weight:800;color:${fg};box-shadow:0 3px 10px rgba(0,0,0,0.18);">${initial}</div>` +
+      `<div style="width:${size}px;height:${size}px;border-radius:${size / 2}px;background:${bg};border:2.5px solid ${border};overflow:hidden;box-shadow:0 3px 10px rgba(0,0,0,0.18);">${avatarInner}</div>` +
       `<div style="font-size:9px;font-weight:700;color:${isSelected ? Colors.brandDark : Colors.brand};margin-top:2px;">$${rate}</div>` +
       `<div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid ${border};margin-top:0;"></div>` +
     `</div>`
@@ -753,6 +781,7 @@ function GeoMapWeb({
   const markerRefs      = useRef<Record<string, any>>({});
   const infoProviderRef      = useRef<any>(null); // tracks current info card DOM element
   const [infoProvider, setInfoProvider] = useState<AvailableProvider | null>(null);
+  const [mapLoadFailed, setMapLoadFailed] = useState(false);
 
   // Real user coords only — no hardcoded city default. When absent we center on
   // the Providers themselves (or a neutral view) and skip the "You" pin entirely
@@ -773,6 +802,7 @@ function GeoMapWeb({
     loadLeaflet().then(() => {
       if (cancelled || !mapContainerRef.current || leafletMapRef.current) return;
       const L = window.L;
+      if (!L) { setMapLoadFailed(true); return; }
       const map = L.map(mapContainerRef.current, {
         // zoom +/- removed — it overlapped the floating Provider info card and the
         // sheet controls. Pinch / scroll-zoom still available.
@@ -800,6 +830,8 @@ function GeoMapWeb({
       // that measurement can be 0 → grey/blank tiles. Recompute once the layout
       // settles so the map paints correctly.
       setTimeout(() => { if (!cancelled) map.invalidateSize(); }, 200);
+    }).catch(() => {
+      if (!cancelled) setMapLoadFailed(true);
     });
     return () => {
       cancelled = true;
@@ -831,7 +863,7 @@ function GeoMapWeb({
     enriched.forEach(provider => {
       const id = String(provider._id);
       const isSelected = id === selectedId;
-      const html = makeProviderPinHTML(provider.name, isSelected, providerHourlyRate(provider));
+      const html = makeProviderPinHTML(provider.name, isSelected, providerHourlyRate(provider), provider.photoUrl);
       const icon = L.divIcon({
         html,
         className: '',
@@ -872,6 +904,20 @@ function GeoMapWeb({
     );
   }
 
+  if (Platform.OS === 'web' && mapLoadFailed) {
+    return (
+      <View style={[geoMapStyles.container, { alignItems: 'center', justifyContent: 'center' }]}>
+        <View style={{ marginBottom: 8 }}><SearchIcon size={28} color={Colors.brand} /></View>
+        <Text style={{ fontSize: 14, fontWeight: '700', color: Colors.brandDark, textAlign: 'center' }}>
+          Map couldn't load
+        </Text>
+        <Text style={{ fontSize: 12, color: '#5A5A5A', marginTop: 4, textAlign: 'center', paddingHorizontal: 24 }}>
+          Check your connection, or browse profiles below.
+        </Text>
+      </View>
+    );
+  }
+
   if (Platform.OS !== 'web') {
     // Native — key-free OSM/Leaflet map (no Google API key needed).
     const enriched = providersWithFallbackCoords(providers, uLat, uLng);
@@ -880,6 +926,7 @@ function GeoMapWeb({
       lng: provider.lng!,
       kind: 'provider',
       label: provider.name,
+      photoUrl: provider.photoUrl,
     }));
     return (
       <View style={geoMapStyles.container}>

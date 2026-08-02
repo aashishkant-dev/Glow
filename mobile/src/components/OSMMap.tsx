@@ -10,6 +10,7 @@ export type OSMMarker = {
   color?: string;
   label?: string;
   kind?: 'care' | 'provider' | 'you';
+  photoUrl?: string;
 };
 
 type Props = {
@@ -42,9 +43,14 @@ function markerJs(m: OSMMarker, idx: number): string {
       `</div>`;
   } else if (m.kind === 'provider') {
     const initial = (m.label?.[0] || 'P').toUpperCase().replace(/'/g, "\\'");
+    const safeUrl = (m.photoUrl || '').replace(/'/g, "\\'").replace(/"/g, '&quot;');
+    const avatarInner = m.photoUrl
+      ? `<img src="${safeUrl}" style="width:100%;height:100%;object-fit:cover;border-radius:50%;" onerror="this.style.display=\\'none\\';this.nextSibling.style.display=\\'flex\\';" />` +
+        `<div style="display:none;width:100%;height:100%;align-items:center;justify-content:center;font-size:16px;color:#fff;font-weight:900;">${initial}</div>`
+      : `<div style="display:flex;width:100%;height:100%;align-items:center;justify-content:center;font-size:16px;color:#fff;font-weight:900;">${initial}</div>`;
     html =
       `<div style="position:relative;display:flex;flex-direction:column;align-items:center;">` +
-        `<div style="width:38px;height:38px;background:linear-gradient(135deg,#00C853,#00A651);border:3px solid #fff;border-radius:50%;box-shadow:0 4px 14px rgba(0,200,83,0.5);display:flex;align-items:center;justify-content:center;font-size:16px;color:#fff;font-weight:900;">${initial}</div>` +
+        `<div style="width:38px;height:38px;background:linear-gradient(135deg,#00C853,#00A651);border:3px solid #fff;border-radius:50%;overflow:hidden;box-shadow:0 4px 14px rgba(0,200,83,0.5);">${avatarInner}</div>` +
         `<div style="width:0;height:0;border-left:6px solid transparent;border-right:6px solid transparent;border-top:9px solid #00A651;margin-top:-2px;"></div>` +
       `</div>`;
   } else {
