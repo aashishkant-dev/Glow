@@ -31,74 +31,8 @@ const VALID_SERVICE_TYPES = [
 
 const router = express.Router();
 
-const HOURLY_RATE = () => parseFloat(process.env.HOURLY_RATE) || 25;
-const COMMISSION_RATE = parseFloat(process.env.COMMISSION_RATE) || 0.18;
-const COMMISSION_MIN  = parseFloat(process.env.COMMISSION_MIN) || 2.00;
-
-// Beauty pricing: the chosen provider's own price for the service wins; otherwise
-// the catalog base price; hourly rate only as a last-resort fallback.
-async function priceForBooking(serviceType, hours, providerUserId, proposedPrice) {
-  let listedPrice = null;
-
-  if (providerUserId) {
-    // Look up the provider's pricing model
-    const profile = await prisma.providerProfile.findUnique({
-      where: { userId: providerUserId },
-      select: { pricingModel: true, hourlyRate: true, priceNegotiable: true },
-    });
-
-    if (profile) {
-      if (profile.pricingModel === 'PER_SERVICE') {
-        // Per-service: use the provider's own price for this specific service
-        const ps = await prisma.providerService.findFirst({
-          where: { profile: { userId: providerUserId }, name: serviceType, active: true },
-          select: { price: true },
-        });
-        if (ps && parseFloat(ps.price.toString()) > 0) {
-          listedPrice = parseFloat(ps.price.toString());
-        }
-      } else {
-        // Hourly: provider's hourly rate × hours
-        if (profile.hourlyRate && parseFloat(profile.hourlyRate.toString()) > 0) {
-          listedPrice = Math.round(parseFloat(profile.hourlyRate.toString()) * Number(hours) * 100) / 100;
-        }
-      }
-
-      // If the provider allows negotiation and the client proposed a price, use it
-      // (negotiation is a discount, not a way to pay more — offer must be strictly
-      // below the listed price, down to 50% of it to prevent lowball abuse)
-      if (listedPrice != null && profile.priceNegotiable && proposedPrice != null) {
-        const proposed = Number(proposedPrice);
-        if (!isNaN(proposed) && proposed > 0) {
-          const lowerBound = listedPrice * 0.5;
-          if (proposed >= lowerBound && proposed < listedPrice) {
-            return Math.round(proposed * 100) / 100;
-          }
-        }
-      }
-    }
-  }
-
-  // Fallback: catalog base price
-  if (listedPrice != null) return listedPrice;
-
-  const item = await prisma.serviceItem.findFirst({
-    where: { name: serviceType, active: true },
-    select: { basePrice: true },
-  });
-  if (item && parseFloat(item.basePrice.toString()) > 0) return parseFloat(item.basePrice.toString());
-  return Math.round(Number(hours) * HOURLY_RATE() * 100) / 100;
-}
-
-function computeFees(price) {
-  const platformFee = Math.max(Math.round(price * COMMISSION_RATE * 100) / 100, COMMISSION_MIN);
-  // Floored at 0 — COMMISSION_MIN is env-configurable and not schema-bounded
-  // against the actual price. Not reachable with today's real prices/default
-  // $2 minimum, but a low real service price combined with a raised
-  // COMMISSION_MIN could otherwise drive this negative with no defense.
-  const providerPayout   = Math.max(0, Math.round((price - platformFee) * 100) / 100);
-  return { platformFee, providerPayout };
-}
+const { priceForBooking, computeFees } = require('../utils/pricing');
+const { resolveBookingServices } = require('../utils/bookingServices');
 
 // Haversine distance in km
 function haversineKm(lat1, lng1, lat2, lng2) {
@@ -149,10 +83,11 @@ async function notifyNearbyProviders(booking, lat, lng, io) {
 
   if (!toNotify.length) return;
 
-  const price = toNum(booking.price);
+  // Open-pool booking — price isn't set yet (it's resolved to each artist's own
+  // rate only when they accept), so the broadcast can't quote a dollar amount here.
   const messages = toNotify.map(u => ({
     to:   u.expoPushToken,
-    title: `New job nearby — $${price}`,
+    title: 'New job nearby',
     body:  `${booking.serviceType} · ${booking.hours}h · ${booking.address || 'Your area'}`,
     data:  { bookingId: booking.id, type: 'job' },
     channelId: 'jobs',
@@ -181,7 +116,7 @@ function toNum(v) { return v == null ? v : parseFloat(v.toString()); }
 
 function formatBooking(b) {
   if (!b) return b;
-  const { price, id, customer, provider, ...rest } = b;
+  const { price, id, customer, provider, services, ...rest } = b;
   return {
     ...rest,
     _id:          id,
@@ -191,6 +126,16 @@ function formatBooking(b) {
     tipAmount:    toNum(rest.tipAmount),
     ratingValue:  toNum(rest.ratingValue),
     providerRatingValue: toNum(rest.providerRatingValue),
+    // Itemized line items. Absent (undefined) on responses whose query didn't
+    // include them — callers must treat `services` as optional and fall back
+    // to the `serviceType` summary string, which is always present.
+    services:     services ? services.map(s => ({
+      _id:           s.id,
+      serviceItemId: s.serviceItemId ?? null,
+      name:          s.name,
+      price:         toNum(s.price),
+      durationMin:   s.durationMin,
+    })) : undefined,
     customer:     customer ? { ...customer, _id: customer.id, rating: toNum(customer.rating) } : undefined,
     provider:          provider      ? { ...provider,      _id: provider.id,      rating: toNum(provider.rating)      } : undefined,
   };
@@ -287,8 +232,22 @@ router.post(
   authenticate,
   requireRole('CUSTOMER'),
   [
-    body('serviceType').trim().isIn(VALID_SERVICE_TYPES).withMessage(`serviceType must be one of: ${VALID_SERVICE_TYPES.join(', ')}`),
-    body('hours').isInt({ min: 1, max: 12 }).withMessage('hours must be a whole number between 1 and 12'),
+    // `services[]` is the current shape (multi-service). `serviceType`+`hours`
+    // is the legacy single-service shape, still accepted so an app build in
+    // the wild that hasn't updated yet keeps booking. Exactly one of the two
+    // must be present — enforced in the handler, since express-validator
+    // can't express "either/or" cleanly across two field names.
+    body('services').optional().isArray({ min: 1, max: 10 }).withMessage('services must be an array of 1 to 10 items'),
+    body('services.*.name').optional().trim().isLength({ min: 1, max: 100 }).withMessage('each service needs a name of 100 characters or fewer'),
+    body('services.*.serviceItemId').optional({ nullable: true }).isString().withMessage('serviceItemId must be a string'),
+    // Not restricted to VALID_SERVICE_TYPES: that hardcoded list predates the
+    // ProviderService catalog and would reject legitimate artist-menu names
+    // (e.g. "Knotless Braids") sent by a legacy single-service client. The
+    // real source of truth is the artist's own menu, checked downstream by
+    // resolveBookingServices for a dedicated booking, or accepted verbatim
+    // for an open-pool booking where there's no menu to check against yet.
+    body('serviceType').optional().trim().isLength({ min: 1, max: 100 }).withMessage('serviceType must be 1 to 100 characters'),
+    body('hours').optional().isInt({ min: 1, max: 12 }).withMessage('hours must be a whole number between 1 and 12'),
     body('notes').optional().trim().isLength({ max: 500 }).withMessage('notes must be 500 characters or fewer'),
     body('address').optional().trim().isLength({ max: 300 }).withMessage('address must be 300 characters or fewer'),
     body('recipientName').optional().trim().isLength({ max: 100 }).withMessage('recipientName must be 100 characters or fewer'),
@@ -304,6 +263,16 @@ router.post(
         return res.status(403).json({ error: 'PHONE_NOT_VERIFIED' });
       }
       const { serviceType, hours, scheduledAt, notes, providerId, proposedPrice } = req.body;
+
+      // Normalise both request shapes into ONE list. Multi-service is the
+      // current shape; a bare serviceType+hours is the legacy single-service
+      // shape from older app builds. Downstream there is a single code path.
+      const requestedServices = Array.isArray(req.body.services) && req.body.services.length
+        ? req.body.services
+        : (serviceType ? [{ name: serviceType }] : []);
+      if (!requestedServices.length) {
+        return res.status(400).json({ error: 'Select at least one service.' });
+      }
 
       const scheduledDate = new Date(scheduledAt);
       const now = new Date();
@@ -345,14 +314,61 @@ router.post(
         latCoord = (me?.lat && me.lat !== 0) ? me.lat : 0;
         lngCoord = (me?.lng && me.lng !== 0) ? me.lng : 0;
       }
-      const price = await priceForBooking(serviceType, hours, resolvedProviderId, proposedPrice);
-      const { platformFee, providerPayout } = computeFees(price);
+      // Dedicated booking: resolve EVERY selected service against this artist's
+      // own ProviderService menu, then price the bundle. Open-pool booking (no
+      // artist chosen): there is no menu to resolve against, so we fall back to
+      // the legacy single-service path and price stays null until an artist
+      // accepts — see POST /jobs/:id/accept.
+      let serviceLines;          // BookingService rows to write, always >= 1
+      let summaryServiceType;    // denormalized Booking.serviceType
+      let summaryHours;          // denormalized Booking.hours
+      let price;                 // denormalized Booking.price (negotiated total or listed total)
 
+      if (resolvedProviderId) {
+        const resolved = await resolveBookingServices(requestedServices, resolvedProviderId);
+        serviceLines       = resolved.lines;
+        summaryServiceType = resolved.summaryServiceType;
+        summaryHours       = resolved.summaryHours;
+
+        // Negotiation applies to the TOTAL only, never per line item. Same rule
+        // as priceForBooking: >= 50% of listed is accepted (including above
+        // listed — Glow does not cap the artist's price either way); the floor
+        // is only noise reduction against accidental junk offers.
+        price = resolved.listedTotal;
+        if (proposedPrice != null) {
+          const negotiable = await prisma.providerProfile.findUnique({
+            where:  { userId: resolvedProviderId },
+            select: { priceNegotiable: true },
+          });
+          const proposed = Number(proposedPrice);
+          if (negotiable?.priceNegotiable && !isNaN(proposed) && proposed > 0 && proposed >= resolved.listedTotal * 0.5) {
+            price = Math.round(proposed * 100) / 100;
+          }
+        }
+      } else {
+        // Open pool: no artist, so no real menu and no real price yet. Record
+        // the request verbatim as a single line item with a zero price so the
+        // itemized UI has something to render; the accepting artist's own
+        // prices overwrite the summary at accept time.
+        const legacyName  = requestedServices[0].name;
+        const legacyHours = Number(hours) > 0 ? Number(hours) : 1;
+        serviceLines       = [{ serviceItemId: null, name: legacyName, price: 0, durationMin: legacyHours * 60 }];
+        summaryServiceType = legacyName;
+        summaryHours       = legacyHours;
+        price              = await priceForBooking(legacyName, legacyHours, null, proposedPrice); // returns null for open pool
+      }
+
+      const { platformFee, providerPayout } = price != null ? computeFees(price) : { platformFee: 0, providerPayout: 0 };
+
+      // Nested create = ONE statement, so the Booking and its line items are
+      // written atomically by Postgres. No separate transaction wrapper is
+      // needed and there is no window where a Booking exists with zero
+      // BookingService rows.
       const booking = await prisma.booking.create({
         data: {
           customerId:        req.user.id,
-          serviceType,
-          hours:             Number(hours),
+          serviceType:       summaryServiceType,
+          hours:             summaryHours,
           scheduledAt:       scheduledDate,
           lat:               latCoord,
           lng:               lngCoord,
@@ -371,10 +387,12 @@ router.post(
           // are already visible to everyone, so no stamp / openToPool=true.
           providerRequestedAt:    resolvedProviderId ? new Date() : null,
           openToPool:        resolvedProviderId ? false : true,
+          services: { create: serviceLines },
         },
         include: {
           customer: { select: { id: true, name: true, phone: true, rating: true, photoUrl: true } },
           provider:      { select: { id: true, name: true, phone: true, rating: true, photoUrl: true } },
+          services: { select: { id: true, serviceItemId: true, name: true, price: true, durationMin: true } },
         },
       });
 
@@ -428,6 +446,7 @@ router.post(
 
       res.status(201).json({ booking: formatBooking(booking) });
     } catch (err) {
+      if (err.status) return res.status(err.status).json({ error: err.message });
       console.error(err);
       res.status(500).json({ error: 'Server error' });
     }
@@ -692,6 +711,7 @@ router.get(
         include: {
           customer: { select: { id: true, name: true, phone: true, rating: true, photoUrl: true } },
           provider:      { select: { id: true, name: true, phone: true, rating: true, photoUrl: true } },
+          services: { select: { id: true, serviceItemId: true, name: true, price: true, durationMin: true } },
         },
       });
 
@@ -742,6 +762,9 @@ router.post(
         data:  { providerId },   // status stays REQUESTED until the new Provider accepts
       });
 
+      // Price wasn't set at creation (open-pool booking) — it's resolved to
+      // this specific Provider's own rate only when they accept, so it can't
+      // be quoted in this notification yet.
       const io = req.app.get('io');
       if (io) {
         io.to(`user-${providerId}`).emit('new-job-assigned', {
@@ -755,7 +778,7 @@ router.post(
       notify({
         userId: providerId,
         type: 'request',
-        title: `New booking request — $${booking.price}`,
+        title: 'New booking request',
         body: `${booking.serviceType} · ${booking.hours}h · ${booking.address || 'Your area'}`,
         bookingId: booking.id,
         channelId: 'requests',
@@ -866,6 +889,7 @@ router.get(
           // Phone only returned to the assigned Provider — not to pool browsers
           customer: { select: { id: true, name: true, phone: true, rating: true, photoUrl: true } },
           provider:      { select: { id: true, name: true, phone: true, rating: true, ratingCount: true, photoUrl: true } },
+          services: { select: { id: true, serviceItemId: true, name: true, price: true, durationMin: true } },
         },
       });
       if (!booking) return res.status(404).json({ error: 'Booking not found' });
