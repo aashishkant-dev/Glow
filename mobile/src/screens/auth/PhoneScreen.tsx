@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import * as Google from 'expo-auth-session/providers/google';
+import * as AuthSession from 'expo-auth-session';
 import * as WebBrowser from 'expo-web-browser';
 import * as AppleAuthentication from 'expo-apple-authentication';
 import { ShieldCheckIcon, CheckDecagramIcon, GoogleLogoIcon } from '../../components/CareIcons';
@@ -108,11 +109,20 @@ export function PhoneScreen() {
   // needs an ID token, so the sign-in silently produced nothing to send it after
   // Google granted access. useIdTokenAuthRequest requests ResponseType.IdToken on
   // web, which is what actually gets read below via googleResponse.params.id_token.
+  // Without an explicit redirectUri, makeRedirectUri() on web derives it from
+  // window.location — including the current path (e.g. "/phone"). Google only
+  // has the bare origin allow-listed, so any non-root route produced a
+  // redirect_uri_mismatch. Pinning to the origin matches the Console config.
+  const googleRedirectUri = Platform.OS === 'web' && typeof window !== 'undefined'
+    ? window.location.origin
+    : AuthSession.makeRedirectUri({ scheme: 'glow' });
+
   const [, googleResponse, promptGoogleAsync] = Google.useIdTokenAuthRequest({
     iosClientId:     process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS,
     androidClientId: process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID,
     webClientId:     process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB,
     clientId:        'google-auth-not-configured',
+    redirectUri:     googleRedirectUri,
   });
 
   useEffect(() => {
