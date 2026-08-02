@@ -16,6 +16,7 @@
     "ios": {
       "supportsTablet": false,
       "bundleIdentifier": "com.glowbeauty.app",
+      "buildNumber": "1",
       "usesAppleSignIn": true,
       "infoPlist": {
         "NSLocationWhenInUseUsageDescription": "Glow uses your location to find beauty artists near you and share your arrival with customers during an active appointment.",
@@ -32,6 +33,7 @@
     },
     "android": {
       "package": "com.glowbeauty.app",
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/adaptive-icon.png",
         "backgroundColor": "#B76E79"
@@ -49,12 +51,7 @@
         "android.permission.VIBRATE",
         "android.permission.POST_NOTIFICATIONS",
         "android.permission.RECORD_AUDIO"
-      ],
-      "config": {
-        "googleMaps": {
-          "apiKey": "YOUR_GOOGLE_MAPS_ANDROID_API_KEY"
-        }
-      }
+      ]
     },
     "web": {
       "bundler": "metro",
