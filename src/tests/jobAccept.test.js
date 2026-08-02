@@ -59,8 +59,14 @@ jest.mock('../lib/prisma', () => {
       findUnique: jest.fn(({ where }) => {
         if (modelName === 'providerProfile') {
           // Both test providers are approved — the auth/approval gate itself
-          // isn't what this file is testing.
-          return Promise.resolve({ userId: where.userId, approvedByAdmin: true });
+          // isn't what this file is testing. pricingModel/hourlyRate are needed
+          // so listedPriceFor can resolve an open-pool price instead of 422ing.
+          return Promise.resolve({
+            userId:         where.userId,
+            approvedByAdmin: true,
+            pricingModel:   'HOURLY',
+            hourlyRate:     { toString: () => '50.00' },
+          });
         }
         if (modelName === 'user') {
           if (where.id === PROVIDER_A.id) return Promise.resolve(PROVIDER_A);
@@ -102,7 +108,13 @@ jest.mock('../lib/prisma', () => {
         return Promise.resolve({ count: 0 });
       }),
       update: jest.fn(() => Promise.resolve(mockBookingRow)),
-      count: jest.fn().mockResolvedValue(0),
+      // An open-pool booking always carries exactly one BookingService line
+      // (see POST /bookings), which the accept-time repricing guard asserts
+      // before stamping the resolved price onto it. Overridable so a test can
+      // simulate the broken-invariant case the guard exists to catch.
+      count: jest.fn(() => Promise.resolve(
+        modelName === 'bookingService' ? global.__bookingServiceLineCount ?? 1 : 0,
+      )),
     };
   }
   return new Proxy({}, { get: (_t, prop) => mockModelStub(prop) });
@@ -113,6 +125,26 @@ const app = require('../app');
 function tokenFor(user) {
   return jwt.sign({ userId: user.id, role: user.role }, JWT_SECRET, { algorithm: 'HS256' });
 }
+
+describe('POST /jobs/:id/accept — accept-time repricing guard', () => {
+  beforeEach(() => resetMockBooking());
+  afterEach(() => { delete global.__bookingServiceLineCount; });
+
+  test('refuses to reprice (rather than overcharging) if the booking has more than one line item', async () => {
+    // The repricing write stamps the FULL resolved price onto every matched
+    // line, so a multi-line open-pool booking would be charged N times over.
+    global.__bookingServiceLineCount = 2;
+    const errSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+    const res = await request(app)
+      .post(`/jobs/${mockBookingRow.id}/accept`)
+      .set('Authorization', `Bearer ${tokenFor(PROVIDER_A)}`);
+
+    expect(res.status).toBe(500);
+    expect(errSpy).toHaveBeenCalledWith(expect.stringContaining('Refusing to reprice'));
+    errSpy.mockRestore();
+  });
+});
 
 describe('POST /jobs/:id/accept — atomic claim race condition', () => {
   beforeEach(() => resetMockBooking());

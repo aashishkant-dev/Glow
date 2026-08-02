@@ -598,6 +598,25 @@ router.post(
       if (repriceLines != null) {
         // Open-pool bookings carry exactly one line item (see POST /bookings),
         // so the whole listed price belongs to that single line.
+        //
+        // That invariant is load-bearing but not enforced by the schema: this
+        // writes the FULL resolved price to every matched row, so if a future
+        // change ever lets an open-pool booking carry multiple lines, a blind
+        // updateMany would charge the full price N times over — a silent
+        // overcharge. Check it explicitly and refuse to reprice instead, so
+        // the failure is loud and debuggable rather than invisible.
+        const lineCount = await prisma.bookingService.count({
+          where: { bookingId: req.params.id },
+        });
+        if (lineCount !== 1) {
+          console.error(
+            `[accept] Refusing to reprice booking ${req.params.id}: expected exactly 1 ` +
+            `line item for an open-pool booking, found ${lineCount}. Line prices left ` +
+            `untouched to avoid overcharging; booking price is ${repriceLines}.`,
+          );
+          return res.status(500).json({ error: 'Server error' });
+        }
+
         await prisma.bookingService.updateMany({
           where: { bookingId: req.params.id },
           data:  { price: repriceLines },
