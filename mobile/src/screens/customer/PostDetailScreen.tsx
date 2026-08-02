@@ -1,9 +1,9 @@
 import React, { useState } from 'react';
 import { Image } from 'expo-image';
-import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { apiLikePost, apiUnlikePost } from '../../api/client';
+import { apiGetProviderPublicProfile, apiLikePost, apiUnlikePost } from '../../api/client';
 import { Colors, Fonts } from '../../utils/colors';
 import { tapLight } from '../../utils/haptics';
 
@@ -42,12 +42,19 @@ export function PostDetailScreen() {
     nav.navigate('ProviderPublicProfile', { providerId: post.provider.id, providerName: post.provider.name });
   }
 
-  function bookThisService() {
+  async function bookThisService() {
     if (!post.service || !post.provider) return;
     tapLight();
+    let providerId = post.provider.id;
+    try {
+      const { provider } = await apiGetProviderPublicProfile(post.provider.id);
+      providerId = provider.id; // resolves to the User id NewBooking's preselect logic expects
+    } catch {
+      // fall through with the original id — booking still works, just without preselect
+    }
     nav.navigate('NewBooking', {
       serviceType: post.service.name,
-      providerId: post.provider.id,
+      providerId,
       bookingMode: 'scheduled',
       _t: Date.now(),
     });

@@ -14,7 +14,7 @@ import { LOOKS, LOOK_OCCASIONS, Look } from '../../data/looks';
 import { LookTile } from '../../components/LookTile';
 import { LookSheet } from '../../components/LookSheet';
 import { ArtistCard } from '../../components/ArtistCard';
-import { apiPublicCatalog, apiPublicProviders, PublicProviderCard, apiGetExplorePosts, apiLikePost, apiUnlikePost, Post } from '../../api/client';
+import { apiPublicCatalog, apiPublicProviders, PublicProviderCard, apiGetExplorePosts, Post } from '../../api/client';
 import { SearchIcon } from '../../components/TabIcons';
 import { tapLight } from '../../utils/haptics';
 import { SEED_ARTISTS } from '../../data/seedArtists';
@@ -85,6 +85,23 @@ export function ExploreScreen() {
       .catch(() => {})
       .finally(() => setPostsLoading(false));
   }, [postSort]);
+
+  // Re-fetch page 1 of the current sort whenever the Posts tab regains focus,
+  // so like state edited on PostDetailScreen (like count, isLikedByMe) isn't
+  // stale when the customer navigates back to the grid or reopens the post.
+  // Resets to page 1 on every focus — an accepted simplification, not an
+  // incremental/partial update.
+  useFocusEffect(
+    React.useCallback(() => {
+      if (tab !== 'Posts') return;
+      apiGetExplorePosts(postSort)
+        .then(({ posts: data, nextCursor }) => {
+          setPosts(data);
+          setPostsCursor(nextCursor);
+        })
+        .catch(() => {});
+    }, [tab, postSort]),
+  );
 
   const filteredPosts = useMemo(() => {
     if (postCategory === 'All') return posts;
@@ -361,7 +378,9 @@ export function ExploreScreen() {
             </View>
           ) : filteredPosts.length === 0 ? (
             <View style={styles.emptyState}>
-              <Text style={styles.emptyStateText}>No posts yet.</Text>
+              <Text style={styles.emptyStateText}>
+                {postCategory !== 'All' ? 'No posts in this category yet.' : 'No posts yet.'}
+              </Text>
             </View>
           ) : (
             <ScrollView

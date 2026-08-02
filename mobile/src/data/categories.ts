@@ -17,7 +17,7 @@ export interface Category {
  * OCCASIONS has to serviceType. Tapping a category jumps straight into
  * NewBooking with that service preset.
  */
-export const CATEGORIES: Category[] = [
+export const CATEGORIES = [
   { id: 'hair',    name: 'Hair',                  Icon: ScissorsIcon, serviceType: 'Hair Styling',  tint: '#FCECEF' },
   { id: 'nails',   name: 'Nails',                 Icon: NailIcon,     serviceType: 'Nails',         tint: '#F6EBC9' },
   { id: 'brows',   name: 'Brows & Lashes',        Icon: BrushIcon,    serviceType: 'Threading',     tint: '#FCECEF' },
@@ -27,4 +27,4 @@ export const CATEGORIES: Category[] = [
   { id: 'bridal',  name: 'Bridal',                Icon: CrownIcon,    serviceType: 'Bridal Makeup', tint: '#FCECEF' },
   { id: 'henna',   name: 'Henna',                 Icon: HennaIcon,    serviceType: 'Mehendi',       tint: '#F6EBC9' },
   { id: 'spa',     name: 'Spa & Massage',         Icon: LotusIcon,    serviceType: 'Massage',       tint: '#FCECEF' },
-];
+] as const satisfies Category[];
