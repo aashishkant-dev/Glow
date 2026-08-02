@@ -7,6 +7,7 @@ const { authenticate, requireRole } = require('../middleware/auth');
 const { sendPush, pushTo } = require('../utils/push');
 const { notify } = require('../utils/notify');
 const { cacheGet, cacheSet, cacheDel, cacheFlushPattern } = require('../utils/cache');
+const { listedPriceFor, computeFees } = require('../utils/pricing');
 
 const router = express.Router();
 
@@ -25,10 +26,10 @@ function haversineKm(lat1, lng1, lat2, lng2) {
   return R * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
 }
 
-// Commission model (mirror of customer.js). Provider never sees the platform cut —
-// only their own payout (price minus fee).
-const COMMISSION_RATE = parseFloat(process.env.COMMISSION_RATE) || 0.18;
-const COMMISSION_MIN  = parseFloat(process.env.COMMISSION_MIN) || 2.00;
+// No platform commission — mirrors utils/pricing.js. Provider never sees the
+// platform cut field regardless; this fallback now just returns full price.
+const COMMISSION_RATE = parseFloat(process.env.COMMISSION_RATE) || 0;
+const COMMISSION_MIN  = parseFloat(process.env.COMMISSION_MIN) || 0;
 function providerPayoutFor(price) {
   const fee = Math.max(Math.round((price || 0) * COMMISSION_RATE * 100) / 100, COMMISSION_MIN);
   return Math.round(((price || 0) - fee) * 100) / 100;
@@ -296,14 +297,14 @@ router.get(
       // Un-geocoded jobs sort after located ones (Infinity distance) but stay visible.
       const unlocated = noGeo.map(b => ({ ...b, distanceKm: undefined, distanceMeters: Infinity }));
 
-      const bookings = [...located, ...unlocated]
+      const bookings = await Promise.all([...located, ...unlocated]
         .sort((a, b) => {
           const uDiff = (urgencyRank[a.urgency] ?? 2) - (urgencyRank[b.urgency] ?? 2);
           if (uDiff !== 0) return uDiff;
           if (a.distanceMeters !== b.distanceMeters) return a.distanceMeters - b.distanceMeters;
           return (b.customer?.rating ?? 0) - (a.customer?.rating ?? 0);
         })
-        .map(b => {
+        .map(async b => {
           const jobStart = new Date(b.scheduledAt).getTime();
           const jobEnd   = jobStart + b.hours * 3600 * 1000;
           const hasConflict = activeBookings.some(active => {
@@ -312,7 +313,11 @@ router.get(
             return aStart < jobEnd && aEnd > jobStart;
           });
           const { price, platformFee, id, customer, provider, ...rest } = b;
-          const payout = toNum(b.providerPayout != null ? b.providerPayout : providerPayoutFor(toNum(price)));
+          // Open-pool job (price still null — no artist has claimed it yet): show
+          // THIS viewing Provider's own quote for the service, not a stale/zero
+          // number — the price only actually locks in when they accept.
+          const effectivePrice = price != null ? toNum(price) : await listedPriceFor(b.serviceType, b.hours, req.user.id);
+          const payout = toNum(b.providerPayout != null ? b.providerPayout : providerPayoutFor(effectivePrice));
           return {
             ...rest,
             _id:        id,
@@ -322,7 +327,7 @@ router.get(
             customer:   customer ? { ...customer, _id: customer.id, rating: toNum(customer.rating) } : undefined,
             provider:        provider      ? { ...provider,      _id: provider.id,      rating: toNum(provider.rating)      } : undefined,
           };
-        });
+        }));
 
       // Filter out jobs this Provider has already skipped
       const skipped = providerSkippedJobs.get(req.user.id) ?? new Set();
@@ -512,6 +517,21 @@ router.post(
         }
       }
 
+      // Open-pool booking (no artist chosen at request time): price was left
+      // null on creation — the artist alone controls price, so it's resolved
+      // HERE, from the accepting artist's own listed price, never before.
+      // Dedicated bookings already carry the requested artist's real price
+      // from creation time and are left untouched.
+      let priceUpdate = {};
+      if (targetBooking.price == null) {
+        const listedPrice = await listedPriceFor(targetBooking.serviceType, targetBooking.hours, req.user.id);
+        if (listedPrice == null) {
+          return res.status(422).json({ error: 'Set a price for this service before accepting jobs.' });
+        }
+        const { platformFee, providerPayout } = computeFees(listedPrice);
+        priceUpdate = { price: listedPrice, platformFee, providerPayout };
+      }
+
       // Atomic claim: updateMany's `where` (not just its `data`) carries the
       // `status: 'REQUESTED'` guard, so the UPDATE statement itself only
       // matches a row still in that state — the read-then-write gap above
@@ -524,7 +544,7 @@ router.post(
       // clause still matches by the time its UPDATE actually runs.
       const claim = await prisma.booking.updateMany({
         where: { id: req.params.id, status: 'REQUESTED' },
-        data:  { providerId: req.user.id, status: 'ACCEPTED', openToPool: false },
+        data:  { providerId: req.user.id, status: 'ACCEPTED', openToPool: false, ...priceUpdate },
       });
       if (claim.count === 0) {
         return res.status(409).json({ error: 'This job was just claimed by another Provider.' });
