@@ -9,6 +9,7 @@ import { scheduleLocal } from '../utils/notifications';
 import { apiGetNotifications, apiMarkNotificationsRead } from '../api/client';
 import { BellIcon, NoteIcon } from '../components/CareIcons';
 import { ChatIcon, StarIcon, CheckCircleIcon } from '../components/TabIcons';
+import { formatCurrency } from '../utils/format';
 
 interface StoredNotification {
   id: string;
@@ -258,7 +259,7 @@ export function ChatUnreadProvider({ children }: { children: React.ReactNode }) 
     const onRated = (d: any) =>
       showBanner('New rating', `You received a ${d?.rating ? d.rating + '★' : 'new'} rating.`, { type: 'rating' });
     const onTip = (d: any) =>
-      showBanner('You got a tip!', d?.amount ? `A client tipped you $${d.amount}.` : 'A client sent you a tip.', { type: 'rating', bookingId: d?.bookingId });
+      showBanner('You got a tip!', d?.amount ? `A client tipped you ${formatCurrency(d.amount)}.` : 'A client sent you a tip.', { type: 'rating', bookingId: d?.bookingId });
 
     socket.on('booking-status-changed', onBookingStatus);
     socket.on('booking-created', onBookingCreated);

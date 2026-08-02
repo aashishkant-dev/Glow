@@ -38,6 +38,7 @@ import { getSocket } from '../../utils/socket';
 import { GlowLogo } from '../../components/GlowLogo';
 import { JobCard } from '../../components/JobCard';
 import { LocationPrompt } from '../../components/LocationPrompt';
+import { formatCurrency } from '../../utils/format';
 
 function ActiveJobBanner({ job, onPress }: { job: Booking; onPress: () => void }) {
   return (
@@ -54,7 +55,7 @@ function ActiveJobBanner({ job, onPress }: { job: Booking; onPress: () => void }
            job.status === 'STARTED' ? 'Service in progress' : job.status}
         </Text>
       </View>
-      <Text style={activeJobBannerStyles.amount}>${job.totalPrice}</Text>
+      <Text style={activeJobBannerStyles.amount}>{formatCurrency(job.totalPrice)}</Text>
       <Text style={activeJobBannerStyles.chevron}>›</Text>
     </Pressable>
   );
@@ -323,8 +324,8 @@ export function ProviderDashboardScreen() {
           {/* Stat grid — 2×2 metric cards */}
           <View style={styles.statGrid}>
             {([
-              [`$${todayEarnings.toFixed(0)}`, 'Today',     Colors.label],
-              [`$${weekEarnings.toFixed(0)}`,  'This Week', Colors.label],
+              [formatCurrency(todayEarnings, { decimals: 0 }), 'Today',     Colors.label],
+              [formatCurrency(weekEarnings, { decimals: 0 }),  'This Week', Colors.label],
               [(profile?.rating ?? 0) > 0 ? `${profile?.rating?.toFixed(1)} ★` : '—', 'Rating', Colors.gold],
               [String((profile as any)?.totalSessions ?? jobs.filter(j => j.status === 'COMPLETED').length), 'Sessions', Colors.label],
             ] as [string, string, string][]).map(([value, label, color]) => (
@@ -340,7 +341,7 @@ export function ProviderDashboardScreen() {
         <View style={styles.earnCard}>
           <View style={styles.earnCardTop}>
             <Text style={styles.earnCardLabel}>This Week</Text>
-            <Text style={styles.earnCardValue}>${weekEarnings.toFixed(0)}</Text>
+            <Text style={styles.earnCardValue}>{formatCurrency(weekEarnings, { decimals: 0 })}</Text>
           </View>
           <View style={styles.earnBars}>
             {(() => {

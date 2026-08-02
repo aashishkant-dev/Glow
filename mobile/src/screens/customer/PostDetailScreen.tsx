@@ -6,6 +6,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { apiGetProviderPublicProfile, apiLikePost, apiUnlikePost } from '../../api/client';
 import { Colors, Fonts } from '../../utils/colors';
 import { tapLight } from '../../utils/haptics';
+import { formatCurrency } from '../../utils/format';
 
 export function PostDetailScreen() {
   const insets = useSafeAreaInsets();
@@ -95,7 +96,7 @@ export function PostDetailScreen() {
 
           {!!post.service && (
             <Pressable style={styles.serviceChip} onPress={bookThisService}>
-              <Text style={styles.serviceChipText}>{post.service.name} · ${post.service.price}</Text>
+              <Text style={styles.serviceChipText}>{post.service.name} · {formatCurrency(post.service.price)}</Text>
               <Text style={styles.serviceChipArrow}>Book →</Text>
             </Pressable>
           )}

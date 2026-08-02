@@ -36,6 +36,7 @@ import { DEFAULT_REGION, DEFAULT_REGION_NAME } from '../../utils/region';
 import { VerifyPhoneSheet } from '../../components/VerifyPhoneSheet';
 import { useAuth } from '../../context/AuthContext';
 import { SEED_ARTISTS } from '../../data/seedArtists';
+import { formatCurrency } from '../../utils/format';
 
 // Seed artists (Explore's curated showcase) shown as pickable cards here too, so
 // the booking flow doesn't look empty before real Providers are onboarded — but
@@ -310,7 +311,7 @@ const t = {
   confirmNote:            'Your Artist receives a request notification. Booking moves to Upcoming once they accept.',
   continueBtn:            'Continue',
   continueWith:           (name: string) => `Continue with ${name}`,
-  confirmBtn:             (amt: number) => `Confirm · $${amt} est.`,
+  confirmBtn:             (amt: number) => `Confirm · ${formatCurrency(amt)} est.`,
   collapseList:           'Collapse Artist list',
   expandList:             'Expand Artist list',
   providerAvailableNearby: (n: number) => `${n} Artist${n !== 1 ? 's' : ''} available nearby`,
@@ -755,7 +756,7 @@ function makeProviderPinHTML(name: string, isSelected: boolean, rate: number = 2
     `<div style="position:relative;display:flex;flex-direction:column;align-items:center;cursor:pointer;">` +
       pulse +
       `<div style="width:${size}px;height:${size}px;border-radius:${size / 2}px;background:${bg};border:2.5px solid ${border};overflow:hidden;box-shadow:0 3px 10px rgba(0,0,0,0.18);">${avatarInner}</div>` +
-      `<div style="font-size:9px;font-weight:700;color:${isSelected ? Colors.brandDark : Colors.brand};margin-top:2px;">$${rate}</div>` +
+      `<div style="font-size:9px;font-weight:700;color:${isSelected ? Colors.brandDark : Colors.brand};margin-top:2px;">${formatCurrency(rate, { decimals: 0 })}</div>` +
       `<div style="width:0;height:0;border-left:5px solid transparent;border-right:5px solid transparent;border-top:8px solid ${border};margin-top:0;"></div>` +
     `</div>`
   );
@@ -1477,7 +1478,7 @@ export function CreateBookingScreen() {
       return 'Enter a valid amount.';
     }
     const listed = servicesTotal(selectedServices);
-    return `Offer must be at least $${Math.round(listed * 0.5)}.`;
+    return `Offer must be at least ${formatCurrency(Math.round(listed * 0.5), { decimals: 0 })}.`;
   }
 
   // A service name arrived via route params (Home category card, occasion card,
@@ -2223,7 +2224,7 @@ export function CreateBookingScreen() {
                         onPress={() => toggleService(svc)}
                         accessibilityRole="checkbox"
                         accessibilityState={{ checked: active }}
-                        accessibilityLabel={`${svc.name}, $${svc.price}, ${fmtDuration(svc.durationMin)}`}
+                        accessibilityLabel={`${svc.name}, ${formatCurrency(svc.price)}, ${fmtDuration(svc.durationMin)}`}
                       >
                         <ServiceIcon serviceType={svc.name} size={44} color={accent} />
                         <Text style={[
@@ -2577,7 +2578,7 @@ export function CreateBookingScreen() {
                 {/* Itemized line items — one row per selected service, then the
                     summed total, combined duration, and computed time window. */}
                 {selectedServices.map(svc => (
-                  <ConfirmRow key={svc.name} label={svc.name} value={`$${svc.price}`} />
+                  <ConfirmRow key={svc.name} label={svc.name} value={formatCurrency(svc.price)} />
                 ))}
                 <View style={styles.confirmDivider} />
                 <View style={styles.confirmRow}>
@@ -2683,7 +2684,7 @@ export function CreateBookingScreen() {
                   : `${t.summaryBarCount(selectedServices.length)} · ${fmtDuration(totalDurationMin)}`}
               </Text>
               <Text style={styles.summaryBarRight}>
-                {selectedServices.length === 0 ? '' : `$${totalPriceOneSession}`}
+                {selectedServices.length === 0 ? '' : formatCurrency(totalPriceOneSession)}
               </Text>
             </View>
           )}

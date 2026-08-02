@@ -30,6 +30,7 @@ import { getDistanceKm } from '../../utils/distance';
 import { Radius, Spacing } from '../../utils/theme';
 import { OSMMap, OSMMarker } from '../../components/OSMMap';
 import { DEFAULT_REGION, DEFAULT_REGION_NAME } from '../../utils/region';
+import { formatCurrency } from '../../utils/format';
 
 // Module-level ref so ProviderNavigator can read the current pending job count for the tab badge
 export const pendingJobsCount = { current: 0 };
@@ -118,7 +119,7 @@ function WebLeafletMap({ center, jobs, onJobPress, onAcceptJob, filterText }: We
       if (!lat || !lng) return;
       // No client info in the open-pool map: just the pay pill (privacy-safe).
       const jobIcon = L.divIcon({
-        html: `<div style="background:${Colors.brandDark};color:#fff;border-radius:10px;padding:5px 10px;font-size:13px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.3)">$${fmt(job.totalPrice)}</div>`,
+        html: `<div style="background:${Colors.brandDark};color:#fff;border-radius:10px;padding:5px 10px;font-size:13px;font-weight:800;white-space:nowrap;box-shadow:0 3px 10px rgba(0,0,0,0.3)">${formatCurrency(fmt(job.totalPrice), { decimals: 0 })}</div>`,
         className: '', iconAnchor: [0, 0],
       });
       const marker = L.marker([lat, lng], { icon: jobIcon }).addTo(mapRef.current);
@@ -127,7 +128,7 @@ function WebLeafletMap({ center, jobs, onJobPress, onAcceptJob, filterText }: We
           <span style="width:9px;height:9px;border-radius:50%;background:${Colors.brand};display:inline-block"></span>
           <span style="font-size:16px;font-weight:800;color:#0F172A">${job.serviceType}</span>
         </div>
-        <div style="font-size:14px;color:#555;margin-bottom:2px">$${fmt(job.totalPrice)} · ${job.hours}h</div>
+        <div style="font-size:14px;color:#555;margin-bottom:2px">${formatCurrency(fmt(job.totalPrice), { decimals: 0 })} · ${job.hours}h</div>
         <div style="font-size:12px;color:#888">${new Date(job.scheduledAt).toLocaleDateString('en-CA',{weekday:'short',month:'short',day:'numeric'})}</div>
         <button class="cn-detail-btn" id="detail-${job._id}">View Details</button>
       </div>`;
@@ -211,7 +212,7 @@ function JobActions({
           ? <ActivityIndicator color="#fff" size="small" />
           : <>
               <Text style={actionStyles.acceptText}>Accept</Text>
-              <Text style={actionStyles.acceptAmt}>${fmt(job.totalPrice)}</Text>
+              <Text style={actionStyles.acceptAmt}>{formatCurrency(fmt(job.totalPrice), { decimals: 0 })}</Text>
             </>}
       </Pressable>
     </View>
@@ -407,7 +408,7 @@ function FilterSortSheet({
                     style={[sheetStyles.stepChip, active && sheetStyles.stepChipActive]}
                     onPress={() => setDraft(prev => ({ ...prev, minPay: p }))}
                   >
-                    <Text style={[sheetStyles.stepChipText, active && sheetStyles.stepChipTextActive]}>{p === 0 ? 'Any' : `$${p}+`}</Text>
+                    <Text style={[sheetStyles.stepChipText, active && sheetStyles.stepChipTextActive]}>{p === 0 ? 'Any' : `${formatCurrency(p, { decimals: 0 })}+`}</Text>
                   </Pressable>
                 );
               })}
@@ -657,7 +658,7 @@ function OpenJobCard({ job, isNew, onPress }: { job: any; isNew: boolean; onPres
         </View>
         <Text style={openCardStyles.dateTime}>{dateStr} · {timeStr}{area ? ` · ${area}` : ''}</Text>
         <View style={openCardStyles.payRow}>
-          <Text style={openCardStyles.price}>${fmt(job.totalPrice)}</Text>
+          <Text style={openCardStyles.price}>{formatCurrency(fmt(job.totalPrice), { decimals: 0 })}</Text>
           <View style={openCardStyles.sessionChip}>
             <ClockIcon size={12} color={Colors.brandDeep} />
             <Text style={openCardStyles.sessionChipText}>{job.hours}h session</Text>
@@ -940,9 +941,9 @@ export function NearbyJobsScreen() {
     };
 
     if (Platform.OS === 'web') {
-      if (confirm(`Accept ${job.serviceType} — $${fmt(job.totalPrice)}?`)) doAccept();
+      if (confirm(`Accept ${job.serviceType} — ${formatCurrency(fmt(job.totalPrice), { decimals: 0 })}?`)) doAccept();
     } else {
-      Alert.alert('Accept Job', `${job.serviceType} · $${fmt(job.totalPrice)} · ${job.hours}h`, [
+      Alert.alert('Accept Job', `${job.serviceType} · ${formatCurrency(fmt(job.totalPrice), { decimals: 0 })} · ${job.hours}h`, [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Accept', style: 'default', onPress: doAccept },
       ]);
@@ -1088,12 +1089,12 @@ export function NearbyJobsScreen() {
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={styles.statNum}>${Math.round(potentialEarnings)}</Text>
+            <Text style={styles.statNum}>{formatCurrency(potentialEarnings, { decimals: 0 })}</Text>
             <Text style={styles.statLabel}>Potential</Text>
           </View>
           <View style={styles.statDivider} />
           <View style={styles.statItem}>
-            <Text style={styles.statNum}>${filtered.length > 0 ? Math.round(potentialEarnings / filtered.length) : 0}</Text>
+            <Text style={styles.statNum}>{formatCurrency(filtered.length > 0 ? Math.round(potentialEarnings / filtered.length) : 0, { decimals: 0 })}</Text>
             <Text style={styles.statLabel}>Avg. Job</Text>
           </View>
         </View>
@@ -1218,7 +1219,7 @@ export function NearbyJobsScreen() {
                     lat: job.lat ?? 0,
                     lng: job.lng ?? 0,
                     color: Colors.brand,
-                    label: `${job.serviceType} · $${fmt(job.totalPrice)} · ${job.hours}h`,
+                    label: `${job.serviceType} · ${formatCurrency(fmt(job.totalPrice), { decimals: 0 })} · ${job.hours}h`,
                   } as OSMMarker))}
               />
               <View style={styles.mapOverlay}>
@@ -1337,7 +1338,7 @@ export function NearbyJobsScreen() {
                       <Text style={styles.myJobClient}>{(job as any).customer?.name ?? 'Customer'}</Text>
                     </View>
                     <View style={{ alignItems: 'flex-end', gap: 4 }}>
-                      <Text style={styles.myJobEarn}>${fmt(job.totalPrice)}</Text>
+                      <Text style={styles.myJobEarn}>{formatCurrency(fmt(job.totalPrice), { decimals: 0 })}</Text>
                       <View style={[styles.myJobBadge, {
                         backgroundColor: job.status === 'COMPLETED' ? 'rgba(34,197,94,0.15)' : 'rgba(14,165,111,0.15)',
                       }]}>
@@ -1365,7 +1366,7 @@ export function NearbyJobsScreen() {
           <View style={styles.declineCard}>
             <Text style={styles.declineTitle}>Decline this request?</Text>
             <Text style={styles.declineSub}>
-              {declineJob?.serviceType} · ${fmt(declineJob?.totalPrice)}. The client sees your reason and can pick another Provider.
+              {declineJob?.serviceType} · {formatCurrency(fmt(declineJob?.totalPrice), { decimals: 0 })}. The client sees your reason and can pick another Provider.
             </Text>
             <View style={styles.reasonChips}>
               {DECLINE_REASONS.map(r => (

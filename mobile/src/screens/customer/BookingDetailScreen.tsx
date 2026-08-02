@@ -26,6 +26,7 @@ const SCREEN_H = Dimensions.get('window').height;
 const MAP_CARD_H = Math.min(320, Math.max(240, SCREEN_H * 0.4));
 
 import { OSMMap } from '../../components/OSMMap';
+import { formatCurrency } from '../../utils/format';
 
 declare global { interface Window { L: any } }
 
@@ -431,7 +432,7 @@ export function BookingDetailScreen() {
             <View style={{ flex: 1, gap: 8 }}>
               <StatusBadge status={booking.status} size="md" />
               <Text style={styles.heroService}>{booking.serviceType}</Text>
-              <Text style={styles.heroPrice}>${booking.totalPrice?.toFixed(0) ?? '—'}</Text>
+              <Text style={styles.heroPrice}>{booking.totalPrice != null ? formatCurrency(booking.totalPrice, { decimals: 0 }) : '—'}</Text>
               <Text style={styles.heroPay}>Private pay · Secured</Text>
             </View>
           </View>
@@ -482,7 +483,7 @@ export function BookingDetailScreen() {
               ['Duration',   `${booking.hours ?? 0} hour${(booking.hours ?? 0) > 1 ? 's' : ''}`],
               ['Address',    booking.address || 'Address on file'],
               ['Payment',    booking.paymentStatus],
-              ['Total',      `$${booking.totalPrice?.toFixed(0) ?? '—'}`],
+              ['Total',      booking.totalPrice != null ? formatCurrency(booking.totalPrice, { decimals: 0 }) : '—'],
             ] as [string, string][]).map(([label, value], i, arr) => (
               <View key={label}>
                 <View style={styles.detailRow}>

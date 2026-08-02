@@ -11,6 +11,7 @@ import { ServiceIcon } from '../../components/ServiceIcon';
 import { PersonIcon, StarIcon } from '../../components/TabIcons';
 import { PinIcon, NoteIcon, ClockIcon, BellIcon } from '../../components/CareIcons';
 import { JobCardSkeleton } from '../../components/SkeletonLoader';
+import { formatCurrency } from '../../utils/format';
 
 const DECLINE_REASONS = ['Too far', 'Schedule conflict', 'Outside my specialty', 'Rate too low', 'Other'];
 
@@ -83,7 +84,7 @@ export function RequestsScreen({ embedded = false }: { embedded?: boolean } = {}
   const accept = useCallback((job: Booking) => {
     const dist = fmtDistance(job.distanceKm);
     const lines = [
-      `${job.serviceType} · ${job.hours}h · $${job.totalPrice}`,
+      `${job.serviceType} · ${job.hours}h · ${formatCurrency(job.totalPrice)}`,
       dist ? `Client is ${dist}` : null,
       job.address ? `Near ${job.address}` : null,
     ].filter(Boolean).join('\n');
@@ -159,7 +160,7 @@ export function RequestsScreen({ embedded = false }: { embedded?: boolean } = {}
                   </View>
                 </View>
                 <View style={styles.priceWrap}>
-                  <Text style={styles.price}>${job.totalPrice}</Text>
+                  <Text style={styles.price}>{formatCurrency(job.totalPrice)}</Text>
                   <Text style={styles.priceSub}>{job.hours}h · earn</Text>
                 </View>
               </View>

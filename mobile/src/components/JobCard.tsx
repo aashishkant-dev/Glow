@@ -6,6 +6,7 @@ import { CardStyle, Radius, Spacing, Typography } from '../utils/theme';
 import { StatusBadge } from './StatusBadge';
 import { StarRating } from './StarRating';
 import { Booking } from '../api/client';
+import { formatCurrency } from '../utils/format';
 
 interface Props {
   job: Booking & { distanceKm?: number; isNew?: boolean };
@@ -38,7 +39,7 @@ function JobCardBase({ job, onPress, actionSlot }: Props) {
           <Text style={styles.dateTime}>{dateStr} · {timeStr}</Text>
         </View>
         <View style={styles.priceWrap}>
-          <Text style={styles.price}>${Math.round(Number(job.totalPrice) || 0)}</Text>
+          <Text style={styles.price}>{formatCurrency(Number(job.totalPrice) || 0, { decimals: 0 })}</Text>
           <Text style={styles.hours}>{job.hours}h</Text>
         </View>
       </View>

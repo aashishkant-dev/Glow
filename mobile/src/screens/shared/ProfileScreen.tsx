@@ -59,6 +59,7 @@ import { GlowMark } from '../../components/GlowLogo';
 import { DEFAULT_REGION_NAME } from '../../utils/region';
 import { useFavorites } from '../../utils/favorites';
 import { LOOK_OCCASIONS } from '../../data/looks';
+import { formatCurrency } from '../../utils/format';
 
 // ── Design tokens — soft beauty / girly palette ────────────────────────────────
 // Soft blush hero, warm cream bg, rose + gold accents. No healthcare navy/gray.
@@ -1048,12 +1049,12 @@ export function ProfileScreen() {
               </View>
               <View style={styles.earningsSplitRow}>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.earningsAmount}>${todayEarnings.toFixed(0)}</Text>
+                  <Text style={styles.earningsAmount}>{formatCurrency(todayEarnings, { decimals: 0 })}</Text>
                   <Text style={styles.earningsLabel}>Today</Text>
                 </View>
                 <View style={styles.earningsDivider} />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.earningsAmount}>${weekEarnings.toFixed(0)}</Text>
+                  <Text style={styles.earningsAmount}>{formatCurrency(weekEarnings, { decimals: 0 })}</Text>
                   <Text style={styles.earningsLabel}>This Week</Text>
                 </View>
               </View>
@@ -1104,7 +1105,7 @@ export function ProfileScreen() {
             <View style={styles.statDivider} />
             <View style={styles.statCell}>
               <Text style={styles.statNum}>
-                {customerSpent !== null ? `$${customerSpent}` : '—'}
+                {customerSpent !== null ? formatCurrency(customerSpent) : '—'}
               </Text>
               <Text style={styles.statLabel}>Amount Spent</Text>
             </View>
@@ -1130,7 +1131,7 @@ export function ProfileScreen() {
             <View style={styles.statDivider} />
             <View style={styles.statCell}>
               <Text style={styles.statNum}>
-                {providerEarned !== null ? `$${providerEarned}` : '—'}
+                {providerEarned !== null ? formatCurrency(providerEarned) : '—'}
               </Text>
               <Text style={styles.statLabel}>Total Earned</Text>
             </View>

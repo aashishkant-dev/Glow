@@ -11,6 +11,7 @@ import { ServiceIcon } from '../../components/ServiceIcon';
 import { EarningsIcon, CreditCardIcon, NoteIcon } from '../../components/CareIcons';
 import { CashIcon } from '../../components/TabIcons';
 import { JobCardSkeleton } from '../../components/SkeletonLoader';
+import { formatCurrency } from '../../utils/format';
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-CA', { month: 'short', day: 'numeric' });
@@ -54,16 +55,16 @@ function EarningsGroup({ title, items }: { title: string; items: Booking[] }) {
             <Text style={styles.jobMeta}>{formatDate(j.scheduledAt)} · {j.hours}h{j.customer?.name ? ` · ${j.customer.name}` : ''}</Text>
           </View>
           <View style={styles.jobEarningWrap}>
-            <Text style={styles.jobEarnings}>${(j.providerPayout ?? j.totalPrice ?? 0).toFixed(2)}</Text>
+            <Text style={styles.jobEarnings}>{formatCurrency(j.providerPayout ?? j.totalPrice ?? 0)}</Text>
             {j.hours > 0 && (
-              <Text style={styles.jobHourRate}>${((j.providerPayout ?? j.totalPrice ?? 0) / j.hours).toFixed(2)}/hr</Text>
+              <Text style={styles.jobHourRate}>{formatCurrency((j.providerPayout ?? j.totalPrice ?? 0) / j.hours)}/hr</Text>
             )}
           </View>
         </View>
       ))}
       <View style={styles.groupTotal}>
         <Text style={styles.groupTotalLabel}>Subtotal</Text>
-        <Text style={styles.groupTotalValue}>${items.reduce((s, j) => s + (j.providerPayout ?? j.totalPrice ?? 0), 0).toFixed(2)}</Text>
+        <Text style={styles.groupTotalValue}>{formatCurrency(items.reduce((s, j) => s + (j.providerPayout ?? j.totalPrice ?? 0), 0))}</Text>
       </View>
     </View>
   );
@@ -131,7 +132,7 @@ export function EarningsScreen() {
     }
     Alert.alert(
       'Withdraw earnings',
-      `Send $${wallet.available.toFixed(2)} via Interac e-Transfer to ${payout.payoutEmail}?`,
+      `Send ${formatCurrency(wallet.available)} via Interac e-Transfer to ${payout.payoutEmail}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -205,7 +206,7 @@ export function EarningsScreen() {
         <View style={styles.heroTopRow}>
           <View>
             <Text style={styles.heroLabel}>YOUR EARNINGS</Text>
-            <Text style={styles.heroTotal}>${totalEarned.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+            <Text style={styles.heroTotal}>{formatCurrency(totalEarned)}</Text>
           </View>
           <View style={styles.heroGoldBadge}>
             <Text style={styles.heroGoldBadgeText}>All Time</Text>
@@ -216,10 +217,10 @@ export function EarningsScreen() {
           {([
             [String(jobs.length), 'Jobs Done'],
             [`${totalHours}h`,    'Hours Worked'],
-            [`$${avgPerJob}`,     'Avg / Job'],
+            [formatCurrency(avgPerJob, { decimals: 0 }),     'Avg / Job'],
             // Effective take-home per hour from real payouts — never quote the
             // customer's gross rate here (it would reveal the platform margin).
-            [totalHours > 0 ? `$${Math.round(totalEarned / totalHours)}/hr` : '—', 'Avg / Hour'],
+            [totalHours > 0 ? `${formatCurrency(Math.round(totalEarned / totalHours), { decimals: 0 })}/hr` : '—', 'Avg / Hour'],
           ] as [string, string][]).map(([num, label], i, arr) => (
             <View key={label} style={styles.statWrap}>
               <View style={styles.statItem}>
@@ -238,13 +239,13 @@ export function EarningsScreen() {
           <View style={styles.walletRow}>
             <View style={styles.walletCol}>
               <Text style={styles.walletColLabel}>AVAILABLE</Text>
-              <Text style={styles.walletAvailable}>${(wallet?.available ?? 0).toFixed(2)}</Text>
+              <Text style={styles.walletAvailable}>{formatCurrency(wallet?.available ?? 0)}</Text>
               <Text style={styles.walletColSub}>Ready to withdraw</Text>
             </View>
             <View style={styles.walletVDivider} />
             <View style={styles.walletCol}>
               <Text style={styles.walletColLabel}>PENDING</Text>
-              <Text style={styles.walletPending}>${(wallet?.pendingRelease ?? 0).toFixed(2)}</Text>
+              <Text style={styles.walletPending}>{formatCurrency(wallet?.pendingRelease ?? 0)}</Text>
               <Text style={styles.walletColSub}>Held until job done</Text>
             </View>
           </View>
@@ -259,7 +260,7 @@ export function EarningsScreen() {
             {withdrawing
               ? <ActivityIndicator color="#fff" />
               : <Text style={styles.withdrawBtnText}>
-                  {wallet && wallet.available > 0 ? `Withdraw $${wallet.available.toFixed(2)}` : 'Nothing to withdraw'}
+                  {wallet && wallet.available > 0 ? `Withdraw ${formatCurrency(wallet.available)}` : 'Nothing to withdraw'}
                 </Text>}
           </Pressable>
           {/* Payout method row */}
@@ -320,10 +321,10 @@ export function EarningsScreen() {
           <View style={styles.monthTop}>
             <View>
               <Text style={styles.monthLabel}>THIS MONTH</Text>
-              <Text style={styles.monthAmount}>${thisMonthEarned.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+              <Text style={styles.monthAmount}>{formatCurrency(thisMonthEarned)}</Text>
             </View>
             <View style={styles.monthRight}>
-              <Text style={styles.monthGoalLabel}>Goal: ${monthGoal.toLocaleString()}</Text>
+              <Text style={styles.monthGoalLabel}>Goal: {formatCurrency(monthGoal, { decimals: 0 })}</Text>
               <Text style={[styles.monthPct, { color: progressPct >= 1 ? Colors.trustGreen : Colors.brand }]}>
                 {Math.round(progressPct * 100)}%
               </Text>
@@ -335,7 +336,7 @@ export function EarningsScreen() {
           <Text style={styles.monthSub}>
             {progressPct >= 1
               ? 'Monthly goal reached!'
-              : `$${monthGoal - thisMonthEarned} to go · ${thisMonthJobs.length} jobs this month`}
+              : `${formatCurrency(monthGoal - thisMonthEarned)} to go · ${thisMonthJobs.length} jobs this month`}
           </Text>
         </View>
       </View>
@@ -348,7 +349,7 @@ export function EarningsScreen() {
           { label: 'All Time',  amount: totalEarned,                                               color: Colors.brand },
         ].map(c => (
           <View key={c.label} style={[styles.breakdownCard, { borderTopColor: c.color }]}>
-            <Text style={[styles.breakdownAmount, { color: c.color }]}>${c.amount.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>
+            <Text style={[styles.breakdownAmount, { color: c.color }]}>{formatCurrency(c.amount)}</Text>
             <Text style={styles.breakdownLabel}>{c.label}</Text>
           </View>
         ))}
@@ -363,7 +364,7 @@ export function EarningsScreen() {
               {last7.map((day, i) => (
                 <View key={i} style={styles.chartCol}>
                   {day.earned > 0 && (
-                    <Text style={styles.chartBarValue}>${day.earned}</Text>
+                    <Text style={styles.chartBarValue}>{formatCurrency(day.earned, { decimals: 0 })}</Text>
                   )}
                   <View style={styles.chartBarContainer}>
                     <View

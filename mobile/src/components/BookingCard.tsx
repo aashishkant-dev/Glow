@@ -5,6 +5,7 @@ import { ServiceIcon } from './ServiceIcon';
 import { CardStyle, Radius, Spacing, Typography } from '../utils/theme';
 import { StatusBadge } from './StatusBadge';
 import { Booking } from '../api/client';
+import { formatCurrency } from '../utils/format';
 
 interface Props {
   booking: Booking;
@@ -35,7 +36,7 @@ function BookingCardBase({ booking, onPress, showProvider = true }: Props) {
           )}
         </View>
         <View style={styles.right}>
-          <Text style={styles.price}>${booking.totalPrice}</Text>
+          <Text style={styles.price}>{formatCurrency(booking.totalPrice)}</Text>
           <StatusBadge status={booking.status} size="sm" />
         </View>
       </View>

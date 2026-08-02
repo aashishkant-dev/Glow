@@ -18,6 +18,7 @@ import { ServiceIcon } from '../../components/ServiceIcon';
 import { useAuth } from '../../context/AuthContext';
 import { Radius, Shadow, Spacing, Typography } from '../../utils/theme';
 import { OSMMap } from '../../components/OSMMap';
+import { formatCurrency } from '../../utils/format';
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-CA', { weekday: 'long', month: 'long', day: 'numeric' });
@@ -115,7 +116,7 @@ function getActionConfig(status: string, allDone: boolean, completedItems: numbe
     case 'REQUESTED':
       return {
         label: 'Accept Job',
-        subLabel: `Earn $${totalPrice ?? '—'} · Confirm to proceed`,
+        subLabel: `Earn ${totalPrice != null ? formatCurrency(totalPrice) : '—'} · Confirm to proceed`,
         color: Colors.onlineGreen,
         showQuickActions: false,
         showDirections: false,
@@ -144,7 +145,7 @@ function getActionConfig(status: string, allDone: boolean, completedItems: numbe
       return {
         label: allDone ? 'Complete Job' : `Complete Job (${completedItems}/${total})`,
         subLabel: allDone
-          ? `All tasks done — earn $${totalPrice ?? '—'}`
+          ? `All tasks done — earn ${totalPrice != null ? formatCurrency(totalPrice) : '—'}`
           : `${total - completedItems} tasks remaining`,
         color: Colors.onlineGreen,
         showQuickActions: true,
@@ -392,7 +393,7 @@ export function JobDetailScreen() {
             <View style={styles.heroRight}>
               <ServiceIcon serviceType={job.serviceType} size={32} color="rgba(255,255,255,0.95)" bubble={false} />
               {/* Total earnings large */}
-              <Text style={styles.heroEarnings}>${job.totalPrice ?? '—'}</Text>
+              <Text style={styles.heroEarnings}>{job.totalPrice != null ? formatCurrency(job.totalPrice) : '—'}</Text>
               <Text style={styles.heroRate}>{job.hours}h session</Text>
             </View>
           </View>

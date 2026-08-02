@@ -10,6 +10,7 @@ import { Look } from '../data/looks';
 import { HeartIcon } from './TabIcons';
 import { toggleSavedLook, useSavedLooks } from '../utils/savedLooks';
 import { tapLight } from '../utils/haptics';
+import { formatCurrency } from '../utils/format';
 
 interface LookTileProps {
   look: Look;
@@ -45,7 +46,7 @@ export function LookTile({ look, onPress, height = 170, price }: LookTileProps) 
       </View>
       <Text style={styles.vibe} numberOfLines={1}>{look.vibe}</Text>
       <Text style={styles.meta}>
-        {Math.round(look.durationMin / 60 * 10) / 10}h · From ${Math.round(price ?? look.fromPrice)}
+        {Math.round(look.durationMin / 60 * 10) / 10}h · From {formatCurrency(price ?? look.fromPrice, { decimals: 0 })}
       </Text>
     </Pressable>
   );

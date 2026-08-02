@@ -12,6 +12,7 @@ import { Colors, Fonts } from '../utils/colors';
 import { Look } from '../data/looks';
 import { toggleSavedLook, useSavedLooks } from '../utils/savedLooks';
 import { tapLight, tapSuccess } from '../utils/haptics';
+import { formatCurrency } from '../utils/format';
 
 interface LookSheetProps {
   look: Look | null;
@@ -64,7 +65,7 @@ export function LookSheet({ look, onClose, priceOverride }: LookSheetProps) {
             {/* Quick facts */}
             <View style={styles.factRow}>
               <View style={styles.fact}>
-                <Text style={styles.factValue}>From ${Math.round(price)}</Text>
+                <Text style={styles.factValue}>From {formatCurrency(price, { decimals: 0 })}</Text>
                 <Text style={styles.factLabel}>Complete look</Text>
               </View>
               <View style={styles.factDivider} />

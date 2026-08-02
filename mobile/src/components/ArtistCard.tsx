@@ -7,6 +7,7 @@ import { PublicProviderCard } from '../api/client';
 import { HeartIcon } from './TabIcons';
 import { useFavorites, toggleFavorite } from '../utils/favorites';
 import { tapLight } from '../utils/haptics';
+import { formatCurrency } from '../utils/format';
 
 interface Props {
   artist: PublicProviderCard;
@@ -44,7 +45,7 @@ export function ArtistCard({ artist, onPress, showFavorite = false }: Props) {
           <Text style={styles.rating}>★ {artist.rating?.toFixed(1) ?? '—'}</Text>
           <Text style={styles.reviews}>({artist.ratingCount})</Text>
           {artist.startingPrice != null && artist.startingPrice > 0 && (
-            <Text style={styles.price}>From ${artist.startingPrice}</Text>
+            <Text style={styles.price}>From {formatCurrency(artist.startingPrice)}</Text>
           )}
         </View>
       </View>

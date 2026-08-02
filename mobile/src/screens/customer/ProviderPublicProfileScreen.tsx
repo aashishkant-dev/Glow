@@ -24,6 +24,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { apiGetProviderPublicProfile, ProviderPublicProfile } from '../../api/client';
 import { Colors, Fonts } from '../../utils/colors';
+import { formatCurrency } from '../../utils/format';
 import { CloseCircleIcon, StarIcon, CheckCircleIcon, ChevronForwardIcon } from '../../components/TabIcons';
 import { ShieldCheckIcon, CheckDecagramIcon, ClockIcon, InstagramIcon } from '../../components/CareIcons';
 import { GlowMark } from '../../components/GlowLogo';
@@ -304,7 +305,7 @@ export function ProviderPublicProfileScreen() {
                     {s.durationMin ? `${Math.round(s.durationMin / 60 * 10) / 10}h session` : 'Session length varies'}
                   </Text>
                 </View>
-                <Text style={styles.pkgPrice}>${Math.round(s.price)}</Text>
+                <Text style={styles.pkgPrice}>{formatCurrency(s.price, { decimals: 0 })}</Text>
                 <ChevronForwardIcon size={16} color={Colors.tertiaryLabel} />
               </Pressable>
             ))}

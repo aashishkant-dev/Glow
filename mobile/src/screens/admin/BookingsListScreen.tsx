@@ -13,6 +13,7 @@ import { Booking, apiGetAllBookings } from '../../api/client';
 import { StatusBadge } from '../../components/StatusBadge';
 import { Colors, StatusColors } from '../../utils/colors';
 import { NoteIcon } from '../../components/CareIcons';
+import { formatCurrency } from '../../utils/format';
 import { CalendarSVGIcon } from '../../components/TabIcons';
 
 type StatusFilter = 'ALL' | 'REQUESTED' | 'ACCEPTED' | 'STARTED' | 'COMPLETED' | 'CANCELLED';
@@ -55,7 +56,7 @@ export function BookingsListScreen() {
           </View>
           <View style={styles.cardRight}>
             <StatusBadge status={item.status} />
-            <Text style={styles.price}>${item.totalPrice?.toFixed(0)}</Text>
+            <Text style={styles.price}>{formatCurrency(item.totalPrice ?? 0, { decimals: 0 })}</Text>
           </View>
         </View>
         <View style={[styles.cardBottom, { flexDirection: 'row', alignItems: 'center', gap: 6 }]}>

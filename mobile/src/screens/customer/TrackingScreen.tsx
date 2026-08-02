@@ -27,6 +27,7 @@ import { RatingModal } from '../../components/RatingModal';
 
 import { OSMMap, OSMMarker } from '../../components/OSMMap';
 import { DEFAULT_REGION_NAME } from '../../utils/region';
+import { formatCurrency } from '../../utils/format';
 
 declare global { interface Window { L: any } }
 
@@ -535,7 +536,7 @@ export function TrackingScreen() {
                     <View style={styles.bookingDetailLeft}>
                       <Text style={styles.detailLabel}>Total</Text>
                     </View>
-                    <Text style={[styles.detailValue, styles.priceValue]}>${booking.totalPrice?.toFixed(2)}</Text>
+                    <Text style={[styles.detailValue, styles.priceValue]}>{formatCurrency(booking.totalPrice ?? 0)}</Text>
                   </View>
                 </View>
               </View>

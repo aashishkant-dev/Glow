@@ -11,6 +11,7 @@ import { Colors } from '../../utils/colors';
 import { StatusBadge } from '../../components/StatusBadge';
 import { NoteIcon, EarningsIcon, ClockIcon, KeyIcon, PhoneMobileIcon } from '../../components/CareIcons';
 import { CheckCircleIcon, HourglassIcon } from '../../components/TabIcons';
+import { formatCurrency } from '../../utils/format';
 
 type IconComp = (p: { size?: number; color?: string }) => React.ReactElement;
 
@@ -203,7 +204,7 @@ export function BookingsScreen() {
       {([
         [NoteIcon, String(bookings.length),              'Bookings'],
         [CheckCircleIcon, String(completedBookings.length), 'Completed'],
-        [EarningsIcon, `$${totalSpent}`,                    'Spent'],
+        [EarningsIcon, formatCurrency(totalSpent),                    'Spent'],
         [ClockIcon, `${totalHours}h`,                        'Hours'],
       ] as [IconComp, string, string][]).map(([Icon, val, label]) => (
         <View key={label} style={styles.statCell}>

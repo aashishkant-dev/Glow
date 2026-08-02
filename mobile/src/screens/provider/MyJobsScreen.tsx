@@ -10,6 +10,7 @@ import { JobCardSkeleton } from '../../components/SkeletonLoader';
 import { Colors } from '../../utils/colors';
 import { Radius, Spacing, Typography } from '../../utils/theme';
 import { FindJobsIcon } from '../../components/CareIcons';
+import { formatCurrency } from '../../utils/format';
 
 // ── Active job status label ────────────────────────────────────────────────────
 function activeStatusLabel(status: string): string {
@@ -79,7 +80,7 @@ function ActiveJobHero({ job, onPress }: { job: Booking; onPress: () => void }) 
         {/* Right: earnings + CTA */}
         <View style={heroStyles.right}>
           <Text style={heroStyles.earningsLabel}>You earn</Text>
-          <Text style={heroStyles.earningsAmount}>${job.totalPrice?.toFixed(0)}</Text>
+          <Text style={heroStyles.earningsAmount}>{formatCurrency(job.totalPrice ?? 0, { decimals: 0 })}</Text>
           <View style={heroStyles.ctaBtn}>
             <Text style={heroStyles.ctaBtnText}>Continue</Text>
             <Text style={heroStyles.ctaArrow}>→</Text>
@@ -203,7 +204,7 @@ function PayoutBadge({ job }: { job: Booking }) {
   const released = job.paymentStatus === 'RELEASED';
   return (
     <View style={payoutStyles.badge}>
-      <Text style={payoutStyles.net}>You earned ${job.providerPayout.toFixed(0)}</Text>
+      <Text style={payoutStyles.net}>You earned {formatCurrency(job.providerPayout, { decimals: 0 })}</Text>
       {released
         ? <View style={payoutStyles.released}><Text style={payoutStyles.releasedTxt}>Released</Text></View>
         : <View style={payoutStyles.pending}><Text style={payoutStyles.pendingTxt}>Pending</Text></View>}
@@ -400,12 +401,12 @@ export function MyJobsScreen() {
         {/* ── Earnings strip ── */}
         <View style={styles.earningsStrip}>
           <View style={styles.earningsItem}>
-            <Text style={styles.earningsAmount}>${totalEarned.toFixed(0)}</Text>
+            <Text style={styles.earningsAmount}>{formatCurrency(totalEarned, { decimals: 0 })}</Text>
             <Text style={styles.earningsLabel}>Earned</Text>
           </View>
           <View style={styles.earningsDivider} />
           <View style={styles.earningsItem}>
-            <Text style={[styles.earningsAmount, { color: '#FCD34D' }]}>${pendingRelease.toFixed(0)}</Text>
+            <Text style={[styles.earningsAmount, { color: '#FCD34D' }]}>{formatCurrency(pendingRelease, { decimals: 0 })}</Text>
             <Text style={styles.earningsLabel}>Pending</Text>
           </View>
           <View style={styles.earningsDivider} />

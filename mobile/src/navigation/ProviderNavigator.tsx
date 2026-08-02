@@ -31,6 +31,7 @@ import { HomeIcon, CameraIcon, PersonIcon } from '../components/TabIcons';
 import { BellIcon } from '../components/CareIcons';
 import { useNavigation } from '@react-navigation/native';
 import { DEFAULT_REGION_NAME } from '../utils/region';
+import { formatCurrency } from '../utils/format';
 
 // Profile tab shows the artist's own uploaded photo instead of a generic
 // person glyph, once they have one — matches how every competitor app (and
@@ -175,7 +176,7 @@ function ProviderJobNotifier() {
           // Browser desktop notification
           if (Platform.OS === 'web' && typeof window !== 'undefined' && 'Notification' in window) {
             if (Notification.permission === 'granted') {
-              new Notification(`New job nearby — $${j.totalPrice}`, {
+              new Notification(`New job nearby — ${formatCurrency(j.totalPrice)}`, {
                 body: `${j.serviceType} · ${j.hours}h · ${j.address || DEFAULT_REGION_NAME}`,
                 icon: '/icon-192.png',
                 tag: `job-${j._id}`,
@@ -186,7 +187,7 @@ function ProviderJobNotifier() {
           }
           // Native push notification
           scheduleLocal(
-            `New job nearby — $${j.totalPrice}`,
+            `New job nearby — ${formatCurrency(j.totalPrice)}`,
             `${j.serviceType} · ${j.hours}h · ${j.address || DEFAULT_REGION_NAME}`,
             { type: 'job', bookingId: j._id },
           );
