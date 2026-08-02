@@ -169,6 +169,10 @@ export function HomeScreen() {
   const [catalogPrices, setCatalogPrices] = useState<Record<string, number>>({});
   const [showMatch, setShowMatch] = useState(false);
   const [openLook, setOpenLook] = useState<Look | null>(null);
+  // Category grid defaults to scheduling ahead; "Now" lets a customer book
+  // the tapped category for on-demand/next-available instead, without
+  // needing to go through Find My Glow for the common "book right now" case.
+  const [categoryWhen, setCategoryWhen] = useState<'now' | 'later'>('later');
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const fadeIn = useRef(new Animated.Value(0)).current;
 
@@ -295,7 +299,11 @@ export function HomeScreen() {
 
   function openCategory(c: typeof CATEGORIES[number]) {
     tapLight();
-    nav.navigate('NewBooking', { serviceType: c.serviceType, bookingMode: 'scheduled', _t: Date.now() });
+    nav.navigate('NewBooking', {
+      serviceType: c.serviceType,
+      bookingMode: categoryWhen === 'now' ? 'ondemand' : 'scheduled',
+      _t: Date.now(),
+    });
   }
 
   const firstName = user?.name?.split(' ')[0] ?? 'there';
@@ -405,6 +413,22 @@ export function HomeScreen() {
           )}
 
           {/* ── Category grid — the heart of the home screen ── */}
+          <View style={styles.whenToggleRow}>
+            {(['now', 'later'] as const).map(w => {
+              const active = categoryWhen === w;
+              return (
+                <Pressable
+                  key={w}
+                  style={[styles.whenToggle, active && styles.whenToggleActive]}
+                  onPress={() => { tapLight(); setCategoryWhen(w); }}
+                >
+                  <Text style={[styles.whenToggleText, active && styles.whenToggleTextActive]}>
+                    {w === 'now' ? '⚡ Now' : '📅 Schedule'}
+                  </Text>
+                </Pressable>
+              );
+            })}
+          </View>
           <View style={styles.occGrid}>
             {CATEGORIES.map(c => (
               <Touch key={c.id} style={styles.occWrap} onPress={() => openCategory(c)}>
@@ -581,6 +605,15 @@ const styles = StyleSheet.create({
   activeDot:   { width: 9, height: 9, borderRadius: 5, backgroundColor: Colors.systemGreen },
   activeTitle: { fontSize: 14, fontFamily: Fonts.semibold, color: Colors.label },
   activeSub:   { fontSize: 12.5, color: Colors.secondaryLabel, marginTop: 2, fontFamily: Fonts.regular },
+
+  whenToggleRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 24, marginBottom: 14 },
+  whenToggle: {
+    paddingHorizontal: 15, paddingVertical: 9, borderRadius: 100,
+    backgroundColor: '#fff', borderWidth: 1, borderColor: Colors.separator,
+  },
+  whenToggleActive: { backgroundColor: Colors.label, borderColor: Colors.label },
+  whenToggleText: { fontSize: 13, fontFamily: Fonts.medium, color: Colors.secondaryLabel },
+  whenToggleTextActive: { color: '#fff' },
 
   // Category grid — two columns
   occGrid: {
