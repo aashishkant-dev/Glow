@@ -490,8 +490,14 @@ router.post(
       }
 
       // Dedicated booking: if the client requested a specific Provider, only THAT Provider
-      // may accept it. No one else can claim a booking addressed to someone else.
-      if (targetBooking.providerId && targetBooking.providerId !== req.user.id) {
+      // may accept it — UNLESS it's been opened to the pool (the original Provider
+      // didn't respond in time, or declined; see requestTimeoutSweep.js). Once
+      // openToPool is true, any Provider seeing it in Find Jobs must actually be
+      // able to accept it — before this fix, GET /jobs/nearby correctly listed
+      // these as open, but every accept attempt from a different Provider always
+      // 403'd here regardless of openToPool, a permanent dead end that looked
+      // like "I can see jobs but can't accept them."
+      if (targetBooking.providerId && targetBooking.providerId !== req.user.id && !targetBooking.openToPool) {
         return res.status(403).json({ error: 'This booking was requested for a different Provider.' });
       }
 

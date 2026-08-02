@@ -169,4 +169,36 @@ describe('POST /jobs/:id/accept — atomic claim race condition', () => {
     expect(res.status).toBe(404);
     expect(mockBookingRow.providerId).toBe(PROVIDER_A.id);
   });
+
+  test('a different Provider CAN accept a dedicated job once it is opened to the pool', async () => {
+    // requestTimeoutSweep.js sets openToPool=true but deliberately keeps the
+    // original providerId (so that Provider's own inbox still shows it). A
+    // different Provider seeing it in Find Jobs must actually be able to
+    // accept — this was the real bug: the providerId-mismatch guard fired
+    // regardless of openToPool, so every such accept 403'd forever.
+    mockBookingRow.providerId = PROVIDER_A.id;
+    mockBookingRow.openToPool = true;
+    mockBookingRow.status = 'REQUESTED';
+
+    const res = await request(app)
+      .post(`/jobs/${mockBookingRow.id}/accept`)
+      .set('Authorization', `Bearer ${tokenFor(PROVIDER_B)}`);
+
+    expect(res.status).toBe(200);
+    expect(mockBookingRow.status).toBe('ACCEPTED');
+    expect(mockBookingRow.providerId).toBe(PROVIDER_B.id);
+  });
+
+  test('a different Provider still CANNOT accept a dedicated job that is NOT open to the pool', async () => {
+    mockBookingRow.providerId = PROVIDER_A.id;
+    mockBookingRow.openToPool = false;
+    mockBookingRow.status = 'REQUESTED';
+
+    const res = await request(app)
+      .post(`/jobs/${mockBookingRow.id}/accept`)
+      .set('Authorization', `Bearer ${tokenFor(PROVIDER_B)}`);
+
+    expect(res.status).toBe(403);
+    expect(mockBookingRow.providerId).toBe(PROVIDER_A.id);
+  });
 });
