@@ -317,7 +317,7 @@ model Booking {
   lng                   Float
   address               String        @default("")
 
-  price                 Decimal       @db.Decimal(10,2)  // CAD — exposed as totalPrice in API responses
+  price                 Decimal?      @db.Decimal(10,2)  // CAD — exposed as totalPrice in API responses. Null until an artist's real price applies (open-pool bookings price at accept time; artists always control price, no platform fallback).
   notes                 String        @default("")
   ratingGiven           Boolean       @default(false)
   cancelledBy           String?       // 'CUSTOMER' | 'Provider' | 'ADMIN'
@@ -359,6 +359,7 @@ model Booking {
   updatedAt             DateTime      @updatedAt
 
   messages              Message[]
+  services              BookingService[]
 
   @@index([customerId, status])
   @@index([providerId, status])
@@ -371,6 +372,29 @@ model Booking {
   @@index([customerId, scheduledAt(sort: Desc)])
   @@index([openToPool, status, scheduledAt])        // pool job surfacing query
   @@index([status, openToPool])                     // admin dashboard filters
+}
+
+// One line item per service in a booking. EVERY booking has >= 1 row here,
+// single-service or multi — there is one creation path, no "is this multi"
+// special-casing. Booking.serviceType/price/hours remain denormalized
+// summaries of these rows, computed once at creation, so every pre-existing
+// read site of those three fields keeps working untouched.
+model BookingService {
+  id            String   @id @default(cuid())
+  bookingId     String
+  booking       Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  // Nullable + SetNull like ProviderService.serviceItemId: a catalog entry can
+  // be retired without destroying the historical record of what was booked.
+  // `name` and `price` are denormalized precisely so history survives that.
+  serviceItemId String?
+  serviceItem   ServiceItem? @relation(fields: [serviceItemId], references: [id], onDelete: SetNull)
+  name          String   // denormalized display name, matches ProviderService.name
+  price         Decimal  @db.Decimal(10,2)
+  durationMin   Int
+  createdAt     DateTime @default(now())
+
+  @@index([bookingId])
+  @@index([serviceItemId])
 }
 
 model Document {
@@ -610,6 +634,7 @@ model ServiceItem {
   active           Boolean           @default(true)
   sortOrder        Int               @default(0)
   providerServices ProviderService[]
+  bookingServices  BookingService[]
 
   createdAt        DateTime          @default(now())
   updatedAt        DateTime          @updatedAt
