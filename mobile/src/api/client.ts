@@ -203,14 +203,16 @@ export function apiUpdateProviderLocationSettings(payload: {
 // ─── Customer ─────────────────────────────────────────────────────────────────
 
 export function apiCreateBooking(payload: {
-  serviceType: string;
-  hours: number;
+  // Multi-service bundle for ONE booking on ONE date. Multi-date bookings send
+  // one call per date, each carrying this same bundle — see CreateBookingScreen.
+  services: { name: string; serviceItemId?: string | null }[];
   scheduledAt: string;
   lat?: number;
   lng?: number;
   providerId?: string;
   address?: string;
   notes?: string;
+  // Negotiated offer against the SUMMED total of `services`, not per line item.
   proposedPrice?: number;
 }) {
   return request<{ booking: Booking }>('POST', '/bookings', payload);
@@ -719,12 +721,27 @@ export interface SubmittedDocument {
   documentId?: string;
 }
 
+// One service line item on a booking. Every booking has >= 1. The Booking's own
+// `serviceType`/`hours`/`totalPrice` remain denormalized summaries of these —
+// use them for compact displays, use `services` for itemized breakdowns.
+export interface BookingServiceLine {
+  _id: string;
+  serviceItemId: string | null;
+  name: string;
+  price: number;
+  durationMin: number;
+}
+
 export interface Booking {
   _id: string;
   customer: { _id: string; name: string; phone: string; rating?: number; photoUrl?: string };
   provider?: { _id: string; name: string; phone: string; rating?: number; ratingCount?: number; photoUrl?: string };
   serviceType: string;
   hours: number;
+  // Optional: only present on responses whose query included the relation
+  // (booking detail, my-bookings, my-jobs, nearby-jobs, requests, accept).
+  // Always fall back to `serviceType` when absent.
+  services?: BookingServiceLine[];
   scheduledAt: string;
   lat: number;
   lng: number;
