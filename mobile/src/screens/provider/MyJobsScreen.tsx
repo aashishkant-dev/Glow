@@ -67,7 +67,12 @@ function ActiveJobHero({ job, onPress }: { job: Booking; onPress: () => void }) 
             <LivePulseDot />
             <Text style={heroStyles.liveChipText}>LIVE · ACTIVE JOB</Text>
           </View>
-          <Text style={heroStyles.serviceType}>{job.serviceType}</Text>
+          <Text style={heroStyles.serviceType}>
+            {job.services && job.services.length > 0 ? job.services[0].name : job.serviceType}
+          </Text>
+          {job.services && job.services.length > 1 && (
+            <Text style={heroStyles.serviceExtra}>+{job.services.length - 1} more service{job.services.length > 2 ? 's' : ''}</Text>
+          )}
           <Text style={heroStyles.statusText}>{activeStatusLabel(job.status)}</Text>
         </View>
 
@@ -156,6 +161,7 @@ const heroStyles = StyleSheet.create({
     marginBottom: 4,
     letterSpacing: -0.3,
   },
+  serviceExtra: { fontSize: 12, fontWeight: '600', color: 'rgba(255,255,255,0.75)', marginTop: 1 },
   statusText: {
     fontSize: 12,
     color: 'rgba(255,255,255,0.72)',

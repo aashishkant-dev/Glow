@@ -443,6 +443,37 @@ export function JobDetailScreen() {
           </View>
         )}
 
+        {/* ── Services ── */}
+        {/* Additive: the hero still shows the `serviceType` summary string
+            above. This section itemizes what was actually requested, with
+            this artist's own per-line quote. Absent on older bookings that
+            predate BookingService rows, or on a payload that didn't include
+            the relation — the summary line above always covers that case. */}
+        {job.services && job.services.length > 0 ? (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>SERVICES</Text>
+            <View style={styles.card}>
+              {job.services.map(svc => (
+                <View key={svc._id} style={styles.detailRow}>
+                  <View style={styles.serviceLineLeft}>
+                    <ServiceIcon serviceType={svc.name} size={16} color={Colors.brand} bubble={false} />
+                    <Text style={styles.detailLabel}>{svc.name}</Text>
+                  </View>
+                  <Text style={styles.detailValue}>
+                    ${svc.price} · {svc.durationMin}m
+                  </Text>
+                </View>
+              ))}
+              <View style={styles.detailRow}>
+                <Text style={[styles.detailLabel, styles.serviceTotalLabel]}>You earn</Text>
+                <Text style={[styles.detailValue, styles.serviceTotalValue]}>
+                  ${job.totalPrice ?? '—'}
+                </Text>
+              </View>
+            </View>
+          </View>
+        ) : null}
+
         {/* ── Schedule ── */}
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>SCHEDULE</Text>
@@ -810,6 +841,9 @@ const styles = StyleSheet.create({
   },
   detailLabel: { fontSize: 14, color: Colors.secondaryLabel },
   detailValue: { fontSize: 14, fontWeight: '600', color: Colors.label, flex: 1, textAlign: 'right' },
+  serviceLineLeft:   { flexDirection: 'row', alignItems: 'center', gap: 8, flexShrink: 1 },
+  serviceTotalLabel: { fontWeight: '700', color: Colors.label },
+  serviceTotalValue: { fontWeight: '800', fontSize: 16, color: Colors.brand },
   notesCard: { flexDirection: 'row', gap: 12, alignItems: 'flex-start' },
   notesText: { flex: 1, fontSize: 14, color: Colors.label, lineHeight: 22 },
 
