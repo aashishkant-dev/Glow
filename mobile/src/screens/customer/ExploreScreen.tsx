@@ -6,6 +6,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
 import { Colors, Fonts } from '../../utils/colors';
@@ -281,7 +282,7 @@ export function ExploreScreen() {
             </View>
           )}
         </ScrollView>
-      ) : (
+      ) : tab === 'Artists' ? (
         /* ── Artists tab ── */
         <View style={{ flex: 1 }}>
           {/* Sort control — applies within each section below */}
@@ -322,6 +323,75 @@ export function ExploreScreen() {
                   </ScrollView>
                 </View>
               ))}
+            </ScrollView>
+          )}
+        </View>
+      ) : (
+        /* ── Posts tab ── */
+        <View style={{ flex: 1 }}>
+          <View style={styles.chipBar}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={{ width: '100%' }}>
+              {(['top', 'recent'] as PostSort[]).map(s => {
+                const active = postSort === s;
+                return (
+                  <Pressable key={s} style={[styles.sortChip, active && styles.chipActive]} onPress={() => { tapLight(); setPostSort(s); }}>
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>{s === 'top' ? 'Top' : 'Recent'}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+          <View style={styles.chipBar}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={{ width: '100%' }}>
+              {(['All', ...CATEGORIES.map(c => c.id)] as PostCategoryFilter[]).map(f => {
+                const active = postCategory === f;
+                const label = f === 'All' ? 'All' : CATEGORIES.find(c => c.id === f)!.name;
+                return (
+                  <Pressable key={f} style={[styles.chip, active && styles.chipActive]} onPress={() => { tapLight(); setPostCategory(f); }}>
+                    <Text style={[styles.chipText, active && styles.chipTextActive]}>{label}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+          </View>
+
+          {postsLoading ? (
+            <View style={styles.emptyState}>
+              <ActivityIndicator color={Colors.brand} />
+            </View>
+          ) : filteredPosts.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyStateText}>No posts yet.</Text>
+            </View>
+          ) : (
+            <ScrollView
+              showsVerticalScrollIndicator={false}
+              contentContainerStyle={{ paddingBottom: 130 }}
+              onScroll={({ nativeEvent }) => {
+                const { layoutMeasurement, contentOffset, contentSize } = nativeEvent;
+                if (layoutMeasurement.height + contentOffset.y >= contentSize.height - 400) loadMorePosts();
+              }}
+              scrollEventThrottle={200}
+            >
+              <View style={styles.postGrid}>
+                {filteredPosts.map(post => (
+                  <Pressable
+                    key={post.id}
+                    style={styles.postTile}
+                    onPress={() => nav.navigate('PostDetail', { post })}
+                  >
+                    <Image source={{ uri: post.photoUrl }} style={styles.postTileImage} contentFit="cover" cachePolicy="memory-disk" transition={150} />
+                    <View style={styles.postTileLikeBadge}>
+                      <Text style={styles.postTileLikeText}>♥ {post.likeCount}</Text>
+                    </View>
+                  </Pressable>
+                ))}
+              </View>
+              {postsLoadingMore && (
+                <View style={{ paddingVertical: 20 }}>
+                  <ActivityIndicator color={Colors.brand} />
+                </View>
+              )}
             </ScrollView>
           )}
         </View>
@@ -399,4 +469,21 @@ const styles = StyleSheet.create({
     fontSize: 17, fontFamily: Fonts.bold, color: Colors.label,
     paddingHorizontal: 24, marginBottom: 10,
   },
+
+  postGrid: {
+    flexDirection: 'row', flexWrap: 'wrap',
+    paddingHorizontal: 24, gap: 10, marginTop: 4,
+  },
+  postTile: {
+    width: '47%', aspectRatio: 1,
+    borderRadius: 16, overflow: 'hidden',
+    backgroundColor: Colors.brandLight,
+  },
+  postTileImage: { width: '100%', height: '100%' },
+  postTileLikeBadge: {
+    position: 'absolute', bottom: 8, right: 8,
+    backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 100,
+    paddingHorizontal: 8, paddingVertical: 4,
+  },
+  postTileLikeText: { color: '#fff', fontSize: 11.5, fontFamily: Fonts.semibold },
 });
