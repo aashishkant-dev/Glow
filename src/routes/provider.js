@@ -40,13 +40,23 @@ function providerPayoutFor(price) {
 // send price/platformFee so the app cannot show the gross charge or our cut.
 function formatBooking(b) {
   if (!b) return b;
-  const { price, platformFee, id, customer, provider, ...rest } = b;
+  const { price, platformFee, id, customer, provider, services, ...rest } = b;
   const payout = toNum(b.providerPayout != null ? b.providerPayout : providerPayoutFor(toNum(price)));
   return {
     ...rest,
     _id:          id,
     providerPayout:    payout,
     totalPrice:   payout, // back-compat alias: legacy UI reads totalPrice — now = payout, never gross
+    // Per-line service items — the artist's OWN quoted price per service.
+    // `price`/`platformFee` stay destructured out above: a provider never sees
+    // the gross charge or the platform cut, only their per-line quote and payout.
+    services:     services ? services.map(s => ({
+      _id:           s.id,
+      serviceItemId: s.serviceItemId ?? null,
+      name:          s.name,
+      price:         toNum(s.price),
+      durationMin:   s.durationMin,
+    })) : undefined,
     tipAmount:    toNum(rest.tipAmount),
     ratingValue:  toNum(rest.ratingValue),
     providerRatingValue: toNum(rest.providerRatingValue),
@@ -266,7 +276,10 @@ router.get(
           lat: { gte: providerLat - latDelta, lte: providerLat + latDelta },
           lng: { gte: providerLng - lngDelta, lte: providerLng + lngDelta },
         },
-        include: { customer: { select: { id: true, name: true, phone: true, rating: true, photoUrl: true } } },
+        include: {
+          customer: { select: { id: true, name: true, phone: true, rating: true, photoUrl: true } },
+          services: { select: { id: true, serviceItemId: true, name: true, price: true, durationMin: true } },
+        },
         take: 200, // hard cap — bounding box should already be tight
       });
 
@@ -281,7 +294,10 @@ router.get(
         where: {
           AND: [poolWhere, { lat: 0, lng: 0 }],
         },
-        include: { customer: { select: { id: true, name: true, phone: true, rating: true, photoUrl: true } } },
+        include: {
+          customer: { select: { id: true, name: true, phone: true, rating: true, photoUrl: true } },
+          services: { select: { id: true, serviceItemId: true, name: true, price: true, durationMin: true } },
+        },
         take: 50,
       });
 
@@ -312,7 +328,7 @@ router.get(
             const aEnd   = aStart + active.hours * 3600 * 1000;
             return aStart < jobEnd && aEnd > jobStart;
           });
-          const { price, platformFee, id, customer, provider, ...rest } = b;
+          const { price, platformFee, id, customer, provider, services, ...rest } = b;
           // Open-pool job (price still null — no artist has claimed it yet): show
           // THIS viewing Provider's own quote for the service, not a stale/zero
           // number — the price only actually locks in when they accept.
@@ -323,6 +339,13 @@ router.get(
             _id:        id,
             providerPayout:  payout,
             totalPrice: payout, // alias = payout; never expose gross to Provider
+            services:   services ? services.map(s => ({
+              _id:           s.id,
+              serviceItemId: s.serviceItemId ?? null,
+              name:          s.name,
+              price:         toNum(s.price),
+              durationMin:   s.durationMin,
+            })) : undefined,
             hasConflict,
             customer:   customer ? { ...customer, _id: customer.id, rating: toNum(customer.rating) } : undefined,
             provider:        provider      ? { ...provider,      _id: provider.id,      rating: toNum(provider.rating)      } : undefined,
@@ -370,12 +393,15 @@ router.get(
         orderBy: { scheduledAt: 'asc' },
         // Include the customer's stored coords so we can still show distance for
         // older bookings that were created without booking.lat/lng.
-        include: { customer: { select: { id: true, name: true, phone: true, rating: true, ratingCount: true, photoUrl: true, lat: true, lng: true } } },
+        include: {
+          customer: { select: { id: true, name: true, phone: true, rating: true, ratingCount: true, photoUrl: true, lat: true, lng: true } },
+          services: { select: { id: true, serviceItemId: true, name: true, price: true, durationMin: true } },
+        },
         take:    100,
       });
 
       const bookings = requested.map(b => {
-        const { price, platformFee, id, customer, provider, ...rest } = b;
+        const { price, platformFee, id, customer, provider, services, ...rest } = b;
         // Client position: prefer the booking's own coords, else the customer's
         // stored location. Distance only when both Provider + client coords are real.
         const cLat = (b.lat && b.lat !== 0) ? b.lat : (customer?.lat && customer.lat !== 0 ? customer.lat : null);
@@ -392,6 +418,13 @@ router.get(
           _id:        id,
           providerPayout:  payout,
           totalPrice: payout, // alias = payout; never expose gross to Provider
+          services:   services ? services.map(s => ({
+            _id:           s.id,
+            serviceItemId: s.serviceItemId ?? null,
+            name:          s.name,
+            price:         toNum(s.price),
+            durationMin:   s.durationMin,
+          })) : undefined,
           distanceKm,
           customer:   safeCustomer,
         };
@@ -529,6 +562,7 @@ router.post(
       // Dedicated bookings already carry the requested artist's real price
       // from creation time and are left untouched.
       let priceUpdate = {};
+      let repriceLines = null;
       if (targetBooking.price == null) {
         const listedPrice = await listedPriceFor(targetBooking.serviceType, targetBooking.hours, req.user.id);
         if (listedPrice == null) {
@@ -536,6 +570,11 @@ router.post(
         }
         const { platformFee, providerPayout } = computeFees(listedPrice);
         priceUpdate = { price: listedPrice, platformFee, providerPayout };
+        // The booking's line items were written at request time with price 0 —
+        // no artist existed then, so no menu price existed either. Now that
+        // THIS artist has claimed it, stamp their real price onto the line so
+        // the itemized job view doesn't show $0 next to a real payout.
+        repriceLines = listedPrice;
       }
 
       // Atomic claim: updateMany's `where` (not just its `data`) carries the
@@ -556,11 +595,21 @@ router.post(
         return res.status(409).json({ error: 'This job was just claimed by another Provider.' });
       }
 
+      if (repriceLines != null) {
+        // Open-pool bookings carry exactly one line item (see POST /bookings),
+        // so the whole listed price belongs to that single line.
+        await prisma.bookingService.updateMany({
+          where: { bookingId: req.params.id },
+          data:  { price: repriceLines },
+        });
+      }
+
       const booking = await prisma.booking.findUnique({
         where: { id: req.params.id },
         include: {
           customer: { select: { id: true, name: true, phone: true, address: true, photoUrl: true } },
           provider:      { select: { id: true, name: true, phone: true, photoUrl: true } },
+          services: { select: { id: true, serviceItemId: true, name: true, price: true, durationMin: true } },
         },
       });
 
@@ -932,6 +981,7 @@ router.get(
         orderBy: { scheduledAt: 'desc' },
         include: {
           customer: { select: { id: true, name: true, phone: true, rating: true, address: true, photoUrl: true } },
+          services: { select: { id: true, serviceItemId: true, name: true, price: true, durationMin: true } },
         },
       });
 
