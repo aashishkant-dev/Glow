@@ -129,6 +129,13 @@ export type SelectedService = {
   serviceItemId?: string | null;
 };
 
+// Seed/demo artists (Explore's curated showcase) carry no real backend account.
+// Single definition shared by the Services-step empty state and handleBook's
+// submit guard so the two can never disagree about what counts as a demo.
+function isSeedProvider(provider: { _id: string } | null): boolean {
+  return !!provider && String(provider._id).startsWith('seed-');
+}
+
 // ─── Provider pricing helpers ──────────────────────────────────────────────
 // Per-service catalog pricing is the primary (and normally only) model — every
 // bookable service has a real price from the platform catalog or the Artist's
@@ -143,11 +150,37 @@ function providerServicePrice(provider: { services?: { name: string; price: numb
   return null;
 }
 
-function providerHourlyRate(provider: { services?: { name: string; price: number }[] } | null, serviceType?: string): number {
+// The "From $X" figure on map pins and near-me cards — the cheapest thing this
+// artist can actually be booked for, mirroring how artistMenu prices them:
+//   PER_SERVICE — the lowest price on their published menu.
+//   HOURLY      — their hourly rate (every service bills as one hour).
+// Passing a serviceType asks for that specific service's price instead.
+// FALLBACK_RATE applies only when an artist has neither a rate nor a menu; it
+// is a last-resort placeholder, not a pricing model.
+function providerHourlyRate(
+  provider: {
+    services?: { name: string; price: number }[];
+    pricingModel?: 'PER_SERVICE' | 'HOURLY';
+    hourlyRate?: number;
+  } | null,
+  serviceType?: string,
+): number {
   if (serviceType) {
     const svcPrice = providerServicePrice(provider, serviceType);
     if (svcPrice != null) return svcPrice;
   }
+
+  if (provider?.pricingModel !== 'PER_SERVICE' && provider?.hourlyRate != null && provider.hourlyRate > 0) {
+    return provider.hourlyRate;
+  }
+
+  const prices = (provider?.services ?? []).map(s => s.price).filter(p => p > 0);
+  if (prices.length > 0) return Math.min(...prices);
+
+  // No menu either — fall back to the artist's rate even under PER_SERVICE
+  // before giving up on a real number entirely.
+  if (provider?.hourlyRate != null && provider.hourlyRate > 0) return provider.hourlyRate;
+
   return FALLBACK_RATE;
 }
 
@@ -215,6 +248,11 @@ const t = {
   servicesSub:            'Tap to add as many as you like — prices are this artist\'s own.',
   noArtistMenu:           'This artist hasn\'t published a service menu yet.',
   noArtistMenuSub:        'Pick a different artist to continue.',
+  // Seed/demo artists have no real backend account. Since Choose Artist is now
+  // the FIRST step, say so here rather than letting the generic no-menu copy
+  // send the user off to "pick a different artist" for the wrong reason.
+  demoArtistMenu:         'This is a demo artist — booking isn\'t available for them yet.',
+  demoArtistMenuSub:      'Please choose another artist.',
   summaryBarEmpty:        'Select at least one service',
   summaryBarCount:        (n: number) => `${n} service${n !== 1 ? 's' : ''}`,
   confirmServices:        'Services',
@@ -1311,16 +1349,39 @@ export function CreateBookingScreen() {
   const [selectedProvider,   setSelectedProvider]   = useState<AvailableProvider | null>(null);
   const [proposedPrice,      setProposedPrice]      = useState<string>('');
 
-  // The chosen artist's real, bookable menu. Never the hardcoded SERVICES
-  // list — that's a platform catalog, not a promise that THIS artist offers
-  // any of it. An empty menu means the artist can't be booked yet, which the
-  // Services step surfaces explicitly rather than showing an empty grid.
-  const artistMenu: SelectedService[] = React.useMemo(
-    () => (selectedProvider?.services ?? [])
+  // The chosen artist's bookable menu, which depends on their pricing model
+  // (mirrors resolveBookingServices in src/utils/bookingServices.js):
+  //
+  //   PER_SERVICE — their own published ProviderService rows. Never the
+  //     hardcoded SERVICES list; that's a platform catalog, not a promise that
+  //     THIS artist offers any of it.
+  //
+  //   HOURLY (the ProviderProfile default, and the common case) — the artist
+  //     sells time, not individually-priced named services, so there is no
+  //     catalog to list. Synthesise the menu from the platform's standard
+  //     SERVICES list, each billed as one hour at their hourlyRate. Multi-select
+  //     still works and sums normally; the backend prices it identically.
+  //
+  // An empty menu means the artist genuinely can't be booked yet (no rate and
+  // no catalog), which the Services step surfaces explicitly.
+  const artistMenu: SelectedService[] = React.useMemo(() => {
+    if (!selectedProvider) return [];
+
+    const published = (selectedProvider.services ?? [])
       .filter(s => s.price > 0)
-      .map(s => ({ name: s.name, price: s.price, durationMin: s.durationMin })),
-    [selectedProvider],
-  );
+      .map(s => ({ name: s.name, price: s.price, durationMin: s.durationMin }));
+
+    if (selectedProvider.pricingModel === 'PER_SERVICE') return published;
+
+    const rate = selectedProvider.hourlyRate;
+    if (rate != null && rate > 0) {
+      return SERVICES.map(name => ({ name, price: rate, durationMin: 60 }));
+    }
+
+    // No usable hourly rate: fall back to anything they did publish rather
+    // than dead-ending an artist who has a catalog but an unset rate.
+    return published;
+  }, [selectedProvider]);
 
   function toggleService(svc: SelectedService) {
     tapLight();
@@ -1654,7 +1715,7 @@ export function CreateBookingScreen() {
     // Seed/demo artists (Explore's curated showcase) have no real backend account —
     // submitting a booking against one would fail server-side. Block early with a
     // clear message instead of letting the user hit a confusing checkout error.
-    if (String(selectedProvider._id).startsWith('seed-')) {
+    if (isSeedProvider(selectedProvider)) {
       const msg = 'This is a demo artist — booking isn\'t available for them yet. Please choose another artist.';
       if (Platform.OS === 'web') window.alert(msg); else Alert.alert('Demo Artist', msg);
       return;
@@ -2070,8 +2131,12 @@ export function CreateBookingScreen() {
               <Text style={styles.sectionSub}>{t.servicesSub}</Text>
               {artistMenu.length === 0 ? (
                 <View style={styles.emptyBox}>
-                  <Text style={styles.emptyText}>{t.noArtistMenu}</Text>
-                  <Text style={[styles.emptyText, { fontSize: 13, marginTop: 4 }]}>{t.noArtistMenuSub}</Text>
+                  <Text style={styles.emptyText}>
+                    {isSeedProvider(selectedProvider) ? t.demoArtistMenu : t.noArtistMenu}
+                  </Text>
+                  <Text style={[styles.emptyText, { fontSize: 13, marginTop: 4 }]}>
+                    {isSeedProvider(selectedProvider) ? t.demoArtistMenuSub : t.noArtistMenuSub}
+                  </Text>
                 </View>
               ) : (
                 <View style={styles.serviceGrid}>

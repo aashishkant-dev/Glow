@@ -9,6 +9,16 @@ process.env.NODE_ENV     = 'test';
 jest.mock('../lib/prisma', () => {
   const handler = {
     get(_target, prop) {
+      // These fixtures describe an artist with a real service menu, which
+      // means pricingModel PER_SERVICE — resolveBookingServices branches on it.
+      if (prop === 'providerProfile') {
+        return {
+          findUnique: jest.fn(() => Promise.resolve({
+            pricingModel: 'PER_SERVICE',
+            hourlyRate:   { toString: () => '50.00' },
+          })),
+        };
+      }
       if (prop === 'providerService') {
         return {
           findMany: jest.fn(() => Promise.resolve([

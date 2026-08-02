@@ -59,7 +59,14 @@ jest.mock('../lib/prisma', () => {
       if (prop === 'providerProfile') {
         return {
           ...stub(),
-          findUnique: jest.fn().mockResolvedValue({ userId: 'artist1', approvedByAdmin: true, priceNegotiable: true }),
+          // pricingModel is required for resolveBookingServices to use the
+          // menu path — an artist with a ProviderService catalog is PER_SERVICE.
+          // Overridable so a test can exercise an HOURLY artist instead.
+          findUnique: jest.fn(() => Promise.resolve({
+            userId: 'artist1', approvedByAdmin: true, priceNegotiable: true,
+            pricingModel: 'PER_SERVICE', hourlyRate: { toString: () => '50.00' },
+            ...(global.__providerProfileOverride ?? {}),
+          })),
         };
       }
       if (prop === 'providerService') {
@@ -136,6 +143,39 @@ describe('POST /bookings — multi-service', () => {
     expect(data.hours).toBe(3); // 165 min -> ceil(2.75) = 3
     expect(data.providerPayout).toBe(135); // commission is 0
     expect(data.platformFee).toBe(0);
+  });
+
+  it('books an HOURLY artist end-to-end, billing each service as one hour at their rate', async () => {
+    // HOURLY is the ProviderProfile default and the majority of real artists.
+    // They have no ProviderService menu, so the menu path would 422 them —
+    // this asserts the whole route accepts and correctly prices them.
+    global.__providerProfileOverride = {
+      pricingModel: 'HOURLY',
+      hourlyRate:   { toString: () => '50.00' },
+    };
+    try {
+      const res = await request(app)
+        .post('/bookings')
+        .set('Authorization', `Bearer ${token}`)
+        .send({
+          services: [{ name: 'Makeup' }, { name: 'Hair Styling' }],
+          providerId: 'cabcdefghijklmnopqrstuvwx',
+          scheduledAt: futureISO(),
+          lat: 46.49, lng: -80.99,
+        });
+
+      expect(res.status).toBe(201);
+      const data = mockBookingCreate.mock.calls[0][0].data;
+      expect(data.services.create).toEqual([
+        { serviceItemId: null, name: 'Makeup',       price: 50, durationMin: 60 },
+        { serviceItemId: null, name: 'Hair Styling', price: 50, durationMin: 60 },
+      ]);
+      expect(data.price).toBe(100);
+      expect(data.hours).toBe(2);
+      expect(data.serviceType).toBe('Makeup +1 more');
+    } finally {
+      delete global.__providerProfileOverride;
+    }
   });
 
   it('applies a negotiated offer to the summed total, not per line item', async () => {
