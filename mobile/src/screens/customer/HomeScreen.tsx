@@ -434,7 +434,7 @@ export function HomeScreen() {
               <Touch key={c.id} style={styles.occWrap} onPress={() => openCategory(c)}>
                 <View style={[styles.occCard, { backgroundColor: c.tint }]}>
                   <View style={styles.occIcon}>
-                    <c.Icon size={40} />
+                    <c.Icon size={58} />
                   </View>
                   <Text style={styles.occName}>{c.name}</Text>
                 </View>
@@ -622,7 +622,7 @@ const styles = StyleSheet.create({
   },
   occWrap: { width: '47%', flexGrow: 1 },
   occCard: {
-    borderRadius: 24, padding: 16, minHeight: 100,
+    borderRadius: 24, padding: 18, minHeight: 148,
     justifyContent: 'flex-end', overflow: 'hidden',
     // A real border + shadow so the card reads as a distinct surface against the
     // near-white page background — the previous borderless pale-tint-on-near-white
@@ -631,12 +631,12 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 1,
   },
   occIcon: {
-    width: 60, height: 60, borderRadius: 30,
+    width: 84, height: 84, borderRadius: 42,
     // Illustrated icons carry their own baked-in color, so the bubble is a
     // near-white surface that lifts them off the card's pastel tint.
-    backgroundColor: 'rgba(255,255,255,0.75)',
+    backgroundColor: 'rgba(255,255,255,0.8)',
     alignItems: 'center', justifyContent: 'center',
-    marginBottom: 12,
+    marginBottom: 14,
   },
 
   occName: { fontSize: 15.5, fontFamily: Fonts.semibold, color: Colors.label },
