@@ -1305,7 +1305,6 @@ export function CreateBookingScreen() {
   const address = [street.trim(), unit.trim() ? `Unit ${unit.trim()}` : '', city.trim(), postal.trim().toUpperCase()]
     .filter(Boolean)
     .join(', ');
-  const [hours,         setHours]         = useState(3);
   const [selectedDates, setSelectedDates] = useState<Date[]>([]);
   const [startHour,     setStartHour]     = useState(9);
   const [providers,          setProviders]          = useState<AvailableProvider[]>([]);
@@ -1688,6 +1687,9 @@ export function CreateBookingScreen() {
     }
 
     if (bookingMode === 'scheduled' && selectedDates.length === 0) return;
+    // canNext already gates this, but handleBook is also invoked directly from
+    // the phone-verification sheet's onVerified callback, which bypasses it.
+    if (selectedServices.length === 0) return;
     setLoading(true);
     try {
       // Geocode the manually-entered address → coords for the booking's map.
@@ -1713,23 +1715,27 @@ export function CreateBookingScreen() {
         datesToBook = selectedDates;
       }
 
-      // Create one booking per selected date in parallel
+      // Create one booking per selected date in parallel. Multi-service is
+      // ADDITIVE to multi-date: each date still gets exactly one booking, that
+      // booking just carries the full service bundle instead of a single
+      // service. N dates × M services = N bookings, each with M BookingService
+      // rows — the loop shape is unchanged.
       const results = await Promise.allSettled(
         datesToBook.map(date => {
           const scheduledAt = bookingMode === 'ondemand'
             ? date
             : (() => { const d = new Date(date); d.setHours(startHour, 0, 0, 0); return d; })();
           return apiCreateBooking({
-            serviceType,
-            hours,
+            services: selectedServices.map(s => ({ name: s.name, serviceItemId: s.serviceItemId ?? null })),
             scheduledAt: scheduledAt.toISOString(),
             lat: bookingCoords?.lat,
             lng: bookingCoords?.lng,
             providerId: selectedProvider._id,
             address: address.trim(),
             // Only send a real, in-range offer — never NaN/0/negative from a
-            // malformed field, and never an out-of-±50%-range value that
-            // slipped past canNext's gate somehow.
+            // malformed field, and never an out-of-range value that slipped
+            // past canNext's gate somehow. The offer is against the SUMMED
+            // total of the bundle, applied per booking (i.e. per date).
             proposedPrice: proposedPrice.trim() !== '' && isProposedPriceValid() ? parsedProposedPrice : undefined,
           });
         })
@@ -2387,22 +2393,17 @@ export function CreateBookingScreen() {
               </View>
 
               <View style={styles.confirmCard}>
-                <ConfirmRow label={t.confirmService}  value={serviceType} />
-                {bookingMode === 'ondemand' ? (
-                  <ConfirmRow label={t.confirmWhen} value={t.confirmWhenOnDemand} />
-                ) : (
-                  <>
-                    <ConfirmRow label={t.confirmDates}     value={selectedDates.map(d => fmtShort(d, locale)).join('\n')} />
-                    <ConfirmRow label={t.confirmStartTime} value={fmtHour(startHour)} />
-                  </>
-                )}
-                <ConfirmRow label={t.confirmAddress} value={address.trim()} />
+                {/* Itemized line items — one row per selected service, then the
+                    summed total, combined duration, and computed time window. */}
+                {selectedServices.map(svc => (
+                  <ConfirmRow key={svc.name} label={svc.name} value={`$${svc.price}`} />
+                ))}
                 <View style={styles.confirmDivider} />
                 <View style={styles.confirmRow}>
                   <Text style={styles.confirmLabel}>{t.confirmEstTotal}</Text>
                   <View style={{ flex: 1, alignItems: 'flex-end' }}>
                     <Text style={[styles.confirmValue, styles.confirmValueBold]}>
-                      ${calcTotalPrice(selectedProvider, serviceType, hours, bookingMode === 'ondemand' ? 1 : Math.max(selectedDates.length, 1))}
+                      ${totalPriceOneSession * (bookingMode === 'ondemand' ? 1 : Math.max(selectedDates.length, 1))}
                     </Text>
                     {bookingMode === 'scheduled' && selectedDates.length > 1 && (
                       <Text style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>
@@ -2411,6 +2412,26 @@ export function CreateBookingScreen() {
                     )}
                   </View>
                 </View>
+                <ConfirmRow label={t.confirmDuration} value={`⏱️ ${fmtDuration(totalDurationMin)}`} />
+                <View style={styles.confirmDivider} />
+                {bookingMode === 'ondemand' ? (
+                  <ConfirmRow label={t.confirmWhen} value={t.confirmWhenOnDemand} />
+                ) : (
+                  <>
+                    <ConfirmRow label={t.confirmDates} value={selectedDates.map(d => fmtShort(d, locale)).join('\n')} />
+                    {/* One computed window per booking: start time → start +
+                        combined duration of every selected service. */}
+                    <ConfirmRow
+                      label={t.confirmWindow}
+                      value={(() => {
+                        const start = new Date(selectedDates[0] ?? new Date());
+                        start.setHours(startHour, 0, 0, 0);
+                        return `${fmtClock(start, locale)} – ${fmtClock(endTimeFor(start, totalDurationMin), locale)}`;
+                      })()}
+                    />
+                  </>
+                )}
+                <ConfirmRow label={t.confirmAddress} value={address.trim()} />
               </View>
 
               {/* Price negotiation UI — only when provider allows it */}
@@ -2427,7 +2448,7 @@ export function CreateBookingScreen() {
                         style={[styles.addressInput, { flex: 1, marginTop: 0, borderColor: '#FDE68A', backgroundColor: '#FFFBEB' }]}
                         value={proposedPrice}
                         onChangeText={setProposedPrice}
-                        placeholder={`${calcTotalPrice(selectedProvider, serviceType, hours, 1)}`}
+                        placeholder={`${totalPriceOneSession}`}
                         placeholderTextColor="#D97706"
                         keyboardType="number-pad"
                         maxLength={6}
@@ -2523,7 +2544,7 @@ export function CreateBookingScreen() {
                   {step === 4 && <KeyIcon size={16} color="#fff" />}
                   <Text style={styles.ctaBtnText}>
                     {step === 4
-                      ? t.confirmBtn(calcTotalPrice(selectedProvider, serviceType, hours, bookingMode === 'ondemand' ? 1 : Math.max(selectedDates.length, 1)))
+                      ? t.confirmBtn(totalPriceOneSession * (bookingMode === 'ondemand' ? 1 : Math.max(selectedDates.length, 1)))
                       : t.continueBtn}
                   </Text>
                 </View>
