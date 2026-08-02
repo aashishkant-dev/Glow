@@ -21,3 +21,10 @@ export const DEFAULT_REGION: RegionCoords = {
 
 export const DEFAULT_REGION_NAME: string =
   (process.env.EXPO_PUBLIC_REGION_NAME as string | undefined) || 'Greater Sudbury, ON';
+
+// ISO 4217 currency code for this deployment — one platform, one currency,
+// set at deploy time. Not per-user: this app serves a single region (see
+// module doc above), there's no country field on User, and customers/artists
+// in one booking are always in the same market.
+export const CURRENCY_CODE: string =
+  (process.env.EXPO_PUBLIC_CURRENCY as string | undefined) || 'CAD';
