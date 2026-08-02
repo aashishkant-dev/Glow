@@ -27,7 +27,7 @@ import { Colors, ServiceAccentColors } from '../../utils/colors';
 import { ServiceIcon } from '../../components/ServiceIcon';
 import { PinIcon, SearchIcon, CreditCardIcon, KeyIcon } from '../../components/CareIcons';
 import { LocationIcon } from '../../components/TabIcons';
-import { apiCreateBooking, apiGetAvailableProviders, apiNearbyProviders, AvailableProvider } from '../../api/client';
+import { apiCreateBooking, apiGetAvailableProviders, apiNearbyProviders, apiGetFavorites, AvailableProvider } from '../../api/client';
 import { useCoordsOrFallback, useLocation } from '../../context/LocationContext';
 import { OSMMap, OSMMarker } from '../../components/OSMMap';
 import { DEFAULT_REGION, DEFAULT_REGION_NAME } from '../../utils/region';
@@ -336,6 +336,8 @@ const t = {
   sortRating:             'Rating',
   sortPrice:              'Price',
   sortExperience:         'Experience',
+  savedFilter:            'Saved',
+  noSavedArtists:         'No saved artists yet — tap the heart on a profile to save one.',
   filterBtn:              'Filters',
   filtersActive:          (n: number) => `${n} filter${n !== 1 ? 's' : ''} active`,
   filtersTitle:           'Filters',
@@ -1456,6 +1458,8 @@ export function CreateBookingScreen() {
   const [filterMinRating, setFilterMinRating] = useState(0);
   const [filterServices, setFilterServices] = useState<string[]>([]);
   const [filtersVisible, setFiltersVisible] = useState(false);
+  const [favoriteIds,   setFavoriteIds]   = useState<Set<string>>(new Set());
+  const [filterSavedOnly, setFilterSavedOnly] = useState(false);
   const activeFilterCount =
     (filterVerifiedOnly ? 1 : 0) +
     (filterMinExp > 0 ? 1 : 0) +
@@ -1475,6 +1479,7 @@ export function CreateBookingScreen() {
     .filter(p => filterMinExp === 0 || (p.experienceYears ?? 0) >= filterMinExp)
     .filter(p => filterMinRating === 0 || (p.rating ?? 0) >= filterMinRating)
     .filter(p => filterServices.length === 0 || (p.specialties ?? []).some(sp => filterServices.includes(sp)))
+    .filter(p => !filterSavedOnly || favoriteIds.has(String(p._id)))
     .slice()
     .sort((a, b) => {
       if (sortBy === 'rating')     return (b.rating ?? 0) - (a.rating ?? 0);
@@ -1590,6 +1595,9 @@ export function CreateBookingScreen() {
     // Set Provider mode default based on booking mode
     setProviderMode(bookingMode === 'ondemand' ? 'near' : 'browse');
     setLoadingProviders(true);
+    apiGetFavorites()
+      .then(res => setFavoriteIds(new Set((res.providers ?? []).map(p => String(p.id)))))
+      .catch(() => setFavoriteIds(new Set()));
     Promise.all([
       apiGetAvailableProviders().catch(() => ({ count: 0, providers: [] as AvailableProvider[] })),
       apiNearbyProviders(coords.lat, coords.lng).catch(() => ({ providers: [] as any[] })),
@@ -2405,6 +2413,14 @@ export function CreateBookingScreen() {
                           </Pressable>
                         ))}
                         <Pressable
+                          style={[styles.sortChip, filterSavedOnly && styles.sortChipActive]}
+                          onPress={() => { tapLight(); setFilterSavedOnly(v => !v); }}
+                        >
+                          <Text style={[styles.sortChipText, filterSavedOnly && styles.sortChipTextActive]}>
+                            ♥ {t.savedFilter}
+                          </Text>
+                        </Pressable>
+                        <Pressable
                           style={[styles.filterChip, activeFilterCount > 0 && styles.filterChipActive]}
                           onPress={() => { tapLight(); setFiltersVisible(true); }}
                         >
@@ -2418,18 +2434,24 @@ export function CreateBookingScreen() {
                   )}
 
                   {/* Browse Profiles cards (Near Me handled above in split-screen) */}
-                  {(providerMode === 'browse' ? visibleProviders : providers).map(provider => (
-                    <BrowseProviderCard
-                      key={String(provider._id)}
-                      provider={provider}
-                      selected={selectedProvider?._id === provider._id}
-                      onSelect={() => { tapLight(); setSelectedProvider(prev => prev?._id === provider._id ? null : provider); }}
-                      onViewProfile={() => {
-                        tapLight();
-                        nav.navigate('ProviderPublicProfile', { providerId: String(provider._id), providerName: provider.name, fromBooking: true });
-                      }}
-                    />
-                  ))}
+                  {providerMode === 'browse' && filterSavedOnly && visibleProviders.length === 0 ? (
+                    <View style={styles.emptyBox}>
+                      <Text style={styles.emptyText}>{t.noSavedArtists}</Text>
+                    </View>
+                  ) : (
+                    (providerMode === 'browse' ? visibleProviders : providers).map(provider => (
+                      <BrowseProviderCard
+                        key={String(provider._id)}
+                        provider={provider}
+                        selected={selectedProvider?._id === provider._id}
+                        onSelect={() => { tapLight(); setSelectedProvider(prev => prev?._id === provider._id ? null : provider); }}
+                        onViewProfile={() => {
+                          tapLight();
+                          nav.navigate('ProviderPublicProfile', { providerId: String(provider._id), providerName: provider.name, fromBooking: true });
+                        }}
+                      />
+                    ))
+                  )}
                 </>
               )}
             </View>
