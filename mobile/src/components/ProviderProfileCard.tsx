@@ -5,6 +5,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '../utils/colors';
 import { apiGetProviderReviews } from '../api/client';
 import { tapLight } from '../utils/haptics';
+import { humanizeQualification } from '../utils/format';
 import {
   StarIcon,
   ShieldCheckIcon,
@@ -213,7 +214,7 @@ export function ProviderProfileCard({ provider, compact = false, onCall, onMessa
             </Pressable>
 
             <Text style={styles.qualification} numberOfLines={1}>
-              {provider.qualificationType || 'Provider'}  ·  {provider.experienceYears || 0}+ yrs experience
+              {humanizeQualification(provider.qualificationType) || 'Provider'}  ·  {provider.experienceYears || 0}+ yrs experience
             </Text>
           </View>
         </View>

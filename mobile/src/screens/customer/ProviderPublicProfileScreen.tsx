@@ -32,6 +32,7 @@ import { OSMMap } from '../../components/OSMMap';
 import { LocationIcon, HeartIcon } from '../../components/TabIcons';
 import { tapLight } from '../../utils/haptics';
 import { useFavorites, toggleFavorite } from '../../utils/favorites';
+import { humanizeQualification } from '../../utils/format';
 
 const { width: SCREEN_W } = Dimensions.get('window');
 const PHOTO_H = 380;
@@ -176,7 +177,7 @@ export function ProviderPublicProfileScreen() {
   const trustRows: string[] = [
     'Identity verified by Glow',
     ...(p.policeCheckCleared ? ['Background checked'] : []),
-    ...(p.qualificationType ? [`${p.qualificationType} — certificate verified`] : []),
+    ...(p.qualificationType ? [`${humanizeQualification(p.qualificationType)} — certificate verified`] : []),
     ...(p.photos.length > 0 ? ['Portfolio reviewed'] : []),
     ...(p.firstAidCertified ? ['First aid certified'] : []),
   ];
@@ -208,7 +209,7 @@ export function ProviderPublicProfileScreen() {
               {p.policeCheckCleared && <CheckDecagramIcon size={18} color={Colors.gold} />}
             </View>
             <Text style={styles.overlayQual}>
-              {p.specialties.length ? p.specialties.slice(0, 2).join(' · ') : p.qualificationType}
+              {p.specialties.length ? p.specialties.slice(0, 2).join(' · ') : humanizeQualification(p.qualificationType)}
             </Text>
             {rating > 0 && (
               <View style={{ flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 5 }}>

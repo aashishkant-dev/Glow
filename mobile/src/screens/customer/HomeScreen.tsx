@@ -37,6 +37,7 @@ import { CATEGORIES } from '../../data/categories';
 import { Storage } from '../../utils/storage';
 import { useChatUnread } from '../../context/ChatUnreadContext';
 import { tapLight } from '../../utils/haptics';
+import { humanizeQualification } from '../../utils/format';
 
 /**
  * Category-first home. Every card is a real ServiceItem grouping (see
@@ -138,7 +139,7 @@ function ArtistCard({ artist, onPress }: { artist: PublicProviderCard; onPress: 
             {artist.policeCheckCleared && <CheckDecagramIcon size={14} color={Colors.gold} />}
           </View>
           <Text style={styles.artistRole} numberOfLines={1}>
-            {artist.specialties.length ? artist.specialties.slice(0, 2).join(' · ') : artist.qualificationType}
+            {artist.specialties.length ? artist.specialties.slice(0, 2).join(' · ') : humanizeQualification(artist.qualificationType)}
           </Text>
           <View style={styles.artistMetaRow}>
             <StarIcon size={12} color={Colors.gold} filled />

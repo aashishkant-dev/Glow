@@ -23,6 +23,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { CommonActions, useNavigation, useRoute } from '@react-navigation/native';
 import DateTimePicker from '@react-native-community/datetimepicker';
 import { tapLight, tapSuccess } from '../../utils/haptics';
+import { humanizeQualification } from '../../utils/format';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, ServiceAccentColors } from '../../utils/colors';
 import { ServiceIcon } from '../../components/ServiceIcon';
@@ -475,7 +476,7 @@ function ProviderProfileModal({
               </View>
             )}
           </View>
-          <Text style={modalStyles.qual}>{provider.qualificationType}</Text>
+          <Text style={modalStyles.qual}>{humanizeQualification(provider.qualificationType)}</Text>
           {/* Stats row */}
           <View style={modalStyles.statsRow}>
             {(provider.rating ?? 0) > 0 && (
@@ -554,7 +555,7 @@ function ProviderProfileModal({
             <Text style={modalStyles.sectionTitle}>Credentials</Text>
             <View style={modalStyles.certItem}>
               <Text style={[modalStyles.certLabel, { color: '#6B7280' }]}>Qualification</Text>
-              <Text style={[modalStyles.certLabel, { marginLeft: 'auto', fontWeight: '700' }]}>{provider.qualificationType}</Text>
+              <Text style={[modalStyles.certLabel, { marginLeft: 'auto', fontWeight: '700' }]}>{humanizeQualification(provider.qualificationType)}</Text>
             </View>
             {!!provider.collegeName && (
               <View style={modalStyles.certItem}>
@@ -997,7 +998,7 @@ function BrowseProviderCard({
               </View>
             )}
           </View>
-          <Text style={styles.providerQual}>{provider.qualificationType}</Text>
+          <Text style={styles.providerQual}>{humanizeQualification(provider.qualificationType)}</Text>
           {(provider.experienceYears ?? 0) > 0 && (
             <Text style={styles.providerExp}>
               {`${provider.experienceYears} yr${(provider.experienceYears ?? 0) !== 1 ? 's' : ''} experience`}
@@ -1120,7 +1121,7 @@ function NearMeProviderCard({
               </View>
             )}
           </View>
-          <Text style={nearStyles.qual} numberOfLines={1}>{provider.qualificationType ?? 'Beauty Artist'}</Text>
+          <Text style={nearStyles.qual} numberOfLines={1}>{provider.qualificationType ? humanizeQualification(provider.qualificationType) : 'Beauty Artist'}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 5, flexWrap: 'wrap' }}>
             {provider.distanceKm != null && (
               <View style={nearStyles.distBadge}>
@@ -2512,7 +2513,7 @@ export function CreateBookingScreen() {
                 <ProviderAvatar provider={selectedProvider} size={56} borderColor={BRAND_MID + '60'} borderWidth={2} />
                 <View style={{ flex: 1, marginLeft: 14 }}>
                   <Text style={styles.confirmProviderName}>{selectedProvider.name}</Text>
-                  <Text style={styles.providerQual}>{selectedProvider.qualificationType}</Text>
+                  <Text style={styles.providerQual}>{humanizeQualification(selectedProvider.qualificationType)}</Text>
                   {(selectedProvider.rating ?? 0) > 0 && (
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 }}>
                       <StarRating rating={selectedProvider.rating} size={12} />
