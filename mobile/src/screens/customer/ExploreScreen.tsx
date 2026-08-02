@@ -4,7 +4,7 @@
  * Artists tab: horizontal-scroll rows of celebrity/seed + real artists,
  * one section per specialty, sorted by artist count (Bridal always last).
  */
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation, useRoute } from '@react-navigation/native';
@@ -13,15 +13,18 @@ import { LOOKS, LOOK_OCCASIONS, Look } from '../../data/looks';
 import { LookTile } from '../../components/LookTile';
 import { LookSheet } from '../../components/LookSheet';
 import { ArtistCard } from '../../components/ArtistCard';
-import { apiPublicCatalog, apiPublicProviders, PublicProviderCard } from '../../api/client';
+import { apiPublicCatalog, apiPublicProviders, PublicProviderCard, apiGetExplorePosts, apiLikePost, apiUnlikePost, Post } from '../../api/client';
 import { SearchIcon } from '../../components/TabIcons';
 import { tapLight } from '../../utils/haptics';
 import { SEED_ARTISTS } from '../../data/seedArtists';
 import { ExploreHeaderAvatar } from '../../components/ExploreHeaderAvatar';
+import { CATEGORIES } from '../../data/categories';
 
 type LookFilter = 'All' | typeof LOOK_OCCASIONS[number];
-type Tab = 'Looks' | 'Artists';
+type Tab = 'Looks' | 'Artists' | 'Posts';
 type ArtistSort = 'rating' | 'priceLow' | 'experience';
+type PostSort = 'top' | 'recent';
+type PostCategoryFilter = 'All' | typeof CATEGORIES[number]['id'];
 
 export function ExploreScreen() {
   const insets = useSafeAreaInsets();
@@ -36,6 +39,12 @@ export function ExploreScreen() {
   const [artistSort, setArtistSort] = useState<ArtistSort>('rating');
   const [query, setQuery] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
+  const [posts, setPosts] = useState<Post[]>([]);
+  const [postsLoading, setPostsLoading] = useState(true);
+  const [postsLoadingMore, setPostsLoadingMore] = useState(false);
+  const [postSort, setPostSort] = useState<PostSort>('top');
+  const [postCategory, setPostCategory] = useState<PostCategoryFilter>('All');
+  const [postsCursor, setPostsCursor] = useState<string | null>(null);
 
   // Home's search bar navigates here with { openSearch: true } — auto-open
   // the search field so the customer lands with it already active.
@@ -64,6 +73,36 @@ export function ExploreScreen() {
       .catch(() => {})
       .finally(() => setArtistsLoading(false));
   }, []);
+
+  useEffect(() => {
+    setPostsLoading(true);
+    apiGetExplorePosts(postSort)
+      .then(({ posts: data, nextCursor }) => {
+        setPosts(data);
+        setPostsCursor(nextCursor);
+      })
+      .catch(() => {})
+      .finally(() => setPostsLoading(false));
+  }, [postSort]);
+
+  const filteredPosts = useMemo(() => {
+    if (postCategory === 'All') return posts;
+    const cat = CATEGORIES.find(c => c.id === postCategory);
+    if (!cat) return posts;
+    return posts.filter(p => p.service?.name === cat.serviceType);
+  }, [posts, postCategory]);
+
+  const loadMorePosts = useCallback(() => {
+    if (postsLoadingMore || !postsCursor) return;
+    setPostsLoadingMore(true);
+    apiGetExplorePosts(postSort, postsCursor)
+      .then(({ posts: data, nextCursor }) => {
+        setPosts(prev => [...prev, ...data]);
+        setPostsCursor(nextCursor);
+      })
+      .catch(() => {})
+      .finally(() => setPostsLoadingMore(false));
+  }, [postSort, postsCursor, postsLoadingMore]);
 
   const looks = useMemo(
     () => (lookFilter === 'All' ? LOOKS : LOOKS.filter(l => l.occasion === lookFilter)),
@@ -171,7 +210,7 @@ export function ExploreScreen() {
       <View style={[styles.header, { paddingTop: insets.top + 14 }]}>
         <ExploreHeaderAvatar />
         <View style={styles.headerTitleGroup}>
-          <Text style={styles.igTitle}>{tab === 'Looks' ? 'Explore' : 'Artists near you'}</Text>
+          <Text style={styles.igTitle}>{tab === 'Looks' ? 'Explore' : tab === 'Artists' ? 'Artists near you' : 'Posts'}</Text>
         </View>
         <Pressable onPress={() => { tapLight(); setSearchOpen(o => { if (o) setQuery(''); return !o; }); }} style={styles.headerIconBtn} hitSlop={8}>
           <SearchIcon size={20} color={Colors.label} />
@@ -180,7 +219,7 @@ export function ExploreScreen() {
 
       {/* Tab toggle */}
       <View style={styles.tabBar}>
-        {(['Looks', 'Artists'] as Tab[]).map(t => {
+        {(['Looks', 'Artists', 'Posts'] as Tab[]).map(t => {
           const active = tab === t;
           return (
             <Pressable key={t} style={[styles.tabPill, active && styles.tabPillActive]} onPress={() => { tapLight(); setTab(t); }}>
