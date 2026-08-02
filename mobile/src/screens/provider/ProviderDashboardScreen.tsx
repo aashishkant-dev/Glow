@@ -447,7 +447,7 @@ export function ProviderDashboardScreen() {
             ]).map(a => (
               <Pressable key={a.label} style={({ pressed }) => [styles.quickCard, pressed && { opacity: 0.85, transform: [{ scale: 0.98 }] }]} onPress={a.go}>
                 <View style={[styles.quickIconBubble, { backgroundColor: a.bg }]}>
-                  <a.Icon size={28} />
+                  <a.Icon size={38} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.quickLabel} numberOfLines={1}>{a.label}</Text>
@@ -749,7 +749,7 @@ const styles = StyleSheet.create({
     shadowColor: Colors.label, shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.04, shadowRadius: 4, elevation: 1,
   },
   quickIconBubble: {
-    width: 44, height: 44, borderRadius: 13,
+    width: 56, height: 56, borderRadius: 16,
     alignItems: 'center', justifyContent: 'center',
   },
   quickLabel: { fontSize: 13, fontWeight: '800', color: Colors.label },
