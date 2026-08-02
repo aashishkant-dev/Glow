@@ -11,20 +11,27 @@ import { GlowSheet } from './GlowSheet';
 import { Colors, Fonts } from '../utils/colors';
 import { apiPublicProviders, PublicProviderCard } from '../api/client';
 import { StarIcon, ChevronBackIcon, ChevronForwardIcon } from './TabIcons';
+import { SparkleIcon } from './BeautyIcons';
 import {
-  CrownIcon, SparkleIcon, LipstickIcon, HennaIcon, MirrorIcon, FacialIcon,
-} from './BeautyIcons';
+  HairdryerIcon, NailPolishIcon, ThreadNeedleIcon, WaxWarmerIcon, LipstickBrushIcon,
+  FacialProfileIcon, BrideProfileIcon, HennaConeIcon, MassageHandsIcon,
+} from './IllustratedIcons';
 import { tapLight, tapSuccess } from '../utils/haptics';
 
 type IconComp = (p: { size?: number; color?: string }) => React.ReactElement;
 
+// Service picker — mirrors Home's CATEGORIES so Glow Match asks "what service"
+// instead of the old occasion framing, using the same illustrated icon set.
 const OCCASIONS: { id: string; label: string; Icon: IconComp; serviceType: string; keywords: string[] }[] = [
-  { id: 'wedding',  label: 'Wedding',    Icon: CrownIcon,    serviceType: 'Bridal Makeup', keywords: ['bridal', 'wedding'] },
-  { id: 'party',    label: 'Party',      Icon: SparkleIcon,  serviceType: 'Party Makeup',  keywords: ['party', 'glam'] },
-  { id: 'birthday', label: 'Birthday',   Icon: SparkleIcon,  serviceType: 'Party Makeup',  keywords: ['party', 'glam'] },
-  { id: 'date',     label: 'Date Night', Icon: LipstickIcon, serviceType: 'Makeup',        keywords: ['makeup', 'natural'] },
-  { id: 'festival', label: 'Festival',   Icon: HennaIcon,    serviceType: 'Mehendi',       keywords: ['mehendi', 'henna', 'festival'] },
-  { id: 'office',   label: 'Office',     Icon: MirrorIcon,   serviceType: 'Makeup',        keywords: ['makeup', 'natural', 'minimal'] },
+  { id: 'hair',    label: 'Hair',                  Icon: HairdryerIcon,     serviceType: 'Hair Styling',  keywords: ['hair', 'styling'] },
+  { id: 'nails',   label: 'Nails',                 Icon: NailPolishIcon,    serviceType: 'Nails',         keywords: ['nails', 'manicure'] },
+  { id: 'brows',   label: 'Brows & Lashes',        Icon: ThreadNeedleIcon,  serviceType: 'Threading',     keywords: ['threading', 'brows', 'lashes'] },
+  { id: 'waxing',  label: 'Waxing',                Icon: WaxWarmerIcon,     serviceType: 'Waxing',        keywords: ['waxing'] },
+  { id: 'makeup',  label: 'Makeup',                Icon: LipstickBrushIcon, serviceType: 'Makeup',        keywords: ['makeup', 'natural'] },
+  { id: 'facials', label: 'Facials & Skin',        Icon: FacialProfileIcon, serviceType: 'Facial',        keywords: ['facial', 'skin'] },
+  { id: 'bridal',  label: 'Bridal',                Icon: BrideProfileIcon,  serviceType: 'Bridal Makeup', keywords: ['bridal', 'wedding'] },
+  { id: 'henna',   label: 'Henna',                 Icon: HennaConeIcon,     serviceType: 'Mehendi',       keywords: ['mehendi', 'henna', 'festival'] },
+  { id: 'spa',     label: 'Spa & Massage',         Icon: MassageHandsIcon,  serviceType: 'Massage',       keywords: ['massage', 'spa'] },
 ];
 
 const WHERE = [
@@ -146,7 +153,7 @@ export function GlowMatchSheet({ visible, onClose }: { visible: boolean; onClose
     });
   }
 
-  const stepTitles = ["What's the occasion?", 'Where?', 'When?', 'Budget?', 'Your matches'];
+  const stepTitles = ['What service?', 'Where?', 'When?', 'Budget?', 'Your matches'];
 
   return (
     <GlowSheet visible={visible} onClose={onClose}>
@@ -177,7 +184,7 @@ export function GlowMatchSheet({ visible, onClose }: { visible: boolean; onClose
                 style={({ pressed }) => [styles.gridCard, pressed && styles.cardPressed]}
                 onPress={() => { tapLight(); setOccasion(o); next(); }}
               >
-                <View style={styles.gridIcon}><o.Icon size={22} color={Colors.brandDeep} /></View>
+                <View style={styles.gridIcon}><o.Icon size={30} /></View>
                 <Text style={styles.gridLabel}>{o.label}</Text>
               </Pressable>
             ))}
@@ -251,7 +258,7 @@ export function GlowMatchSheet({ visible, onClose }: { visible: boolean; onClose
           ) : (
             <>
               <Text style={styles.matchIntro}>
-                Three artists picked for your {occasion?.label.toLowerCase()}{where === 'home' ? ', at your place' : ''}. No scrolling through hundreds.
+                Three artists picked for {occasion?.label.toLowerCase()}{where === 'home' ? ', at your place' : ''}. No scrolling through hundreds.
               </Text>
               {matches.map(m => (
                 <View key={m.artist.id} style={styles.matchCard}>
@@ -332,7 +339,7 @@ const styles = StyleSheet.create({
   },
   cardPressed: { transform: [{ scale: 0.98 }], backgroundColor: Colors.brandLight },
   gridIcon: {
-    width: 42, height: 42, borderRadius: 21, backgroundColor: '#fff',
+    width: 52, height: 52, borderRadius: 26, backgroundColor: '#fff',
     borderWidth: 1, borderColor: Colors.separator,
     alignItems: 'center', justifyContent: 'center',
   },
