@@ -277,7 +277,7 @@ router.get(
           lng: { gte: providerLng - lngDelta, lte: providerLng + lngDelta },
         },
         include: {
-          customer: { select: { id: true, name: true, phone: true, rating: true, photoUrl: true } },
+          customer: { select: { id: true, name: true, phone: true, skinTone: true, skinType: true, rating: true, photoUrl: true } },
           services: { select: { id: true, serviceItemId: true, name: true, price: true, durationMin: true } },
         },
         take: 200, // hard cap — bounding box should already be tight
@@ -295,7 +295,7 @@ router.get(
           AND: [poolWhere, { lat: 0, lng: 0 }],
         },
         include: {
-          customer: { select: { id: true, name: true, phone: true, rating: true, photoUrl: true } },
+          customer: { select: { id: true, name: true, phone: true, skinTone: true, skinType: true, rating: true, photoUrl: true } },
           services: { select: { id: true, serviceItemId: true, name: true, price: true, durationMin: true } },
         },
         take: 50,
@@ -394,7 +394,7 @@ router.get(
         // Include the customer's stored coords so we can still show distance for
         // older bookings that were created without booking.lat/lng.
         include: {
-          customer: { select: { id: true, name: true, phone: true, rating: true, ratingCount: true, photoUrl: true, lat: true, lng: true } },
+          customer: { select: { id: true, name: true, phone: true, skinTone: true, skinType: true, rating: true, ratingCount: true, photoUrl: true, lat: true, lng: true } },
           services: { select: { id: true, serviceItemId: true, name: true, price: true, durationMin: true } },
         },
         take:    100,
@@ -489,7 +489,7 @@ router.post(
         // Notify the client their Provider declined — they should choose another.
         notify({
           userId: booking.customerId,
-          type: 'booking',
+          type: 'cancelled',
           title: 'Your Provider is unavailable',
           body: reasonRaw
             ? `Reason: ${reasonRaw}. Please choose another Provider.`
@@ -626,7 +626,7 @@ router.post(
       const booking = await prisma.booking.findUnique({
         where: { id: req.params.id },
         include: {
-          customer: { select: { id: true, name: true, phone: true, address: true, photoUrl: true } },
+          customer: { select: { id: true, name: true, phone: true, skinTone: true, skinType: true, address: true, photoUrl: true } },
           provider:      { select: { id: true, name: true, phone: true, photoUrl: true } },
           services: { select: { id: true, serviceItemId: true, name: true, price: true, durationMin: true } },
         },
@@ -654,7 +654,7 @@ router.post(
 
       notify({
         userId: booking.customerId,
-        type: 'booking',
+        type: 'accepted',
         title: 'Provider Accepted Your Booking',
         body: `${req.user.name} has accepted your booking and is on the way!`,
         bookingId: booking.id,
@@ -689,7 +689,7 @@ router.post(
         where: { id: req.params.id },
         data:  { status: 'ON_MY_WAY', providerArrivingAt: new Date() },
         include: {
-          customer: { select: { id: true, name: true, phone: true, address: true, photoUrl: true } },
+          customer: { select: { id: true, name: true, phone: true, skinTone: true, skinType: true, address: true, photoUrl: true } },
           provider:      { select: { id: true, name: true, phone: true, photoUrl: true } },
         },
       });
@@ -710,7 +710,7 @@ router.post(
 
       notify({
         userId: booking.customerId,
-        type: 'booking',
+        type: 'enroute',
         title: 'Your Provider is on the way!',
         body: `${req.user.name} is heading to you now.`,
         bookingId: booking.id,
@@ -744,7 +744,7 @@ router.post(
         where: { id: req.params.id },
         data:  { status: 'STARTED', startedAt: new Date() },
         include: {
-          customer: { select: { id: true, name: true, phone: true, address: true, photoUrl: true } },
+          customer: { select: { id: true, name: true, phone: true, skinTone: true, skinType: true, address: true, photoUrl: true } },
           provider:      { select: { id: true, name: true, phone: true, photoUrl: true } },
         },
       });
@@ -765,7 +765,7 @@ router.post(
 
       notify({
         userId: booking.customerId,
-        type: 'booking',
+        type: 'started',
         title: 'Service has started',
         body: `${req.user.name} has begun your care session.`,
         bookingId: booking.id,
@@ -807,7 +807,7 @@ router.post(
           serviceNotes:     req.body.serviceNotes ? req.body.serviceNotes.trim().slice(0, 2000) : existing.serviceNotes,
         },
         include: {
-          customer: { select: { id: true, name: true, phone: true, address: true, photoUrl: true } },
+          customer: { select: { id: true, name: true, phone: true, skinTone: true, skinType: true, address: true, photoUrl: true } },
           provider:      { select: { id: true, name: true, phone: true, photoUrl: true } },
         },
       });
@@ -999,7 +999,7 @@ router.get(
         where,
         orderBy: { scheduledAt: 'desc' },
         include: {
-          customer: { select: { id: true, name: true, phone: true, rating: true, address: true, photoUrl: true } },
+          customer: { select: { id: true, name: true, phone: true, skinTone: true, skinType: true, rating: true, address: true, photoUrl: true } },
           services: { select: { id: true, serviceItemId: true, name: true, price: true, durationMin: true } },
         },
       });

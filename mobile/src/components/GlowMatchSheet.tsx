@@ -184,8 +184,8 @@ export function GlowMatchSheet({ visible, onClose }: { visible: boolean; onClose
                 style={({ pressed }) => [styles.gridCard, pressed && styles.cardPressed]}
                 onPress={() => { tapLight(); setOccasion(o); next(); }}
               >
-                <View style={styles.gridIcon}><o.Icon size={30} /></View>
-                <Text style={styles.gridLabel}>{o.label}</Text>
+                <View style={styles.gridIcon}><o.Icon size={44} /></View>
+                <Text style={styles.gridLabel} numberOfLines={2}>{o.label}</Text>
               </Pressable>
             ))}
           </View>
@@ -330,20 +330,20 @@ const styles = StyleSheet.create({
 
   content: { padding: 20, paddingTop: 14 },
 
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
-  gridCard: {
-    width: '47.5%',
-    backgroundColor: Colors.secondarySystemBackground,
-    borderWidth: 1, borderColor: Colors.separator,
-    borderRadius: 20, padding: 16, alignItems: 'flex-start', gap: 10,
-  },
-  cardPressed: { transform: [{ scale: 0.98 }], backgroundColor: Colors.brandLight },
+  // Three columns divides 9 services into three even rows — no orphaned
+  // trailing item like the old two-column layout left on the last row.
+  grid: { flexDirection: 'row', flexWrap: 'wrap', rowGap: 20 },
+  gridCard: { width: '33.33%', alignItems: 'center', paddingHorizontal: 6 },
+  cardPressed: { opacity: 0.85 },
+  // White bubble — see HomeScreen's serviceIcon comment for why (illustrated
+  // icons' muted linework needs contrast, not a same-hued pink background).
   gridIcon: {
-    width: 52, height: 52, borderRadius: 26, backgroundColor: '#fff',
-    borderWidth: 1, borderColor: Colors.separator,
-    alignItems: 'center', justifyContent: 'center',
+    width: 62, height: 62, borderRadius: 31, backgroundColor: '#fff',
+    borderWidth: 1, borderColor: 'rgba(0,0,0,0.05)',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 1,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 8,
   },
-  gridLabel: { fontSize: 15, fontFamily: Fonts.semibold, color: Colors.label },
+  gridLabel: { fontSize: 13, fontFamily: Fonts.semibold, color: Colors.label, textAlign: 'center', lineHeight: 16, height: 32 },
 
   rowCard: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

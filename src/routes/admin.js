@@ -88,9 +88,16 @@ router.post(
       if (!user) return res.status(404).json({ error: 'Provider user not found' });
 
       // Business rule: a Provider must have uploaded all required documents before
-      // approval. Required = police check, Provider certificate, first aid cert.
+      // approval. Required = government ID, beauty certificate/diploma — mirrors
+      // mobile's REQUIRED_DOCS (ProviderDashboardScreen.tsx) exactly. Police check
+      // is optional (trust boost, not a gate) and first aid cert was dropped
+      // entirely — both CareNearby-era home-care requirements that never applied
+      // to a beauty marketplace. This previously listed police_check/first_aid_cert
+      // instead of id_proof, so NO provider could ever be approved: the backend
+      // demanded a document type (first_aid_cert) the app no longer has any UI
+      // path to upload.
       // Admin can override with ?force=true (e.g. docs verified out-of-band).
-      const REQUIRED_DOCS = ['police_check', 'provider_certificate', 'first_aid_cert'];
+      const REQUIRED_DOCS = ['id_proof', 'provider_certificate'];
       const force = req.query.force === 'true' || req.body?.force === true;
       if (!force && user.providerProfile) {
         const uploaded = await prisma.document.findMany({

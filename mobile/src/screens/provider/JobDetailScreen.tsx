@@ -18,7 +18,7 @@ import { ServiceIcon } from '../../components/ServiceIcon';
 import { useAuth } from '../../context/AuthContext';
 import { Radius, Shadow, Spacing, Typography } from '../../utils/theme';
 import { OSMMap } from '../../components/OSMMap';
-import { formatCurrency } from '../../utils/format';
+import { formatCurrency, humanizeQualification } from '../../utils/format';
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-CA', { weekday: 'long', month: 'long', day: 'numeric' });
@@ -461,19 +461,41 @@ export function JobDetailScreen() {
                     <Text style={styles.detailLabel}>{svc.name}</Text>
                   </View>
                   <Text style={styles.detailValue}>
-                    ${svc.price} · {svc.durationMin}m
+                    {formatCurrency(svc.price, { decimals: 0 })} · {svc.durationMin}m
                   </Text>
                 </View>
               ))}
               <View style={styles.detailRow}>
                 <Text style={[styles.detailLabel, styles.serviceTotalLabel]}>You earn</Text>
                 <Text style={[styles.detailValue, styles.serviceTotalValue]}>
-                  ${job.totalPrice ?? '—'}
+                  {job.totalPrice != null ? formatCurrency(job.totalPrice, { decimals: 0 }) : '—'}
                 </Text>
               </View>
             </View>
           </View>
         ) : null}
+
+        {/* ── Client profile — so the artist can prep the right shades/products
+             before arriving, not just what services were picked. ── */}
+        {(job.customer?.skinTone || job.customer?.skinType) && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>CLIENT PROFILE</Text>
+            <View style={styles.card}>
+              {job.customer?.skinTone && (
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Skin Tone</Text>
+                  <Text style={styles.detailValue}>{humanizeQualification(job.customer.skinTone)}</Text>
+                </View>
+              )}
+              {job.customer?.skinType && (
+                <View style={styles.detailRow}>
+                  <Text style={styles.detailLabel}>Skin Type</Text>
+                  <Text style={styles.detailValue}>{humanizeQualification(job.customer.skinType)}</Text>
+                </View>
+              )}
+            </View>
+          </View>
+        )}
 
         {/* ── Schedule ── */}
         <View style={styles.section}>
@@ -603,7 +625,7 @@ export function JobDetailScreen() {
               </View>
               <View style={{ flex: 1 }}>
                 <Text style={styles.doneBannerTitle}>Job Completed</Text>
-                <Text style={styles.doneBannerSub}>You earned ${job.totalPrice ?? '—'}. Great work!</Text>
+                <Text style={styles.doneBannerSub}>You earned {job.totalPrice != null ? formatCurrency(job.totalPrice, { decimals: 0 }) : '—'}. Great work!</Text>
               </View>
             </View>
             {!providerRated && !showRateModal && (

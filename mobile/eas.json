@@ -10,7 +10,10 @@
       "distribution": "internal",
       "channel": "development",
       "env": {
-        "EXPO_PUBLIC_API_URL": "http://localhost:3000"
+        "EXPO_PUBLIC_API_URL": "http://localhost:3000",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS": "692646116677-fpsjp4gudalbb0r75db4g1hrb4qjh4rc.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID": "692646116677-2rvsg7aaacb0dno6k7e9cnp0pe7nd2qq.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB": "692646116677-9pen2tuj90hbjgei07l5q40qd27hja79.apps.googleusercontent.com"
       },
       "android": {
         "buildType": "apk"
@@ -23,7 +26,10 @@
       "distribution": "internal",
       "channel": "preview",
       "env": {
-        "EXPO_PUBLIC_API_URL": "https://glow-backend-production-ae1e.up.railway.app"
+        "EXPO_PUBLIC_API_URL": "https://glow-backend-production-ae1e.up.railway.app",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS": "692646116677-fpsjp4gudalbb0r75db4g1hrb4qjh4rc.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID": "692646116677-2rvsg7aaacb0dno6k7e9cnp0pe7nd2qq.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB": "692646116677-9pen2tuj90hbjgei07l5q40qd27hja79.apps.googleusercontent.com"
       },
       "android": {
         "buildType": "apk"
@@ -37,7 +43,10 @@
       "autoIncrement": true,
       "env": {
         "EXPO_PUBLIC_API_URL": "https://glow-backend-production-ae1e.up.railway.app",
-        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS": "692646116677-fpsjp4gudalbb0r75db4g1hrb4qjh4rc.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID": "692646116677-2rvsg7aaacb0dno6k7e9cnp0pe7nd2qq.apps.googleusercontent.com",
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB": "692646116677-9pen2tuj90hbjgei07l5q40qd27hja79.apps.googleusercontent.com"
       },
       "android": {
         "buildType": "apk",

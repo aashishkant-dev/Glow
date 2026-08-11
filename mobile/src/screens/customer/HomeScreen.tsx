@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   Animated,
   Easing,
@@ -14,7 +15,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
-import { StarIcon, CalendarIcon, SearchIcon } from '../../components/TabIcons';
+import { StarIcon, CalendarIcon, SearchIcon, LocationIcon, ChevronDownIcon } from '../../components/TabIcons';
 import { GlowLogo, GlowMark } from '../../components/GlowLogo';
 import {
   apiMyBookings,
@@ -28,7 +29,6 @@ import { useLocation } from '../../context/LocationContext';
 import { Colors, Fonts } from '../../utils/colors';
 import { BellIcon, CheckDecagramIcon } from '../../components/CareIcons';
 import { SparkleIcon } from '../../components/BeautyIcons';
-import { StatusBadge } from '../../components/StatusBadge';
 import { GlowMatchSheet } from '../../components/GlowMatchSheet';
 import { LookSheet } from '../../components/LookSheet';
 import { LookTile } from '../../components/LookTile';
@@ -47,11 +47,47 @@ import { humanizeQualification } from '../../utils/format';
 
 const ACTIVE_STATUSES = new Set(['REQUESTED', 'ACCEPTED', 'ON_MY_WAY', 'STARTED']);
 
+// Exact photo from the real Figma Make source (see "new figma design/glow_01/src/App.tsx").
+const HERO_PHOTO_URL = 'https://images.unsplash.com/photo-1570172619644-dfd03ed5d881?w=600&h=320&fit=crop&auto=format';
+
+// Short display labels for the compact services grid — CATEGORIES' full
+// names (e.g. "Waxing & Hair Removal") are used for booking/analytics
+// elsewhere, but wrap to two lines in a 4-column grid and break row
+// alignment, so this grid shows a shorter label just for itself.
+const SHORT_SERVICE_LABEL: Record<string, string> = { waxing: 'Waxing', spa: 'Spa' };
+
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
 }
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+function relativeDayLabel(iso: string) {
+  const d = new Date(iso);
+  const today = new Date();
+  const diffDays = Math.round((new Date(d.toDateString()).getTime() - new Date(today.toDateString()).getTime()) / 86_400_000);
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Tomorrow';
+  return formatDate(iso);
+}
+function monthAbbrev(iso: string) {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+}
+function dayNumber(iso: string) {
+  return new Date(iso).getDate();
+}
+
+// Nominatim's `address.city`/`address.state` are official administrative
+// names — e.g. Nepal municipalities come back as "Kathmandu Metropolitan
+// City" / "Bagmati Province", which is accurate but far longer than the
+// short "neighborhood, city" Figma-style label this pill is meant to show.
+// Prefer the smallest named area available, and strip the formal suffixes.
+function formatLocationName(addr: Record<string, string | undefined>): string {
+  const area = addr.suburb ?? addr.neighbourhood ?? addr.city_district
+    ?? addr.city ?? addr.town ?? addr.village ?? addr.county;
+  const region = addr.state ?? addr.county;
+  const clean = (s?: string) => s?.replace(/\s*(Metropolitan City|Sub-Metropolitan City|Municipality|Province)$/i, '').trim();
+  return [clean(area), area !== region ? clean(region) : undefined].filter(Boolean).join(', ');
 }
 
 /** Press-scale wrapper — every touch feels alive. */
@@ -174,7 +210,6 @@ export function HomeScreen() {
   // the tapped category for on-demand/next-available instead, without
   // needing to go through Find My Glow for the common "book right now" case.
   const [categoryWhen, setCategoryWhen] = useState<'now' | 'later'>('later');
-  const pulseAnim = useRef(new Animated.Value(1)).current;
   const fadeIn = useRef(new Animated.Value(0)).current;
 
   const { notifications } = useChatUnread();
@@ -207,7 +242,7 @@ export function HomeScreen() {
           if (cancelled) return;
           const addr = data?.address;
           if (!addr) return;
-          const name = [addr.city ?? addr.town ?? addr.village ?? addr.county, addr.state].filter(Boolean).join(', ');
+          const name = formatLocationName(addr);
           if (name) setCityName(name);
         })
         .catch(() => {});
@@ -285,17 +320,6 @@ export function HomeScreen() {
     Storage.getInstallDismissed().then(dismissed => { if (!dismissed) setShowIOSHint(true); });
   }, []);
 
-  useEffect(() => {
-    const pulse = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulseAnim, { toValue: 1.15, duration: 800, useNativeDriver: true }),
-        Animated.timing(pulseAnim, { toValue: 1,   duration: 800, useNativeDriver: true }),
-      ]),
-    );
-    pulse.start();
-    return () => pulse.stop();
-  }, []);
-
   function dismissIOSHint() { Storage.saveInstallDismissed(); setShowIOSHint(false); }
 
   function openCategory(c: typeof CATEGORIES[number]) {
@@ -366,23 +390,7 @@ export function HomeScreen() {
 
           {/* ── The one question this screen answers ── */}
           <View style={styles.greetingBlock}>
-            <View style={styles.greetingTopRow}>
-              <Text style={styles.greetingEyebrow}>{greeting}, {firstName} ✨</Text>
-              <Pressable
-                style={({ pressed }) => [styles.locationPill, pressed && { opacity: 0.7 }]}
-                onPress={handleLocationPress}
-                accessibilityRole="button"
-                accessibilityLabel={cityName ? `Location: ${cityName}` : 'Enable location'}
-              >
-                <Text style={styles.locationPillText} numberOfLines={1}>
-                  {locating ? 'Locating…' : cityName ? `📍 ${cityName}` : '📍 Enable location'}
-                </Text>
-              </Pressable>
-            </View>
-            <Text style={styles.greetingMain}>
-              What are you{'\n'}looking for
-              <Text style={styles.greetingDot}>?</Text>
-            </Text>
+            <Text style={styles.greetingEyebrow}>{greeting}, {firstName} ✨</Text>
             <Pressable
               style={({ pressed }) => [styles.searchBar, pressed && { opacity: 0.85 }]}
               onPress={() => { tapLight(); nav.navigate('ExploreTab', { openSearch: true }); }}
@@ -390,30 +398,57 @@ export function HomeScreen() {
               accessibilityLabel="Search"
             >
               <SearchIcon size={17} color={Colors.tertiaryLabel} />
-              <Text style={styles.searchBarText}>What are you looking for?</Text>
+              <Text style={styles.searchBarText}>Search "Waxing, Facial, Nails…"</Text>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.locationRow, pressed && { opacity: 0.7 }]}
+              onPress={handleLocationPress}
+              accessibilityRole="button"
+              accessibilityLabel={cityName ? `Location: ${cityName}` : 'Enable location'}
+            >
+              <LocationIcon size={13} color={Colors.brand} />
+              <Text style={styles.locationRowText} numberOfLines={1}>
+                {locating ? 'Locating…' : cityName ? cityName : 'Enable location'}
+              </Text>
+              <ChevronDownIcon size={13} color={Colors.tertiaryLabel} />
             </Pressable>
           </View>
 
-          {/* ── Active booking ── */}
-          {activeBooking && (
-            <Touch style={styles.sectionPad} onPress={() => nav.navigate('Tracking', {
-              bookingId: activeBooking._id,
-              bookingLocation: activeBooking.lat ? { lat: activeBooking.lat, lng: activeBooking.lng } : undefined,
-            })}>
-              <View style={styles.activeBanner}>
-                <Animated.View style={[styles.activeDot, { transform: [{ scale: pulseAnim }] }]} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.activeTitle}>Active Booking</Text>
-                  <Text style={styles.activeSub}>
-                    {activeBooking.serviceType} · {formatDate(activeBooking.scheduledAt)} {formatTime(activeBooking.scheduledAt)}
-                  </Text>
+          {/* ── Hero banner ── */}
+          <View style={styles.sectionPad}>
+            <Touch onPress={() => { tapLight(); setShowMatch(true); }}>
+              <View style={styles.heroBanner}>
+                <Image
+                  source={{ uri: HERO_PHOTO_URL }}
+                  style={[StyleSheet.absoluteFill, { opacity: 0.6 }]}
+                  contentFit="cover"
+                  cachePolicy="memory-disk"
+                  transition={200}
+                />
+                <LinearGradient
+                  colors={['rgba(232,99,140,0.85)', 'rgba(192,65,94,0.65)']}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                  style={StyleSheet.absoluteFill}
+                />
+                <View style={styles.heroBannerContent}>
+                  <Text style={styles.heroEyebrow}>At-home beauty</Text>
+                  <Text style={styles.heroTitle}>Glow from the{'\n'}comfort of home</Text>
+                  <View style={styles.heroCta}>
+                    <Text style={styles.heroCtaText}>Book now →</Text>
+                  </View>
                 </View>
-                <StatusBadge status={activeBooking.status} />
               </View>
             </Touch>
-          )}
+          </View>
 
-          {/* ── Category grid — the heart of the home screen ── */}
+          {/* ── Services ── */}
+          <View style={styles.sectionHeader}>
+            <Text style={styles.sectionTitle}>Services</Text>
+            <Pressable onPress={() => { tapLight(); nav.navigate('ExploreTab'); }}>
+              <Text style={styles.seeAll}>See all</Text>
+            </Pressable>
+          </View>
           <View style={styles.whenToggleRow}>
             {(['now', 'later'] as const).map(w => {
               const active = categoryWhen === w;
@@ -430,18 +465,46 @@ export function HomeScreen() {
               );
             })}
           </View>
-          <View style={styles.occGrid}>
-            {CATEGORIES.map(c => (
-              <Touch key={c.id} style={styles.occWrap} onPress={() => openCategory(c)}>
-                <View style={[styles.occCard, { backgroundColor: c.tint }]}>
-                  <View style={styles.occIcon}>
-                    <c.Icon size={34} />
-                  </View>
-                  <Text style={styles.occName}>{c.name}</Text>
+          <View style={styles.servicesGrid}>
+            {[...CATEGORIES.slice(0, 7), CATEGORIES.find(c => c.id === 'spa')!].map(c => (
+              <Touch key={c.id} style={styles.serviceWrap} onPress={() => openCategory(c)}>
+                <View style={styles.serviceIcon}>
+                  <c.Icon size={50} />
                 </View>
+                <Text style={styles.serviceName} numberOfLines={2}>{SHORT_SERVICE_LABEL[c.id] ?? c.name}</Text>
               </Touch>
             ))}
           </View>
+
+          {/* ── Upcoming appointment ── */}
+          {activeBooking && (
+            <>
+              <View style={styles.sectionHeader}>
+                <Text style={styles.sectionTitle}>Upcoming Appointment</Text>
+              </View>
+              <Touch style={styles.sectionPad} onPress={() => nav.navigate('Tracking', {
+                bookingId: activeBooking._id,
+                bookingLocation: activeBooking.lat ? { lat: activeBooking.lat, lng: activeBooking.lng } : undefined,
+              })}>
+                <View style={styles.upcomingCard}>
+                  <View style={styles.upcomingDateBadge}>
+                    <Text style={styles.upcomingDateMonth}>{monthAbbrev(activeBooking.scheduledAt)}</Text>
+                    <Text style={styles.upcomingDateDay}>{dayNumber(activeBooking.scheduledAt)}</Text>
+                  </View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.upcomingTitle} numberOfLines={1}>{activeBooking.serviceType}</Text>
+                    <Text style={styles.upcomingSub} numberOfLines={1}>
+                      {relativeDayLabel(activeBooking.scheduledAt)} · {formatTime(activeBooking.scheduledAt)}
+                      {activeBooking.provider?.name ? ` · ${activeBooking.provider.name}` : ''}
+                    </Text>
+                  </View>
+                  <View style={styles.upcomingViewBtn}>
+                    <Text style={styles.upcomingViewText}>View</Text>
+                  </View>
+                </View>
+              </Touch>
+            </>
+          )}
 
           {/* ── Top rated artists ── */}
           {topArtists.length > 0 && (
@@ -579,68 +642,87 @@ const styles = StyleSheet.create({
   bgField: { position: 'absolute', top: 0, left: 0, right: 0, height: 340, overflow: 'hidden' },
   bgBlob: { position: 'absolute', borderRadius: 999 },
 
-  greetingBlock: { paddingHorizontal: 24, marginBottom: 24 },
-  greetingTopRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 10, marginBottom: 6 },
-  greetingEyebrow: { fontSize: 15, color: Colors.secondaryLabel, fontFamily: Fonts.regular, flexShrink: 1 },
-  greetingMain: { fontSize: 34, lineHeight: 40, fontFamily: Fonts.bold, color: Colors.label, letterSpacing: -1 },
-  greetingDot: { color: Colors.gold },
-  locationPill: {
-    maxWidth: 150, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 100,
-    backgroundColor: '#fff', borderWidth: 1, borderColor: Colors.separator,
+  greetingBlock: { paddingHorizontal: 24, marginBottom: 20 },
+  greetingEyebrow: { fontSize: 15, color: Colors.secondaryLabel, fontFamily: Fonts.regular, marginBottom: 14 },
+  locationRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    marginTop: 10, alignSelf: 'flex-start', maxWidth: '100%',
   },
-  locationPillText: { fontSize: 11.5, fontFamily: Fonts.medium, color: Colors.secondaryLabel },
+  locationRowText: { fontSize: 13, fontFamily: Fonts.medium, color: Colors.secondaryLabel, flexShrink: 1 },
   searchBar: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     backgroundColor: '#fff', borderRadius: 16, borderWidth: 1, borderColor: Colors.separator,
-    paddingHorizontal: 16, paddingVertical: 13, marginTop: 18,
+    paddingHorizontal: 16, paddingVertical: 13,
   },
   searchBarText: { fontSize: 14.5, fontFamily: Fonts.regular, color: Colors.tertiaryLabel },
 
   sectionPad: { paddingHorizontal: 24 },
 
-  activeBanner: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: '#fff', borderRadius: 20, padding: 18,
-    borderWidth: 1, borderColor: Colors.separator, marginBottom: 18,
+  // Upcoming appointment — dark card, matches the Figma reference
+  upcomingCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    backgroundColor: '#2C1A20', borderRadius: 20, padding: 16,
+    marginBottom: 18,
   },
-  activeDot:   { width: 9, height: 9, borderRadius: 5, backgroundColor: Colors.systemGreen },
-  activeTitle: { fontSize: 14, fontFamily: Fonts.semibold, color: Colors.label },
-  activeSub:   { fontSize: 12.5, color: Colors.secondaryLabel, marginTop: 2, fontFamily: Fonts.regular },
+  upcomingDateBadge: {
+    width: 48, height: 48, borderRadius: 14,
+    backgroundColor: Colors.brand, alignItems: 'center', justifyContent: 'center',
+  },
+  upcomingDateMonth: { fontSize: 10, fontFamily: Fonts.semibold, color: 'rgba(255,255,255,0.85)', letterSpacing: 0.5 },
+  upcomingDateDay:   { fontSize: 17, fontFamily: Fonts.bold, color: '#fff', marginTop: 1 },
+  upcomingTitle: { fontSize: 14.5, fontFamily: Fonts.semibold, color: '#fff' },
+  upcomingSub:   { fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 3, fontFamily: Fonts.regular },
+  upcomingViewBtn: { backgroundColor: Colors.brand, borderRadius: 100, paddingHorizontal: 14, paddingVertical: 8 },
+  upcomingViewText: { fontSize: 12.5, fontFamily: Fonts.semibold, color: '#fff' },
 
   whenToggleRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 24, marginBottom: 14 },
   whenToggle: {
     paddingHorizontal: 15, paddingVertical: 9, borderRadius: 100,
     backgroundColor: '#fff', borderWidth: 1, borderColor: Colors.separator,
   },
-  whenToggleActive: { backgroundColor: Colors.label, borderColor: Colors.label },
+  whenToggleActive: { backgroundColor: Colors.brand, borderColor: Colors.brand },
   whenToggleText: { fontSize: 13, fontFamily: Fonts.medium, color: Colors.secondaryLabel },
   whenToggleTextActive: { color: '#fff' },
 
-  // Category grid — two columns
-  occGrid: {
-    flexDirection: 'row', flexWrap: 'wrap',
-    paddingHorizontal: 24, gap: 12,
+  // Hero banner — the "top page" promo card, matching the Figma spec exactly
+  // (new figma design/glow_01/src/App.tsx): fixed 160 height, vertically
+  // centered content, dimmed photo (opacity 0.6) under a rose gradient.
+  heroBanner: { height: 160, borderRadius: 24, marginBottom: 18, overflow: 'hidden', backgroundColor: '#F4A0BB' },
+  heroBannerContent: { flex: 1, justifyContent: 'center', paddingHorizontal: 24 },
+  heroEyebrow: {
+    fontSize: 10, letterSpacing: 1.2, textTransform: 'uppercase',
+    fontFamily: Fonts.medium, color: 'rgba(255,255,255,0.8)', marginBottom: 4,
   },
-  occWrap: { width: '47%', flexGrow: 1 },
-  occCard: {
-    borderRadius: 24, padding: 16, minHeight: 116,
-    justifyContent: 'flex-end', overflow: 'hidden',
-    // A real border + shadow so the card reads as a distinct surface against the
-    // near-white page background — the previous borderless pale-tint-on-near-white
-    // card was almost impossible to make out (tint and page bg were both ~#FFF9F8).
-    borderWidth: 1, borderColor: 'rgba(0,0,0,0.06)',
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 1,
+  heroTitle: { fontSize: 22, lineHeight: 26, fontFamily: Fonts.displayItalic, color: '#fff', marginBottom: 10 },
+  heroCta: {
+    alignSelf: 'flex-start', backgroundColor: '#fff',
+    borderRadius: 20, paddingHorizontal: 18, paddingVertical: 8,
   },
-  occIcon: {
-    width: 52, height: 52, borderRadius: 26,
-    // Illustrated icons carry their own baked-in color, so the bubble is a
-    // near-white surface that lifts them off the card's pastel tint.
-    backgroundColor: 'rgba(255,255,255,0.8)',
-    alignItems: 'center', justifyContent: 'center',
-    marginBottom: 10,
-  },
+  heroCtaText: { fontSize: 12, fontFamily: Fonts.semibold, color: '#E8638C', letterSpacing: 0.2 },
 
-  occName: { fontSize: 15.5, fontFamily: Fonts.semibold, color: Colors.label },
+  // Services grid — compact circular icons, four per row
+  servicesGrid: {
+    flexDirection: 'row', flexWrap: 'wrap',
+    paddingHorizontal: 24, rowGap: 18,
+  },
+  serviceWrap: { width: '25%', alignItems: 'center', paddingHorizontal: 2 },
+  // White (not pale-pink) bubble: the illustrated icon set's muted rose-brown
+  // linework has too little contrast against a same-hued pink background —
+  // it read as washed out/faint. White gives the strokes something to pop
+  // against while the bubble still reads as "at home" on the pink page.
+  serviceIcon: {
+    width: 68, height: 68, borderRadius: 34,
+    backgroundColor: '#fff',
+    borderWidth: 1, borderColor: 'rgba(0,0,0,0.05)',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 1,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 8,
+  },
+  // Fixed height (regardless of numberOfLines) so a two-line label can never
+  // push its row taller than its neighbors and throw off the grid rhythm.
+  serviceName: {
+    fontSize: 11.5, fontFamily: Fonts.medium, color: Colors.label,
+    textAlign: 'center', lineHeight: 14, height: 28,
+  },
 
   // Clamps every horizontal row to the screen width on web — without an
   // explicit style, RN Web can size a ScrollView to its content instead of
@@ -651,7 +733,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingHorizontal: 24, marginTop: 34, marginBottom: 16,
   },
-  sectionTitle: { fontSize: 21, fontFamily: Fonts.semibold, color: Colors.label, letterSpacing: -0.4 },
+  sectionTitle: { fontSize: 21, fontFamily: Fonts.display, color: Colors.label, letterSpacing: -0.4 },
   seeAll: { fontSize: 13.5, fontFamily: Fonts.medium, color: Colors.brandDark },
 
   lookRow: { paddingHorizontal: 24, gap: 14 },

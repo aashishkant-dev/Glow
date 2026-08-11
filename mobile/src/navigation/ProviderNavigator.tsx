@@ -2,9 +2,9 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { addTapListener, scheduleLocal } from '../utils/notifications';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { Image } from 'expo-image';
+import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { BlurView } from 'expo-blur';
+import { Image } from 'expo-image';
 import { useAuth } from '../context/AuthContext';
 import { useChatUnread } from '../context/ChatUnreadContext';
 import { useLocation } from '../context/LocationContext';
@@ -78,6 +78,58 @@ const INACTIVE = Colors.systemGray2;
 
 // requestsBadge lives in utils/providerBadges to avoid a circular import with RequestsScreen.
 function bumpRequests() { requestsBadge.current += 1; }
+
+// Active-tab pill (matches CustomerNavigator's TabPill) so which tab you're
+// on is unambiguous, tinted for the Provider side's green brand accent.
+// Springs in (scale + fade) on focus — matches CustomerNavigator's TabPill.
+function TabPill({ focused, children }: { focused: boolean; children: React.ReactNode }) {
+  const anim = useRef(new Animated.Value(focused ? 1 : 0)).current;
+  useEffect(() => {
+    Animated.spring(anim, { toValue: focused ? 1 : 0, useNativeDriver: true, speed: 22, bounciness: 6 }).start();
+  }, [focused]);
+  return (
+    <View style={tabPillStyles.pill}>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          tabPillStyles.pillFill,
+          { opacity: anim, transform: [{ scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.75, 1] }) }] },
+        ]}
+      />
+      {children}
+    </View>
+  );
+}
+const tabPillStyles = StyleSheet.create({
+  pill: {
+    width: 52, height: 32, borderRadius: 16,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  pillFill: { ...StyleSheet.absoluteFill, borderRadius: 16, backgroundColor: Colors.onlineGreen + '1A' },
+});
+
+// Tab bar background — matches CustomerNavigator's (see that file's comment
+// for why web is solid, not glass: backdrop-filter doesn't reliably render
+// here and let vivid page content bleed through, making icons unreadable).
+function GlassTabBarBackground() {
+  if (Platform.OS === 'web') {
+    return (
+      <View
+        style={[
+          StyleSheet.absoluteFill,
+          { backgroundColor: '#fff', borderRadius: 100 },
+        ]}
+      />
+    );
+  }
+  return (
+    <BlurView
+      intensity={85}
+      tint="light"
+      style={[StyleSheet.absoluteFill, { borderRadius: 100, overflow: 'hidden' }]}
+    />
+  );
+}
 
 const tabBadgeStyles = StyleSheet.create({
   badge: {
@@ -301,38 +353,11 @@ function ProviderTabs() {
   }, [token, clearUnread]);
   const tabBarHeight = Platform.OS === 'ios' ? 83 : 68;
 
-  // True frosted-glass background (matches CustomerNavigator's tab bar) — see
-  // that file's GlassTabBarBackground for why web needs a CSS backdrop-filter
-  // fallback instead of BlurView (no native compositor blur on RN Web).
-  function GlassTabBarBackground() {
-    if (Platform.OS === 'web') {
-      return (
-        <View
-          style={[
-            StyleSheet.absoluteFill,
-            {
-              backgroundColor: 'rgba(255,255,255,0.72)',
-              // @ts-expect-error — web-only CSS property, RN's types don't include it
-              backdropFilter: 'blur(20px) saturate(180%)',
-              borderRadius: 100,
-            },
-          ]}
-        />
-      );
-    }
-    return (
-      <BlurView
-        intensity={78}
-        tint="light"
-        style={[StyleSheet.absoluteFill, { borderRadius: 100, overflow: 'hidden' }]}
-      />
-    );
-  }
-
   return (
     <View style={{ flex: 1, overflow: 'hidden' as const }}>
       <Tab.Navigator
         screenOptions={{
+          tabBarBackground: GlassTabBarBackground,
           headerShown: false,
           tabBarActiveTintColor: Colors.brand,
           tabBarInactiveTintColor: Colors.systemGray2,
@@ -342,10 +367,9 @@ function ProviderTabs() {
             fontWeight: '600',
             marginTop: 2,
           },
-          tabBarBackground: GlassTabBarBackground,
-          // Floating iOS-style pill bar — detached from the screen edges,
-          // matching CustomerNavigator's tab bar treatment (see that file's
-          // HomeTabs for the equivalent styling).
+          // Floating pill bar — background is transparent here,
+          // GlassTabBarBackground paints the actual frosted fill (matches
+          // CustomerNavigator's tab bar treatment).
           tabBarStyle: {
             position: 'absolute' as const,
             left: 16, right: 16,
@@ -358,7 +382,7 @@ function ProviderTabs() {
             paddingHorizontal: 8,
             borderRadius: 100,
             borderWidth: 1,
-            borderColor: 'rgba(255,255,255,0.5)',
+            borderColor: Colors.separator,
             shadowColor: Colors.cardShadow,
             shadowOffset: { width: 0, height: 12 },
             shadowOpacity: 0.14,
@@ -374,15 +398,17 @@ function ProviderTabs() {
           name="Dashboard"
           component={ProviderDashboardScreen}
           options={{
-            tabBarIcon: ({ color }) => (
-              <View>
-                <HomeIcon size={24} color={color} />
-                {reqBadge > 0 && (
-                  <View style={tabBadgeStyles.badge}>
-                    <Text style={tabBadgeStyles.badgeText}>{reqBadge > 9 ? '9+' : reqBadge}</Text>
-                  </View>
-                )}
-              </View>
+            tabBarIcon: ({ color, focused }) => (
+              <TabPill focused={focused}>
+                <View>
+                  <HomeIcon size={22} color={color} />
+                  {reqBadge > 0 && (
+                    <View style={tabBadgeStyles.badge}>
+                      <Text style={tabBadgeStyles.badgeText}>{reqBadge > 9 ? '9+' : reqBadge}</Text>
+                    </View>
+                  )}
+                </View>
+              </TabPill>
             ),
             tabBarLabel: 'Home',
           }}
@@ -396,17 +422,19 @@ function ProviderTabs() {
           name="RequestsHub"
           component={RequestsHubScreen}
           options={{
-            tabBarIcon: ({ color }) => (
-              <View>
-                <BellIcon size={24} color={color} />
-                {(reqBadge > 0 || nearbyBadge > 0 || hasActiveJob) && (
-                  <View style={tabBadgeStyles.badge}>
-                    <Text style={tabBadgeStyles.badgeText}>
-                      {reqBadge > 9 ? '9+' : (reqBadge || '•')}
-                    </Text>
-                  </View>
-                )}
-              </View>
+            tabBarIcon: ({ color, focused }) => (
+              <TabPill focused={focused}>
+                <View>
+                  <BellIcon size={22} color={color} />
+                  {(reqBadge > 0 || nearbyBadge > 0 || hasActiveJob) && (
+                    <View style={tabBadgeStyles.badge}>
+                      <Text style={tabBadgeStyles.badgeText}>
+                        {reqBadge > 9 ? '9+' : (reqBadge || '•')}
+                      </Text>
+                    </View>
+                  )}
+                </View>
+              </TabPill>
             ),
             tabBarLabel: 'Requests',
           }}
@@ -417,7 +445,7 @@ function ProviderTabs() {
           name="PostsTab"
           component={PostsScreen}
           options={{
-            tabBarIcon: ({ color }) => <CameraIcon size={22} color={color} />,
+            tabBarIcon: ({ color, focused }) => <TabPill focused={focused}><CameraIcon size={20} color={color} /></TabPill>,
             tabBarLabel: 'Posts',
           }}
         />
@@ -427,7 +455,7 @@ function ProviderTabs() {
           name="ProfileTab"
           component={ProfileScreen}
           options={{
-            tabBarIcon: ({ color, focused }) => <ProfileTabAvatar photoUrl={user?.photoUrl} color={color} focused={focused} />,
+            tabBarIcon: ({ color, focused }) => <TabPill focused={focused}><ProfileTabAvatar photoUrl={user?.photoUrl} color={color} focused={focused} /></TabPill>,
             tabBarLabel: 'Profile',
           }}
         />

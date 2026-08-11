@@ -23,6 +23,7 @@ import { DocumentIcon } from '../../components/TabIcons';
 import { useAuth } from '../../context/AuthContext';
 import { Colors } from '../../utils/colors';
 import { ShieldCheckIcon, KeyIcon } from '../../components/CareIcons';
+import { getCurrencySymbol } from '../../utils/format';
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
 const BRAND      = Colors.brand;
@@ -284,8 +285,10 @@ export function ProviderOnboardingScreen() {
     // Previously this only wrote Storage directly, leaving the React `user` state
     // (which ProviderNavigator's onboarding gate reads) stale at onboardingComplete=false.
     // On any re-mount of ProviderNavigator the stale value re-routed an already-onboarded
-    // Provider back to the registration form. updateUser persists to Storage too.
-    updateUser({ onboardingComplete: true });
+    // Provider back to the registration form. updateUser persists to Storage too — and is
+    // awaited here so a refresh right after finishing can't race the write and read back
+    // the pre-update (onboardingComplete: false) value.
+    await updateUser({ onboardingComplete: true });
     nav.reset({ index: 0, routes: [{ name: 'ProviderHome' as never }] });
   }
 
@@ -328,7 +331,7 @@ export function ProviderOnboardingScreen() {
             <View style={styles.headerBadge}>
               <Text style={styles.headerBadgeText}>Step {step} of 5</Text>
             </View>
-            <Text style={styles.headerTitle}>Provider Verification</Text>
+            <Text style={styles.headerTitle}>Artist Verification</Text>
             <Text style={styles.headerSub}>
               {step === 1 ? 'Tell us about your credential' :
                step === 2 ? 'Specialties & languages' :
@@ -503,7 +506,7 @@ export function ProviderOnboardingScreen() {
                 <Text style={styles.sectionTitle}>Set Your Prices</Text>
                 <Text style={styles.sectionSub}>Set a price for each service you offer. Clients see the exact amount before booking. You can change this later from your profile.</Text>
 
-                <Text style={styles.fieldLabel}>SERVICE PRICES ($)</Text>
+                <Text style={styles.fieldLabel}>SERVICE PRICES ({getCurrencySymbol()})</Text>
                 {specialties.length === 0 ? (
                   <View style={[styles.infoBox, { backgroundColor: '#FEF3C7', borderColor: '#FCD34D' }]}>
                     <Text style={styles.infoBoxIcon}>⚠️</Text>
@@ -516,7 +519,7 @@ export function ProviderOnboardingScreen() {
                     <View key={s} style={{ flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 10 }}>
                       <Text style={{ flex: 1, fontSize: 14, fontWeight: '600', color: TEXT }}>{s}</Text>
                       <View style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-                        <Text style={{ fontSize: 16, fontWeight: '800', color: GREEN }}>$</Text>
+                        <Text style={{ fontSize: 16, fontWeight: '800', color: GREEN }}>{getCurrencySymbol()}</Text>
                         <TextInput
                           style={[styles.input, { width: 90, textAlign: 'right' }]}
                           value={servicePrices[s] || ''}

@@ -36,7 +36,7 @@ import { DEFAULT_REGION, DEFAULT_REGION_NAME } from '../../utils/region';
 import { VerifyPhoneSheet } from '../../components/VerifyPhoneSheet';
 import { useAuth } from '../../context/AuthContext';
 import { SEED_ARTISTS } from '../../data/seedArtists';
-import { formatCurrency } from '../../utils/format';
+import { formatCurrency, getCurrencySymbol } from '../../utils/format';
 
 // Seed artists (Explore's curated showcase) shown as pickable cards here too, so
 // the booking flow doesn't look empty before real Providers are onboarded — but
@@ -1183,7 +1183,7 @@ function NearMeProviderCard({
                 <Text style={nearStyles.ratingText}>★ {provider.rating.toFixed(1)}</Text>
               </View>
             )}
-            <Text style={nearStyles.rate}>From ${providerHourlyRate(provider)}</Text>
+            <Text style={nearStyles.rate}>From {formatCurrency(providerHourlyRate(provider), { decimals: 0 })}</Text>
           </View>
           {(provider.specialties ?? []).length > 0 && (
             <View style={{ flexDirection: 'row', gap: 5, marginTop: 6, flexWrap: 'wrap' }}>
@@ -2226,7 +2226,7 @@ export function CreateBookingScreen() {
                         accessibilityState={{ checked: active }}
                         accessibilityLabel={`${svc.name}, ${formatCurrency(svc.price)}, ${fmtDuration(svc.durationMin)}`}
                       >
-                        <ServiceIcon serviceType={svc.name} size={44} color={accent} />
+                        <ServiceIcon serviceType={svc.name} size={32} bubbleSize={60} color={accent} />
                         <Text style={[
                           styles.serviceCardLabel,
                           active && { color: accent, fontWeight: '800' },
@@ -2234,7 +2234,7 @@ export function CreateBookingScreen() {
                           {svc.name}
                         </Text>
                         <Text style={styles.serviceCardPrice}>
-                          ${svc.price} · {fmtDuration(svc.durationMin)}
+                          {formatCurrency(svc.price, { decimals: 0 })} · {fmtDuration(svc.durationMin)}
                         </Text>
                         {active && (
                           <View style={[styles.serviceCheck, { backgroundColor: accent }]}>
@@ -2266,6 +2266,7 @@ export function CreateBookingScreen() {
                 style={styles.addressInput}
                 value={street}
                 onChangeText={setStreet}
+                onFocus={() => mainScrollRef.current?.scrollTo({ y: Math.max(addressYRef.current - 12, 0), animated: true })}
                 placeholder={t.streetPlaceholder}
                 placeholderTextColor="#8E8E93"
                 returnKeyType="next"
@@ -2276,6 +2277,7 @@ export function CreateBookingScreen() {
                   style={[styles.addressInput, { flex: 1 }]}
                   value={unit}
                   onChangeText={setUnit}
+                  onFocus={() => mainScrollRef.current?.scrollTo({ y: Math.max(addressYRef.current - 12, 0), animated: true })}
                   placeholder={t.unitPlaceholder}
                   placeholderTextColor="#8E8E93"
                   returnKeyType="next"
@@ -2284,6 +2286,7 @@ export function CreateBookingScreen() {
                   style={[styles.addressInput, { flex: 1.4 }]}
                   value={postal}
                   onChangeText={setPostal}
+                  onFocus={() => mainScrollRef.current?.scrollTo({ y: Math.max(addressYRef.current - 12, 0), animated: true })}
                   placeholder={t.postalPlaceholder}
                   placeholderTextColor="#8E8E93"
                   returnKeyType="next"
@@ -2295,6 +2298,7 @@ export function CreateBookingScreen() {
                 style={styles.addressInput}
                 value={city}
                 onChangeText={setCity}
+                onFocus={() => mainScrollRef.current?.scrollTo({ y: Math.max(addressYRef.current + 60, 0), animated: true })}
                 placeholder={t.cityPlaceholder}
                 placeholderTextColor="#8E8E93"
                 returnKeyType="done"
@@ -2585,7 +2589,7 @@ export function CreateBookingScreen() {
                   <Text style={styles.confirmLabel}>{t.confirmEstTotal}</Text>
                   <View style={{ flex: 1, alignItems: 'flex-end' }}>
                     <Text style={[styles.confirmValue, styles.confirmValueBold]}>
-                      ${totalPriceOneSession * (bookingMode === 'ondemand' ? 1 : Math.max(selectedDates.length, 1))}
+                      {formatCurrency(totalPriceOneSession * (bookingMode === 'ondemand' ? 1 : Math.max(selectedDates.length, 1)), { decimals: 0 })}
                     </Text>
                     {bookingMode === 'scheduled' && selectedDates.length > 1 && (
                       <Text style={{ fontSize: 11, color: '#94A3B8', marginTop: 2 }}>
@@ -2625,7 +2629,7 @@ export function CreateBookingScreen() {
                       This provider accepts price negotiation. Enter a lower offer below (50–99% of the listed price).
                     </Text>
                     <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10 }}>
-                      <Text style={{ fontSize: 18, fontWeight: '800', color: '#92400E' }}>$</Text>
+                      <Text style={{ fontSize: 18, fontWeight: '800', color: '#92400E' }}>{getCurrencySymbol()}</Text>
                       <TextInput
                         style={[styles.addressInput, { flex: 1, marginTop: 0, borderColor: '#FDE68A', backgroundColor: '#FFFBEB' }]}
                         value={proposedPrice}
@@ -3170,13 +3174,12 @@ const styles = StyleSheet.create({
 
   serviceGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   serviceCard: {
-    width: (SCREEN_W - 56) / 2, flexBasis: (SCREEN_W - 56) / 2,
-    padding: 18, borderRadius: 20,
+    width: (SCREEN_W - 60) / 2, flexBasis: (SCREEN_W - 60) / 2,
+    padding: 12, borderRadius: 18,
     backgroundColor: '#fff',
     borderWidth: 2, borderColor: '#E5E7EB',
-    alignItems: 'center', gap: 8,
+    alignItems: 'center', gap: 6,
     position: 'relative',
-    minHeight: 48,
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 },
     shadowOpacity: 0.06, shadowRadius: 6, elevation: 3,
   },

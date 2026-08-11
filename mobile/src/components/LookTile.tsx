@@ -46,7 +46,8 @@ export function LookTile({ look, onPress, height = 170, price }: LookTileProps) 
       </View>
       <Text style={styles.vibe} numberOfLines={1}>{look.vibe}</Text>
       <Text style={styles.meta}>
-        {Math.round(look.durationMin / 60 * 10) / 10}h · From {formatCurrency(price ?? look.fromPrice, { decimals: 0 })}
+        {Math.round(look.durationMin / 60 * 10) / 10}h
+        {price != null ? ` · From ${formatCurrency(price, { decimals: 0 })}` : ' · Price varies by artist'}
       </Text>
     </Pressable>
   );

@@ -12,6 +12,10 @@ import { CountryPicker, Country } from './CountryPicker';
 import { apiSendVerifyOtp, apiVerifyPhone } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { Colors, Fonts } from '../utils/colors';
+import { useCountdown } from '../hooks/useCountdown';
+
+// Mirrors the backend's OTP resend cooldown (src/utils/otp.js) exactly.
+const RESEND_COOLDOWN_SECONDS = 30;
 
 const OTP_LENGTH = 6;
 
@@ -31,6 +35,7 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
   const [loading, setLoading] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
   const inputRefs = useRef<(TextInput | null)[]>([]);
+  const resendCooldown = useCountdown();
 
   useEffect(() => {
     if (visible) {
@@ -48,10 +53,15 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
 
   async function sendOtp() {
     setLoading(true);
+    // Clear any previously-typed digits — resending invalidates the old code
+    // server-side, so stale digits (or an OS autofill re-inserting them)
+    // would otherwise silently burn verify attempts against the new one.
+    setDigits(Array(OTP_LENGTH).fill(''));
     try {
       await apiSendVerifyOtp(needsPhone ? getE164() : undefined);
       setOtpSent(true);
       setStage('otp');
+      resendCooldown.start(RESEND_COOLDOWN_SECONDS);
       setTimeout(() => inputRefs.current[0]?.focus(), 300);
     } catch (e: any) {
       const msg = e.message || 'Failed to send verification code.';
@@ -151,6 +161,22 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
             >
               <Text style={styles.ctaText}>{loading ? 'Verifying…' : 'Verify'}</Text>
             </Pressable>
+
+            <Pressable style={{ marginTop: 4, alignItems: 'center' }} onPress={sendOtp} disabled={loading || resendCooldown.seconds > 0}>
+              <Text style={[styles.resendLink, resendCooldown.seconds > 0 && styles.resendLinkDisabled]}>
+                {loading ? 'Resending…' : resendCooldown.seconds > 0 ? `Resend code in ${resendCooldown.seconds}s` : "Didn't get a code? Resend"}
+              </Text>
+            </Pressable>
+
+            {needsPhone && (
+              <Pressable
+                style={{ alignItems: 'center' }}
+                onPress={() => { setStage('phone'); setDigits(Array(OTP_LENGTH).fill('')); }}
+                disabled={loading}
+              >
+                <Text style={styles.resendLink}>← Change number</Text>
+              </Pressable>
+            )}
           </>
         )}
       </View>
@@ -179,4 +205,6 @@ const styles = StyleSheet.create({
     color: Colors.label, textAlign: 'center',
   },
   digitBoxFilled: { borderColor: Colors.brand, backgroundColor: Colors.brandLight },
+  resendLink: { color: Colors.brandDark, textDecorationLine: 'underline', fontFamily: Fonts.medium, fontSize: 14 },
+  resendLinkDisabled: { color: Colors.tertiaryLabel, textDecorationLine: 'none' },
 });

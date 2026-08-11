@@ -9,7 +9,7 @@ import { BookingCard } from '../../components/BookingCard';
 import { BookingCardSkeleton } from '../../components/SkeletonLoader';
 import { Colors } from '../../utils/colors';
 import { StatusBadge } from '../../components/StatusBadge';
-import { NoteIcon, EarningsIcon, ClockIcon, KeyIcon, PhoneMobileIcon } from '../../components/CareIcons';
+import { NoteIcon, ClockIcon, KeyIcon, PhoneMobileIcon } from '../../components/CareIcons';
 import { CheckCircleIcon, HourglassIcon } from '../../components/TabIcons';
 import { formatCurrency } from '../../utils/format';
 
@@ -196,7 +196,6 @@ export function BookingsScreen() {
   const awaitingCount     = bookings.filter(b => b.status === 'REQUESTED').length;
   const upcomingCount     = bookings.filter(b => b.status === 'ACCEPTED').length;
   const completedBookings = bookings.filter(b => b.status === 'COMPLETED');
-  const totalSpent        = completedBookings.reduce((s, b) => s + (b.totalPrice ?? 0), 0);
   const totalHours        = completedBookings.reduce((s, b) => s + (b.hours ?? 0), 0);
 
   const statsHeader = !loading && bookings.length > 0 ? (
@@ -204,7 +203,6 @@ export function BookingsScreen() {
       {([
         [NoteIcon, String(bookings.length),              'Bookings'],
         [CheckCircleIcon, String(completedBookings.length), 'Completed'],
-        [EarningsIcon, formatCurrency(totalSpent),                    'Spent'],
         [ClockIcon, `${totalHours}h`,                        'Hours'],
       ] as [IconComp, string, string][]).map(([Icon, val, label]) => (
         <View key={label} style={styles.statCell}>

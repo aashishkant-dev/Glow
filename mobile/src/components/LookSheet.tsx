@@ -25,7 +25,7 @@ export function LookSheet({ look, onClose, priceOverride }: LookSheetProps) {
   const nav = useNavigation<any>();
   const savedIds = useSavedLooks();
   const saved = look ? savedIds.includes(look.id) : false;
-  const price = priceOverride ?? look?.fromPrice ?? 0;
+  const price = priceOverride ?? null;
 
   function book() {
     if (!look) return;
@@ -65,7 +65,7 @@ export function LookSheet({ look, onClose, priceOverride }: LookSheetProps) {
             {/* Quick facts */}
             <View style={styles.factRow}>
               <View style={styles.fact}>
-                <Text style={styles.factValue}>From {formatCurrency(price, { decimals: 0 })}</Text>
+                <Text style={styles.factValue}>{price != null ? `From ${formatCurrency(price, { decimals: 0 })}` : 'Varies'}</Text>
                 <Text style={styles.factLabel}>Complete look</Text>
               </View>
               <View style={styles.factDivider} />

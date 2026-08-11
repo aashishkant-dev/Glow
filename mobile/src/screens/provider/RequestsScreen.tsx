@@ -203,7 +203,7 @@ export function RequestsScreen({ embedded = false }: { embedded?: boolean } = {}
                 <Pressable style={[styles.acceptBtn, busyId === job._id && { opacity: 0.7 }]} onPress={() => accept(job)} disabled={busyId === job._id}>
                   {busyId === job._id
                     ? <ActivityIndicator color="#fff" />
-                    : <Text style={styles.acceptText}>Accept · ${job.totalPrice}</Text>}
+                    : <Text style={styles.acceptText}>Accept · {formatCurrency(job.totalPrice, { decimals: 0 })}</Text>}
                 </Pressable>
               </View>
             </View>
@@ -216,7 +216,7 @@ export function RequestsScreen({ embedded = false }: { embedded?: boolean } = {}
         <View style={styles.overlay}>
           <View style={styles.sheet}>
             <Text style={styles.sheetTitle}>Decline this request?</Text>
-            <Text style={styles.sheetSub}>{declineJob?.serviceType} · ${declineJob?.totalPrice}. The client sees your reason and can pick another Provider.</Text>
+            <Text style={styles.sheetSub}>{declineJob?.serviceType} · {declineJob ? formatCurrency(declineJob.totalPrice, { decimals: 0 }) : ''}. The client sees your reason and can pick another Provider.</Text>
             <View style={styles.reasonChips}>
               {DECLINE_REASONS.map(r => (
                 <Pressable key={r} style={styles.reasonChip} onPress={() => declineJob && decline(declineJob, r)}>

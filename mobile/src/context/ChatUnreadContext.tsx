@@ -15,7 +15,8 @@ interface StoredNotification {
   id: string;
   title: string;
   body: string;
-  type?: 'message' | 'booking' | 'approved' | 'rating' | 'job' | 'request';
+  type?: 'message' | 'booking' | 'approved' | 'rating' | 'job' | 'request'
+    | 'accepted' | 'enroute' | 'started' | 'cancelled' | 'tip';
   bookingId?: string;
   senderName?: string; // for message rows — used by NotificationsScreen to open chat
   read: boolean;
@@ -28,7 +29,8 @@ const MAX_STORED = 50;
 interface BannerMsg {
   title: string;
   body: string;
-  type?: 'message' | 'booking' | 'approved' | 'rating' | 'job' | 'request';
+  type?: 'message' | 'booking' | 'approved' | 'rating' | 'job' | 'request'
+    | 'accepted' | 'enroute' | 'started' | 'cancelled' | 'tip';
   bookingId?: string;
   senderName?: string;
 }
@@ -69,12 +71,19 @@ export function ChatUnreadProvider({ children }: { children: React.ReactNode }) 
   // Current user role — drives role-aware notification copy (a Provider must never be
   // told to "rate your Provider"; they rate the client, and vice-versa).
   const roleRef = useRef<string | null>(null);
-  useEffect(() => {
-    Storage.getUser().then(u => {
-      myIdRef.current = (u as any)?.id ?? (u as any)?._id ?? null;
-      roleRef.current = (u as any)?.role ?? null;
-    }).catch(() => {});
-  }, []);
+  // Notification cache key, namespaced by user id once known (see notifKey()
+  // below and the load effect further down) — AsyncStorage/localStorage is
+  // scoped to the browser, not the signed-in user, so a single shared key let
+  // one account's cached notifications survive into the next account that
+  // signed in on the same browser (confirmed: titles referencing bookings/
+  // people the current user never interacted with). Namespacing per user id
+  // makes that structurally impossible instead of relying on every sign-out
+  // path remembering to clear a shared key.
+  const userIdRef = useRef<string | null>(null);
+
+  function notifKey() {
+    return userIdRef.current ? `${NOTIF_STORAGE_KEY}:${userIdRef.current}` : NOTIF_STORAGE_KEY;
+  }
 
   const increment = useCallback(() => setCount(c => c + 1), []);
   const clear = useCallback(() => setCount(0), []);
@@ -115,20 +124,29 @@ export function ChatUnreadProvider({ children }: { children: React.ReactNode }) 
         const merged = [...mapped, ...localOnly]
           .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
           .slice(0, MAX_STORED);
-        AsyncStorage.setItem(NOTIF_STORAGE_KEY, JSON.stringify(merged)).catch(() => {});
+        AsyncStorage.setItem(notifKey(), JSON.stringify(merged)).catch(() => {});
         return merged;
       });
       setCount(unreadCount ?? 0);
     } catch { /* offline / not signed in — local cache still shows */ }
   }, []);
 
-  // Load persisted cache instantly, then hydrate from the server.
+  // Resolve the signed-in user's id FIRST (local read, no network — near
+  // instant) so the cache load below uses their own namespaced key from the
+  // start, then hydrate from the server.
   useEffect(() => {
-    AsyncStorage.getItem(NOTIF_STORAGE_KEY).then(raw => {
-      if (!aliveRef.current || !raw) return;
-      try { setNotifications(JSON.parse(raw)); } catch {}
-    });
-    refreshNotifications();
+    (async () => {
+      const u = await Storage.getUser().catch(() => null);
+      myIdRef.current = (u as any)?.id ?? (u as any)?._id ?? null;
+      roleRef.current = (u as any)?.role ?? null;
+      userIdRef.current = myIdRef.current;
+
+      const raw = await AsyncStorage.getItem(notifKey()).catch(() => null);
+      if (aliveRef.current && raw) {
+        try { setNotifications(JSON.parse(raw)); } catch {}
+      }
+      refreshNotifications();
+    })();
   }, [refreshNotifications]);
 
   const addNotification = useCallback((title: string, body: string, options?: { type?: BannerMsg['type']; bookingId?: string; senderName?: string }) => {
@@ -210,13 +228,13 @@ export function ChatUnreadProvider({ children }: { children: React.ReactNode }) 
       // old per-navigator listeners used before this was centralized).
       const who = !isProvider && d?.providerName ? String(d.providerName) : 'Your Provider';
       const MAP: Record<string, { title: string; body: string; type?: BannerMsg['type'] }> = {
-        ACCEPTED:  { title: 'Provider accepted',         body: isProvider ? 'You accepted the booking.' : `${who} accepted the booking and will be on the way.` },
-        ON_MY_WAY: { title: isProvider ? 'On the way' : `${who} is on the way`, body: isProvider ? 'Heading to the client now.' : 'Track their arrival in the app.' },
-        STARTED:   { title: 'Care session started', body: isProvider ? 'The care session has begun.' : `${who} has begun the session.` },
+        ACCEPTED:  { title: 'Provider accepted',         body: isProvider ? 'You accepted the booking.' : `${who} accepted the booking and will be on the way.`, type: 'accepted' },
+        ON_MY_WAY: { title: isProvider ? 'On the way' : `${who} is on the way`, body: isProvider ? 'Heading to the client now.' : 'Track their arrival in the app.', type: 'enroute' },
+        STARTED:   { title: 'Care session started', body: isProvider ? 'The care session has begun.' : `${who} has begun the session.`, type: 'started' },
         COMPLETED: { title: 'Service completed',    body: completedBody, type: 'rating' },
-        CANCELLED: { title: 'Booking cancelled',   body: d?.reason === 'provider-declined' ? 'Your Provider is unavailable — please choose another.' : 'Your booking was cancelled.' },
+        CANCELLED: { title: 'Booking cancelled',   body: d?.reason === 'provider-declined' ? 'Your Provider is unavailable — please choose another.' : 'Your booking was cancelled.', type: 'cancelled' },
         REQUESTED: d?.reason === 'provider-declined'
-          ? { title: 'Choose another Provider', body: 'The Provider you requested is unavailable — pick another to continue.', type: 'booking' }
+          ? { title: 'Choose another Provider', body: 'The Provider you requested is unavailable — pick another to continue.', type: 'cancelled' }
           : { title: 'Finding your Provider', body: 'We’re matching you with a Provider.' },
       };
       const m = MAP[status] ?? { title: 'Booking update', body: `Your booking is now ${status.replace(/_/g, ' ').toLowerCase() || 'updated'}.` };

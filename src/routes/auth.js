@@ -526,6 +526,7 @@ router.post(
         collegeName,
         experienceYears,
         specialties,
+        capableLooks,
         certifications,
         firstAidCertified,
         driversLicense,
@@ -544,6 +545,7 @@ router.post(
       if (collegeName        !== undefined) data.collegeName        = collegeName.trim();
       if (experienceYears    !== undefined) data.experienceYears    = Number(experienceYears);
       if (Array.isArray(specialties))       data.specialties        = specialties;
+      if (Array.isArray(capableLooks))      data.capableLooks       = capableLooks.filter(id => typeof id === 'string').slice(0, 100);
       if (Array.isArray(certifications))    data.certifications     = certifications;
       if (firstAidCertified  !== undefined) data.firstAidCertified  = Boolean(firstAidCertified);
       if (driversLicense     !== undefined) data.driversLicense     = Boolean(driversLicense);

@@ -155,4 +155,9 @@ export const Fonts = {
   semibold: 'Inter_600SemiBold',
   bold:     'Inter_700Bold',
   extrabold:'Inter_800ExtraBold',
+  // Fraunces — an editorial display serif, italic for warm/romantic headline
+  // moments (the hero banner's "Glow from the comfort of home"), matching
+  // the Figma reference's Fraunces display font instead of bold sans everywhere.
+  displayItalic: 'Fraunces_400Regular_Italic',
+  display:       'Fraunces_700Bold',
 } as const;

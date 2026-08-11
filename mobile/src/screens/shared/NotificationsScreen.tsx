@@ -12,22 +12,29 @@ import { useChatUnread } from '../../context/ChatUnreadContext';
 import { useAuth } from '../../context/AuthContext';
 import { Colors } from '../../utils/colors';
 import { apiGetBooking } from '../../api/client';
-import { BellIcon, NoteIcon, ShieldCheckIcon, PinIcon } from '../../components/CareIcons';
-import { ChatIcon, StarIcon, ArrowBackIcon } from '../../components/TabIcons';
+import { BellIcon, NoteIcon, ShieldCheckIcon, PinIcon, ClockIcon } from '../../components/CareIcons';
+import { ChatIcon, StarIcon, ArrowBackIcon, CheckCircleIcon, CloseCircleIcon, NavigateIcon } from '../../components/TabIcons';
 
 // Map a notification type → brand CareIcon + tint (no emoji). Each entry pairs the
 // SVG icon with a colour and a soft background bubble so the row reads at a glance:
-//   request → bell, message → chat, rating/tip → star, approved → shield, booking → note.
+//   request → bell, message → chat, rating/tip → star, approved → shield,
+//   accepted → check, enroute → navigate, started → clock, cancelled → close,
+//   booking → note (generic, e.g. "Booking confirmed" on creation).
 const TYPE_VISUAL: Record<
   string,
   { Icon: React.ComponentType<{ size?: number; color?: string }>; color: string; bg: string }
 > = {
-  request:  { Icon: BellIcon,        color: Colors.brand,        bg: Colors.brandLight },
-  job:      { Icon: PinIcon,         color: Colors.brand,        bg: Colors.brandLight },
-  message:  { Icon: ChatIcon,        color: Colors.systemBlue,   bg: '#EAF3FA' },
-  rating:   { Icon: StarIcon,        color: '#F59E0B',           bg: '#FEF6E7' },
-  approved: { Icon: ShieldCheckIcon, color: Colors.trustGreen,   bg: '#E7F6EF' },
-  booking:  { Icon: NoteIcon,        color: Colors.secondaryLabel, bg: Colors.systemGray6 },
+  request:   { Icon: BellIcon,         color: Colors.brand,          bg: Colors.brandLight },
+  job:       { Icon: PinIcon,          color: Colors.brand,          bg: Colors.brandLight },
+  message:   { Icon: ChatIcon,         color: Colors.systemBlue,     bg: '#EAF3FA' },
+  rating:    { Icon: StarIcon,         color: '#F59E0B',             bg: '#FEF6E7' },
+  tip:       { Icon: StarIcon,         color: '#F59E0B',             bg: '#FEF6E7' },
+  approved:  { Icon: ShieldCheckIcon,  color: Colors.trustGreen,     bg: '#E7F6EF' },
+  accepted:  { Icon: CheckCircleIcon,  color: Colors.trustGreen,     bg: '#E7F6EF' },
+  enroute:   { Icon: NavigateIcon,     color: Colors.systemBlue,     bg: '#EAF3FA' },
+  started:   { Icon: ClockIcon,        color: Colors.brand,          bg: Colors.brandLight },
+  cancelled: { Icon: CloseCircleIcon,  color: Colors.systemRed,      bg: '#FDECEC' },
+  booking:   { Icon: NoteIcon,         color: Colors.secondaryLabel, bg: Colors.systemGray6 },
 };
 
 // Fallback for any unknown/legacy type → neutral bell.

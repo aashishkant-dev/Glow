@@ -2,9 +2,9 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import React, { useEffect, useRef } from 'react';
 import { addTapListener } from '../utils/notifications';
-import { Platform, StyleSheet, View } from 'react-native';
-import { Image } from 'expo-image';
+import { Animated, Platform, StyleSheet, View } from 'react-native';
 import { BlurView } from 'expo-blur';
+import { Image } from 'expo-image';
 import { useAuth } from '../context/AuthContext';
 import { BookingDetailScreen } from '../screens/customer/BookingDetailScreen';
 import { BookingsScreen } from '../screens/customer/BookingsScreen';
@@ -109,34 +109,60 @@ function CustomerMessageListener() {
  * it opens from Glow Match, occasion cards, look sheets and artist profiles
  * as the full-screen `NewBooking` stack route.
  */
-// True frosted-glass tab bar background (iOS 26 "Liquid Glass" look) via
-// BlurView — RN Web has no native compositor blur, so BlurView renders inert
-// there; the CSS `backdropFilter` fallback below keeps web visually consistent
-// with native instead of just showing a flat, unblurred tint.
+// Tab bar background — real compositor BlurView on native (genuinely
+// translucent, works). On web, CSS backdrop-filter was tried twice and
+// confirmed NOT reliably rendering in practice: with only rgba(255,255,255,x)
+// behind it, vivid page content (gradient cards, etc.) bled straight through
+// the "glass" and made same-toned icons unreadable — confirmed via screenshot.
+// Solid on web is a deliberate tradeoff: guaranteed legible over an unproven
+// effect that depends on browser/GPU support we can't rely on here.
 function GlassTabBarBackground() {
   if (Platform.OS === 'web') {
     return (
       <View
         style={[
           StyleSheet.absoluteFill,
-          {
-            backgroundColor: 'rgba(255,255,255,0.72)',
-            // @ts-expect-error — web-only CSS property, RN's types don't include it
-            backdropFilter: 'blur(20px) saturate(180%)',
-            borderRadius: 100,
-          },
+          { backgroundColor: '#fff', borderRadius: 100 },
         ]}
       />
     );
   }
   return (
     <BlurView
-      intensity={78}
+      intensity={85}
       tint="light"
       style={[StyleSheet.absoluteFill, { borderRadius: 100, overflow: 'hidden' }]}
     />
   );
 }
+
+// Active-tab pill — springs in behind the focused icon (scale + fade) so
+// switching tabs feels alive instead of just a flat color swap.
+function TabPill({ focused, children }: { focused: boolean; children: React.ReactNode }) {
+  const anim = useRef(new Animated.Value(focused ? 1 : 0)).current;
+  useEffect(() => {
+    Animated.spring(anim, { toValue: focused ? 1 : 0, useNativeDriver: true, speed: 22, bounciness: 6 }).start();
+  }, [focused]);
+  return (
+    <View style={tabPillStyles.pill}>
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          tabPillStyles.pillFill,
+          { opacity: anim, transform: [{ scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.75, 1] }) }] },
+        ]}
+      />
+      {children}
+    </View>
+  );
+}
+const tabPillStyles = StyleSheet.create({
+  pill: {
+    width: 52, height: 32, borderRadius: 16,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  pillFill: { ...StyleSheet.absoluteFill, borderRadius: 16, backgroundColor: Colors.brandLight },
+});
 
 function HomeTabs() {
   const { user } = useAuth();
@@ -153,10 +179,9 @@ function HomeTabs() {
         tabBarShowLabel: true,
         tabBarLabelStyle: { fontSize: 10.5, fontFamily: 'Inter_500Medium', marginTop: 2 },
         tabBarBackground: GlassTabBarBackground,
-        // Floating iOS-style pill bar — detached from the screen edges with a
-        // soft rose shadow, like modern beauty/lifestyle apps. Background color
-        // is transparent here — GlassTabBarBackground paints the actual frosted
-        // fill behind the icons/labels.
+        // Floating pill bar — detached from the screen edges with a soft rose
+        // shadow, like modern beauty/lifestyle apps. Background is transparent
+        // here — GlassTabBarBackground paints the actual frosted fill.
         tabBarStyle: {
           position: 'absolute' as const,
           left: 16, right: 16,
@@ -169,7 +194,7 @@ function HomeTabs() {
           paddingHorizontal: 8,
           borderRadius: 100,
           borderWidth: 1,
-          borderColor: 'rgba(255,255,255,0.5)',
+          borderColor: Colors.separator,
           shadowColor: Colors.cardShadow,
           shadowOffset: { width: 0, height: 12 },
           shadowOpacity: 0.14,
@@ -190,7 +215,7 @@ function HomeTabs() {
         options={{
           tabBarLabel: 'Home',
           tabBarIcon: ({ focused }) => (
-            <HomeIcon size={24} color={focused ? ACTIVE : INACTIVE} filled={focused} />
+            <TabPill focused={focused}><HomeIcon size={22} color={focused ? ACTIVE : INACTIVE} filled={focused} /></TabPill>
           ),
         }}
       />
@@ -200,7 +225,7 @@ function HomeTabs() {
         options={{
           tabBarLabel: 'Explore',
           tabBarIcon: ({ focused }) => (
-            <CompassIcon size={24} color={focused ? ACTIVE : INACTIVE} filled={focused} />
+            <TabPill focused={focused}><CompassIcon size={22} color={focused ? ACTIVE : INACTIVE} filled={focused} /></TabPill>
           ),
         }}
       />
@@ -210,7 +235,7 @@ function HomeTabs() {
         options={{
           tabBarLabel: 'Saved',
           tabBarIcon: ({ focused }) => (
-            <HeartIcon size={24} color={focused ? ACTIVE : INACTIVE} filled={focused} />
+            <TabPill focused={focused}><HeartIcon size={22} color={focused ? ACTIVE : INACTIVE} filled={focused} /></TabPill>
           ),
         }}
       />
@@ -220,7 +245,7 @@ function HomeTabs() {
         options={{
           tabBarLabel: 'Profile',
           tabBarIcon: ({ focused }) => (
-            <ProfileTabAvatar photoUrl={user?.photoUrl} color={focused ? ACTIVE : INACTIVE} focused={focused} />
+            <TabPill focused={focused}><ProfileTabAvatar photoUrl={user?.photoUrl} color={focused ? ACTIVE : INACTIVE} focused={focused} /></TabPill>
           ),
         }}
       />

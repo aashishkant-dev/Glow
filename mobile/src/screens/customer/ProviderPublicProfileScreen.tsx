@@ -478,7 +478,7 @@ export function ProviderPublicProfileScreen() {
         <View style={{ flex: 1 }}>
           {fromPrice != null ? (
             <>
-              <Text style={styles.priceText}>From ${Math.round(fromPrice)}</Text>
+              <Text style={styles.priceText}>From {formatCurrency(fromPrice, { decimals: 0 })}</Text>
               <Text style={styles.priceSub}>complete look</Text>
             </>
           ) : (

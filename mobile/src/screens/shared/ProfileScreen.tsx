@@ -818,7 +818,6 @@ export function ProfileScreen() {
   // Stats values (with dash fallback)
   const customerTotalBookings = profile?.totalBookings ?? null;
   const customerHours         = profile?.totalHours ?? null;
-  const customerSpent         = profile?.totalSpent ?? null;
 
   const providerSessions  = profile?.totalSessions ?? null;
   const providerAvgRating = providerRating > 0 ? providerRating.toFixed(1) : null;
@@ -1102,13 +1101,6 @@ export function ProfileScreen() {
               </Text>
               <Text style={styles.statLabel}>Hours Booked</Text>
             </View>
-            <View style={styles.statDivider} />
-            <View style={styles.statCell}>
-              <Text style={styles.statNum}>
-                {customerSpent !== null ? formatCurrency(customerSpent) : '—'}
-              </Text>
-              <Text style={styles.statLabel}>Amount Spent</Text>
-            </View>
           </View>
         )}
 
@@ -1172,9 +1164,11 @@ export function ProfileScreen() {
             </Pressable>
             <Divider />
             <InfoRow glyph="cellphone" label="Phone" value={user?.phone ?? '—'} />
-            <View style={styles.chipRow}>
-              <VerifiedChip label="Phone verified" />
-            </View>
+            {user?.phone && user?.phoneVerified && (
+              <View style={styles.chipRow}>
+                <VerifiedChip label="Phone verified" />
+              </View>
+            )}
           </View>
 
           <Subhead title="Location" />
@@ -1312,7 +1306,15 @@ export function ProfileScreen() {
                   <InfoRow
                     glyph="translate"
                     label="Languages"
-                    value={(providerP.languages?.length ?? 0) > 0 ? providerP.languages!.join(' · ') : 'Add languages'}
+                    // A full comma-list overflowed its row once 3+ languages were
+                    // selected (numberOfLines=1 truncated mid-word, right up
+                    // against the label with no visible gap). Past 2, show a
+                    // compact "first two +N more" summary instead of the full list.
+                    value={
+                      !providerP.languages?.length ? 'Add languages'
+                        : providerP.languages.length <= 2 ? providerP.languages.join(' · ')
+                        : `${providerP.languages.slice(0, 2).join(' · ')} +${providerP.languages.length - 2} more`
+                    }
                     onPress={() => { setLangDraft(providerP.languages ?? []); setLangModal(true); }}
                   />
                   <Divider />
@@ -2403,7 +2405,11 @@ const styles = StyleSheet.create({
   // Label vs value now differ in WEIGHT (medium vs semibold) and colour, not
   // just colour — so the eye separates "what" from "what it's set to".
   infoLabel: { ...Type.rowLabel, color: LABEL },
-  infoRight: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, justifyContent: 'flex-end' },
+  // minWidth: 0 matters on web — a flex:1 child otherwise refuses to shrink
+  // below its content's natural width (CSS flexbox default), so a long value
+  // (e.g. "English · Nepali · French…") pushed past its box with no gap
+  // instead of truncating, running the label and value together.
+  infoRight: { flexDirection: 'row', alignItems: 'center', gap: 8, flex: 1, minWidth: 0, justifyContent: 'flex-end' },
   infoValue: { ...Type.rowValue, color: VALUE, textAlign: 'right', flexShrink: 1 },
   // Bare chevron glyph — the filled circular chip repeated on every row read as
   // a button, competing with the actual buttons. Sephora/Instagram use a plain

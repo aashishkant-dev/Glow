@@ -15,8 +15,11 @@ import { useAuth } from '../../context/AuthContext';
 import { Colors, Fonts } from '../../utils/colors';
 import { GlowMark } from '../../components/GlowLogo';
 import { CountryPicker, Country } from '../../components/CountryPicker';
+import { useCountdown } from '../../hooks/useCountdown';
 
 const OTP_LENGTH = 6;
+// Mirrors the backend's OTP resend cooldown (src/utils/otp.js) exactly.
+const RESEND_COOLDOWN_SECONDS = 30;
 
 export function ProviderVerifyPhoneScreen() {
   const insets = useSafeAreaInsets();
@@ -28,6 +31,7 @@ export function ProviderVerifyPhoneScreen() {
   const [loading, setLoading] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
   const inputRefs = useRef<(TextInput | null)[]>([]);
+  const resendCooldown = useCountdown();
 
   function getE164() {
     const d = phone.replace(/\D/g, '');
@@ -36,10 +40,15 @@ export function ProviderVerifyPhoneScreen() {
 
   async function sendOtp() {
     setLoading(true);
+    // Clear stale digits — resending invalidates the previous code
+    // server-side, so leftover/autofilled digits would otherwise silently
+    // burn verify attempts against the new one.
+    setDigits(Array(OTP_LENGTH).fill(''));
     try {
       await apiSendVerifyOtp(getE164());
       setOtpSent(true);
       setStage('otp');
+      resendCooldown.start(RESEND_COOLDOWN_SECONDS);
       setTimeout(() => inputRefs.current[0]?.focus(), 300);
     } catch (e: any) {
       const msg = e.message || 'Failed to send verification code.';
@@ -107,9 +116,9 @@ export function ProviderVerifyPhoneScreen() {
               />
             </View>
             <Pressable
-              style={[styles.cta, (!country || phone.replace(/\D/g, '').length < 7) && styles.ctaDisabled]}
+              style={[styles.cta, (!country || phone.replace(/\D/g, '').length !== 10) && styles.ctaDisabled]}
               onPress={sendOtp}
-              disabled={loading || !country || phone.replace(/\D/g, '').length < 7}
+              disabled={loading || !country || phone.replace(/\D/g, '').length !== 10}
             >
               <Text style={styles.ctaText}>{loading ? 'Sending…' : 'Send code'}</Text>
             </Pressable>
@@ -133,8 +142,30 @@ export function ProviderVerifyPhoneScreen() {
                 />
               ))}
             </View>
+            {/* Explicit fallback for autofill that doesn't fire the per-keystroke
+                auto-submit check in handleDigitChange (same reasoning as
+                VerifyPhoneSheet's Verify button) — without this, the OTP
+                boxes can fill with no way to submit except Resend. */}
+            <Pressable
+              style={[styles.cta, digits.some(d => !d) && styles.ctaDisabled]}
+              onPress={() => verify(digits.join(''))}
+              disabled={loading || digits.some(d => !d)}
+            >
+              <Text style={styles.ctaText}>{loading ? 'Verifying…' : 'Verify'}</Text>
+            </Pressable>
+
             <Pressable
               style={{ marginTop: 18, alignItems: 'center' }}
+              onPress={sendOtp}
+              disabled={loading || resendCooldown.seconds > 0}
+            >
+              <Text style={[styles.changeLink, resendCooldown.seconds > 0 && styles.changeLinkDisabled]}>
+                {loading ? 'Resending…' : resendCooldown.seconds > 0 ? `Resend code in ${resendCooldown.seconds}s` : "Didn't get a code? Resend"}
+              </Text>
+            </Pressable>
+
+            <Pressable
+              style={{ marginTop: 12, alignItems: 'center' }}
               onPress={() => { setStage('phone'); setDigits(Array(OTP_LENGTH).fill('')); }}
               disabled={loading}
             >
@@ -170,4 +201,5 @@ const styles = StyleSheet.create({
   },
   digitBoxFilled: { borderColor: Colors.brand, backgroundColor: Colors.brandLight },
   changeLink: { color: Colors.brandDark, textDecorationLine: 'underline', fontFamily: Fonts.medium, fontSize: 14 },
+  changeLinkDisabled: { color: Colors.tertiaryLabel, textDecorationLine: 'none' },
 });

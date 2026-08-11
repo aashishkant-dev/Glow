@@ -22,9 +22,36 @@ export const DEFAULT_REGION: RegionCoords = {
 export const DEFAULT_REGION_NAME: string =
   (process.env.EXPO_PUBLIC_REGION_NAME as string | undefined) || 'Greater Sudbury, ON';
 
-// ISO 4217 currency code for this deployment — one platform, one currency,
-// set at deploy time. Not per-user: this app serves a single region (see
-// module doc above), there's no country field on User, and customers/artists
-// in one booking are always in the same market.
-export const CURRENCY_CODE: string =
+// ISO 4217 currency code — deploy-time default (used before login, or if a
+// user's phone doesn't match a known dial code), overridden per-user once
+// signed in (see setCurrencyCodeForPhone below).
+const DEFAULT_CURRENCY_CODE: string =
   (process.env.EXPO_PUBLIC_CURRENCY as string | undefined) || 'CAD';
+
+let currentCurrencyCode = DEFAULT_CURRENCY_CODE;
+
+// Dial-code → currency. Mirrors CountryPicker.tsx's supported countries
+// (CA/US/UK/NP). +1 covers both CA and US with different currencies — since
+// CountryPicker only records the dial code on the phone string (not which of
+// the two the user actually picked) and the business is Canada-based, +1
+// defaults to CAD rather than trying to guess US vs Canada from area code.
+const DIAL_CODE_CURRENCY: [prefix: string, currency: string][] = [
+  ['+977', 'NPR'],
+  ['+44', 'GBP'],
+  ['+1', 'CAD'],
+];
+
+function currencyCodeForPhone(phone?: string | null): string {
+  if (!phone) return DEFAULT_CURRENCY_CODE;
+  const match = DIAL_CODE_CURRENCY.find(([prefix]) => phone.startsWith(prefix));
+  return match ? match[1] : DEFAULT_CURRENCY_CODE;
+}
+
+/** Called from AuthContext whenever the signed-in user (or their phone) changes. */
+export function setCurrencyCodeForPhone(phone?: string | null): void {
+  currentCurrencyCode = currencyCodeForPhone(phone);
+}
+
+export function getCurrencyCode(): string {
+  return currentCurrencyCode;
+}

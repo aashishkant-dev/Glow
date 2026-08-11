@@ -3,6 +3,7 @@ import { Storage, StoredUser } from '../utils/storage';
 import { connectSocket, disconnectSocket } from '../utils/socket';
 import { initNotifications, addPushTokenRefreshListener } from '../utils/notifications';
 import { registerUnauthorizedHandler } from '../api/client';
+import { setCurrencyCodeForPhone } from '../utils/region';
 
 interface AuthState {
   token: string | null;
@@ -15,7 +16,7 @@ interface AuthContextValue extends AuthState {
   signIn: (token: string, user: StoredUser) => Promise<void>;
   signOut: () => Promise<void>;
   updatePhoto: (uri: string | null) => void;
-  updateUser: (patch: Partial<StoredUser>) => void;
+  updateUser: (patch: Partial<StoredUser>) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextValue | undefined>(undefined);
@@ -67,6 +68,13 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     registerUnauthorizedHandler(signOut);
   }, [signOut]);
 
+  // Currency follows the signed-in user's phone country code (see region.ts)
+  // — covers initial load, sign-in, sign-out (falls back to deploy default),
+  // and any phone change from updateUser in one place.
+  useEffect(() => {
+    setCurrencyCodeForPhone(state.user?.phone);
+  }, [state.user?.phone]);
+
   const updatePhoto = useCallback((uri: string | null) => {
     setState(s => {
       const updatedUser = s.user ? { ...s.user, photoUrl: uri ?? undefined } : s.user;
@@ -80,13 +88,22 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     else Storage.clearPhotoUri().catch(() => {});
   }, []);
 
+  // Returns a Promise so callers that navigate right after an update (e.g.
+  // ProviderOnboarding finishing) can await the write actually landing —
+  // otherwise a refresh in that narrow window can read back the pre-update
+  // value from storage and re-trigger whatever gate the patch was meant to clear.
   const updateUser = useCallback((patch: Partial<StoredUser>) => {
+    let pending: Promise<void> = Promise.resolve();
     setState(s => {
       if (!s.user) return s;
       const updated = { ...s.user, ...patch };
-      Storage.saveAuth(s.token!, updated).catch(() => {});
+      // Caught internally (not rethrown) so existing fire-and-forget callers
+      // stay safe, while callers that need the write to land before
+      // navigating can still `await updateUser(...)`.
+      pending = Storage.saveAuth(s.token!, updated).catch(() => {});
       return { ...s, user: updated };
     });
+    return pending;
   }, []);
 
   return (

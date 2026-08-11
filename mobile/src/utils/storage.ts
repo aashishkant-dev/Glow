@@ -113,7 +113,14 @@ export const Storage = {
 
   async clearAuth(): Promise<void> {
     await secureDelete();
-    await AsyncStorage.multiRemove([KEYS.TOKEN, KEYS.USER]);
+    // 'cn_notifications' is ChatUnreadContext's NOTIF_STORAGE_KEY (legacy
+    // pre-rebrand name, not in the @glow/ namespace above) — cleared here too.
+    // On web, AsyncStorage backs onto localStorage, which is scoped to the
+    // browser origin, not the signed-in user: without this, signing out and a
+    // different account signing in on the same browser inherited (and even
+    // re-persisted back to storage via the notifications merge) the PREVIOUS
+    // user's locally-cached notifications — a real cross-account data leak.
+    await AsyncStorage.multiRemove([KEYS.TOKEN, KEYS.USER, 'cn_notifications']);
   },
 
   async savePhotoUri(uri: string): Promise<void> {

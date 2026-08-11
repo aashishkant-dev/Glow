@@ -72,7 +72,7 @@ export function ServiceIcon({
     return illustrated ? <IconComponent size={size} /> : <IconComponent size={size} color={accent} />;
   }
 
-  const wrap = bubbleSize ?? Math.round(size * 1.9);
+  const wrap = bubbleSize ?? Math.round(size * 1.7);
   return (
     <View
       style={[
@@ -80,9 +80,12 @@ export function ServiceIcon({
           width: wrap,
           height: wrap,
           borderRadius: wrap * 0.3,
-          // Illustrated icons carry their own baked-in color, so their bubble
-          // is a neutral tint instead of the service's accent color.
-          backgroundColor: illustrated ? 'rgba(0,0,0,0.04)' : accent + '15',
+          // Illustrated icons carry their own baked-in muted rose-brown color —
+          // a near-transparent-black tint left them washed out/low-contrast
+          // against it (same issue fixed on the Home services grid). White
+          // gives the linework something to actually stand out against.
+          backgroundColor: illustrated ? '#fff' : accent + '15',
+          ...(illustrated ? { borderWidth: 1, borderColor: 'rgba(0,0,0,0.05)' } : null),
           alignItems: 'center',
           justifyContent: 'center',
         },

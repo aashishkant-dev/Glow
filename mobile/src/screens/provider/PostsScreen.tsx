@@ -88,53 +88,60 @@ export function PostsScreen() {
   }
 
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: Colors.systemBackground }} contentContainerStyle={{ padding: 16, paddingTop: insets.top + 16, paddingBottom: 100 }}>
-      <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
-        <Text style={styles.title}>Posts</Text>
+    <ScrollView style={{ flex: 1, backgroundColor: Colors.systemBackground }} contentContainerStyle={{ paddingTop: insets.top + 16, paddingBottom: 100 }}>
+      <View style={styles.header}>
+        <View>
+          <Text style={styles.title}>Posts</Text>
+          {!loading && myPosts.length > 0 && (
+            <Text style={styles.subtitle}>{myPosts.length} {myPosts.length === 1 ? 'post' : 'posts'}</Text>
+          )}
+        </View>
         <Pressable onPress={pickImage} disabled={creatingPost} style={styles.newPostBtn}>
           {creatingPost
             ? <ActivityIndicator size="small" color="#fff" />
             : <Text style={styles.newPostBtnText}>+ New Post</Text>}
         </Pressable>
       </View>
-      <View style={styles.card}>
-        {loading ? (
-          <ActivityIndicator style={{ marginVertical: 24 }} color={Colors.brand} />
-        ) : myPosts.length === 0 ? (
-          <Pressable onPress={pickImage} style={styles.empty}>
-            <CameraIcon size={28} color={Colors.tertiaryLabel} />
-            <Text style={styles.emptyText}>Share your work to get discovered in Explore</Text>
-            <Text style={styles.emptyHint}>Tap "+ New Post" to add your first one</Text>
-          </Pressable>
-        ) : (
-          <View style={styles.grid}>
-            {myPosts.map((post) => (
-              <View key={post.id} style={styles.thumb}>
-                <Image source={{ uri: post.photoUrl }} style={styles.thumbImg} contentFit="cover" cachePolicy="memory-disk" />
-                <Pressable
-                  style={styles.removeBtn}
-                  onPress={() => {
-                    // Alert.alert with a multi-button array is a no-op on RN-Web —
-                    // the confirm dialog never appears, so the button looked broken.
-                    if (Platform.OS === 'web') {
-                      if (typeof window !== 'undefined' && window.confirm('Delete this post? This cannot be undone.')) {
-                        deletePost(post.id);
-                      }
-                      return;
+
+      {loading ? (
+        <ActivityIndicator style={{ marginVertical: 40 }} color={Colors.brand} />
+      ) : myPosts.length === 0 ? (
+        <Pressable onPress={pickImage} style={styles.empty}>
+          <View style={styles.emptyIconWrap}><CameraIcon size={26} color={Colors.brand} /></View>
+          <Text style={styles.emptyText}>Share your work to get discovered in Explore</Text>
+          <Text style={styles.emptyHint}>Tap "+ New Post" to add your first one</Text>
+        </Pressable>
+      ) : (
+        // Full-bleed grid, Instagram-profile style — no framing card, so a
+        // handful of posts doesn't read as a mostly-empty bordered box.
+        <View style={styles.grid}>
+          {myPosts.map((post) => (
+            <View key={post.id} style={styles.thumb}>
+              <Image source={{ uri: post.photoUrl }} style={styles.thumbImg} contentFit="cover" cachePolicy="memory-disk" />
+              <Pressable
+                style={styles.removeBtn}
+                hitSlop={6}
+                onPress={() => {
+                  // Alert.alert with a multi-button array is a no-op on RN-Web —
+                  // the confirm dialog never appears, so the button looked broken.
+                  if (Platform.OS === 'web') {
+                    if (typeof window !== 'undefined' && window.confirm('Delete this post? This cannot be undone.')) {
+                      deletePost(post.id);
                     }
-                    Alert.alert('Delete post?', 'This cannot be undone.', [
-                      { text: 'Cancel', style: 'cancel' },
-                      { text: 'Delete', style: 'destructive', onPress: () => deletePost(post.id) },
-                    ]);
-                  }}
-                >
-                  <Text style={styles.removeBtnText}>✕</Text>
-                </Pressable>
-              </View>
-            ))}
-          </View>
-        )}
-      </View>
+                    return;
+                  }
+                  Alert.alert('Delete post?', 'This cannot be undone.', [
+                    { text: 'Cancel', style: 'cancel' },
+                    { text: 'Delete', style: 'destructive', onPress: () => deletePost(post.id) },
+                  ]);
+                }}
+              >
+                <Text style={styles.removeBtnText}>✕</Text>
+              </Pressable>
+            </View>
+          ))}
+        </View>
+      )}
 
       {/* Caption sheet — shown right after an image is picked, so the caption
           field is part of the "add post" step instead of sitting permanently
@@ -188,20 +195,29 @@ export function PostsScreen() {
 }
 
 const styles = StyleSheet.create({
+  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 16 },
   title: { fontSize: 22, fontWeight: '800', color: Colors.label },
+  subtitle: { fontSize: 12.5, color: Colors.secondaryLabel, marginTop: 2, fontWeight: '500' },
   newPostBtn: { backgroundColor: Colors.brand, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 9 },
   newPostBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  card: { backgroundColor: Colors.systemBackground, borderRadius: 18, padding: 14, borderWidth: 1, borderColor: Colors.separator },
   postCaptionInput: {
     fontSize: 14, color: Colors.label, minHeight: 44, textAlignVertical: 'top',
     backgroundColor: Colors.systemGray6, borderRadius: 14, borderWidth: 1, borderColor: Colors.brandAccent,
     paddingHorizontal: 12, paddingVertical: 10, marginBottom: 12,
   },
-  empty: { alignItems: 'center', paddingVertical: 40, gap: 8 },
+  empty: {
+    alignItems: 'center', paddingVertical: 48, paddingHorizontal: 24, gap: 6,
+    marginHorizontal: 16, borderRadius: 20,
+    backgroundColor: '#fff', borderWidth: 1, borderColor: Colors.separator,
+  },
+  emptyIconWrap: {
+    width: 56, height: 56, borderRadius: 28, backgroundColor: Colors.brandLight,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 6,
+  },
   emptyText: { fontSize: 14, fontWeight: '600', color: Colors.secondaryLabel, textAlign: 'center' },
   emptyHint: { fontSize: 12.5, color: Colors.tertiaryLabel },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  thumb: { width: '31.5%', aspectRatio: 1, borderRadius: 12, overflow: 'hidden', position: 'relative' },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 2, paddingHorizontal: 2 },
+  thumb: { width: '33.13%', aspectRatio: 1, overflow: 'hidden', position: 'relative' },
   thumbImg: { width: '100%', height: '100%' },
   removeBtn: {
     position: 'absolute', top: 5, right: 5, width: 22, height: 22, borderRadius: 11,

@@ -9,6 +9,13 @@
       html, body { height: 100%; }
       body { overflow: hidden; background-color: #F1F5F9; }
       #root { display: flex; height: 100%; flex: 1; }
+      /* RN Web renders every TextInput as a real <input>, which browsers give
+         a default focus ring (blue in Chrome, gold in Safari) — with no
+         override that shows as a stray colored box around any focused input,
+         search bar, or OTP digit box app-wide. Inputs already get an
+         intentional focus treatment (border/background change) in their own
+         styles, so the native ring is just noise on top of that. */
+      input:focus, textarea:focus { outline: none; }
     </style>
 
     <meta name="theme-color" content="#B76E79" />

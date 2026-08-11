@@ -40,40 +40,70 @@ import { JobCard } from '../../components/JobCard';
 import { LocationPrompt } from '../../components/LocationPrompt';
 import { formatCurrency } from '../../utils/format';
 
+function monthAbbrev(iso: string) {
+  return new Date(iso).toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+}
+function dayNumber(iso: string) {
+  return new Date(iso).getDate();
+}
+function relativeDayLabel(iso: string) {
+  const d = new Date(iso);
+  const today = new Date();
+  const diffDays = Math.round((new Date(d.toDateString()).getTime() - new Date(today.toDateString()).getTime()) / 86_400_000);
+  if (diffDays === 0) return 'Today';
+  if (diffDays === 1) return 'Tomorrow';
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+}
+function formatTime(iso: string) {
+  return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+
+// Matches the customer-side "Upcoming Appointment" card exactly (same dark
+// card + rose date badge treatment) so both sides of the app read as one
+// product — see HomeScreen.tsx's equivalent card.
 function ActiveJobBanner({ job, onPress }: { job: Booking; onPress: () => void }) {
+  const statusLabel =
+    job.status === 'ACCEPTED' ? 'Accepted · head to client' :
+    job.status === 'ON_MY_WAY' ? 'On your way' :
+    job.status === 'STARTED' ? 'In progress' : job.status;
   return (
-    <Pressable
-      style={activeJobBannerStyles.banner}
-      onPress={onPress}
-    >
-      <View style={activeJobBannerStyles.dot} />
+    <Pressable style={activeJobBannerStyles.banner} onPress={onPress}>
+      <View style={activeJobBannerStyles.dateBadge}>
+        <Text style={activeJobBannerStyles.dateMonth}>{monthAbbrev(job.scheduledAt)}</Text>
+        <Text style={activeJobBannerStyles.dateDay}>{dayNumber(job.scheduledAt)}</Text>
+      </View>
       <View style={{ flex: 1 }}>
-        <Text style={activeJobBannerStyles.title}>Active Job · {job.serviceType}</Text>
-        <Text style={activeJobBannerStyles.sub}>
-          {job.status === 'ACCEPTED' ? 'Accepted · Head to client' :
-           job.status === 'ON_MY_WAY' ? 'On your way · Client notified' :
-           job.status === 'STARTED' ? 'Service in progress' : job.status}
+        <Text style={activeJobBannerStyles.title} numberOfLines={1}>{job.serviceType}</Text>
+        <Text style={activeJobBannerStyles.sub} numberOfLines={1}>
+          {relativeDayLabel(job.scheduledAt)} · {formatTime(job.scheduledAt)} · {statusLabel}
+          {job.customer?.name ? ` · ${job.customer.name}` : ''}
         </Text>
       </View>
-      <Text style={activeJobBannerStyles.amount}>{formatCurrency(job.totalPrice)}</Text>
-      <Text style={activeJobBannerStyles.chevron}>›</Text>
+      <View style={activeJobBannerStyles.viewBtn}>
+        <Text style={activeJobBannerStyles.viewBtnText}>View</Text>
+      </View>
     </Pressable>
   );
 }
 
 const activeJobBannerStyles = StyleSheet.create({
   banner: {
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: Colors.brand,
-    paddingHorizontal: 16, paddingVertical: 14,
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    backgroundColor: '#2C1A20',
+    padding: 16,
     marginHorizontal: 16, marginTop: 12, marginBottom: 4,
-    borderRadius: 16,
+    borderRadius: 20,
   },
-  dot: { width: 10, height: 10, borderRadius: 5, backgroundColor: '#34D399' },
-  title: { fontSize: 14, fontWeight: '700', color: '#fff' },
-  sub: { fontSize: 12, color: 'rgba(255,255,255,0.75)', marginTop: 1 },
-  amount: { fontSize: 16, fontWeight: '800', color: '#fff' },
-  chevron: { fontSize: 22, color: 'rgba(255,255,255,0.6)' },
+  dateBadge: {
+    width: 48, height: 48, borderRadius: 14,
+    backgroundColor: Colors.brand, alignItems: 'center', justifyContent: 'center',
+  },
+  dateMonth: { fontSize: 10, fontFamily: Fonts.semibold, color: 'rgba(255,255,255,0.85)', letterSpacing: 0.5 },
+  dateDay:   { fontSize: 17, fontFamily: Fonts.bold, color: '#fff', marginTop: 1 },
+  title: { fontSize: 14.5, fontFamily: Fonts.semibold, color: '#fff' },
+  sub:   { fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 3, fontFamily: Fonts.regular },
+  viewBtn: { backgroundColor: Colors.brand, borderRadius: 100, paddingHorizontal: 14, paddingVertical: 8 },
+  viewBtnText: { fontSize: 12.5, fontFamily: Fonts.semibold, color: '#fff' },
 });
 
 // Required docs — kept in sync with ProviderOnboardingScreen STEP4_DOCS (required: true).
@@ -83,7 +113,7 @@ const activeJobBannerStyles = StyleSheet.create({
 const REQUIRED_DOCS = ['id_proof', 'provider_certificate'] as const;
 const DOC_LABELS: Record<string, string> = {
   police_check: 'Police Check',
-  provider_certificate: 'Provider Certificate',
+  provider_certificate: 'Beauty Certificate / Diploma',
   id_proof: 'Government ID',
 };
 
@@ -112,6 +142,9 @@ export function ProviderDashboardScreen() {
   const [pendingRequests, setPendingRequests] = useState<Booking[]>([]);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const glowAnim = useRef(new Animated.Value(0)).current;
+  // Today/Week/Month tabs double as the earnings-card period selector — the
+  // graph below reshapes to match (hourly bars / daily bars / weekly bars).
+  const [graphPeriod, setGraphPeriod] = useState<'today' | 'week' | 'month'>('week');
 
   const activeJob = jobs.find(j => ['ACCEPTED', 'ON_MY_WAY', 'STARTED'].includes(j.status));
   // Bell badge = unread NOTIFICATIONS (matches the Notifications screen the bell
@@ -132,6 +165,15 @@ export function ProviderDashboardScreen() {
       const now = new Date();
       const diff = (now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24);
       return diff <= 7 && diff >= 0;
+    })
+    .reduce((sum, j) => sum + j.totalPrice, 0);
+  const monthEarnings = jobs
+    .filter(j => {
+      if (j.status !== 'COMPLETED') return false;
+      const d = new Date(j.updatedAt ?? j.scheduledAt);
+      const now = new Date();
+      const diff = (now.getTime() - d.getTime()) / (1000 * 60 * 60 * 24);
+      return diff <= 28 && diff >= 0;
     })
     .reduce((sum, j) => sum + j.totalPrice, 0);
 
@@ -321,62 +363,125 @@ export function ProviderDashboardScreen() {
             </Pressable>
           </View>
 
-          {/* Stat grid — 2×2 metric cards */}
-          <View style={styles.statGrid}>
+          {/* Today/This Week/Month — doubles as the earnings-graph period
+              selector below (tap to reshape the bars: hourly/daily/weekly). */}
+          <View style={styles.periodTabRow}>
             {([
-              [formatCurrency(todayEarnings, { decimals: 0 }), 'Today',     Colors.label],
-              [formatCurrency(weekEarnings, { decimals: 0 }),  'This Week', Colors.label],
-              [(profile?.rating ?? 0) > 0 ? `${profile?.rating?.toFixed(1)} ★` : '—', 'Rating', Colors.gold],
-              [String((profile as any)?.totalSessions ?? jobs.filter(j => j.status === 'COMPLETED').length), 'Sessions', Colors.label],
-            ] as [string, string, string][]).map(([value, label, color]) => (
-              <View key={label} style={styles.statCard}>
-                <Text style={[styles.statCardValue, { color }]} numberOfLines={1}>{value}</Text>
-                <Text style={styles.statCardLabel}>{label}</Text>
-              </View>
-            ))}
+              ['today', 'Today',     todayEarnings],
+              ['week',  'This Week', weekEarnings],
+              ['month', 'Month',     monthEarnings],
+            ] as const).map(([key, label, amount]) => {
+              const active = graphPeriod === key;
+              return (
+                <Pressable
+                  key={key}
+                  style={[styles.periodTab, active && styles.periodTabActive]}
+                  onPress={() => setGraphPeriod(key)}
+                >
+                  <Text style={[styles.periodTabValue, active && styles.periodTabValueActive]} numberOfLines={1}>
+                    {formatCurrency(amount, { decimals: 0 })}
+                  </Text>
+                  <Text style={[styles.periodTabLabel, active && styles.periodTabLabelActive]}>{label}</Text>
+                </Pressable>
+              );
+            })}
           </View>
         </View>
 
-        {/* ── Weekly earnings card — floating over hero, mockup-style bars ── */}
+        {/* ── Earnings card — bars reshape with the Today/Week/Month tab above:
+             Today → hourly, Week → daily (last 7 days), Month → weekly (last 4). ── */}
         <View style={styles.earnCard}>
           <View style={styles.earnCardTop}>
-            <Text style={styles.earnCardLabel}>This Week</Text>
-            <Text style={styles.earnCardValue}>{formatCurrency(weekEarnings, { decimals: 0 })}</Text>
+            <Text style={styles.earnCardLabel}>
+              {graphPeriod === 'today' ? 'Today · by hour' : graphPeriod === 'week' ? 'This Week · by day' : 'This Month · by week'}
+            </Text>
+            <Text style={styles.earnCardValue}>
+              {formatCurrency(graphPeriod === 'today' ? todayEarnings : graphPeriod === 'week' ? weekEarnings : monthEarnings, { decimals: 0 })}
+            </Text>
           </View>
           <View style={styles.earnBars}>
             {(() => {
               const now = new Date();
-              const days = Array.from({ length: 7 }, (_, i) => {
-                const d = new Date(now);
-                d.setDate(now.getDate() - (6 - i));
-                return d;
-              });
-              const sums = days.map(d =>
-                jobs
-                  .filter(j => j.status === 'COMPLETED' && new Date(j.updatedAt ?? j.scheduledAt).toDateString() === d.toDateString())
-                  .reduce((s, j) => s + j.totalPrice, 0),
-              );
-              const max = Math.max(...sums, 1);
-              return days.map((d, i) => (
+              const completedAt = (j: Booking) => new Date(j.updatedAt ?? j.scheduledAt);
+
+              let bars: { value: number; label: string; highlight: boolean }[];
+
+              if (graphPeriod === 'today') {
+                const sums = Array.from({ length: 24 }, () => 0);
+                jobs.forEach(j => {
+                  if (j.status !== 'COMPLETED') return;
+                  const d = completedAt(j);
+                  if (d.toDateString() !== now.toDateString()) return;
+                  sums[d.getHours()] += j.totalPrice;
+                });
+                bars = sums.map((value, h) => ({
+                  value,
+                  label: h % 6 === 0 ? (h === 0 ? '12a' : h === 12 ? '12p' : h < 12 ? `${h}a` : `${h - 12}p`) : '',
+                  highlight: h === now.getHours(),
+                }));
+              } else if (graphPeriod === 'month') {
+                // Last 4 weeks, oldest→newest, each a 7-day bucket ending today.
+                bars = Array.from({ length: 4 }, (_, i) => {
+                  const weeksAgo = 3 - i;
+                  const bucketEnd = new Date(now); bucketEnd.setDate(now.getDate() - weeksAgo * 7);
+                  const bucketStart = new Date(bucketEnd); bucketStart.setDate(bucketEnd.getDate() - 6);
+                  const value = jobs
+                    .filter(j => {
+                      if (j.status !== 'COMPLETED') return false;
+                      const d = completedAt(j);
+                      return d >= bucketStart && d <= bucketEnd;
+                    })
+                    .reduce((s, j) => s + j.totalPrice, 0);
+                  return { value, label: weeksAgo === 0 ? 'This wk' : `-${weeksAgo}w`, highlight: weeksAgo === 0 };
+                });
+              } else {
+                const days = Array.from({ length: 7 }, (_, i) => {
+                  const d = new Date(now);
+                  d.setDate(now.getDate() - (6 - i));
+                  return d;
+                });
+                bars = days.map((d, i) => ({
+                  value: jobs
+                    .filter(j => j.status === 'COMPLETED' && completedAt(j).toDateString() === d.toDateString())
+                    .reduce((s, j) => s + j.totalPrice, 0),
+                  label: d.toLocaleDateString('en-CA', { weekday: 'narrow' }),
+                  highlight: i === 6,
+                }));
+              }
+
+              const max = Math.max(...bars.map(b => b.value), 1);
+              return bars.map((b, i) => (
                 <View key={i} style={styles.earnBarCol}>
                   <View style={styles.earnBarTrack}>
                     <View
                       style={[
                         styles.earnBarFill,
                         {
-                          height: `${Math.max(sums[i] / max * 100, 6)}%` as any,
-                          backgroundColor: i === 6 ? Colors.brand : Colors.brandLight,
+                          height: `${Math.max(b.value / max * 100, 6)}%` as any,
+                          backgroundColor: b.highlight ? Colors.brand : Colors.brandLight,
                         },
                       ]}
                     />
                   </View>
-                  <Text style={styles.earnBarLabel}>
-                    {d.toLocaleDateString('en-CA', { weekday: 'narrow' })}
-                  </Text>
+                  <Text style={styles.earnBarLabel}>{b.label}</Text>
                 </View>
               ));
             })()}
           </View>
+        </View>
+
+        {/* Rating + Sessions — below the graph, not competing with the
+            Today/Week/Month earnings tabs above it for attention. */}
+        <View style={styles.statGrid}>
+          {([
+            [(profile?.rating ?? 0) > 0 ? `${profile?.rating?.toFixed(1)} ★` : '—', 'Rating', Colors.gold],
+            [String((profile as any)?.totalSessions ?? jobs.filter(j => j.status === 'COMPLETED').length), 'Sessions', Colors.label],
+          ] as [string, string, string][]).map(([value, label, color]) => (
+            <View key={label} style={styles.statCard}>
+              <Text style={[styles.statCardValue, { color }]} numberOfLines={1}>{value}</Text>
+              <Text style={styles.statCardLabel}>{label}</Text>
+            </View>
+          ))}
         </View>
 
         {/* ── New Requests banner (client picked this Provider) — top priority ── */}
@@ -477,12 +582,17 @@ export function ProviderDashboardScreen() {
           </Pressable>
         )}
 
-        {/* ── Active Job Banner ── */}
+        {/* ── Upcoming Appointment — matches the customer-side card ── */}
         {activeJob && (
-          <ActiveJobBanner
-            job={activeJob}
-            onPress={() => nav.navigate('JobDetail', { job: activeJob })}
-          />
+          <>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Upcoming Appointment</Text>
+            </View>
+            <ActiveJobBanner
+              job={activeJob}
+              onPress={() => nav.navigate('JobDetail', { job: activeJob })}
+            />
+          </>
         )}
 
         {/* ── Pending approval overlay card ── */}
@@ -523,7 +633,7 @@ export function ProviderDashboardScreen() {
                 {j.customer?.name ? ` · ${j.customer.name}` : ''}
               </Text>
             </View>
-            <Text style={styles.activityEarn}>+${j.totalPrice}</Text>
+            <Text style={styles.activityEarn}>+{formatCurrency(j.totalPrice, { decimals: 0 })}</Text>
           </Pressable>
         ))}
 
@@ -587,7 +697,7 @@ const styles = StyleSheet.create({
 
   // ── Weekly earnings card (floats over hero bottom edge) ──
   earnCard: {
-    marginHorizontal: 20, marginTop: 12,
+    marginHorizontal: 16, marginTop: 12,
     backgroundColor: '#fff', borderRadius: 20, padding: 16,
     borderWidth: 1, borderColor: Colors.separator,
     shadowColor: Colors.brandDark,
@@ -607,7 +717,7 @@ const styles = StyleSheet.create({
 
   // ── Light header (greeting + availability + stat grid) ──
   hero: {
-    paddingHorizontal: 20,
+    paddingHorizontal: 16,
     paddingBottom: 8,
   },
   heroHeader: {
@@ -676,7 +786,21 @@ const styles = StyleSheet.create({
   },
 
   // Stat grid — 2×2 metric cards
-  statGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
+  statGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginHorizontal: 16, marginTop: 12, marginBottom: 4 },
+
+  // Today/This Week/Month tabs — replaces the old static "Today"/"This Week"
+  // stat cards; selecting one reshapes the earnings graph below.
+  periodTabRow: { flexDirection: 'row', gap: 10 },
+  periodTab: {
+    flex: 1, backgroundColor: '#fff', borderRadius: 20,
+    paddingVertical: 16, paddingHorizontal: 12, alignItems: 'center',
+    borderWidth: 1, borderColor: Colors.separator,
+  },
+  periodTabActive: { backgroundColor: Colors.brand, borderColor: Colors.brand },
+  periodTabValue: { fontSize: 19, fontFamily: Fonts.bold, letterSpacing: -0.4, color: Colors.label },
+  periodTabValueActive: { color: '#fff' },
+  periodTabLabel: { fontSize: 11, color: Colors.secondaryLabel, marginTop: 4, fontFamily: Fonts.medium, textTransform: 'uppercase', letterSpacing: 0.5 },
+  periodTabLabelActive: { color: 'rgba(255,255,255,0.85)' },
   statCard: {
     flexBasis: '48%', flexGrow: 1,
     backgroundColor: '#fff',

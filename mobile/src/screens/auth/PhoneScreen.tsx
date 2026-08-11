@@ -28,6 +28,10 @@ import { GlowLogo, GlowMark, GlowTagline } from '../../components/GlowLogo';
 import { CountryPicker, Country } from '../../components/CountryPicker';
 import { DEFAULT_REGION_NAME } from '../../utils/region';
 import { useAuth } from '../../context/AuthContext';
+import { useCountdown } from '../../hooks/useCountdown';
+
+// Mirrors the backend's OTP resend cooldown (src/utils/otp.js) exactly.
+const RESEND_COOLDOWN_SECONDS = 30;
 
 WebBrowser.maybeCompleteAuthSession();
 
@@ -82,6 +86,7 @@ export function PhoneScreen() {
   const [otpPhone, setOtpPhone] = useState('');
   const [otpCode, setOtpCode] = useState('');
   const [sendingOtp, setSendingOtp] = useState(false);
+  const resendCooldown = useCountdown();
   const ctaScale = useRef(new Animated.Value(1)).current;
   const heroFade = useRef(new Animated.Value(0)).current;
   // Only true on iOS 13+ devices signed into an Apple ID — never on Android/web,
@@ -198,6 +203,7 @@ export function PhoneScreen() {
       setOtpPhone(getE164());
       setOtpSent(true);
       setOtpCode('');
+      resendCooldown.start(RESEND_COOLDOWN_SECONDS);
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
       const msg = e.message || 'Could not send code. Please try again.';
@@ -570,9 +576,11 @@ export function PhoneScreen() {
                     <Pressable
                       style={{ marginTop: 16, alignItems: 'center' }}
                       onPress={() => requestOtp(pendingRoleRef.current)}
-                      disabled={sendingOtp || loading}
+                      disabled={sendingOtp || loading || resendCooldown.seconds > 0}
                     >
-                      <Text style={styles.agreeLink}>{sendingOtp ? 'Resending…' : "Didn't get a code? Resend"}</Text>
+                      <Text style={[styles.agreeLink, resendCooldown.seconds > 0 && { color: Colors.tertiaryLabel, textDecorationLine: 'none' }]}>
+                        {sendingOtp ? 'Resending…' : resendCooldown.seconds > 0 ? `Resend code in ${resendCooldown.seconds}s` : "Didn't get a code? Resend"}
+                      </Text>
                     </Pressable>
                   </>
                 )}

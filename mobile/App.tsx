@@ -16,6 +16,7 @@ import {
   Inter_800ExtraBold,
 } from '@expo-google-fonts/inter';
 import { Poppins_300Light, Poppins_500Medium } from '@expo-google-fonts/poppins';
+import { Fraunces_400Regular_Italic, Fraunces_700Bold } from '@expo-google-fonts/fraunces';
 import { AuthProvider } from './src/context/AuthContext';
 // Side-effect import: registers the background-location TaskManager task at the
 // top level so it's defined before the OS can invoke it (incl. headless relaunch).
@@ -59,6 +60,8 @@ function App() {
       Inter_800ExtraBold,
       Poppins_300Light,
       Poppins_500Medium,
+      Fraunces_400Regular_Italic,
+      Fraunces_700Bold,
     })
       .catch(() => {})
       .finally(() => {

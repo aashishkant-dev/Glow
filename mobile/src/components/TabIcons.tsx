@@ -58,9 +58,9 @@ export function HomeIcon({ size = 24, color = '#000', filled = false }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       {filled && <Path d={HOUSE_D} fill={color} opacity={DUO} />}
-      <G stroke={color} {...S}>
-        <Path d={HOUSE_D} />
-        <Path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8" />
+      <G>
+        <Path d={HOUSE_D}  stroke={color} {...S} />
+        <Path d="M15 21v-8a1 1 0 0 0-1-1h-4a1 1 0 0 0-1 1v8"  stroke={color} {...S} />
       </G>
     </Svg>
   );
@@ -76,10 +76,10 @@ export function CalendarIcon({ size = 24, color = '#000', filled = false }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       {filled && <Rect x="3" y="4" width="18" height="18" rx="2" fill={color} opacity={DUO} />}
-      <G stroke={color} {...S}>
-        <Rect x="3" y="4" width="18" height="18" rx="2" />
-        <Path d="M3 10h18" />
-        <Path d="M8 2v4M16 2v4" />
+      <G>
+        <Rect x="3" y="4" width="18" height="18" rx="2"  stroke={color} {...S} />
+        <Path d="M3 10h18"  stroke={color} {...S} />
+        <Path d="M8 2v4M16 2v4"  stroke={color} {...S} />
       </G>
       {/* Bloom dot — the single "booked day" marker, on-grid */}
       <Circle cx={12} cy={16} r={1.5} fill={color} />
@@ -96,9 +96,9 @@ export function BriefcaseIcon({ size = 24, color = '#000', filled = false }: P) 
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
       {filled && <Rect x="2" y="6" width="20" height="14" rx="2" fill={color} opacity={DUO} />}
-      <G stroke={color} {...S}>
-        <Rect x="2" y="6" width="20" height="14" rx="2" />
-        <Path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16" />
+      <G>
+        <Rect x="2" y="6" width="20" height="14" rx="2"  stroke={color} {...S} />
+        <Path d="M16 20V4a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"  stroke={color} {...S} />
       </G>
     </Svg>
   );
@@ -145,9 +145,9 @@ const LENS_HANDLE = 'm20 20-3.9-3.9';
 export function SearchJobsIcon({ size = 24, color = '#fff' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <G stroke={color} {...S}>
-        <Circle {...LENS_C} />
-        <Path d={LENS_HANDLE} />
+      <G>
+        <Circle {...LENS_C}  stroke={color} {...S} />
+        <Path d={LENS_HANDLE}  stroke={color} {...S} />
       </G>
       {/* Bloom inside the lens — four equal petals + core, echoing GlowMark */}
       <G fill={color}>
@@ -168,9 +168,9 @@ export function SearchJobsIcon({ size = 24, color = '#fff' }: P) {
 export function ArrowBackIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <G stroke={color} {...S}>
-        <Path d="M19 12H5" />
-        <Path d="m12 19-7-7 7-7" />
+      <G>
+        <Path d="M19 12H5"  stroke={color} {...S} />
+        <Path d="m12 19-7-7 7-7"  stroke={color} {...S} />
       </G>
     </Svg>
   );
@@ -183,9 +183,9 @@ export function ArrowBackIcon({ size = 24, color = '#000' }: P) {
 export function LocationIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <G stroke={color} {...S}>
-        <Path d={PIN_D} />
-        <Circle cx="12" cy="10" r="3" />
+      <G>
+        <Path d={PIN_D}  stroke={color} {...S} />
+        <Circle cx="12" cy="10" r="3"  stroke={color} {...S} />
       </G>
     </Svg>
   );
@@ -234,9 +234,9 @@ export function ChatIcon({ size = 24, color = '#000' }: P) {
 export function SearchIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <G stroke={color} {...S}>
-        <Circle {...LENS_C} />
-        <Path d={LENS_HANDLE} />
+      <G>
+        <Circle {...LENS_C}  stroke={color} {...S} />
+        <Path d={LENS_HANDLE}  stroke={color} {...S} />
       </G>
     </Svg>
   );
@@ -261,9 +261,9 @@ export function CloseCircleIcon({ size = 24, color = '#000' }: P) {
 export function MapIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <G stroke={color} {...S}>
-        <Path d="M9 4 3.6 6.2A1 1 0 0 0 3 7.1v11.4a1 1 0 0 0 1.4.9L9 18l6 2 5.4-2.2a1 1 0 0 0 .6-.9V5.5a1 1 0 0 0-1.4-.9L15 6z" />
-        <Path d="M9 4v14M15 6v14" />
+      <G>
+        <Path d="M9 4 3.6 6.2A1 1 0 0 0 3 7.1v11.4a1 1 0 0 0 1.4.9L9 18l6 2 5.4-2.2a1 1 0 0 0 .6-.9V5.5a1 1 0 0 0-1.4-.9L15 6z"  stroke={color} {...S} />
+        <Path d="M9 4v14M15 6v14"  stroke={color} {...S} />
       </G>
     </Svg>
   );
@@ -272,8 +272,8 @@ export function MapIcon({ size = 24, color = '#000' }: P) {
 export function ListIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <G stroke={color} {...S}>
-        <Path d="M9 6h11M9 12h11M9 18h11" />
+      <G>
+        <Path d="M9 6h11M9 12h11M9 18h11"  stroke={color} {...S} />
       </G>
       {/* Leading bullets — one weight, one size, on the same baselines */}
       <G fill={color}>
@@ -293,9 +293,9 @@ export function ListIcon({ size = 24, color = '#000' }: P) {
 export function LocateIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <G stroke={color} {...S}>
-        <Circle cx="12" cy="12" r="7" />
-        <Path d="M12 2v3M12 19v3M2 12h3M19 12h3" />
+      <G>
+        <Circle cx="12" cy="12" r="7"  stroke={color} {...S} />
+        <Path d="M12 2v3M12 19v3M2 12h3M19 12h3"  stroke={color} {...S} />
       </G>
       <Circle cx="12" cy="12" r="2" fill={color} />
     </Svg>
@@ -351,10 +351,10 @@ export function StarIcon({ size = 24, color = '#FFB800', filled = true }: P) {
 export function DocumentIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <G stroke={color} {...S}>
-        <Path d="M15 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V6z" />
-        <Path d="M14 2v4a2 2 0 0 0 2 2h4" />
-        <Path d="M9 13h6M9 17h4" />
+      <G>
+        <Path d="M15 2H7a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V6z"  stroke={color} {...S} />
+        <Path d="M14 2v4a2 2 0 0 0 2 2h4"  stroke={color} {...S} />
+        <Path d="M9 13h6M9 17h4"  stroke={color} {...S} />
       </G>
     </Svg>
   );
@@ -366,10 +366,10 @@ export function DocumentIcon({ size = 24, color = '#000' }: P) {
 export function CashIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <G stroke={color} {...S}>
-        <Rect x="2" y="6" width="20" height="12" rx="2" />
-        <Circle cx="12" cy="12" r="3" />
-        <Path d="M6 12h.01M18 12h.01" />
+      <G>
+        <Rect x="2" y="6" width="20" height="12" rx="2"  stroke={color} {...S} />
+        <Circle cx="12" cy="12" r="3"  stroke={color} {...S} />
+        <Path d="M6 12h.01M18 12h.01"  stroke={color} {...S} />
       </G>
     </Svg>
   );
@@ -404,9 +404,9 @@ export function PersonIcon({ size = 24, color = '#000', filled = false }: P) {
           <Path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2z" />
         </G>
       )}
-      <G stroke={color} {...S}>
-        <Circle cx="12" cy="7" r="4" />
-        <Path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+      <G>
+        <Circle cx="12" cy="7" r="4"  stroke={color} {...S} />
+        <Path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"  stroke={color} {...S} />
       </G>
     </Svg>
   );
@@ -432,17 +432,25 @@ export function ChevronForwardIcon({ size = 24, color = '#000' }: P) {
   );
 }
 
+export function ChevronDownIcon({ size = 24, color = '#000' }: P) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="m6 9 6 6 6-6" stroke={color} {...S} />
+    </Svg>
+  );
+}
+
 /** HourglassIcon — pending state. Lucide's hourglass: straight cap rails and
  *  two mirrored bulbs that pinch at the exact centre (12,12). */
 export function HourglassIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <G stroke={color} {...S}>
-        <Path d="M6 2h12M6 22h12" />
+      <G>
+        <Path d="M6 2h12M6 22h12"  stroke={color} {...S} />
         {/* Each bulb is a straight taper into the 12,12 waist — arcs here made
             the two bulbs bulge past each other and read as a figure-8. */}
-        <Path d="M7 2v4l5 6 5-6V2" />
-        <Path d="M7 22v-4l5-6 5 6v4" />
+        <Path d="M7 2v4l5 6 5-6V2"  stroke={color} {...S} />
+        <Path d="M7 22v-4l5-6 5 6v4"  stroke={color} {...S} />
       </G>
     </Svg>
   );
@@ -478,9 +486,9 @@ export function HomeSVGIcon({ size = 24, color = '#000' }: P) {
 export function CameraIcon({ size = 18, color = '#fff' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <G stroke={color} {...S}>
-        <Path d="M14.5 4h-5L8 6.5H5a2 2 0 0 0-2 2V18a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5a2 2 0 0 0-2-2h-3z" />
-        <Circle cx="12" cy="13" r="3" />
+      <G>
+        <Path d="M14.5 4h-5L8 6.5H5a2 2 0 0 0-2 2V18a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V8.5a2 2 0 0 0-2-2h-3z"  stroke={color} {...S} />
+        <Circle cx="12" cy="13" r="3"  stroke={color} {...S} />
       </G>
     </Svg>
   );
@@ -509,11 +517,11 @@ export function HeartIcon({ size = 24, color = '#000', filled = false }: P) {
 export function TuneIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <G stroke={color} {...S}>
-        <Path d="M4 6h10M18 6h2" />
-        <Path d="M4 12h2M10 12h10" />
-        <Path d="M4 18h8M16 18h4" />
-        <Path d="M16 4v4M8 10v4M14 16v4" />
+      <G>
+        <Path d="M4 6h10M18 6h2"  stroke={color} {...S} />
+        <Path d="M4 12h2M10 12h10"  stroke={color} {...S} />
+        <Path d="M4 18h8M16 18h4"  stroke={color} {...S} />
+        <Path d="M16 4v4M8 10v4M14 16v4"  stroke={color} {...S} />
       </G>
     </Svg>
   );
@@ -527,10 +535,10 @@ export function TuneIcon({ size = 24, color = '#000' }: P) {
 export function SortIcon({ size = 24, color = '#000' }: P) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
-      <G stroke={color} {...S}>
-        <Path d="M11 5h10M11 12h7M11 19h4" />
-        <Path d="M4 4v16" />
-        <Path d="m7 17-3 3-3-3" />
+      <G>
+        <Path d="M11 5h10M11 12h7M11 19h4"  stroke={color} {...S} />
+        <Path d="M4 4v16"  stroke={color} {...S} />
+        <Path d="m7 17-3 3-3-3"  stroke={color} {...S} />
       </G>
     </Svg>
   );

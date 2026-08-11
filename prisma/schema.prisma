@@ -246,6 +246,11 @@ model ProviderProfile {
   photoUrl           String            @default("")
   photos             String[]          @default([])  // gallery images (Vercel Blob URLs)
   specialties        String[]          @default([])
+  // Look catalog IDs (mobile/src/data/looks.ts) this artist has confirmed they
+  // can create — collected during onboarding, filtered to looks matching their
+  // selected specialties. Lets "Book this look" (LookSheet) eventually match
+  // to artists who specifically confirmed the look, not just the base service.
+  capableLooks       String[]          @default([])
   policeCheckCleared Boolean           @default(false)
 
   firstAidCertified  Boolean           @default(false)

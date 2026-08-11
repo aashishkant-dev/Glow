@@ -42,7 +42,7 @@ const DOC_TYPES: {
   // artists don't need either), so both are dropped entirely rather than just
   // made optional; they cluttered the doc list for no artist-facing benefit.
   { id: 'id_proof',        label: 'Government ID',               sublabel: 'Passport, Ontario Photo Card, or health card', Icon: CardAccountDetailsIcon, required: true },
-  { id: 'provider_certificate', label: 'Provider Certificate',             sublabel: 'Official credential from your college',      Icon: MedalIcon,              required: true },
+  { id: 'provider_certificate', label: 'Beauty Certificate / Diploma',     sublabel: 'Official credential from your college',      Icon: MedalIcon,              required: true },
   { id: 'police_check',    label: 'Police Check Clearance',      sublabel: 'RCMP/OPP criminal record check — optional but boosts trust', Icon: ShieldCheckIcon, required: false },
   { id: 'insurance',       label: 'Liability Insurance',         sublabel: 'Professional liability / E&O if applicable', Icon: NoteIcon,               required: false },
 ];

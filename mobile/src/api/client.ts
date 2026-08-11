@@ -142,6 +142,8 @@ export function apiSubmitProviderOnboarding(payload: {
   collegeName?: string;
   experienceYears?: number;
   specialties?: string[];
+  // Look catalog IDs (data/looks.ts) this artist confirmed they can create.
+  capableLooks?: string[];
   certifications?: string[];
   firstAidCertified?: boolean;
   driversLicense?: boolean;
@@ -734,7 +736,14 @@ export interface BookingServiceLine {
 
 export interface Booking {
   _id: string;
-  customer: { _id: string; name: string; phone: string; rating?: number; photoUrl?: string };
+  customer: {
+    _id: string; name: string; phone: string; rating?: number; photoUrl?: string;
+    // Surfaced to the artist so they can prep the right products/shades for
+    // the client before arriving — not shown to the artist until they have
+    // an active booking with this customer (see the selects in provider.js).
+    skinTone?: 'FAIR' | 'LIGHT' | 'MEDIUM' | 'TAN' | 'DEEP' | 'RICH';
+    skinType?: 'DRY' | 'OILY' | 'COMBINATION' | 'NORMAL' | 'SENSITIVE';
+  };
   provider?: { _id: string; name: string; phone: string; rating?: number; ratingCount?: number; photoUrl?: string };
   serviceType: string;
   hours: number;
