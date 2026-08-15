@@ -335,6 +335,11 @@ export function apiCreateBooking(payload: {
   // data/looks.ts catalog ID when this came from "Book this look" — lets the
   // backend prefer artists who confirmed this specific look (see notifyNearbyProviders).
   lookId?: string;
+  // A specific artist-owned ProviderLook (their own priced package). When set,
+  // the backend re-prices the whole booking from THIS look's price/duration —
+  // see resolveProviderLookBooking — so `services` above is only a display
+  // fallback, never trusted for price in this path.
+  providerLookId?: string;
 }) {
   return request<{ booking: Booking }>('POST', '/bookings', payload);
 }

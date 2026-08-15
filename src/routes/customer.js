@@ -32,7 +32,7 @@ const VALID_SERVICE_TYPES = [
 const router = express.Router();
 
 const { priceForBooking, computeFees } = require('../utils/pricing');
-const { resolveBookingServices } = require('../utils/bookingServices');
+const { resolveBookingServices, resolveProviderLookBooking } = require('../utils/bookingServices');
 
 // Haversine distance in km
 function haversineKm(lat1, lng1, lat2, lng2) {
@@ -284,6 +284,9 @@ router.post(
     // Not validated against data/looks.ts (that catalog lives in the mobile
     // app, not the backend) — just capped like any other free-form ID input.
     body('lookId').optional({ nullable: true }).isString().isLength({ max: 100 }).withMessage('lookId must be 100 characters or fewer'),
+    // A real ProviderLook row — validated ownership happens in
+    // resolveProviderLookBooking, since express-validator can't reach the DB.
+    body('providerLookId').optional({ nullable: true }).isString().isLength({ max: 100 }).withMessage('providerLookId must be 100 characters or fewer'),
   ],
   validate,
   async (req, res) => {
@@ -291,7 +294,7 @@ router.post(
       if (!req.user.phoneVerified) {
         return res.status(403).json({ error: 'PHONE_NOT_VERIFIED' });
       }
-      const { serviceType, hours, scheduledAt, notes, providerId, proposedPrice } = req.body;
+      const { serviceType, hours, scheduledAt, notes, providerId, proposedPrice, providerLookId } = req.body;
 
       // Normalise both request shapes into ONE list. Multi-service is the
       // current shape; a bare serviceType+hours is the legacy single-service
@@ -331,6 +334,14 @@ router.post(
         resolvedProviderId = providerId;
       }
 
+      // A ProviderLook belongs to exactly one artist — there's no "open pool"
+      // version of "book this specific package," so require a chosen provider
+      // up front rather than letting resolveProviderLookBooking's ownership
+      // check reject it later with a less obvious error.
+      if (providerLookId && !resolvedProviderId) {
+        return res.status(400).json({ error: 'Choose an artist to book this look with.' });
+      }
+
       let latCoord = Number(req.body.lat);
       let lngCoord = Number(req.body.lng);
       // If the client didn't send coords, fall back to the customer's own stored
@@ -354,7 +365,9 @@ router.post(
       let price;                 // denormalized Booking.price (negotiated total or listed total)
 
       if (resolvedProviderId) {
-        const resolved = await resolveBookingServices(requestedServices, resolvedProviderId);
+        const resolved = providerLookId
+          ? await resolveProviderLookBooking(providerLookId, resolvedProviderId)
+          : await resolveBookingServices(requestedServices, resolvedProviderId);
         serviceLines       = resolved.lines;
         summaryServiceType = resolved.summaryServiceType;
         summaryHours       = resolved.summaryHours;
@@ -398,6 +411,7 @@ router.post(
           customerId:        req.user.id,
           serviceType:       summaryServiceType,
           lookId:            req.body.lookId || null,
+          providerLookId:    providerLookId || null,
           hours:             summaryHours,
           scheduledAt:       scheduledDate,
           lat:               latCoord,

@@ -190,6 +190,12 @@ const tabPillStyles = StyleSheet.create({
   },
 });
 const SLIDING_PILL_WIDTH = 52;
+// Must match customTabBarStyles.bar's paddingHorizontal below — barWidth (from
+// onLayout) measures the bar's full border-box, but the 5 tab Pressables only
+// occupy the space inside that padding. Dividing barWidth straight by tab
+// count overestimates each tab's width, so the pill drifts further right than
+// the real icon the further a tab sits from Home (~16px off by the last tab).
+const TAB_BAR_PADDING_H = 8;
 
 // Custom tab bar — replaces react-navigation's default `tabBarIcon`-driven
 // bar entirely. The default bar (via TabBarIcon.js) renders every tab's icon
@@ -232,12 +238,12 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const visibleRoutes = state.routes.filter(r => !descriptors[r.key].options.tabBarButton);
   const focusedKey = state.routes[state.index]?.key;
   const focusedVisibleIndex = Math.max(0, visibleRoutes.findIndex(r => r.key === focusedKey));
-  const tabWidth = visibleRoutes.length > 0 ? barWidth / visibleRoutes.length : 0;
+  const tabWidth = visibleRoutes.length > 0 ? (barWidth - TAB_BAR_PADDING_H * 2) / visibleRoutes.length : 0;
 
   useEffect(() => {
     if (!tabWidth) return;
     Animated.spring(slideX, {
-      toValue: tabWidth * focusedVisibleIndex + (tabWidth - SLIDING_PILL_WIDTH) / 2,
+      toValue: TAB_BAR_PADDING_H + tabWidth * focusedVisibleIndex + (tabWidth - SLIDING_PILL_WIDTH) / 2,
       useNativeDriver: true,
       speed: 18,
       bounciness: 6,

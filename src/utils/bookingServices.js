@@ -132,4 +132,32 @@ async function resolveBookingServices(requestedServices, providerUserId) {
   return buildResult(lines);
 }
 
-module.exports = { resolveBookingServices, summarizeServiceType, hoursFromDurationMin };
+// Prices a booking against one specific ProviderLook — an artist's own
+// packaged, priced offering (distinct from the plain per-service menu
+// resolveBookingServices reads). The look's price is server-trusted because
+// the artist who set it is also the one who must own it here: never resolved
+// from client-supplied data/looks.ts info the way the legacy `lookId` field
+// is. Throws 422/404 the same way resolveBookingServices does, so callers
+// don't need a separate error shape.
+async function resolveProviderLookBooking(providerLookId, providerUserId) {
+  const look = await prisma.providerLook.findUnique({
+    where:  { id: providerLookId },
+    select: { id: true, name: true, price: true, durationMin: true, active: true, profile: { select: { userId: true } } },
+  });
+  if (!look || !look.active || look.profile.userId !== providerUserId) {
+    throw unprocessable('That look is no longer available from this artist.');
+  }
+  const price = parseFloat(look.price.toString());
+  if (!(price > 0)) {
+    throw unprocessable('This look has no price set yet.');
+  }
+  const line = {
+    serviceItemId: null,
+    name:          look.name,
+    price:         Math.round(price * 100) / 100,
+    durationMin:   look.durationMin != null ? Number(look.durationMin) : HOURLY_LINE_DURATION_MIN,
+  };
+  return buildResult([line]);
+}
+
+module.exports = { resolveBookingServices, resolveProviderLookBooking, summarizeServiceType, hoursFromDurationMin };

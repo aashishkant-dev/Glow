@@ -185,11 +185,13 @@ export function ProviderPublicProfileScreen() {
     });
   }
 
-  // Custom looks (ProviderLook) have no shared catalog entry, so unlike
-  // bookLook above there's no lookId to carry — booking flow just resolves
-  // on serviceType, same as tapping a plain Signature package.
+  // Unlike bookLook's shared data/looks.ts lookId, a ProviderLook is a real
+  // DB row this specific artist priced themselves — carry its id (plus a
+  // display snapshot for the booking summary before submit) so the backend
+  // charges what they actually set for this package, not just their plain
+  // per-service rate. See resolveProviderLookBooking on the backend.
   function bookCustomLook(item: ProviderLookItem) {
-    book(item.serviceType);
+    book(item.serviceType, item);
   }
 
   const [galleryFor, setGalleryFor] = useState<{ item: ProviderLookItem; look: Look } | null>(null);
@@ -201,9 +203,15 @@ export function ProviderPublicProfileScreen() {
     bookCustomLook(entry.item);
   }
 
-  function book(serviceType?: string) {
+  function book(serviceType?: string, providerLook?: ProviderLookItem) {
     if (!provider) return;
     tapLight();
+    const lookParams = providerLook ? {
+      providerLookId: providerLook.id,
+      providerLookName: providerLook.name,
+      providerLookPrice: providerLook.price,
+      providerLookDurationMin: providerLook.durationMin,
+    } : null;
     // Opened from an in-progress booking's Choose Artist step (View Profile) —
     // just select this provider and pop back to that same booking. Sending a
     // fresh `_t` here would trip CreateBookingScreen's route.params watcher,
@@ -213,6 +221,7 @@ export function ProviderPublicProfileScreen() {
       nav.navigate('NewBooking', {
         providerId: provider.id,
         ...(serviceType ? { serviceType } : null),
+        ...lookParams,
       });
       return;
     }
@@ -220,6 +229,7 @@ export function ProviderPublicProfileScreen() {
       bookingMode: 'scheduled',
       providerId: provider.id,
       ...(serviceType ? { serviceType } : null),
+      ...lookParams,
       _t: Date.now(),
     });
   }
@@ -652,6 +662,8 @@ export function ProviderPublicProfileScreen() {
         name={galleryFor?.look.name ?? ''}
         vibe={galleryFor?.look.vibe}
         price={galleryFor?.item.price}
+        durationMin={galleryFor?.item.durationMin}
+        includes={galleryFor?.item.includes}
         onClose={() => setGalleryFor(null)}
         onBook={() => { if (galleryFor) bookCustomLook(galleryFor.item); setGalleryFor(null); }}
       />

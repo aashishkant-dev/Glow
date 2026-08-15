@@ -13,6 +13,7 @@ import { Colors, Fonts } from '../../utils/colors';
 import { LOOKS, LOOK_OCCASIONS, Look } from '../../data/looks';
 import { LookTile } from '../../components/LookTile';
 import { LookSheet } from '../../components/LookSheet';
+import { LookGalleryModal } from '../../components/LookGalleryModal';
 import { ArtistCard } from '../../components/ArtistCard';
 import { PostMedia } from '../../components/PostMedia';
 import { apiPublicCatalog, apiPublicProviders, PublicProviderCard, apiGetExplorePosts, Post, apiGetExploreLooks, ExploreLookItem } from '../../api/client';
@@ -175,8 +176,37 @@ export function ExploreScreen() {
       photo: item.media[0]?.type === 'photo' ? item.media[0].url : undefined,
     };
   }
+  // Tapping a look used to jump straight to the artist's profile — a
+  // customer browsing Explore had no way to actually see the look (photos,
+  // package contents, price) without leaving to a whole other screen first.
+  // Now it opens the look itself; the profile is one tap away from inside
+  // that view (the "by {artist}" row) for whoever wants it.
+  const [galleryFor, setGalleryFor] = useState<ExploreLookItem | null>(null);
   function openExploreLook(item: ExploreLookItem) {
     tapLight();
+    // A theme-only look (no photos/video yet) has nothing for the gallery to
+    // show — same "skip straight to book" rule ProviderPublicProfileScreen
+    // uses for its own single/theme-only looks, rather than opening a modal
+    // that would just be a blank black screen.
+    if (item.media.length === 0) { bookExploreLook(item); return; }
+    setGalleryFor(item);
+  }
+  function bookExploreLook(item: ExploreLookItem) {
+    tapLight();
+    nav.navigate('NewBooking', {
+      bookingMode: 'scheduled',
+      providerId: item.provider.id,
+      serviceType: item.serviceType,
+      providerLookId: item.id,
+      providerLookName: item.name,
+      providerLookPrice: item.price,
+      providerLookDurationMin: item.durationMin,
+      _t: Date.now(),
+    });
+  }
+  function viewExploreLookProvider(item: ExploreLookItem) {
+    tapLight();
+    setGalleryFor(null);
     nav.navigate('ProviderPublicProfile', { providerId: item.provider.id, providerName: item.provider.name });
   }
 
@@ -475,6 +505,19 @@ export function ExploreScreen() {
       )}
 
       <LookSheet look={openLook} priceOverride={openLook ? priceOf(openLook) : undefined} onClose={() => setOpenLook(null)} />
+      <LookGalleryModal
+        visible={!!galleryFor}
+        media={galleryFor?.media ?? []}
+        name={galleryFor?.name ?? ''}
+        vibe={galleryFor?.vibe ?? undefined}
+        price={galleryFor?.price}
+        durationMin={galleryFor?.durationMin}
+        includes={galleryFor?.includes}
+        providerName={galleryFor?.provider.name}
+        onViewProvider={galleryFor ? () => viewExploreLookProvider(galleryFor) : undefined}
+        onClose={() => setGalleryFor(null)}
+        onBook={() => { if (galleryFor) bookExploreLook(galleryFor); setGalleryFor(null); }}
+      />
     </View>
   );
 }

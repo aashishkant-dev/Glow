@@ -318,6 +318,16 @@ model Booking {
   // most bookings (and every artist who hasn't confirmed any looks) don't
   // have one. Not a foreign key: the look catalog lives in app code, not the DB.
   lookId                String?
+  // A specific artist-created ProviderLook (their own priced package, unlike
+  // the static lookId above) this booking was made against — a real FK, since
+  // ProviderLook lives in the DB and is owned by exactly one provider. When
+  // set, the booking's price/duration are resolved from THIS row's price
+  // (server-side, in resolveBookingServices) instead of the artist's plain
+  // per-service menu, so a look's own price actually gets charged. Null'd out
+  // rather than blocking deletion if the artist later removes the look — the
+  // booking's own denormalized serviceType/price already survive it.
+  providerLookId        String?
+  providerLook          ProviderLook? @relation(fields: [providerLookId], references: [id], onDelete: SetNull)
   // Not customer-facing — Glow's services are flat-rate-per-service (set by
   // the Provider or the platform catalog), not hourly. This only matters for
   // the FALLBACK_RATE * hours pricing path when a Provider has no explicit
@@ -748,6 +758,8 @@ model ProviderLook {
   themeTo     String?
   active      Boolean  @default(true)
   createdAt   DateTime @default(now())
+
+  bookings    Booking[]
 
   @@index([profileId])
 }

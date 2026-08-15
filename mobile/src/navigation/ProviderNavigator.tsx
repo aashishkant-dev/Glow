@@ -113,6 +113,10 @@ const tabPillStyles = StyleSheet.create({
   },
 });
 const SLIDING_PILL_WIDTH = 52;
+// Must match providerTabBarStyles.bar's paddingHorizontal below — see the
+// matching comment in CustomerNavigator.tsx for why the pill needs this to
+// stay centered under each tab instead of drifting right toward Profile.
+const TAB_BAR_PADDING_H = 8;
 
 // Tab bar background — matches CustomerNavigator's (see that file's comment
 // for why web is solid, not glass: backdrop-filter doesn't reliably render
@@ -181,12 +185,12 @@ function ProviderCustomTabBar({ state, descriptors, navigation }: BottomTabBarPr
   const visibleRoutes = state.routes.filter(r => !descriptors[r.key].options.tabBarButton);
   const focusedKey = state.routes[state.index]?.key;
   const focusedVisibleIndex = Math.max(0, visibleRoutes.findIndex(r => r.key === focusedKey));
-  const tabWidth = visibleRoutes.length > 0 ? barWidth / visibleRoutes.length : 0;
+  const tabWidth = visibleRoutes.length > 0 ? (barWidth - TAB_BAR_PADDING_H * 2) / visibleRoutes.length : 0;
 
   useEffect(() => {
     if (!tabWidth) return;
     Animated.spring(slideX, {
-      toValue: tabWidth * focusedVisibleIndex + (tabWidth - SLIDING_PILL_WIDTH) / 2,
+      toValue: TAB_BAR_PADDING_H + tabWidth * focusedVisibleIndex + (tabWidth - SLIDING_PILL_WIDTH) / 2,
       useNativeDriver: true,
       speed: 18,
       bounciness: 6,

@@ -1410,6 +1410,21 @@ export function CreateBookingScreen() {
   // applied by the artist-menu effect below once the menu loads.
   const [selectedServices, setSelectedServices] = useState<SelectedService[]>([]);
   const [pendingServiceName, setPendingServiceName] = useState<string>(initService);
+  // "Book this look" on a specific artist-owned ProviderLook (LookGalleryModal /
+  // ProviderPublicProfileScreen) — unlike pendingServiceName, this already has a
+  // real price/duration the artist set themselves, so it doesn't need the
+  // artist's menu to resolve; it's injected as-is below. Snapshotted once from
+  // route params (doesn't change through the flow, so no setter needed).
+  const [pendingProviderLook, setPendingProviderLook] = useState<{ id: string; name: string; price: number; durationMin: number | null } | null>(() => {
+    const id = route.params?.providerLookId as string | undefined;
+    if (!id) return null;
+    return {
+      id,
+      name: (route.params?.providerLookName as string) || 'Look',
+      price: Number(route.params?.providerLookPrice) || 0,
+      durationMin: route.params?.providerLookDurationMin != null ? Number(route.params.providerLookDurationMin) : null,
+    };
+  });
   // Structured address — captured as discrete fields so we always collect a full,
   // geocodable address (incl. postal code) instead of a single short free-text line.
   const [street,        setStreet]        = useState('');
@@ -1508,15 +1523,35 @@ export function CreateBookingScreen() {
   // they actually offer it — otherwise silently drop it rather than booking a
   // service the artist doesn't provide.
   useEffect(() => {
-    if (!pendingServiceName || artistMenu.length === 0) return;
+    if (!pendingServiceName) return;
+    // A "Book this look" entry sends serviceType too (open-pool artist-sort
+    // preference only — see the matchTier comment below), not as a second
+    // thing to also select — the look above is the whole booking, and
+    // promoting BOTH double-counts one visit as two separate line items.
+    if (pendingProviderLook) { setPendingServiceName(''); return; }
+    if (artistMenu.length === 0) return;
     const match = artistMenu.find(s => s.name === pendingServiceName);
     if (match) setSelectedServices(prev => (prev.some(s => s.name === match.name) ? prev : [...prev, match]));
     setPendingServiceName('');
-  }, [pendingServiceName, artistMenu]);
+  }, [pendingServiceName, artistMenu, pendingProviderLook]);
+
+  // A ProviderLook already carries its own real price/duration (the artist set
+  // it themselves) — inject it straight into the summary/review UI so what the
+  // customer sees while booking matches what resolveProviderLookBooking will
+  // actually charge server-side, instead of showing $0 or nothing until submit.
+  useEffect(() => {
+    if (!pendingProviderLook) return;
+    setSelectedServices(prev => (prev.some(s => s.name === pendingProviderLook.name)
+      ? prev
+      : [...prev, { name: pendingProviderLook.name, price: pendingProviderLook.price, durationMin: pendingProviderLook.durationMin ?? 60 }]));
+  }, [pendingProviderLook]);
 
   // Switching artists invalidates every selection — the prices and durations
   // belonged to the previous artist's menu. Keep only services the new artist
-  // also offers, re-priced at THEIR rate.
+  // also offers, re-priced at THEIR rate. A pending look-based selection is the
+  // one exception: it isn't drawn from any artist's menu (its price/duration
+  // come straight from the ProviderLook row above), so name-matching against
+  // artistMenu would always wipe it the moment selectedProvider first resolves.
   const prevProviderIdRef = useRef<string | null>(null);
   useEffect(() => {
     const id = selectedProvider ? String(selectedProvider._id) : null;
@@ -1524,10 +1559,10 @@ export function CreateBookingScreen() {
     prevProviderIdRef.current = id;
     setSelectedServices(prev =>
       prev
-        .map(sel => artistMenu.find(m => m.name === sel.name))
+        .map(sel => sel.name === pendingProviderLook?.name ? sel : artistMenu.find(m => m.name === sel.name))
         .filter((s): s is SelectedService => !!s),
     );
-  }, [selectedProvider, artistMenu]);
+  }, [selectedProvider, artistMenu, pendingProviderLook]);
 
   const [loading,       setLoading]       = useState(false);
   const [loadingProviders,   setLoadingProviders]   = useState(false);
@@ -1647,6 +1682,19 @@ export function CreateBookingScreen() {
     const prevT = prevParamsRef.current?._t;
     prevParamsRef.current = params;
     if (params.serviceType) setPendingServiceName(params.serviceType);
+    // Re-arm on every params change (not just mount) — the `_t` reset block
+    // right below this clears selectedServices, including whatever the LAST
+    // run of this effect already injected, and this state's own promotion
+    // effect only re-fires when its object reference changes, so it has to
+    // get a fresh one here to recover from that reset.
+    if (params.providerLookId) {
+      setPendingProviderLook({
+        id: params.providerLookId,
+        name: params.providerLookName || 'Look',
+        price: Number(params.providerLookPrice) || 0,
+        durationMin: params.providerLookDurationMin != null ? Number(params.providerLookDurationMin) : null,
+      });
+    }
     if (params.bookingMode) setBookingMode(params.bookingMode as 'ondemand' | 'scheduled');
     // Reassign: the booking already exists, so we only need to pick a Provider.
     // Use on-demand mode (no date step) and keep the preset service.
@@ -1887,6 +1935,14 @@ export function CreateBookingScreen() {
         datesToBook = selectedDates;
       }
 
+      // The look only still applies if its line item is still selected — the
+      // customer can deselect it like any other service (toggleService), and
+      // sending providerLookId anyway would silently re-add its price
+      // server-side even though the summary they're looking at no longer does.
+      const activeProviderLookId = pendingProviderLook && selectedServices.some(s => s.name === pendingProviderLook.name)
+        ? pendingProviderLook.id
+        : undefined;
+
       // Create one booking per selected date in parallel. Multi-service is
       // ADDITIVE to multi-date: each date still gets exactly one booking, that
       // booking just carries the full service bundle instead of a single
@@ -1905,6 +1961,7 @@ export function CreateBookingScreen() {
             providerId: selectedProvider._id,
             address: address.trim(),
             lookId: (route.params as any)?.lookId,
+            providerLookId: activeProviderLookId,
             // Only send a real, in-range offer — never NaN/0/negative from a
             // malformed field, and never an out-of-range value that slipped
             // past canNext's gate somehow. The offer is against the SUMMED
