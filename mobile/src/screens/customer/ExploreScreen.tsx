@@ -210,6 +210,16 @@ export function ExploreScreen() {
     nav.navigate('ProviderPublicProfile', { providerId: item.provider.id, providerName: item.provider.name });
   }
 
+  // "Message" on a look — a question before committing to a date, distinct
+  // from booking. Opens the same ChatScreen a booking's chat uses, just
+  // keyed by the artist's id instead of a bookingId (see Message.bookingId's
+  // schema comment) since no booking exists yet.
+  function messageExploreLookArtist(item: ExploreLookItem) {
+    tapLight();
+    setGalleryFor(null);
+    nav.navigate('Chat', { otherUserId: item.provider.id, otherName: item.provider.name, otherRole: 'Provider' });
+  }
+
   const allArtists = useMemo(() => {
     // Merge API artists with seed artists (dedupe by id)
     const seedOnly = SEED_ARTISTS.filter(s => !artists.find(a => a.id === s.id));
@@ -516,6 +526,7 @@ export function ExploreScreen() {
         includes={galleryFor?.includes}
         providerName={galleryFor?.provider.name}
         onViewProvider={galleryFor ? () => viewExploreLookProvider(galleryFor) : undefined}
+        onMessageArtist={galleryFor ? () => messageExploreLookArtist(galleryFor) : undefined}
         onClose={() => setGalleryFor(null)}
         onBook={() => { if (galleryFor) bookExploreLook(galleryFor); setGalleryFor(null); }}
       />

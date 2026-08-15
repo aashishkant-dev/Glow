@@ -1033,6 +1033,31 @@ export function apiGetUnreadCount(bookingId: string) {
   return request<{ count: number }>('GET', `/messages/${bookingId}/unread`);
 }
 
+// Pre-booking inquiry — "message this artist" from their profile or a look,
+// before any date is picked. Same Message rows as booking chat, just
+// threaded by the (customer, provider) pair instead of a bookingId — see
+// the schema comment on Message.bookingId.
+export function apiGetInquiryMessages(otherUserId: string) {
+  return request<{ messages: ChatMessage[] }>('GET', `/messages/inquiry/${otherUserId}`);
+}
+
+export function apiSendInquiryMessage(otherUserId: string, text: string) {
+  return request<{ message: ChatMessage }>('POST', '/messages/inquiry', { otherUserId, text });
+}
+
+export interface InquiryThread {
+  otherUserId: string;
+  otherName: string;
+  otherPhotoUrl: string | null;
+  lastMessage: string;
+  lastMessageAt: string;
+  unread: boolean;
+}
+
+export function apiGetInquiryThreads() {
+  return request<{ threads: InquiryThread[] }>('GET', '/messages/inquiries');
+}
+
 // ─── On My Way ────────────────────────────────────────────────────────────────
 
 export function apiOnMyWay(jobId: string) {
@@ -1248,7 +1273,7 @@ export function apiPublicCatalog() {
 
 export interface ChatMessage {
   _id: string;
-  bookingId: string;
+  bookingId?: string | null;
   senderId: string;
   senderName: string;
   senderRole: 'CUSTOMER' | 'Provider';

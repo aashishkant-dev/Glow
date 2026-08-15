@@ -12,7 +12,7 @@ import {
   Text,
   View,
 } from 'react-native';
-import { LocationIcon, HourglassIcon, DocumentIcon, BriefcaseIcon, CloseCircleIcon, CheckCircleIcon } from '../../components/TabIcons';
+import { LocationIcon, HourglassIcon, DocumentIcon, BriefcaseIcon, CloseCircleIcon, CheckCircleIcon, ChatIcon } from '../../components/TabIcons';
 import {
   BellIcon,
   ChevronForwardIcon,
@@ -28,7 +28,7 @@ import { ServiceIcon } from '../../components/ServiceIcon';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { tapImpact } from '../../utils/haptics';
-import { apiGetProfile, apiMyJobs, apiToggleAvailability, apiGetMyDocuments, apiGetRequests, Booking, UserProfile } from '../../api/client';
+import { apiGetProfile, apiMyJobs, apiToggleAvailability, apiGetMyDocuments, apiGetRequests, apiGetInquiryThreads, Booking, UserProfile, InquiryThread } from '../../api/client';
 import { useAuth } from '../../context/AuthContext';
 import { useLocation } from '../../context/LocationContext';
 import { useChatUnread } from '../../context/ChatUnreadContext';
@@ -140,6 +140,7 @@ export function ProviderDashboardScreen() {
   const userToggledOnlineRef = useRef(false);
   const [serverDocs, setServerDocs] = useState<Record<string, string>>({});
   const [pendingRequests, setPendingRequests] = useState<Booking[]>([]);
+  const [inquiryThreads, setInquiryThreads] = useState<InquiryThread[]>([]);
   const pulseAnim = useRef(new Animated.Value(1)).current;
   const glowAnim = useRef(new Animated.Value(0)).current;
   // Today/Week/Month tabs double as the earnings-card period selector — the
@@ -185,15 +186,17 @@ export function ProviderDashboardScreen() {
     if (showRefresh) setRefreshing(true);
     else if (!silent) setLoading(true);
     try {
-      const [{ bookings }, profileRes, docsRes, reqRes] = await Promise.all([
+      const [{ bookings }, profileRes, docsRes, reqRes, inquiryRes] = await Promise.all([
         apiMyJobs(),
         apiGetProfile().catch(() => ({ user: null })),
         apiGetMyDocuments().catch(() => ({ documents: [] })),
         apiGetRequests().catch(() => ({ requests: [] as Booking[] })),
+        apiGetInquiryThreads().catch(() => ({ threads: [] as InquiryThread[] })),
       ]);
       const same = (a: any, b: any) => JSON.stringify(a) === JSON.stringify(b);
       setJobs(prev => same(prev, bookings) ? prev : bookings);
       setPendingRequests(prev => same(prev, reqRes.requests || []) ? prev : (reqRes.requests || []));
+      setInquiryThreads(prev => same(prev, inquiryRes.threads || []) ? prev : (inquiryRes.threads || []));
       if (profileRes.user) {
         setProfile(prev => same(prev, profileRes.user) ? prev : (profileRes.user as UserProfile));
         const avail = profileRes.user.providerProfile?.availability;
@@ -497,6 +500,27 @@ export function ProviderDashboardScreen() {
               </Text>
             </View>
             {/* wrap chevron so it has breathing room from the card edge + a true touch target */}
+            <View style={styles.requestsChevronWrap}>
+              <ChevronForwardIcon size={22} color="#fff" />
+            </View>
+          </Pressable>
+        )}
+
+        {/* ── New messages banner — pre-booking inquiries, a client asking
+             before committing to a date. Same visual weight as the booking
+             requests banner above, just chat-colored instead of brand-pink
+             so the two read as distinct things at a glance. ── */}
+        {inquiryThreads.some(t => t.unread) && (
+          <Pressable style={[styles.requestsBanner, styles.messagesBanner]} onPress={() => nav.navigate('Inquiries')}>
+            <View style={styles.requestsBell}><ChatIcon size={22} color="#fff" /></View>
+            <View style={styles.requestsBannerText}>
+              <Text style={styles.requestsBannerTitle} numberOfLines={1}>
+                {inquiryThreads.filter(t => t.unread).length} new message{inquiryThreads.filter(t => t.unread).length > 1 ? 's' : ''}
+              </Text>
+              <Text style={styles.requestsBannerSub} numberOfLines={2}>
+                A client messaged you before booking — tap to reply
+              </Text>
+            </View>
             <View style={styles.requestsChevronWrap}>
               <ChevronForwardIcon size={22} color="#fff" />
             </View>
@@ -927,6 +951,9 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 12,
     backgroundColor: Colors.brand, borderRadius: 16, padding: 16,
     shadowColor: Colors.brandDark, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 10, elevation: 5,
+  },
+  messagesBanner: {
+    marginTop: 0, backgroundColor: '#0A2540', shadowColor: '#0A2540',
   },
   requestsBell: {
     width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.22)',

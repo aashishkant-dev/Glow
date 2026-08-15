@@ -187,6 +187,8 @@ model User {
   bookingsAsCustomer Booking[]  @relation("CustomerBookings")
   bookingsAsProvider      Booking[]  @relation("ProviderBookings")
   messagesSent       Message[]
+  inquiriesAsCustomer Message[] @relation("InquiryCustomerMessages")
+  inquiriesAsProvider Message[] @relation("InquiryProviderMessages")
   payouts            Payout[]
   notifications      Notification[]
   favoritesAsCustomer Favorite[] @relation("FavoritedBy")
@@ -503,8 +505,18 @@ model AuditLog {
 
 model Message {
   id         String   @id @default(cuid())
-  bookingId  String
-  booking    Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  // Exactly one of bookingId OR (customerId+providerId) is set — a message
+  // either belongs to a real booking's chat, or is a pre-booking inquiry
+  // ("message this artist" from their profile/a look, before any date is
+  // picked) identified by the customer↔provider pair directly instead.
+  // Nullable rather than a separate model so the existing booking-chat path
+  // (ChatScreen, socket rooms, unread counts) barely changes shape.
+  bookingId  String?
+  booking    Booking? @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  customerId String?
+  customer   User?    @relation("InquiryCustomerMessages", fields: [customerId], references: [id], onDelete: Cascade)
+  providerId String?
+  provider   User?    @relation("InquiryProviderMessages", fields: [providerId], references: [id], onDelete: Cascade)
   senderId   String
   sender     User     @relation(fields: [senderId], references: [id])
   senderName String
@@ -519,6 +531,7 @@ model Message {
   @@index([senderId, read])                         // for unread count queries per sender
   @@index([bookingId, senderId, read])              // for mark-as-read updateMany
   @@index([createdAt(sort: Desc)])                  // retention cleanup
+  @@index([customerId, providerId, createdAt])      // inquiry thread lookup
 }
 
 model OTP {

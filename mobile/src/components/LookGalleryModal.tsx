@@ -55,6 +55,10 @@ interface Props {
   // an artist's own profile screen, since the customer is already on it.
   providerName?: string;
   onViewProvider?: () => void;
+  // "Send a message request" — a question before committing to a date,
+  // distinct from onBook. Omitted where there's no logged-in customer
+  // identity to message from.
+  onMessageArtist?: () => void;
   onClose: () => void;
   onBook: () => void;
 }
@@ -64,7 +68,7 @@ function GalleryVideo({ uri }: { uri: string }) {
   return <VideoView player={player} style={{ width: SCREEN_W, height: SCREEN_H }} contentFit="cover" nativeControls />;
 }
 
-export function LookGalleryModal({ visible, media, name, vibe, price, durationMin, includes, providerName, onViewProvider, onClose, onBook }: Props) {
+export function LookGalleryModal({ visible, media, name, vibe, price, durationMin, includes, providerName, onViewProvider, onMessageArtist, onClose, onBook }: Props) {
   const insets = useSafeAreaInsets();
   const [active, setActive] = useState(0);
   const duration = formatDuration(durationMin);
@@ -141,11 +145,16 @@ export function LookGalleryModal({ visible, media, name, vibe, price, durationMi
             </ScrollView>
           )}
 
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 12 }}>
+          <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
             <View style={{ flex: 1 }}>
               <Text style={styles.name}>{name}</Text>
               {!!vibe && <Text style={styles.vibe} numberOfLines={1}>{vibe}</Text>}
             </View>
+            {!!onMessageArtist && (
+              <Pressable style={styles.messageBtn} onPress={onMessageArtist}>
+                <Text style={styles.messageBtnText}>Message</Text>
+              </Pressable>
+            )}
             <Pressable style={styles.bookBtn} onPress={onBook}>
               <Text style={styles.bookBtnText}>
                 {price != null ? `Book · ${formatCurrency(price, { decimals: 0 })}` : 'Book this look'}
@@ -202,4 +211,9 @@ const styles = StyleSheet.create({
     shadowColor: Colors.brand, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 14, elevation: 6,
   },
   bookBtnText: { color: '#fff', fontSize: 14, fontFamily: Fonts.semibold },
+  messageBtn: {
+    borderRadius: 22, paddingHorizontal: 16, paddingVertical: 12,
+    backgroundColor: 'rgba(255,255,255,0.14)', borderWidth: 1, borderColor: 'rgba(255,255,255,0.3)',
+  },
+  messageBtnText: { color: '#fff', fontSize: 14, fontFamily: Fonts.semibold },
 });

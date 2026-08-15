@@ -9,6 +9,7 @@ let socket: Socket | null = null;
 // re-emit on the 'connect' event.
 let joinedUserId: string | null = null;
 const joinedBookings = new Set<string>();
+const joinedInquiries = new Set<string>();
 
 export function getSocket(): Socket {
   if (!socket) {
@@ -22,6 +23,7 @@ export function getSocket(): Socket {
     socket.on('connect', () => {
       if (joinedUserId) socket!.emit('join-user', { userId: joinedUserId });
       joinedBookings.forEach(id => socket!.emit('join-booking', { bookingId: id }));
+      joinedInquiries.forEach(id => socket!.emit('join-inquiry', { otherUserId: id }));
     });
   }
   return socket;
@@ -51,6 +53,16 @@ export function sendSocketMessage(bookingId: string, text: string, senderName: s
 
 export function emitTyping(bookingId: string, senderName: string, isTyping: boolean) {
   getSocket().emit('typing', { bookingId, senderName, isTyping });
+}
+
+export function joinInquiryRoom(otherUserId: string) {
+  joinedInquiries.add(otherUserId);
+  const s = getSocket();
+  if (s.connected) s.emit('join-inquiry', { otherUserId });
+}
+
+export function sendInquirySocketMessage(otherUserId: string, text: string) {
+  getSocket().emit('send-inquiry-message', { otherUserId, text });
 }
 
 export function joinUserRoom(userId: string) {

@@ -24,6 +24,7 @@ import { requestsBadge } from '../utils/providerBadges';
 import { HelpScreen } from '../screens/shared/HelpScreen';
 import { ProfileScreen } from '../screens/shared/ProfileScreen';
 import { ChatScreen } from '../screens/shared/ChatScreen';
+import { InquiriesScreen } from '../screens/provider/InquiriesScreen';
 import { NotificationsScreen } from '../screens/shared/NotificationsScreen';
 import { Colors } from '../utils/colors';
 import { Booking, apiNearbyJobs, apiMyJobs, apiGetRequests } from '../api/client';
@@ -69,7 +70,10 @@ export type PROVIDERStackParams = {
   Earnings: undefined;
   Help: undefined;
   Profile: undefined;
-  Chat: { bookingId: string; otherName?: string; otherPhotoUrl?: string; otherRole?: string };
+  Chat:
+    | { bookingId: string; otherUserId?: undefined; otherName?: string; otherPhotoUrl?: string; otherRole?: string }
+    | { bookingId?: undefined; otherUserId: string; otherName?: string; otherPhotoUrl?: string; otherRole?: string };
+  Inquiries: undefined;
 };
 
 const Tab = createBottomTabNavigator();
@@ -652,6 +656,7 @@ export function ProviderNavigator() {
       <Stack.Screen name="Help" component={HelpScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Profile" component={ProfileScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Inquiries" component={InquiriesScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );

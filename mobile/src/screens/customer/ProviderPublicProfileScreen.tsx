@@ -25,7 +25,7 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { apiGetProviderPublicProfile, apiLikeLook, apiUnlikeLook, ProviderPublicProfile, ProviderLookItem } from '../../api/client';
 import { Colors, Fonts } from '../../utils/colors';
 import { formatCurrency } from '../../utils/format';
-import { CloseCircleIcon, StarIcon, CheckCircleIcon, ChevronForwardIcon } from '../../components/TabIcons';
+import { CloseCircleIcon, StarIcon, CheckCircleIcon, ChevronForwardIcon, ChatIcon } from '../../components/TabIcons';
 import { ShieldCheckIcon, CheckDecagramIcon, ClockIcon, InstagramIcon } from '../../components/CareIcons';
 import { GlowMark } from '../../components/GlowLogo';
 import { ServiceIcon } from '../../components/ServiceIcon';
@@ -201,6 +201,15 @@ export function ProviderPublicProfileScreen() {
   function openCustomLook(entry: { item: ProviderLookItem; look: Look }) {
     if (entry.item.media.length > 1) { setGalleryFor(entry); return; }
     bookCustomLook(entry.item);
+  }
+
+  // "Message" this artist — a question before committing to a date, distinct
+  // from booking. Same ChatScreen a booking's chat uses, keyed by the
+  // artist's id instead of a bookingId since no booking exists yet.
+  function messageArtist() {
+    if (!provider) return;
+    tapLight();
+    nav.navigate('Chat', { otherUserId: provider.id, otherName: provider.name, otherPhotoUrl: provider.photoUrl, otherRole: 'Provider' });
   }
 
   function book(serviceType?: string, providerLook?: ProviderLookItem) {
@@ -650,6 +659,14 @@ export function ProviderPublicProfileScreen() {
           )}
         </View>
         <Pressable
+          style={({ pressed }) => [styles.messageIconBtn, pressed && { opacity: 0.7 }]}
+          onPress={messageArtist}
+          hitSlop={8}
+          accessibilityLabel={`Message ${p.name.split(' ')[0]}`}
+        >
+          <ChatIcon size={20} color={Colors.brand} />
+        </Pressable>
+        <Pressable
           style={({ pressed }) => [styles.bookBtn, pressed && { opacity: 0.9, transform: [{ scale: 0.97 }] }]}
           onPress={() => book()}
         >
@@ -665,6 +682,7 @@ export function ProviderPublicProfileScreen() {
         price={galleryFor?.item.price}
         durationMin={galleryFor?.item.durationMin}
         includes={galleryFor?.item.includes}
+        onMessageArtist={messageArtist}
         onClose={() => setGalleryFor(null)}
         onBook={() => { if (galleryFor) bookCustomLook(galleryFor.item); setGalleryFor(null); }}
       />
@@ -841,6 +859,11 @@ const styles = StyleSheet.create({
   },
   priceText: { fontSize: 21, fontFamily: Fonts.bold, color: Colors.label, letterSpacing: -0.4 },
   priceSub: { fontSize: 12, color: Colors.secondaryLabel, fontFamily: Fonts.regular },
+  messageIconBtn: {
+    width: 48, height: 48, borderRadius: 24, marginRight: 10,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: Colors.brandLight, borderWidth: 1, borderColor: Colors.brandAccent,
+  },
   bookBtn: {
     backgroundColor: Colors.brand, borderRadius: 100,
     paddingVertical: 16, paddingHorizontal: 34,

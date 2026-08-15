@@ -153,6 +153,80 @@ function initSocket(httpServer) {
       socket.to(`booking:${bookingId}`).emit('typing', { senderName, isTyping });
     });
 
+    // ── Pre-booking inquiries — same shape as the booking-chat handlers
+    // above, keyed by the (customerId, providerId) pair instead of a
+    // bookingId since no booking exists yet. See the Message.bookingId
+    // comment in schema.prisma.
+    async function resolveInquiryPair(userId, otherUserId) {
+      const [me, other] = await Promise.all([
+        prisma.user.findUnique({ where: { id: userId }, select: { role: true } }),
+        prisma.user.findUnique({ where: { id: otherUserId }, select: { id: true, role: true } }),
+      ]);
+      if (!me || !other) return null;
+      if (me.role === 'Provider' && other.role === 'CUSTOMER') return { customerId: other.id, providerId: userId };
+      if (me.role === 'CUSTOMER' && other.role === 'Provider') return { customerId: userId, providerId: other.id };
+      return null;
+    }
+
+    socket.on('join-inquiry', async ({ otherUserId }) => {
+      if (!otherUserId) return;
+      try {
+        const pair = await resolveInquiryPair(socket.userId, otherUserId);
+        if (!pair) return;
+        socket.join(`inquiry:${pair.customerId}:${pair.providerId}`);
+      } catch {}
+    });
+
+    socket.on('send-inquiry-message', async ({ otherUserId, text }) => {
+      if (!otherUserId || !text?.trim()) return;
+      if (text.trim().length > 1000) return;
+      try {
+        const [pair, sender] = await Promise.all([
+          resolveInquiryPair(socket.userId, otherUserId),
+          prisma.user.findUnique({ where: { id: socket.userId }, select: { name: true, role: true } }),
+        ]);
+        if (!pair || !sender) return;
+
+        const msg = await prisma.message.create({
+          data: {
+            customerId: pair.customerId,
+            providerId: pair.providerId,
+            senderId:   socket.userId,
+            senderName: sender.name,
+            senderRole: sender.role,
+            text:       text.trim(),
+          },
+        });
+
+        const payload = {
+          _id:        msg.id,
+          otherUserId,
+          senderId:   socket.userId,
+          senderName: msg.senderName,
+          senderRole: msg.senderRole,
+          text:       msg.text,
+          createdAt:  msg.createdAt,
+          read:       false,
+        };
+        io.to(`inquiry:${pair.customerId}:${pair.providerId}`).emit('new-inquiry-message', payload);
+
+        const recipientId = socket.userId === pair.customerId ? pair.providerId : pair.customerId;
+        if (recipientId) {
+          io.to(`user-${recipientId}`).emit('inquiry-message-notification', { ...payload, otherUserId: socket.userId });
+          const recipient = await prisma.user.findUnique({ where: { id: recipientId }, select: { expoPushToken: true } });
+          if (recipient?.expoPushToken) {
+            pushTo(
+              recipient.expoPushToken,
+              `💬 ${msg.senderName}`,
+              msg.text.slice(0, 100),
+              { type: 'inquiry', otherUserId: socket.userId },
+              'chat',
+            ).catch(() => {});
+          }
+        }
+      } catch {}
+    });
+
     socket.on('disconnect', () => {});
   });
 

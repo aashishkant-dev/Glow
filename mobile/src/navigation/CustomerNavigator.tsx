@@ -55,7 +55,9 @@ export type CustomerStackParams = {
   Profile: undefined;
   Notifications: undefined;
   Tracking: { bookingId: string; bookingLocation?: { lat: number; lng: number } };
-  Chat: { bookingId: string; otherName: string; otherPhotoUrl?: string; otherRole: string };
+  Chat:
+    | { bookingId: string; otherUserId?: undefined; otherName?: string; otherPhotoUrl?: string; otherRole?: string }
+    | { bookingId?: undefined; otherUserId: string; otherName?: string; otherPhotoUrl?: string; otherRole?: string };
   ProviderPublicProfile: { providerId: string; providerName?: string; fromBooking?: boolean };
   PostDetail: { post: Post };
 };

@@ -16,10 +16,13 @@ import { useNavigation, useRoute } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../../context/AuthContext';
 import { useChatUnread } from '../../context/ChatUnreadContext';
-import { apiGetMessages, ChatMessage } from '../../api/client';
+import { apiGetMessages, apiGetInquiryMessages, ChatMessage } from '../../api/client';
 import { Avatar } from '../../components/Avatar';
 import { Colors } from '../../utils/colors';
-import { getSocket, joinBookingRoom, sendSocketMessage, emitTyping } from '../../utils/socket';
+import {
+  getSocket, joinBookingRoom, sendSocketMessage, emitTyping,
+  joinInquiryRoom, sendInquirySocketMessage,
+} from '../../utils/socket';
 
 export function ChatScreen() {
   const nav = useNavigation<any>();
@@ -29,12 +32,21 @@ export function ChatScreen() {
   const { clear: clearUnread } = useChatUnread();
 
   const params = route.params as {
-    bookingId: string;
+    bookingId?: string;
+    // Pre-booking inquiry — "message this artist" before any date is
+    // picked (see Message.bookingId's schema comment). Threaded by the
+    // other party's user id instead of a bookingId; exactly one of
+    // bookingId/otherUserId is set.
+    otherUserId?: string;
     otherName?: string;
     otherPhotoUrl?: string;
     otherRole?: string;
   };
-  const { bookingId } = params;
+  const { bookingId, otherUserId } = params;
+  const isInquiry = !bookingId && !!otherUserId;
+  // One id to key everything on regardless of mode — every join/send/typing
+  // call below reads this instead of branching on isInquiry itself.
+  const threadId = (bookingId ?? otherUserId)!;
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   // Name/photo/role may be missing when chat is opened from a notification
@@ -62,11 +74,13 @@ export function ChatScreen() {
 
   // Load history + join socket room
   useEffect(() => {
-    apiGetMessages(bookingId)
+    const fetchHistory = isInquiry ? apiGetInquiryMessages(otherUserId!) : apiGetMessages(bookingId!);
+    fetchHistory
       .then(r => { setMessages(r.messages); setLoading(false); })
       .catch(() => setLoading(false));
 
-    joinBookingRoom(bookingId);
+    if (isInquiry) joinInquiryRoom(otherUserId!);
+    else joinBookingRoom(bookingId!);
     const socket = getSocket();
 
     const handleNew = (msg: ChatMessage) => {
@@ -86,28 +100,32 @@ export function ChatScreen() {
       }
     };
 
-    socket.on('new-message', handleNew);
-    socket.on('typing', handleTyping);
+    // Inquiries have no typing indicator — a low-frequency "ask before
+    // booking" thread doesn't need the extra socket event, and the input
+    // still works fine without it.
+    socket.on(isInquiry ? 'new-inquiry-message' : 'new-message', handleNew);
+    if (!isInquiry) socket.on('typing', handleTyping);
     return () => {
-      socket.off('new-message', handleNew);
-      socket.off('typing', handleTyping);
+      socket.off(isInquiry ? 'new-inquiry-message' : 'new-message', handleNew);
+      if (!isInquiry) socket.off('typing', handleTyping);
     };
-  }, [bookingId]);
+  }, [threadId, isInquiry]);
 
   const handleSend = useCallback(() => {
     if (!text.trim() || !user) return;
-    sendSocketMessage(bookingId, text.trim(), user.name, myRole);
+    if (isInquiry) sendInquirySocketMessage(otherUserId!, text.trim());
+    else sendSocketMessage(bookingId!, text.trim(), user.name, myRole);
     setText('');
-    emitTyping(bookingId, user.name, false);
-  }, [text, bookingId, user, myRole]);
+    if (!isInquiry) emitTyping(bookingId!, user.name, false);
+  }, [text, threadId, isInquiry, user, myRole]);
 
   const handleTextChange = useCallback((val: string) => {
     setText(val);
-    if (!user) return;
-    emitTyping(bookingId, user.name, val.length > 0);
+    if (!user || isInquiry) return;
+    emitTyping(bookingId!, user.name, val.length > 0);
     if (typingTimer.current) clearTimeout(typingTimer.current);
-    typingTimer.current = setTimeout(() => emitTyping(bookingId, user!.name, false), 2000);
-  }, [bookingId, user]);
+    typingTimer.current = setTimeout(() => emitTyping(bookingId!, user!.name, false), 2000);
+  }, [bookingId, isInquiry, user]);
 
   const renderMessage = ({ item }: { item: ChatMessage }) => {
     const isMine = item.senderId === user?.id;
