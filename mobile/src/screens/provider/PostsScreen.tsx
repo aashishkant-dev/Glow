@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
 import { apiCreatePost, apiDeletePost, apiGetMyPosts, apiGetMyLooks, apiAddLookMedia, Post, ProviderLookItem } from '../../api/client';
@@ -22,14 +22,14 @@ function linkedLookName(post: Post, looks: ProviderLookItem[]): string | null {
   return match?.name ?? null;
 }
 
-function PostThumb({ post, lookName, onDelete }: { post: Post; lookName: string | null; onDelete: (id: string) => void }) {
+function PostThumb({ post, lookName, onDelete, onView }: { post: Post; lookName: string | null; onDelete: (id: string) => void; onView: (post: Post) => void }) {
   return (
     // Shadow lives on the outer wrapper (no overflow:hidden) — a shadow on
     // a clipped view renders fine on web's CSS box-shadow but gets clipped
     // away entirely on native, so the rounded/clipped media sits in an
     // inner view instead.
     <View style={styles.thumbShadowWrap}>
-    <View style={styles.thumb}>
+    <Pressable style={styles.thumb} onPress={() => onView(post)}>
       <PostMedia photoUrl={post.photoUrl} videoUrl={post.videoUrl} style={styles.thumbImg} showBadge />
       {/* Bottom scrim keeps whatever's overlaid (look tag, like count)
           legible against any photo, bright or dark, instead of a flat
@@ -48,7 +48,13 @@ function PostThumb({ post, lookName, onDelete }: { post: Post; lookName: string 
       <Pressable
         style={styles.removeBtn}
         hitSlop={6}
-        onPress={() => {
+        onPress={(e) => {
+          // Nested inside the thumb Pressable (which now opens the detail
+          // view on tap) — without stopping propagation, web's DOM click
+          // bubbling would fire onView right after this, opening the detail
+          // modal over whatever just happened (the confirm dialog, or the
+          // post disappearing mid-tap).
+          e.stopPropagation();
           // Alert.alert with a multi-button array is a no-op on RN-Web —
           // the confirm dialog never appears, so the button looked broken.
           if (Platform.OS === 'web') {
@@ -65,10 +71,92 @@ function PostThumb({ post, lookName, onDelete }: { post: Post; lookName: string 
       >
         <Text style={styles.removeBtnText}>✕</Text>
       </Pressable>
-    </View>
+    </Pressable>
     </View>
   );
 }
+
+// Tapping a post used to do nothing but show the small delete "✕" — a
+// portfolio the artist can't actually look back through isn't much of one.
+// Full-bleed photo/video with the same info a customer would see (caption,
+// category, likes, linked look) plus the delete action moved down here from
+// the thumbnail, so the grid's own remove button is one less thing crowding
+// each card.
+function PostDetailModal({ post, lookName, onClose, onDelete }: { post: Post | null; lookName: string | null; onClose: () => void; onDelete: (id: string) => void }) {
+  const insets = useSafeAreaInsets();
+  if (!post) return null;
+
+  function confirmDelete() {
+    const doDelete = () => { onDelete(post!.id); onClose(); };
+    if (Platform.OS === 'web') {
+      if (typeof window !== 'undefined' && window.confirm('Delete this post? This cannot be undone.')) doDelete();
+      return;
+    }
+    Alert.alert('Delete post?', 'This cannot be undone.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: doDelete },
+    ]);
+  }
+
+  return (
+    <Modal visible={!!post} animationType="fade" onRequestClose={onClose}>
+      <View style={detailStyles.root}>
+        <PostMedia photoUrl={post.photoUrl} videoUrl={post.videoUrl} style={detailStyles.media} />
+        <Pressable style={[detailStyles.closeBtn, { top: insets.top + 12 }]} onPress={onClose} hitSlop={10}>
+          <Text style={detailStyles.closeBtnText}>✕</Text>
+        </Pressable>
+
+        <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={detailStyles.footerGradient} pointerEvents="none" />
+        <View style={[detailStyles.footer, { paddingBottom: insets.bottom + 16 }]}>
+          <View style={detailStyles.metaRow}>
+            {!!post.category && (
+              <View style={detailStyles.chip}>
+                <Text style={detailStyles.chipText}>{post.category}</Text>
+              </View>
+            )}
+            {!!lookName && (
+              <View style={detailStyles.chip}>
+                <Text style={detailStyles.chipText}>✨ {lookName}</Text>
+              </View>
+            )}
+            {post.likeCount > 0 && (
+              <View style={detailStyles.chip}>
+                <Text style={detailStyles.chipText}>♥ {post.likeCount}</Text>
+              </View>
+            )}
+          </View>
+          {!!post.caption && <Text style={detailStyles.caption}>{post.caption}</Text>}
+          <Pressable style={detailStyles.deleteBtn} onPress={confirmDelete}>
+            <Text style={detailStyles.deleteBtnText}>Delete post</Text>
+          </Pressable>
+        </View>
+      </View>
+    </Modal>
+  );
+}
+
+const detailStyles = StyleSheet.create({
+  root: { flex: 1, backgroundColor: '#000' },
+  media: { flex: 1, width: '100%' },
+  closeBtn: {
+    position: 'absolute', right: 14, zIndex: 2, width: 32, height: 32, borderRadius: 16,
+    backgroundColor: 'rgba(0,0,0,0.45)', alignItems: 'center', justifyContent: 'center',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)',
+  },
+  closeBtnText: { color: '#fff', fontSize: 14, fontFamily: Fonts.bold },
+  footerGradient: { position: 'absolute', left: 0, right: 0, bottom: 0, height: 200 },
+  footer: { position: 'absolute', left: 0, right: 0, bottom: 0, paddingHorizontal: 18, paddingTop: 40, gap: 10 },
+  metaRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  chip: {
+    backgroundColor: 'rgba(255,255,255,0.14)', borderRadius: 100,
+    paddingHorizontal: 11, paddingVertical: 6,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)',
+  },
+  chipText: { color: '#fff', fontSize: 12, fontFamily: Fonts.medium },
+  caption: { color: '#fff', fontSize: 14.5, fontFamily: Fonts.regular, lineHeight: 20 },
+  deleteBtn: { alignSelf: 'flex-start', paddingVertical: 6 },
+  deleteBtnText: { color: Colors.systemRed, fontSize: 13.5, fontFamily: Fonts.semibold },
+});
 
 interface Props {
   // Bumped by the tab bar's tabPress listener every time the Posts tab is
@@ -90,6 +178,7 @@ export function PostsScreen({ cameraSignal }: Props) {
   const [pendingCategory, setPendingCategory] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(true);
   const [toast, setToast] = useState<string | null>(null);
+  const [viewingPost, setViewingPost] = useState<Post | null>(null);
 
   async function loadMyPosts() {
     try {
@@ -258,7 +347,7 @@ export function PostsScreen({ cameraSignal }: Props) {
               </View>
               <View style={styles.grid}>
                 {postsByCategory[c.name].map(post => (
-                  <PostThumb key={post.id} post={post} lookName={linkedLookName(post, myLooks)} onDelete={deletePost} />
+                  <PostThumb key={post.id} post={post} lookName={linkedLookName(post, myLooks)} onDelete={deletePost} onView={setViewingPost} />
                 ))}
                 <View style={styles.thumbShadowWrap}>
                   <Pressable style={[styles.thumb, styles.addTile]} onPress={() => openCamera(c.name)}>
@@ -280,7 +369,7 @@ export function PostsScreen({ cameraSignal }: Props) {
               </View>
               <View style={styles.grid}>
                 {uncategorizedPosts.map(post => (
-                  <PostThumb key={post.id} post={post} lookName={linkedLookName(post, myLooks)} onDelete={deletePost} />
+                  <PostThumb key={post.id} post={post} lookName={linkedLookName(post, myLooks)} onDelete={deletePost} onView={setViewingPost} />
                 ))}
               </View>
             </View>
@@ -317,6 +406,12 @@ export function PostsScreen({ cameraSignal }: Props) {
         }}
       />
       <Toast message={toast} onHide={() => setToast(null)} />
+      <PostDetailModal
+        post={viewingPost}
+        lookName={viewingPost ? linkedLookName(viewingPost, myLooks) : null}
+        onClose={() => setViewingPost(null)}
+        onDelete={deletePost}
+      />
     </View>
   );
 }

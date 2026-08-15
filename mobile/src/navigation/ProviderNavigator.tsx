@@ -2,7 +2,7 @@ import { createBottomTabNavigator, BottomTabBarProps, BottomTabBarHeightCallback
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { addTapListener, scheduleLocal } from '../utils/notifications';
-import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Image } from 'expo-image';
 import { useAuth } from '../context/AuthContext';
@@ -133,7 +133,7 @@ function GlassTabBarBackground() {
         style={[
           StyleSheet.absoluteFill,
           {
-            backgroundColor: 'rgba(255,255,255,0.94)',
+            backgroundColor: 'rgba(255,255,255,0.85)',
             borderRadius: 100,
             backdropFilter: 'blur(20px)',
             WebkitBackdropFilter: 'blur(20px)',
@@ -192,11 +192,14 @@ function ProviderCustomTabBar({ state, descriptors, navigation }: BottomTabBarPr
 
   useEffect(() => {
     if (!tabWidth) return;
-    Animated.spring(slideX, {
+    // Fixed-duration easing, not a spring — see the matching comment in
+    // CustomerNavigator.tsx for why (a spring's settle time isn't fixed, and
+    // read as an instant jump rather than a visible slide on a real phone).
+    Animated.timing(slideX, {
       toValue: TAB_BAR_PADDING_H + tabWidth * focusedVisibleIndex + (tabWidth - SLIDING_PILL_WIDTH) / 2,
+      duration: 280,
+      easing: Easing.out(Easing.cubic),
       useNativeDriver: true,
-      speed: 18,
-      bounciness: 6,
     }).start();
   }, [focusedVisibleIndex, tabWidth, slideX]);
 

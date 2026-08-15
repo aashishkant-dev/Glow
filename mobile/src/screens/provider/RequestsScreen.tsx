@@ -1,12 +1,13 @@
 import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Platform, Pressable, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
 import { ArrowBackIcon } from '../../components/TabIcons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { apiGetRequests, apiAcceptJob, apiSkipJob, Booking } from '../../api/client';
 import { requestsBadge } from '../../utils/providerBadges';
-import { Colors } from '../../utils/colors';
+import { Colors, Fonts } from '../../utils/colors';
 import { ServiceIcon } from '../../components/ServiceIcon';
 import { PersonIcon, StarIcon } from '../../components/TabIcons';
 import { PinIcon, NoteIcon, ClockIcon, BellIcon } from '../../components/CareIcons';
@@ -150,8 +151,13 @@ export function RequestsScreen({ embedded = false }: { embedded?: boolean } = {}
         ) : (
           requests.map(job => (
             <View key={job._id} style={styles.card}>
+              {(job.urgency === 'urgent' || job.urgency === 'emergency') && (
+                <View style={[styles.urgencyPill, job.urgency === 'emergency' && styles.urgencyPillEmergency]}>
+                  <Text style={styles.urgencyPillText}>{job.urgency === 'emergency' ? 'Emergency' : 'Urgent'}</Text>
+                </View>
+              )}
               <View style={styles.cardTop}>
-                <ServiceIcon serviceType={job.serviceType} size={24} bubbleSize={48} style={{ borderWidth: 1, borderColor: '#A7F3D0' }} />
+                <ServiceIcon serviceType={job.serviceType} size={24} bubbleSize={48} style={{ borderWidth: 1, borderColor: Colors.brandAccent }} />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.service}>{job.serviceType}</Text>
                   <View style={styles.whenRow}>
@@ -166,7 +172,13 @@ export function RequestsScreen({ embedded = false }: { embedded?: boolean } = {}
               </View>
 
               <View style={styles.clientRow}>
-                <PersonIcon size={15} color={Colors.secondaryLabel} />
+                {job.customer?.photoUrl ? (
+                  <Image source={{ uri: job.customer.photoUrl }} style={styles.clientAvatar} contentFit="cover" />
+                ) : (
+                  <View style={styles.clientAvatarFallback}>
+                    <PersonIcon size={14} color={Colors.brand} />
+                  </View>
+                )}
                 <Text style={styles.clientLabel}>{job.customer?.name ?? 'Client'}</Text>
                 {(job.customer?.rating ?? 0) > 0 && (
                   <>
@@ -247,73 +259,87 @@ export function RequestsScreen({ embedded = false }: { embedded?: boolean } = {}
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F1F5F4' },
+  container: { flex: 1, backgroundColor: Colors.secondarySystemBackground },
   header: { paddingHorizontal: 20, paddingBottom: 18 },
   // Back arrow top-aligns with the title (not the centre of the 2-line block) so
   // the arrow, title, and subtitle read as one clean left edge.
   headerRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
   headerBack: { padding: 4, marginTop: 2 },
   headerTextBlock: { flex: 1 },
-  headerTitle: { color: '#fff', fontSize: 26, fontWeight: '800', lineHeight: 30 },
-  headerSub: { color: 'rgba(255,255,255,0.8)', fontSize: 14, marginTop: 2 },
+  headerTitle: { color: '#fff', fontSize: 26, fontFamily: Fonts.display, lineHeight: 30 },
+  headerSub: { color: 'rgba(255,255,255,0.8)', fontSize: 14, marginTop: 2, fontFamily: Fonts.medium },
   list: { padding: 16, paddingBottom: 130 },
 
   card: {
-    backgroundColor: Colors.systemBackground, borderRadius: 18, padding: 16, marginBottom: 14,
+    backgroundColor: Colors.systemBackground, borderRadius: 20, padding: 16, marginBottom: 14,
     borderWidth: 1, borderColor: Colors.separator,
-    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 3,
+    shadowColor: Colors.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.1, shadowRadius: 14, elevation: 4,
   },
+  urgencyPill: {
+    alignSelf: 'flex-start', backgroundColor: Colors.gold, borderRadius: 100,
+    paddingHorizontal: 10, paddingVertical: 4, marginBottom: 10,
+  },
+  urgencyPillEmergency: { backgroundColor: Colors.systemRed },
+  urgencyPillText: { color: '#fff', fontSize: 11, fontFamily: Fonts.bold, letterSpacing: 0.3 },
   cardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 12 },
   iconWrap: { width: 48, height: 48, borderRadius: 14, backgroundColor: '#ECFDF5', alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: '#A7F3D0' },
   icon: { fontSize: 24 },
-  service: { fontSize: 16, fontWeight: '800', color: Colors.label },
+  service: { fontSize: 16, fontFamily: Fonts.bold, color: Colors.label },
   whenRow: { flexDirection: 'row', alignItems: 'center', gap: 5, marginTop: 3 },
-  when: { fontSize: 13, color: Colors.secondaryLabel },
+  when: { fontSize: 13, color: Colors.secondaryLabel, fontFamily: Fonts.regular },
   priceWrap: { alignItems: 'flex-end' },
-  price: { fontSize: 20, fontWeight: '900', color: Colors.trustGreen },
-  priceSub: { fontSize: 10, color: Colors.tertiaryLabel },
+  price: { fontSize: 20, fontFamily: Fonts.extrabold, color: Colors.brand },
+  priceSub: { fontSize: 10, color: Colors.tertiaryLabel, fontFamily: Fonts.medium },
 
   // Distance Provider → client. Brand-tinted self-sizing pill (alignSelf flex-start so it
   // hugs its text instead of stretching the card width).
   distancePill: {
     flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start',
     marginTop: 10, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999,
-    backgroundColor: Colors.brandLight, borderWidth: 1, borderColor: '#A7F3D0',
+    backgroundColor: Colors.brandLight, borderWidth: 1, borderColor: Colors.brandAccent,
   },
-  distanceText: { fontSize: 12.5, fontWeight: '700', color: Colors.brand },
+  distanceText: { fontSize: 12.5, fontFamily: Fonts.bold, color: Colors.brand },
 
-  clientRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 12 },
-  clientLabel: { fontSize: 14, fontWeight: '700', color: Colors.label },
-  clientRating: { fontSize: 13, color: Colors.secondaryLabel, fontWeight: '600' },
+  clientRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
+  clientAvatar: { width: 26, height: 26, borderRadius: 13 },
+  clientAvatarFallback: {
+    width: 26, height: 26, borderRadius: 13, backgroundColor: Colors.brandLight,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  clientLabel: { fontSize: 14, fontFamily: Fonts.bold, color: Colors.label },
+  clientRating: { fontSize: 13, color: Colors.secondaryLabel, fontFamily: Fonts.semibold },
   metaRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 8 },
-  address: { flex: 1, fontSize: 13, color: Colors.secondaryLabel, lineHeight: 18 },
-  notes: { flex: 1, fontSize: 13, color: Colors.secondaryLabel, lineHeight: 18 },
+  address: { flex: 1, fontSize: 13, color: Colors.secondaryLabel, lineHeight: 18, fontFamily: Fonts.regular },
+  notes: { flex: 1, fontSize: 13, color: Colors.secondaryLabel, lineHeight: 18, fontFamily: Fonts.regular },
 
   detailsBtn: { paddingVertical: 10, alignItems: 'center', marginTop: 8 },
-  detailsBtnText: { fontSize: 13.5, fontWeight: '700', color: Colors.brand, textDecorationLine: 'underline' },
+  detailsBtnText: { fontSize: 13.5, fontFamily: Fonts.bold, color: Colors.brand, textDecorationLine: 'underline' },
   actions: { flexDirection: 'row', gap: 12, marginTop: 16 },
   declineBtn: { flex: 1, paddingVertical: 14, borderRadius: 14, backgroundColor: Colors.systemGray5, alignItems: 'center' },
-  declineText: { fontSize: 15, fontWeight: '700', color: Colors.label },
-  acceptBtn: { flex: 2, paddingVertical: 14, borderRadius: 14, backgroundColor: Colors.trustGreen, alignItems: 'center' },
-  acceptText: { fontSize: 15, fontWeight: '800', color: '#fff' },
+  declineText: { fontSize: 15, fontFamily: Fonts.bold, color: Colors.label },
+  acceptBtn: {
+    flex: 2, paddingVertical: 14, borderRadius: 14, backgroundColor: Colors.brand, alignItems: 'center',
+    shadowColor: Colors.brand, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.3, shadowRadius: 12, elevation: 4,
+  },
+  acceptText: { fontSize: 15, fontFamily: Fonts.extrabold, color: '#fff' },
 
   empty: { alignItems: 'center', paddingVertical: 56, paddingHorizontal: 32 },
-  emptyIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: Colors.systemGray6, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
-  emptyTitle: { fontSize: 18, fontWeight: '800', color: Colors.label, marginBottom: 8 },
-  emptySub: { fontSize: 14, color: Colors.secondaryLabel, textAlign: 'center', lineHeight: 21, marginBottom: 20 },
+  emptyIcon: { width: 80, height: 80, borderRadius: 40, backgroundColor: Colors.brandLight, alignItems: 'center', justifyContent: 'center', marginBottom: 16 },
+  emptyTitle: { fontSize: 18, fontFamily: Fonts.bold, color: Colors.label, marginBottom: 8 },
+  emptySub: { fontSize: 14, color: Colors.secondaryLabel, textAlign: 'center', lineHeight: 21, marginBottom: 20, fontFamily: Fonts.regular },
   findBtn: { backgroundColor: Colors.brand, borderRadius: 14, paddingVertical: 14, paddingHorizontal: 28 },
-  findBtnText: { color: '#fff', fontSize: 15, fontWeight: '700' },
+  findBtnText: { color: '#fff', fontSize: 15, fontFamily: Fonts.bold },
 
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: Colors.systemBackground, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 24, paddingBottom: 36 },
-  sheetTitle: { fontSize: 19, fontWeight: '800', color: Colors.label, marginBottom: 6 },
-  sheetSub: { fontSize: 13, color: Colors.secondaryLabel, lineHeight: 19, marginBottom: 16 },
+  sheetTitle: { fontSize: 19, fontFamily: Fonts.bold, color: Colors.label, marginBottom: 6 },
+  sheetSub: { fontSize: 13, color: Colors.secondaryLabel, lineHeight: 19, marginBottom: 16, fontFamily: Fonts.regular },
   reasonChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  reasonChip: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12, backgroundColor: '#FEF2F2', borderWidth: 1, borderColor: '#FCA5A5' },
-  reasonChipText: { fontSize: 14, fontWeight: '700', color: '#DC2626' },
+  reasonChip: { paddingHorizontal: 16, paddingVertical: 12, borderRadius: 12, backgroundColor: Colors.systemRed + '14', borderWidth: 1, borderColor: Colors.systemRed + '55' },
+  reasonChipText: { fontSize: 14, fontFamily: Fonts.bold, color: Colors.systemRed },
   sheetBtnRow: { flexDirection: 'row', gap: 12, marginTop: 18 },
   keepBtn: { flex: 1, paddingVertical: 14, borderRadius: 12, backgroundColor: Colors.systemGray5, alignItems: 'center' },
-  keepText: { fontSize: 15, fontWeight: '700', color: Colors.label },
+  keepText: { fontSize: 15, fontFamily: Fonts.bold, color: Colors.label },
   skipNoReason: { flex: 2, paddingVertical: 14, borderRadius: 12, backgroundColor: Colors.systemGray6, alignItems: 'center', borderWidth: 1, borderColor: Colors.separator },
-  skipNoReasonText: { fontSize: 14, fontWeight: '600', color: Colors.secondaryLabel },
+  skipNoReasonText: { fontSize: 14, fontFamily: Fonts.semibold, color: Colors.secondaryLabel },
 });
