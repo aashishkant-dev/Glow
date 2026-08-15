@@ -214,10 +214,12 @@ export function ProviderLooksScreen() {
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
             <SparkleIcon size={19} color="#fff" />
-            <Text style={styles.title}>Your Looks</Text>
+            <Text style={styles.title}>{viewTab === 'looks' ? 'Your Looks' : 'Your Specialties'}</Text>
           </View>
           <Text style={styles.subtitle}>
-            What clients see as "Looks you create" on your profile
+            {viewTab === 'looks'
+              ? 'What clients see as "Looks you create" on your profile'
+              : 'The services & prices clients can book you for'}
           </Text>
         </View>
         {viewTab === 'looks' && (

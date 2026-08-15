@@ -3,7 +3,7 @@ import { Storage, StoredUser } from '../utils/storage';
 import { connectSocket, disconnectSocket } from '../utils/socket';
 import { initNotifications, addPushTokenRefreshListener } from '../utils/notifications';
 import { registerUnauthorizedHandler } from '../api/client';
-import { setCurrencyCodeForPhone, resetCurrencyCode } from '../utils/region';
+import { setCurrencyCodeForPhone, setCurrencyCodeFromDeviceLocale, resetCurrencyCode } from '../utils/region';
 
 interface AuthState {
   token: string | null;
@@ -30,6 +30,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     if (typeof navigator !== 'undefined' && navigator.storage && typeof (navigator.storage as any).persist === 'function') {
       (navigator.storage as any).persist();
     }
+    // Baseline currency guess from the device's own region setting, before
+    // anything else (phone, GPS, sign-in) has a chance to resolve — matters
+    // most for Apple sign-in, whose identity token carries no locale at all.
+    setCurrencyCodeFromDeviceLocale();
     const sub = addPushTokenRefreshListener();
     (async () => {
       const [token, user, photoUri] = await Promise.all([

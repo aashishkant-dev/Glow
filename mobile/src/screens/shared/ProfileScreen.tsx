@@ -1411,7 +1411,7 @@ export function ProfileScreen() {
                     glyph="instagram"
                     label="Instagram"
                     value={providerP.instagramHandle?.trim() ? `@${providerP.instagramHandle}` : 'Add your Instagram'}
-                    valueColor={providerP.instagramHandle?.trim() ? '#C4667E' : undefined}
+                    valueColor={providerP.instagramHandle?.trim() ? undefined : Colors.tertiaryLabel}
                     onPress={() => openField('instagramHandle', 'Instagram handle', providerP.instagramHandle ?? '')}
                   />
                   <Divider />
@@ -2206,14 +2206,14 @@ const styles = StyleSheet.create({
   priceRowName: { ...Type.rowValue, fontSize: 14.5, color: Colors.label },
   priceRowDuration: { ...Type.caption, fontSize: 12, color: Colors.tertiaryLabel, marginTop: 3 },
   priceInputWrap: {
-    flexDirection: 'row', alignItems: 'center',
+    flexDirection: 'row', alignItems: 'center', flexShrink: 0,
     backgroundColor: Colors.surfaceCream, borderRadius: R_WELL,
     paddingHorizontal: 12, borderWidth: 1, borderColor: Colors.separator,
-    minWidth: 76,
+    width: 92,
   },
   priceInputDollar: { fontSize: 14, fontFamily: Fonts.semibold, color: Colors.secondaryLabel },
   priceInput: {
-    flex: 1, fontSize: 14, fontFamily: Fonts.semibold, color: Colors.label,
+    width: 54, fontSize: 14, fontFamily: Fonts.semibold, color: Colors.label,
     paddingVertical: 8, paddingHorizontal: 4, textAlign: 'right',
   },
 

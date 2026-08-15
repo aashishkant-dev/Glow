@@ -10,6 +10,7 @@
  * src/routes/provider.js) — keep both in sync when changing the launch city.
  */
 import { parsePhoneNumberFromString } from 'libphonenumber-js';
+import * as Localization from 'expo-localization';
 
 export interface RegionCoords {
   lat: number;
@@ -42,6 +43,23 @@ let currentCurrencyCode = DEFAULT_CURRENCY_CODE;
 // key off the user's actual country instead of re-deriving it themselves.
 let currentCountryCode: string | null = DEFAULT_COUNTRY_CODE;
 
+// Several signals can name a country for the same session (device locale at
+// boot, a Google/Apple sign-in hint, live GPS, an explicit CountryPicker tap,
+// a verified phone number) and they don't all arrive in a fixed order — GPS
+// keeps refreshing every few minutes, for instance, and shouldn't be allowed
+// to stomp a phone number just because it happened to run more recently. A
+// priority number per signal (higher = more trustworthy) replaces the old
+// "whoever calls last wins" behaviour: a signal only takes effect if it's at
+// least as trustworthy as whatever is currently applied.
+const PRIORITY = {
+  DEFAULT: 0,
+  LOCALE: 1,   // device locale at boot, or a Google/Apple sign-in locale hint
+  GPS: 2,      // reverse-geocoded live location — more precise than a locale guess
+  PICKER: 3,   // explicit CountryPicker selection during phone signup
+  PHONE: 4,    // a real, parseable phone number — the strongest signal
+} as const;
+let currentPriority: number = PRIORITY.DEFAULT;
+
 // ISO 3166-1 alpha-2 country → ISO 4217 currency. CountryPicker.tsx's phone
 // signup only offers CA/US/GB/NP today, but this list is deliberately wider:
 // a Google sign-in locale hint (see setCurrencyCodeFromLocaleHint) can name
@@ -62,14 +80,18 @@ const COUNTRY_CURRENCY: Record<string, string> = {
 };
 
 /** Normalizes then applies a resolved country, setting both the currency and
- *  the raw country code together so the two can never drift out of sync. */
-function applyCountry(country?: string | null): boolean {
+ *  the raw country code together so the two can never drift out of sync.
+ *  Refuses a signal that's less trustworthy than whatever's already applied
+ *  (see PRIORITY above) so a stale/weaker source can't undo a stronger one. */
+function applyCountry(country: string | null | undefined, priority: number): boolean {
   if (!country) return false;
   const code = country.toUpperCase();
   const currency = COUNTRY_CURRENCY[code];
   if (!currency) return false;
+  if (priority < currentPriority) return false;
   currentCountryCode = code;
   currentCurrencyCode = currency;
+  currentPriority = priority;
   return true;
 }
 
@@ -92,7 +114,7 @@ function countryForPhone(phone?: string | null): string | undefined {
  *  the current value alone (e.g. a locale hint set right after Google sign-in,
  *  before a phone is on file) rather than snapping back to the deploy default. */
 export function setCurrencyCodeForPhone(phone?: string | null): void {
-  applyCountry(countryForPhone(phone));
+  applyCountry(countryForPhone(phone), PRIORITY.PHONE);
 }
 
 // Bare language code (no region subtag, e.g. locale === "ne" not "ne-NP") —
@@ -114,7 +136,31 @@ const LANGUAGE_ONLY_COUNTRY: Record<string, string> = {
 export function setCurrencyCodeFromLocaleHint(locale?: string | null): void {
   if (!locale) return;
   const [lang, region] = locale.split(/[-_]/);
-  applyCountry(region ?? LANGUAGE_ONLY_COUNTRY[lang?.toLowerCase()]);
+  applyCountry(region ?? LANGUAGE_ONLY_COUNTRY[lang?.toLowerCase()], PRIORITY.LOCALE);
+}
+
+/** Baseline signal applied once at app boot, independent of which sign-in
+ *  method is used — Apple's identity token carries no locale claim at all
+ *  (unlike Google's, see setCurrencyCodeFromLocaleHint above), so without
+ *  this an Apple-only user with no phone on file stayed on the deploy
+ *  default until GPS or a phone resolved. The device's own region setting
+ *  is available immediately, no network or permission required. */
+export function setCurrencyCodeFromDeviceLocale(): void {
+  try {
+    const region = Localization.getLocales?.()?.[0]?.regionCode;
+    applyCountry(region, PRIORITY.LOCALE);
+  } catch {
+    // Localization API unavailable in this environment — leave current value.
+  }
+}
+
+/** Highest-precision signal short of an explicit phone/picker: a reverse-
+ *  geocoded ISO country from the user's live GPS coords (see LocationContext,
+ *  which calls this whenever coords resolve or meaningfully change). Beats a
+ *  locale guess since it's the user's actual current location, but still
+ *  yields to an explicit phone number or CountryPicker choice. */
+export function setCurrencyCodeForGpsCountry(isoCountryCode?: string | null): void {
+  applyCountry(isoCountryCode, PRIORITY.GPS);
 }
 
 /** Called the moment a user picks a country in CountryPicker.tsx during phone
@@ -124,7 +170,7 @@ export function setCurrencyCodeFromLocaleHint(locale?: string | null): void {
  *  trustworthy as the eventual phone-derived value and gets the right
  *  currency showing immediately instead of only after signup completes. */
 export function setCurrencyCodeForCountryCode(code: string): void {
-  applyCountry(code === 'UK' ? 'GB' : code);
+  applyCountry(code === 'UK' ? 'GB' : code, PRIORITY.PICKER);
 }
 
 /** Called on sign-out so the next signed-out/guest view shows the deploy
@@ -132,6 +178,7 @@ export function setCurrencyCodeForCountryCode(code: string): void {
 export function resetCurrencyCode(): void {
   currentCurrencyCode = DEFAULT_CURRENCY_CODE;
   currentCountryCode = DEFAULT_COUNTRY_CODE;
+  currentPriority = PRIORITY.DEFAULT;
 }
 
 export function getCurrencyCode(): string {

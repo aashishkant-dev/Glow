@@ -248,7 +248,6 @@ export function ProfileStrength({
   const doneCount = items.filter(i => i.done).length;
   const pct = Math.round((doneCount / items.length) * 100);
   const missing = items.filter(i => !i.done);
-  const done = items.filter(i => i.done);
 
   return (
     <View style={s.card}>
@@ -279,23 +278,15 @@ export function ProfileStrength({
         </View>
       </View>
 
-      {/* Missing items first */}
+      {/* Below 100%, show what's left first so the next tap is obvious — a
+          full re-list of every already-done item read as clutter once
+          nothing needed fixing, so the checklist only appears while there's
+          still something to complete. */}
       {missing.length > 0 && (
         <>
           <View style={s.divider} />
           <Text style={s.sectionHead}>Still needed</Text>
           {missing.map(item => (
-            <CheckRow key={item.key} item={item} />
-          ))}
-        </>
-      )}
-
-      {/* Completed items */}
-      {done.length > 0 && (
-        <>
-          <View style={s.divider} />
-          <Text style={s.sectionHead}>Done</Text>
-          {done.map(item => (
             <CheckRow key={item.key} item={item} />
           ))}
         </>

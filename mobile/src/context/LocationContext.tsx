@@ -10,7 +10,7 @@ import { Alert, AppState, Linking, Platform } from 'react-native';
 import * as Location from 'expo-location';
 import { apiUpdateMyLocation } from '../api/client';
 import { Storage } from '../utils/storage';
-import { DEFAULT_REGION } from '../utils/region';
+import { DEFAULT_REGION, setCurrencyCodeForGpsCountry } from '../utils/region';
 
 export interface Coords {
   lat: number;
@@ -258,6 +258,25 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     if (prev && Math.abs(prev.lat - coords.lat) < 0.0005 && Math.abs(prev.lng - coords.lng) < 0.0005) return;
     lastSentRef.current = coords;
     apiUpdateMyLocation(coords.lat, coords.lng).catch(() => {});
+  }, [coords]);
+
+  // Refine the currency/country guess from real GPS whenever coords resolve
+  // or meaningfully move — the most precise signal available short of an
+  // explicit phone number or CountryPicker choice (see region.ts PRIORITY).
+  // Native-only: Location.reverseGeocodeAsync isn't implemented on web.
+  const lastGeocodedRef = useRef<Coords | null>(null);
+  useEffect(() => {
+    if (!coords || Platform.OS === 'web') return;
+    if (coords.lat === 0 && coords.lng === 0) return;
+    const prev = lastGeocodedRef.current;
+    if (prev && Math.abs(prev.lat - coords.lat) < 0.0005 && Math.abs(prev.lng - coords.lng) < 0.0005) return;
+    lastGeocodedRef.current = coords;
+    Location.reverseGeocodeAsync({ latitude: coords.lat, longitude: coords.lng })
+      .then(results => {
+        const isoCountryCode = results?.[0]?.isoCountryCode;
+        if (isoCountryCode) setCurrencyCodeForGpsCountry(isoCountryCode);
+      })
+      .catch(() => {});
   }, [coords]);
 
   return (
