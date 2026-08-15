@@ -28,6 +28,7 @@ import {
   ProviderServiceItem,
 } from '../api/client';
 import { Colors, Fonts } from '../utils/colors';
+import { getCurrencySymbol } from '../utils/format';
 
 const BRAND = Colors.brandDark;
 const R_WELL = 14;
@@ -162,7 +163,7 @@ export function ProviderPricingEditor() {
                   <Text style={styles.priceRowDuration}>{s.durationMin} min</Text>
                 </View>
                 <View style={styles.priceInputWrap}>
-                  <Text style={styles.priceInputDollar}>$</Text>
+                  <Text style={styles.priceInputDollar}>{getCurrencySymbol()}</Text>
                   <TextInput
                     style={styles.priceInput}
                     value={priceValueFor(s)}
