@@ -125,6 +125,14 @@ router.get('/inquiry/:otherUserId', authenticate, async (req, res) => {
 // IMPORTANT: defined BEFORE /:bookingId so Express matches the literal segment first
 router.get('/:bookingId/unread', authenticate, async (req, res) => {
   try {
+    // Was missing the same party check GET /:bookingId already has below —
+    // any authenticated user could pass an arbitrary bookingId and read the
+    // unread-message count for a booking they're not part of.
+    const booking = await prisma.booking.findUnique({ where: { id: req.params.bookingId }, select: { customerId: true, providerId: true } });
+    if (!booking) return res.status(404).json({ error: 'Booking not found' });
+    const isParty = booking.customerId === req.user.id || booking.providerId === req.user.id;
+    if (!isParty) return res.status(403).json({ error: 'Not authorized' });
+
     const count = await prisma.message.count({
       where: { bookingId: req.params.bookingId, senderId: { not: req.user.id }, read: false },
     });
