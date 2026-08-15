@@ -421,7 +421,7 @@ export function ProviderPublicProfileScreen() {
         {(catalogLooks.length > 0 || customLooks.length > 0) && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Looks {p.name.split(' ')[0]} creates</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14 }}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, alignItems: 'flex-start' }}>
               {customLooks.map(({ item, look }) => {
                 const key = `custom:${item.id}`;
                 return (
@@ -431,6 +431,7 @@ export function ProviderPublicProfileScreen() {
                       price={item.price}
                       onPress={() => openCustomLook({ item, look })}
                       height={130}
+                      fitToPhoto
                       likeOverride={{ liked: likedKeys.has(key), count: likeCounts[key] || 0, onToggle: () => toggleLookLike(key) }}
                       photoCount={item.media.length}
                       coverVideo={item.media[0]?.type === 'video' ? item.media[0].url : undefined}

@@ -76,6 +76,21 @@ const CARD       = '#FFFFFF';
 const SKIN_TONE_COLORS: Record<string, string> = {
   FAIR: '#F5DCC7', LIGHT: '#E8C4A0', MEDIUM: '#C68863', TAN: '#A56B42', DEEP: '#6B4226', RICH: '#3D2314',
 };
+// Matches ProviderOnboardingScreen's SPECIALTY_OPTIONS and the backend's
+// VALID_SERVICE_TYPES — the names PUT /jobs/services (and its specialties
+// auto-sync) actually understands. NOT the same list as the "Your
+// specialties" modal below (SPECIALTY_OPTIONS, local to this component) —
+// that one predates services driving specialties server-side and uses its
+// own more granular names that don't line up with either onboarding or the
+// backend; editing through it can now be overwritten the next time prices
+// are saved. Named distinctly here rather than merged with that one to
+// avoid changing its existing behavior as a separate, unrequested edit.
+const ADDABLE_SERVICE_OPTIONS = [
+  'Makeup', 'Bridal Makeup', 'Party Makeup',
+  'Threading', 'Hair Styling', 'Hair Coloring',
+  'Facial', 'Waxing', 'Nails',
+  'Mehendi', 'Massage', 'Saree Draping',
+];
 const LABEL      = Colors.secondaryLabel;
 const VALUE      = Colors.label;
 const DIVIDER_C  = Colors.separatorSoft;
@@ -360,6 +375,18 @@ export function ProfileScreen() {
   const [servicesLoading,  setServicesLoading]  = useState(false);
   const [priceEdits,       setPriceEdits]       = useState<Record<string, string>>({});
   const [pricesSaving,     setPricesSaving]     = useState(false);
+  // Adding a brand-new service used to be a dead end ("contact support to
+  // add your first service") — the backend (PUT /jobs/services) always
+  // accepted arbitrary new names in the full replace, only the UI never
+  // exposed a way to actually add one. specialties now stays in sync with
+  // this list server-side (see PUT /services), so picking a new service
+  // here is also what makes an artist show up under that category
+  // everywhere else (Explore, look templates, job matching).
+  const [addServiceOpen,   setAddServiceOpen]   = useState(false);
+  const [newServiceName,   setNewServiceName]   = useState<string | null>(null);
+  const [newServicePrice,  setNewServicePrice]  = useState('');
+  const [newServiceDuration, setNewServiceDuration] = useState('60');
+  const [addingService,    setAddingService]    = useState(false);
   const [priceNegotiable,  setPriceNegotiable]  = useState(false);
   const [negotiableSaving, setNegotiableSaving] = useState(false);
 
@@ -427,6 +454,36 @@ export function ProfileScreen() {
       Alert.alert('Could not save prices', e?.message || 'Please try again.');
     }
     setPricesSaving(false);
+  }
+
+  const availableNewServices = ADDABLE_SERVICE_OPTIONS.filter(
+    name => !services.some(s => s.name.toLowerCase() === name.toLowerCase()),
+  );
+
+  async function addService() {
+    if (!newServiceName) return;
+    const price = Number(newServicePrice);
+    if (!Number.isFinite(price) || price <= 0) {
+      Alert.alert('Invalid price', 'Enter a valid price for this service.');
+      return;
+    }
+    setAddingService(true);
+    try {
+      const updated = [
+        ...services.map(s => ({ name: s.name, price: s.price, durationMin: s.durationMin })),
+        { name: newServiceName, price, durationMin: Number(newServiceDuration) || 60 },
+      ];
+      const { services: saved } = await apiSetProviderServices(updated);
+      setServices(saved.map((s, i) => ({ ...s, id: String(i) })));
+      setAddServiceOpen(false);
+      setNewServiceName(null);
+      setNewServicePrice('');
+      setNewServiceDuration('60');
+      if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+    } catch (e: any) {
+      Alert.alert('Could not add service', e?.message || 'Please try again.');
+    }
+    setAddingService(false);
   }
 
   function openField(key: 'name' | 'bio' | 'instagramHandle', title: string, current: string, multiline = false) {
@@ -1499,7 +1556,7 @@ export function ProfileScreen() {
               ) : services.length === 0 ? (
                 <View style={styles.noProfileNote}>
                   <Text style={styles.noProfileText}>
-                    You haven't added any priced services yet. Add prices during onboarding, or contact support to add your first service.
+                    You haven't added any priced services yet. Tap "Add a service" below to add your first one.
                   </Text>
                 </View>
               ) : (
@@ -1525,6 +1582,17 @@ export function ProfileScreen() {
                     </View>
                   </View>
                 ))
+              )}
+              {availableNewServices.length > 0 && (
+                <>
+                  <Divider />
+                  <Pressable
+                    style={{ flexDirection: 'row', alignItems: 'center', gap: 8, paddingVertical: 12 }}
+                    onPress={() => { setNewServiceName(availableNewServices[0]); setAddServiceOpen(true); }}
+                  >
+                    <Text style={{ fontSize: 15, fontFamily: Fonts.semibold, color: BRAND }}>+ Add a service</Text>
+                  </Pressable>
+                </>
               )}
               {services.length > 0 && (
                 <>
@@ -2001,6 +2069,57 @@ export function ProfileScreen() {
               </Pressable>
               <Pressable style={[specStyles.btn, specStyles.btnPrimary]} onPress={saveSpecialties} disabled={specSaving}>
                 {specSaving ? <ActivityIndicator color="#fff" /> : <Text style={specStyles.btnPrimaryText}>Save</Text>}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={addServiceOpen} transparent animationType="slide" onRequestClose={() => setAddServiceOpen(false)}>
+        <View style={specStyles.overlay}>
+          <View style={specStyles.sheet}>
+            <Text style={specStyles.title}>Add a service</Text>
+            <Text style={specStyles.sub}>Pick what you're adding, then set your price.</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 8, paddingVertical: 8 }}>
+              {availableNewServices.map(name => {
+                const on = newServiceName === name;
+                return (
+                  <Pressable key={name} onPress={() => setNewServiceName(name)} style={[specStyles.chip, on && specStyles.chipOn]}>
+                    <Text style={[specStyles.chipText, on && specStyles.chipTextOn]}>{name}</Text>
+                  </Pressable>
+                );
+              })}
+            </ScrollView>
+            <View style={{ flexDirection: 'row', gap: 10 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={[specStyles.sub, { marginBottom: 0 }]}>Price</Text>
+                <TextInput
+                  style={specStyles.input}
+                  value={newServicePrice}
+                  onChangeText={v => setNewServicePrice(v.replace(/[^0-9.]/g, ''))}
+                  keyboardType="decimal-pad"
+                  placeholder="0"
+                  placeholderTextColor={Colors.tertiaryLabel}
+                />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={[specStyles.sub, { marginBottom: 0 }]}>Duration (min)</Text>
+                <TextInput
+                  style={specStyles.input}
+                  value={newServiceDuration}
+                  onChangeText={v => setNewServiceDuration(v.replace(/[^0-9]/g, ''))}
+                  keyboardType="number-pad"
+                  placeholder="60"
+                  placeholderTextColor={Colors.tertiaryLabel}
+                />
+              </View>
+            </View>
+            <View style={{ flexDirection: 'row', gap: 10, marginTop: 16 }}>
+              <Pressable style={[specStyles.btn, specStyles.btnGhost]} onPress={() => setAddServiceOpen(false)}>
+                <Text style={specStyles.btnGhostText}>Cancel</Text>
+              </Pressable>
+              <Pressable style={[specStyles.btn, specStyles.btnPrimary]} onPress={addService} disabled={addingService || !newServiceName}>
+                {addingService ? <ActivityIndicator color="#fff" /> : <Text style={specStyles.btnPrimaryText}>Add</Text>}
               </Pressable>
             </View>
           </View>

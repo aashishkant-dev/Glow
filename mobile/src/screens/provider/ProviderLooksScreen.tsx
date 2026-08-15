@@ -235,7 +235,7 @@ export function ProviderLooksScreen() {
                 <Text style={styles.emptyHint}>Tap "+ Create a look" to make your first one</Text>
               </Pressable>
             ) : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingHorizontal: 16 }}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingHorizontal: 16, alignItems: 'flex-start' }}>
                 {myLooks.map(item => {
                   const mostLoved = item.id === mostLovedLookId;
                   return (
@@ -250,6 +250,7 @@ export function ProviderLooksScreen() {
                         price={item.price}
                         onPress={() => setEditingLook(item)}
                         height={130}
+                        fitToPhoto
                         likeOverride={{ liked: false, count: item.likeCount || 0, onToggle: () => {} }}
                         photoCount={item.media.length}
                         coverVideo={coverVideoFor(item)}

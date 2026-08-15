@@ -118,19 +118,18 @@ function CustomerMessageListener() {
 // effect that depends on browser/GPU support we can't rely on here.
 function GlassTabBarBackground() {
   if (Platform.OS === 'web') {
-    // backdropFilter is a progressive enhancement, not a given — confirmed on
-    // a real Android browser (not just desktop Chromium) that it silently
-    // doesn't apply in some contexts, and 0.7 opacity alone is nowhere near
-    // enough to keep vivid scrolling content (gradient look cards, colored
-    // hero banners) from reading straight through the bar and washing out
-    // the icons. High opacity first so the bar is legible with or without
-    // blur actually landing; blur just adds polish on top when it does.
+    // The "content bleeding through and washing out the icons" problem this
+    // was chasing turned out to be the bar's own shadow rendering as a solid
+    // dark smear on a real Android browser (see barShadowNative/the inline
+    // web box-shadow below), not insufficient opacity — with that fixed at
+    // the source, this can go back to reading as actual glass instead of
+    // being pushed toward opaque to compensate for a different bug.
     return (
       <View
         style={[
           StyleSheet.absoluteFill,
           {
-            backgroundColor: 'rgba(255,255,255,0.85)',
+            backgroundColor: 'rgba(255,255,255,0.75)',
             borderRadius: 100,
             backdropFilter: 'blur(20px)',
             WebkitBackdropFilter: 'blur(20px)',
@@ -266,7 +265,15 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
       style={[customTabBarStyles.wrap, { bottom: bottomOffset }]}
       onLayout={e => setTabBarHeight?.(e.nativeEvent.layout.height + bottomOffset)}
     >
-      <View style={customTabBarStyles.bar} onLayout={e => setBarWidth(e.nativeEvent.layout.width)}>
+      <View
+        style={[
+          customTabBarStyles.bar,
+          Platform.OS === 'web'
+            ? { boxShadow: `0 8px 20px ${Colors.cardShadow}26` } as any
+            : customTabBarStyles.barShadowNative,
+        ]}
+        onLayout={e => setBarWidth(e.nativeEvent.layout.width)}
+      >
         <GlassTabBarBackground />
         {!!tabWidth && (
           <Animated.View pointerEvents="none" style={[customTabBarStyles.slidingPill, { transform: [{ translateX: slideX }] }]} />
@@ -304,12 +311,21 @@ const customTabBarStyles = StyleSheet.create({
     borderRadius: 100,
     borderWidth: 1,
     borderColor: Colors.separator,
+    overflow: 'visible',
+  },
+  // Native-only — iOS reads shadow*, Android reads elevation. On web these
+  // same values (esp. shadowRadius:30 + elevation:12 together) rendered as a
+  // solid dark smear instead of a soft blur on a real Android browser —
+  // RN-Web appears to stack its elevation→box-shadow approximation on top of
+  // the shadow* one instead of the two being alternatives, over-darkening
+  // instead of blurring. barShadowWeb below replaces both on web with one
+  // deliberately gentle box-shadow instead.
+  barShadowNative: {
     shadowColor: Colors.cardShadow,
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.14,
     shadowRadius: 30,
     elevation: 12,
-    overflow: 'visible',
   },
   tab: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2 },
   label: { fontSize: 10.5, fontFamily: 'Inter_500Medium', marginTop: 2 },

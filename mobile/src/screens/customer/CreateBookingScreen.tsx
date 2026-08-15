@@ -2296,18 +2296,39 @@ export function CreateBookingScreen() {
           {/* ── Slot 2: Services multi-select ── */}
           {step === 2 && (
             <View>
-              <Text style={styles.sectionTitle}>{t.sectionCareType}</Text>
-              <Text style={styles.sectionSub}>{t.servicesSub}</Text>
-              {artistMenu.length === 0 ? (
-                <View style={styles.emptyBox}>
-                  <Text style={styles.emptyText}>
-                    {isSeedProvider(selectedProvider) ? t.demoArtistMenu : t.noArtistMenu}
-                  </Text>
-                  <Text style={[styles.emptyText, { fontSize: 13, marginTop: 4 }]}>
-                    {isSeedProvider(selectedProvider) ? t.demoArtistMenuSub : t.noArtistMenuSub}
-                  </Text>
-                </View>
+              {pendingProviderLook ? (
+                // Booking a specific look — the package is already decided
+                // (see the pendingProviderLook effect above), so the full
+                // per-service picker below has nothing left to actually
+                // choose. Showing it anyway read as "pick again" on top of
+                // a decision already made tapping "Book this look" — a
+                // plain summary of what's already locked in instead.
+                <>
+                  <Text style={styles.sectionTitle}>You're booking</Text>
+                  <View style={styles.lookSummaryCard}>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.lookSummaryName}>{pendingProviderLook.name}</Text>
+                      {pendingProviderLook.durationMin != null && (
+                        <Text style={styles.lookSummaryMeta}>{fmtDuration(pendingProviderLook.durationMin)}</Text>
+                      )}
+                    </View>
+                    <Text style={styles.lookSummaryPrice}>{formatCurrency(pendingProviderLook.price, { decimals: 0 })}</Text>
+                  </View>
+                </>
               ) : (
+                <>
+                  <Text style={styles.sectionTitle}>{t.sectionCareType}</Text>
+                  <Text style={styles.sectionSub}>{t.servicesSub}</Text>
+                  {artistMenu.length === 0 ? (
+                    <View style={styles.emptyBox}>
+                      <Text style={styles.emptyText}>
+                        {isSeedProvider(selectedProvider) ? t.demoArtistMenu : t.noArtistMenu}
+                      </Text>
+                      <Text style={[styles.emptyText, { fontSize: 13, marginTop: 4 }]}>
+                        {isSeedProvider(selectedProvider) ? t.demoArtistMenuSub : t.noArtistMenuSub}
+                      </Text>
+                    </View>
+                  ) : (
                 <View style={styles.serviceGrid}>
                   {artistMenu.map(svc => {
                     const accent = ServiceAccentColors[svc.name] ?? BRAND_MID;
@@ -2346,6 +2367,8 @@ export function CreateBookingScreen() {
                     );
                   })}
                 </View>
+                  )}
+                </>
               )}
 
               <Text
@@ -3273,6 +3296,15 @@ const styles = StyleSheet.create({
   sectionTitle: { fontSize: 20, fontWeight: '800', color: '#1F1215', marginBottom: 4 },
   sectionSub:   { fontSize: 13, color: '#64748B', marginBottom: 16 },
 
+  lookSummaryCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: '#fff', borderRadius: 18, padding: 16,
+    borderWidth: 2, borderColor: BRAND_MID,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 3,
+  },
+  lookSummaryName: { fontSize: 16, fontWeight: '800', color: '#1F2937' },
+  lookSummaryMeta: { fontSize: 13, color: '#64748B', marginTop: 3 },
+  lookSummaryPrice: { fontSize: 18, fontWeight: '900', color: BRAND_MID },
   serviceGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   serviceCard: {
     width: (SCREEN_W - 60) / 2, flexBasis: (SCREEN_W - 60) / 2,

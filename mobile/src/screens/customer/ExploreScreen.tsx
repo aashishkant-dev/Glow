@@ -336,7 +336,7 @@ export function ExploreScreen() {
           {exploreLooks.length > 0 && (
             <View style={{ marginBottom: 8 }}>
               <Text style={styles.sectionHeading}>From our artists</Text>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingHorizontal: 24 }}>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingHorizontal: 24, alignItems: 'flex-start' }}>
                 {exploreLooks.map(item => (
                   <View key={item.id} style={{ width: 150 }}>
                     <LookTile
@@ -344,6 +344,7 @@ export function ExploreScreen() {
                       price={item.price}
                       onPress={() => openExploreLook(item)}
                       height={130}
+                      fitToPhoto
                       photoCount={item.media.length}
                       coverVideo={item.media[0]?.type === 'video' ? item.media[0].url : undefined}
                       badge={item.badge}

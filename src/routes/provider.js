@@ -1302,6 +1302,16 @@ router.put(
       const items = await prisma.serviceItem.findMany({ where: { active: true }, select: { id: true, name: true } });
       const itemByName = new Map(items.map(i => [i.name.toLowerCase(), i.id]));
 
+      // specialties (ProviderProfile) is a separate, manually-set field from
+      // onboarding — nothing kept it in sync with the artist's real service
+      // menu afterward, so an artist who priced a new service here without
+      // going back to specialties still didn't show up under it anywhere
+      // that filters by specialty (category browsing, look templates, job
+      // matching). The menu IS the real source of truth for what an artist
+      // offers, so derive specialties from it here instead of trusting a
+      // second, driftable copy.
+      const specialties = [...new Set(clean.map(s => s.name))];
+
       const services = await prisma.$transaction(async (tx) => {
         await tx.providerService.deleteMany({ where: { profileId: profile.id } });
         for (const s of clean) {
@@ -1309,6 +1319,7 @@ router.put(
             data: { ...s, profileId: profile.id, serviceItemId: itemByName.get(s.name.toLowerCase()) || null },
           });
         }
+        await tx.providerProfile.update({ where: { id: profile.id }, data: { specialties } });
         return tx.providerService.findMany({ where: { profileId: profile.id }, orderBy: { createdAt: 'asc' } });
       });
 

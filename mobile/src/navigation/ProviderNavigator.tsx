@@ -123,17 +123,15 @@ const TAB_BAR_PADDING_H = 8;
 // here and let vivid page content bleed through, making icons unreadable).
 function GlassTabBarBackground() {
   if (Platform.OS === 'web') {
-    // backdropFilter is a progressive enhancement, not a given — see the
-    // matching comment in CustomerNavigator.tsx (confirmed on a real Android
-    // browser that it doesn't reliably apply, leaving a too-thin overlay that
-    // vivid scrolling content bled straight through). High opacity first so
-    // the bar reads clean regardless; blur is polish on top when it lands.
+    // See the matching comment in CustomerNavigator.tsx — the bleed-through
+    // this was chasing turned out to be the bar's own shadow rendering as a
+    // solid smear on a real Android browser, not insufficient opacity.
     return (
       <View
         style={[
           StyleSheet.absoluteFill,
           {
-            backgroundColor: 'rgba(255,255,255,0.85)',
+            backgroundColor: 'rgba(255,255,255,0.75)',
             borderRadius: 100,
             backdropFilter: 'blur(20px)',
             WebkitBackdropFilter: 'blur(20px)',
@@ -209,7 +207,15 @@ function ProviderCustomTabBar({ state, descriptors, navigation }: BottomTabBarPr
       style={[providerTabBarStyles.wrap, { bottom: bottomOffset }]}
       onLayout={e => setTabBarHeight?.(e.nativeEvent.layout.height + bottomOffset)}
     >
-      <View style={providerTabBarStyles.bar} onLayout={e => setBarWidth(e.nativeEvent.layout.width)}>
+      <View
+        style={[
+          providerTabBarStyles.bar,
+          Platform.OS === 'web'
+            ? { boxShadow: `0 8px 20px ${Colors.cardShadow}26` } as any
+            : providerTabBarStyles.barShadowNative,
+        ]}
+        onLayout={e => setBarWidth(e.nativeEvent.layout.width)}
+      >
         <GlassTabBarBackground />
         {!!tabWidth && (
           <Animated.View pointerEvents="none" style={[providerTabBarStyles.slidingPill, { transform: [{ translateX: slideX }] }]} />
@@ -251,12 +257,16 @@ const providerTabBarStyles = StyleSheet.create({
     borderRadius: 100,
     borderWidth: 1,
     borderColor: Colors.separator,
+    overflow: 'visible',
+  },
+  // Native-only — see the matching comment in CustomerNavigator.tsx for why
+  // web uses a separate, gentler inline box-shadow instead of these values.
+  barShadowNative: {
     shadowColor: Colors.cardShadow,
     shadowOffset: { width: 0, height: 12 },
     shadowOpacity: 0.14,
     shadowRadius: 30,
     elevation: 12,
-    overflow: 'visible',
   },
   tab: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2 },
   label: { fontSize: 10.5, fontFamily: 'Inter_500Medium', marginTop: 2 },
