@@ -2,8 +2,9 @@ import { createBottomTabNavigator, BottomTabBarProps, BottomTabBarHeightCallback
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { addTapListener, scheduleLocal } from '../utils/notifications';
-import { Animated, Easing, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 import { BlurView } from 'expo-blur';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useAuth } from '../context/AuthContext';
 import { useChatUnread } from '../context/ChatUnreadContext';
@@ -85,24 +86,12 @@ const INACTIVE = Colors.systemGray2;
 // requestsBadge lives in utils/providerBadges to avoid a circular import with RequestsScreen.
 function bumpRequests() { requestsBadge.current += 1; }
 
-// Active-tab pill — identical treatment to CustomerNavigator's TabPill,
-// same rose brand tint, so the two sides of the app read as one product
-// instead of the Provider side looking like a different, older app.
-// Springs in (scale + fade) on focus — matches CustomerNavigator's TabPill.
-// See the matching TabPill in CustomerNavigator.tsx for the full explanation:
-// react-navigation renders tabBarIcon TWICE per tab (forced focused:true and
-// forced focused:false, each in its own opacity-crossfade layer — see
-// node_modules/@react-navigation/bottom-tabs' TabBarIcon.js), so a second,
-// independent Animated.spring driven off the `focused` prop this component
-// receives double-animates on top of that and can settle a layer at the
-// wrong opacity. A static opacity avoids fighting the animation
-// react-navigation already runs.
-// The active indicator is the single sliding pill ProviderCustomTabBar
-// renders behind the whole row (see slidingPill) — this wrapper just keeps
-// every icon's hit/layout box a consistent size, it no longer paints its
-// own per-tab fill. See the matching comment in CustomerNavigator.tsx's
-// CustomTabBar for why a real slide is safe in a fully custom bar like
-// this one.
+// Just a fixed-size hit/layout box around each icon — active state is now
+// carried purely by icon/label color (see ACTIVE/INACTIVE below), matching
+// CustomerNavigator's TabPill. There's deliberately no fill or indicator
+// painted behind the icon here anymore — that was the translucent sliding
+// pill users flagged as "the dot", on top of being the thing the shadow
+// smear bug lived on.
 function TabPill({ children }: { focused: boolean; children: React.ReactNode }) {
   return (
     <View style={tabPillStyles.pill}>
@@ -116,27 +105,21 @@ const tabPillStyles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
 });
-const SLIDING_PILL_WIDTH = 52;
-// Must match providerTabBarStyles.bar's paddingHorizontal below — see the
-// matching comment in CustomerNavigator.tsx for why the pill needs this to
-// stay centered under each tab instead of drifting right toward Profile.
-const TAB_BAR_PADDING_H = 8;
 
-// Tab bar background — matches CustomerNavigator's (see that file's comment
-// for why web is solid, not glass: backdrop-filter doesn't reliably render
-// here and let vivid page content bleed through, making icons unreadable).
+// Tab bar background — matches CustomerNavigator's. Flush, flat, and
+// noticeably more see-through than the old floating glass pill (which also
+// carried the shadow that rendered as a hard smear on real Android/web —
+// dropped entirely below, not just tuned, since a flush bar sitting flat on
+// the screen edge doesn't need a shadow to read as "above" the content the
+// way a floating pill did).
 function GlassTabBarBackground() {
   if (Platform.OS === 'web') {
-    // See the matching comment in CustomerNavigator.tsx — the bleed-through
-    // this was chasing turned out to be the bar's own shadow rendering as a
-    // solid smear on a real Android browser, not insufficient opacity.
     return (
       <View
         style={[
           StyleSheet.absoluteFill,
           {
-            backgroundColor: 'rgba(255,255,255,0.75)',
-            borderRadius: 100,
+            backgroundColor: 'rgba(255,249,248,0.7)',
             backdropFilter: 'blur(20px)',
             WebkitBackdropFilter: 'blur(20px)',
           } as any,
@@ -146,16 +129,8 @@ function GlassTabBarBackground() {
   }
   return (
     <>
-      <BlurView
-        intensity={85}
-        tint="light"
-        style={[StyleSheet.absoluteFill, { borderRadius: 100, overflow: 'hidden' }]}
-      />
-      {/* Blur alone let vivid page content bleed through and wash out the
-          icons/labels — this tint brings native in line with web's
-          rgba(255,255,255,0.7) fill so the bar stays legible over anything
-          scrolling behind it, while still reading as glass, not opaque. */}
-      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 100, backgroundColor: 'rgba(255,255,255,0.45)' }]} />
+      <BlurView intensity={65} tint="light" style={StyleSheet.absoluteFill} />
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,249,248,0.38)' }]} />
     </>
   );
 }
@@ -175,55 +150,17 @@ const tabBadgeStyles = StyleSheet.create({
 // and reports its own real height back into BottomTabBarHeightContext, since
 // nothing else does that once the default bar is replaced.
 function ProviderCustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
-  const bottomOffset = Platform.OS === 'ios' ? 24 : 14;
+  const insets = useSafeAreaInsets();
   const setTabBarHeight = React.useContext(BottomTabBarHeightCallbackContext);
-
-  // One shared pill slides between tab positions instead of each icon
-  // fading its own static fill — see the matching CustomTabBar comment in
-  // CustomerNavigator.tsx for why that's safe in a fully custom bar.
-  // Hidden routes (NearbyJobs/MyJobs, tabBarButton: () => null) don't get a
-  // slot in the row, so they're excluded here the same way they're excluded
-  // from rendering below — otherwise the slide math would be off by however
-  // many hidden routes sit before the focused one.
-  const [barWidth, setBarWidth] = useState(0);
-  const slideX = useRef(new Animated.Value(0)).current;
-  const visibleRoutes = state.routes.filter(r => !descriptors[r.key].options.tabBarButton);
-  const focusedKey = state.routes[state.index]?.key;
-  const focusedVisibleIndex = Math.max(0, visibleRoutes.findIndex(r => r.key === focusedKey));
-  const tabWidth = visibleRoutes.length > 0 ? (barWidth - TAB_BAR_PADDING_H * 2) / visibleRoutes.length : 0;
-
-  useEffect(() => {
-    if (!tabWidth) return;
-    // Fixed-duration easing, not a spring — see the matching comment in
-    // CustomerNavigator.tsx for why (a spring's settle time isn't fixed, and
-    // read as an instant jump rather than a visible slide on a real phone).
-    Animated.timing(slideX, {
-      toValue: TAB_BAR_PADDING_H + tabWidth * focusedVisibleIndex + (tabWidth - SLIDING_PILL_WIDTH) / 2,
-      duration: 280,
-      easing: Easing.out(Easing.cubic),
-      useNativeDriver: true,
-    }).start();
-  }, [focusedVisibleIndex, tabWidth, slideX]);
 
   return (
     <View
       pointerEvents="box-none"
-      style={[providerTabBarStyles.wrap, { bottom: bottomOffset }]}
-      onLayout={e => setTabBarHeight?.(e.nativeEvent.layout.height + bottomOffset)}
+      style={providerTabBarStyles.wrap}
+      onLayout={e => setTabBarHeight?.(e.nativeEvent.layout.height)}
     >
-      <View
-        style={[
-          providerTabBarStyles.bar,
-          Platform.OS === 'web'
-            ? { boxShadow: `0 8px 20px ${Colors.cardShadow}26` } as any
-            : providerTabBarStyles.barShadowNative,
-        ]}
-        onLayout={e => setBarWidth(e.nativeEvent.layout.width)}
-      >
+      <View style={[providerTabBarStyles.bar, { paddingBottom: insets.bottom + 10 }]}>
         <GlassTabBarBackground />
-        {!!tabWidth && (
-          <Animated.View pointerEvents="none" style={[providerTabBarStyles.slidingPill, { transform: [{ translateX: slideX }] }]} />
-        )}
         {state.routes.map((route, index) => {
           const { options } = descriptors[route.key];
           // Hidden routes (NearbyJobs/MyJobs) set tabBarButton: () => null to
@@ -251,38 +188,22 @@ function ProviderCustomTabBar({ state, descriptors, navigation }: BottomTabBarPr
     </View>
   );
 }
+// Flush full-width bar sitting flat on the screen edge — not a floating
+// rounded pill with side margins. No shadow anywhere (that's what used to
+// smear); the only separation from content is a hairline top border, same
+// as the reference design.
 const providerTabBarStyles = StyleSheet.create({
-  wrap: { position: 'absolute', left: 16, right: 16, zIndex: 5 },
+  wrap: { position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 5 },
   bar: {
     flexDirection: 'row',
-    height: 70,
-    paddingTop: 10,
+    paddingTop: 12,
     paddingHorizontal: 8,
-    borderRadius: 100,
-    borderWidth: 1,
-    borderColor: Colors.separator,
-    overflow: 'visible',
-  },
-  // Native-only — see the matching comment in CustomerNavigator.tsx for why
-  // web uses a separate, gentler inline box-shadow instead of these values.
-  barShadowNative: {
-    shadowColor: Colors.cardShadow,
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.14,
-    shadowRadius: 30,
-    elevation: 12,
+    borderTopWidth: 1,
+    borderTopColor: Colors.separator,
+    overflow: 'hidden',
   },
   tab: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2 },
   label: { fontSize: 10.5, fontFamily: 'Inter_500Medium', marginTop: 2 },
-  slidingPill: {
-    position: 'absolute',
-    top: 10,
-    left: 0,
-    width: SLIDING_PILL_WIDTH,
-    height: 32,
-    borderRadius: 16,
-    backgroundColor: Colors.brand + '2E',
-  },
 });
 
 // ── Global new-job notifier — runs across all Provider screens ─────────────────────

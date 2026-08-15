@@ -496,7 +496,7 @@ function CreateLookSheet({
                 <>
                   <Text style={styles.formSectionTitle}>1. Start from a Glow look</Text>
                   <Text style={styles.fieldLabel}>Optional — tap one to fill in a starting point, then customize everything below.</Text>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }} contentContainerStyle={{ gap: 8 }}>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }} contentContainerStyle={{ gap: 8, paddingRight: 16 }}>
                     {(['All', ...LOOK_OCCASIONS] as const).map(cat => (
                       <Pressable
                         key={cat}
@@ -507,10 +507,16 @@ function CreateLookSheet({
                       </Pressable>
                     ))}
                   </ScrollView>
-                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }} contentContainerStyle={{ gap: 10 }}>
+                  {/* width 150/height 130 matches the "Your looks" row above —
+                      the previous 110/90 box left only ~82px for a 19px bold
+                      serif title, too narrow for a single word like
+                      "Traditional" or "Rajasthani" to fit on one line, so RN
+                      broke it mid-word ("Traditio" / "nal Bridal") instead of
+                      at the space. */}
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }} contentContainerStyle={{ gap: 10, paddingRight: 16 }}>
                     {templates.filter(l => templateCategory === 'All' || l.occasion === templateCategory).map(look => (
-                      <View key={look.id} style={{ width: 110 }}>
-                        <LookTile look={look} onPress={() => applyTemplate(look)} height={90} />
+                      <View key={look.id} style={{ width: 150 }}>
+                        <LookTile look={look} onPress={() => applyTemplate(look)} height={130} />
                       </View>
                     ))}
                   </ScrollView>

@@ -14,11 +14,18 @@ export interface PhotoFilter {
 }
 
 export const PHOTO_FILTERS: PhotoFilter[] = [
-  { id: 'original', name: 'Original' },
-  { id: 'vivid',    name: 'Vivid' },
-  { id: 'warm',     name: 'Warm',    previewOverlay: 'rgba(255,165,60,0.16)' },
-  { id: 'cool',     name: 'Cool',    previewOverlay: 'rgba(70,140,255,0.14)' },
-  { id: 'mono',     name: 'Mono',    previewOverlay: 'rgba(120,120,120,0.55)' },
-  { id: 'fade',     name: 'Fade',    previewOverlay: 'rgba(255,255,255,0.20)' },
-  { id: 'vintage',  name: 'Vintage', previewOverlay: 'rgba(196,140,60,0.22)' },
+  { id: 'original',  name: 'Original' },
+  // Juno/Clarendon/Lark first — the three most consistently recommended for
+  // flattering skin/selfies (Juno in particular: a published study found
+  // participants picked it as the single most flattering Instagram filter,
+  // ~69% over unfiltered), ahead of the more generic Vivid/Warm/Cool presets.
+  { id: 'juno',      name: 'Juno',      previewOverlay: 'rgba(255,150,80,0.18)' },
+  { id: 'clarendon', name: 'Clarendon', previewOverlay: 'rgba(80,160,255,0.10)' },
+  { id: 'lark',      name: 'Lark',      previewOverlay: 'rgba(120,190,220,0.14)' },
+  { id: 'vivid',     name: 'Vivid' },
+  { id: 'warm',      name: 'Warm',    previewOverlay: 'rgba(255,165,60,0.16)' },
+  { id: 'cool',      name: 'Cool',    previewOverlay: 'rgba(70,140,255,0.14)' },
+  { id: 'mono',      name: 'Mono',    previewOverlay: 'rgba(120,120,120,0.55)' },
+  { id: 'fade',      name: 'Fade',    previewOverlay: 'rgba(255,255,255,0.20)' },
+  { id: 'vintage',   name: 'Vintage', previewOverlay: 'rgba(196,140,60,0.22)' },
 ];

@@ -15,6 +15,14 @@ const PHOTO_FILTERS = {
   mono:     (img) => img.grayscale().linear(1.1, -10),
   fade:     (img) => img.modulate({ saturation: 0.75, brightness: 1.08 }).linear(0.9, 15),
   vintage:  (img) => img.modulate({ hue: 6, saturation: 0.85, brightness: 1.02 }).linear(0.95, 8),
+  // The three most consistently named as flattering for skin/selfies across
+  // both editorial roundups and user discussion — Juno in particular is
+  // backed by an actual study (participants picked it as the single most
+  // flattering Instagram filter, ~69% over unfiltered). Named to match so
+  // they're recognizable, not just another "warm"/"bright" preset.
+  juno:      (img) => img.modulate({ hue: 5, saturation: 1.25, brightness: 1.06 }).linear(1.05, -5),
+  clarendon: (img) => img.modulate({ saturation: 1.2, brightness: 1.08 }).linear(1.1, -10),
+  lark:      (img) => img.modulate({ hue: -6, saturation: 1.1, brightness: 1.1 }).linear(1.02, 5),
 };
 
 module.exports = { PHOTO_FILTERS };

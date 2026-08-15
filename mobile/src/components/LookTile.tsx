@@ -139,7 +139,7 @@ export function LookTile({ look, onPress, height = 170, fitToPhoto, price, likeO
         >
           <HeartIcon size={17} color={saved ? Colors.brand : '#fff'} filled={saved} />
         </Pressable>
-        <Text style={styles.canvasName}>{look.name}</Text>
+        <Text style={styles.canvasName} numberOfLines={2}>{look.name}</Text>
       </View>
       <Text style={styles.vibe} numberOfLines={1}>{look.vibe}</Text>
       {/* No duration here — a look isn't naturally "N hours" the way a

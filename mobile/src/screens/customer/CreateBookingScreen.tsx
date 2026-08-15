@@ -65,8 +65,17 @@ const SEED_AS_AVAILABLE_PROVIDERS: AvailableProvider[] = SEED_ARTISTS.map(s => (
 // ─── Brand tokens ───────────────────────────────────────────────────────────────
 const BRAND_DARK  = Colors.brandDark;
 const BRAND_MID   = Colors.brand;
-const BRAND_LIGHT = Colors.brand;
-const MIST        = '#E8F5EE';
+// Was Colors.brand — identical to BRAND_MID, so every "gradient" that uses
+// both (the header, the primary CTA button on every step) rendered as a
+// flat solid color instead. Colors.brandAccent is the app's actual pale-
+// rose token, used for exactly this elsewhere (hero glows, gradient starts).
+const BRAND_LIGHT = Colors.brandAccent;
+// Was '#E8F5EE', a mint green — the one color in this whole multi-step flow
+// that broke from brand pink for no reason tied to content (tags, "Select"
+// chips, the price summary bar, active filter/date states). Colors.brandLight
+// is the real light-pink token used for this exact "soft active background"
+// role everywhere else in the app.
+const MIST        = Colors.brandLight;
 const PAPER       = '#F4F1EA';
 const INK         = '#1F1215';
 const MUTED       = '#5A5A5A';
@@ -2348,7 +2357,7 @@ export function CreateBookingScreen() {
                         accessibilityState={{ checked: active }}
                         accessibilityLabel={`${svc.name}, ${formatCurrency(svc.price)}, ${fmtDuration(svc.durationMin)}`}
                       >
-                        <ServiceIcon serviceType={svc.name} size={32} bubbleSize={60} color={accent} />
+                        <ServiceIcon serviceType={svc.name} size={40} bubbleSize={76} color={accent} />
                         <Text style={[
                           styles.serviceCardLabel,
                           active && { color: accent, fontWeight: '800' },

@@ -1031,8 +1031,13 @@ router.get(
       const booking = await prisma.booking.findFirst({
         where,
         include: {
-          // Phone only returned to the assigned Provider — not to pool browsers
-          customer: { select: { id: true, name: true, phone: true, rating: true, photoUrl: true } },
+          // Phone only returned to the assigned Provider — not to pool browsers.
+          // skinTone/skinType were missing here (present on every other job/
+          // request endpoint) — this is the one JobDetailScreen calls right
+          // after mounting with the correct route-params copy, so its refetch
+          // was silently clobbering a correct CLIENT PROFILE section with one
+          // that always looked empty.
+          customer: { select: { id: true, name: true, phone: true, skinTone: true, skinType: true, rating: true, photoUrl: true } },
           provider:      { select: { id: true, name: true, phone: true, rating: true, ratingCount: true, photoUrl: true } },
           services: { select: { id: true, serviceItemId: true, name: true, price: true, durationMin: true } },
         },
