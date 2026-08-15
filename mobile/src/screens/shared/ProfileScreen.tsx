@@ -52,6 +52,7 @@ import {
   apiGetProviderServices, apiSetProviderServices, apiUpdateProviderPricing, ProviderServiceItem,
   apiMyJobs, apiToggleAvailability, Booking,
   apiUpdateProviderLocationSettings, BusinessHours,
+  apiGetMyLooks, apiGetMyPosts,
 } from '../../api/client';
 import { Storage } from '../../utils/storage';
 import { Colors, Fonts } from '../../utils/colors';
@@ -380,6 +381,11 @@ export function ProfileScreen() {
   // Uber-driver-app pattern (real-time earnings + a prominent online toggle
   // right on the home surface, not buried in a separate screen).
   const [jobs, setJobs] = useState<Booking[]>([]);
+  // Portfolio counts for the stats bar below — how much this artist has
+  // actually put on their profile (Looks tab, Posts tab), not booking/rating
+  // performance like the other three cells.
+  const [looksCount, setLooksCount] = useState<number | null>(null);
+  const [postsCount, setPostsCount] = useState<number | null>(null);
   const [isOnline, setIsOnline] = useState(false);
   const [onlineToggling, setOnlineToggling] = useState(false);
   // Guards a background refresh from clobbering a toggle the user JUST made
@@ -528,6 +534,8 @@ export function ProfileScreen() {
         .catch(() => {})
         .finally(() => setServicesLoading(false));
       apiMyJobs().then(({ bookings }) => setJobs(bookings)).catch(() => {});
+      apiGetMyLooks().then(({ looks }) => setLooksCount(looks.length)).catch(() => {});
+      apiGetMyPosts().then(({ posts }) => setPostsCount(posts.length)).catch(() => {});
     }
   }, [token]);
 
@@ -1124,6 +1132,20 @@ export function ProfileScreen() {
               </Text>
               <Text style={styles.statLabel}>Total Earned</Text>
             </View>
+          </View>
+        )}
+
+        {isProvider && providerProfileTab === 'account' && (
+          <View style={[styles.statsBar, styles.statsBarBelowEarnings]}>
+            <Pressable style={styles.statCell} onPress={() => nav.navigate('LooksTab')}>
+              <Text style={styles.statNum}>{looksCount !== null ? String(looksCount) : '—'}</Text>
+              <Text style={styles.statLabel}>Looks</Text>
+            </Pressable>
+            <View style={styles.statDivider} />
+            <Pressable style={styles.statCell} onPress={() => nav.navigate('PostsTab')}>
+              <Text style={styles.statNum}>{postsCount !== null ? String(postsCount) : '—'}</Text>
+              <Text style={styles.statLabel}>Posts</Text>
+            </Pressable>
           </View>
         )}
 

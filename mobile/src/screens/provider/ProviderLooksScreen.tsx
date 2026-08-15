@@ -39,7 +39,7 @@ import {
 } from '../../api/client';
 import { Colors, Fonts } from '../../utils/colors';
 import { formatCurrency } from '../../utils/format';
-import { LOOKS, Look } from '../../data/looks';
+import { LOOKS, LOOK_OCCASIONS, Look } from '../../data/looks';
 import { LookTile } from '../../components/LookTile';
 import { CameraCapture, CapturedAsset } from '../../components/CameraCapture';
 import { FilterPreview } from '../../components/FilterPreview';
@@ -176,11 +176,18 @@ export function ProviderLooksScreen() {
     return !best || item.likeCount > (best.likeCount || 0) ? item.id : bestId;
   }, null);
 
-  // Still used as optional starting templates inside the create sheet ("1.
-  // Start from a Glow look") — that's a prefill shortcut for a look the
-  // artist then fully customizes, not the old "toggle on a generic catalog
-  // entry" management list, which is gone.
-  const catalogLooks = LOOKS.filter(l => specialties.includes(l.serviceType));
+  // Optional starting templates inside the create sheet ("1. Start from a
+  // Glow look") — a prefill shortcut for a look the artist then fully
+  // customizes. The FULL catalog is offered, not just this artist's
+  // onboarding specialties — an artist who does more than they originally
+  // ticked (or wants to branch into a new category) shouldn't be limited to
+  // templates from their old specialty list. Specialty matches just float
+  // first since they're the most likely starting point, same relevance
+  // ordering Explore already uses for artist matching.
+  const catalogLooks = [
+    ...LOOKS.filter(l => specialties.includes(l.serviceType)),
+    ...LOOKS.filter(l => !specialties.includes(l.serviceType)),
+  ];
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editingLook, setEditingLook] = useState<ProviderLookItem | null>(null);
@@ -334,6 +341,10 @@ function CreateLookSheet({
   const [badge, setBadge] = useState('');
   const [cameraOpen, setCameraOpen] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // Which occasion category the template row is browsing — same chip list
+  // Explore's own "Looks" tab filters by, so an artist picking a starting
+  // point sees it grouped the same way a client would find it.
+  const [templateCategory, setTemplateCategory] = useState<'All' | typeof LOOK_OCCASIONS[number]>('All');
   const MAX_MEDIA = 5;
   const activeMediaCount = media.length;
 
@@ -484,8 +495,19 @@ function CreateLookSheet({
                 <>
                   <Text style={styles.formSectionTitle}>1. Start from a Glow look</Text>
                   <Text style={styles.fieldLabel}>Optional — tap one to fill in a starting point, then customize everything below.</Text>
+                  <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 10 }} contentContainerStyle={{ gap: 8 }}>
+                    {(['All', ...LOOK_OCCASIONS] as const).map(cat => (
+                      <Pressable
+                        key={cat}
+                        style={[styles.chip, templateCategory === cat && styles.chipActive]}
+                        onPress={() => setTemplateCategory(cat)}
+                      >
+                        <Text style={[styles.chipText, templateCategory === cat && styles.chipTextActive]}>{cat}</Text>
+                      </Pressable>
+                    ))}
+                  </ScrollView>
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 4 }} contentContainerStyle={{ gap: 10 }}>
-                    {templates.map(look => (
+                    {templates.filter(l => templateCategory === 'All' || l.occasion === templateCategory).map(look => (
                       <View key={look.id} style={{ width: 110 }}>
                         <LookTile look={look} onPress={() => applyTemplate(look)} height={90} />
                       </View>
@@ -796,7 +818,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 3, flex: 1, justifyContent: 'center',
     paddingVertical: 7, borderRadius: 16, backgroundColor: Colors.brandLight,
   },
-  cardActionBtnDanger: { backgroundColor: Colors.systemGray6, flex: 0.85 },
+  // Colors.systemGray6 (#F9F9FB) is nearly indistinguishable from this
+  // screen's own background (#FFF9F8) — Remove read as an unstyled bare
+  // label next to Share/Edit's clearly-pink pills. A light red tint gives it
+  // the same "pill" weight while still reading as the destructive action.
+  cardActionBtnDanger: { backgroundColor: Colors.systemRed + '17', flex: 0.85 },
   cardActionIcon: { fontSize: 11, color: Colors.brand },
   cardActionText: { fontSize: 11, color: Colors.brand, fontFamily: Fonts.semibold },
 

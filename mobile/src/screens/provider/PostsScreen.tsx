@@ -260,9 +260,11 @@ export function PostsScreen({ cameraSignal }: Props) {
                 {postsByCategory[c.name].map(post => (
                   <PostThumb key={post.id} post={post} lookName={linkedLookName(post, myLooks)} onDelete={deletePost} />
                 ))}
-                <Pressable style={[styles.thumbShadowWrap, styles.thumb, styles.addTile]} onPress={() => openCamera(c.name)}>
-                  <Text style={styles.addTileText}>+</Text>
-                </Pressable>
+                <View style={styles.thumbShadowWrap}>
+                  <Pressable style={[styles.thumb, styles.addTile]} onPress={() => openCamera(c.name)}>
+                    <Text style={styles.addTileText}>+</Text>
+                  </Pressable>
+                </View>
               </View>
             </View>
           ))}

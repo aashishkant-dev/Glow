@@ -123,14 +123,17 @@ const TAB_BAR_PADDING_H = 8;
 // here and let vivid page content bleed through, making icons unreadable).
 function GlassTabBarBackground() {
   if (Platform.OS === 'web') {
-    // Real frosted-glass on web too (matches the native BlurView below)
-    // instead of a flat opaque white fill.
+    // backdropFilter is a progressive enhancement, not a given — see the
+    // matching comment in CustomerNavigator.tsx (confirmed on a real Android
+    // browser that it doesn't reliably apply, leaving a too-thin overlay that
+    // vivid scrolling content bled straight through). High opacity first so
+    // the bar reads clean regardless; blur is polish on top when it lands.
     return (
       <View
         style={[
           StyleSheet.absoluteFill,
           {
-            backgroundColor: 'rgba(255,255,255,0.7)',
+            backgroundColor: 'rgba(255,255,255,0.94)',
             borderRadius: 100,
             backdropFilter: 'blur(20px)',
             WebkitBackdropFilter: 'blur(20px)',

@@ -118,15 +118,19 @@ function CustomerMessageListener() {
 // effect that depends on browser/GPU support we can't rely on here.
 function GlassTabBarBackground() {
   if (Platform.OS === 'web') {
-    // Real frosted-glass on web too (matches the native BlurView below)
-    // instead of a flat opaque white fill — backdropFilter is a plain CSS
-    // property RN Web passes straight through, no library needed for it.
+    // backdropFilter is a progressive enhancement, not a given — confirmed on
+    // a real Android browser (not just desktop Chromium) that it silently
+    // doesn't apply in some contexts, and 0.7 opacity alone is nowhere near
+    // enough to keep vivid scrolling content (gradient look cards, colored
+    // hero banners) from reading straight through the bar and washing out
+    // the icons. High opacity first so the bar is legible with or without
+    // blur actually landing; blur just adds polish on top when it does.
     return (
       <View
         style={[
           StyleSheet.absoluteFill,
           {
-            backgroundColor: 'rgba(255,255,255,0.7)',
+            backgroundColor: 'rgba(255,255,255,0.94)',
             borderRadius: 100,
             backdropFilter: 'blur(20px)',
             WebkitBackdropFilter: 'blur(20px)',
