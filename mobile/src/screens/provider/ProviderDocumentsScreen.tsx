@@ -16,7 +16,7 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
 import { apiUploadDocument, apiGetMyDocuments } from '../../api/client';
 import { Storage, StoredDocument } from '../../utils/storage';
-import { Colors } from '../../utils/colors';
+import { Colors, Fonts } from '../../utils/colors';
 import { CheckCircleIcon } from '../../components/TabIcons';
 import {
   ShieldCheckIcon, MedalIcon, CardAccountDetailsIcon, NoteIcon,
@@ -55,6 +55,40 @@ const _Span  = 'span'  as any;
 
 // Web-only: hold File objects in memory (avoids localStorage quota issues with base64)
 const webFileCache = new Map<string, { file: File; previewUrl: string }>();
+
+// The single source of per-doc status, replacing three separate "approved"
+// indicators that used to repeat the same fact. Uses the app's real status
+// colors (Colors.systemGreen/systemOrange/systemRed) instead of a Tailwind
+// palette that didn't match anything else in the app.
+function StatusPill({ status, required, uploaded }: { status?: string; required: boolean; uploaded: boolean }) {
+  if (status === 'APPROVED') {
+    return (
+      <View style={[styles.statusPill, { backgroundColor: Colors.systemGreen + '1A', borderColor: Colors.systemGreen + '55' }]}>
+        <Text style={[styles.statusPillText, { color: Colors.systemGreen }]}>✓ Approved</Text>
+      </View>
+    );
+  }
+  if (status === 'REJECTED') {
+    return (
+      <View style={[styles.statusPill, { backgroundColor: Colors.systemRed + '1A', borderColor: Colors.systemRed + '55' }]}>
+        <Text style={[styles.statusPillText, { color: Colors.systemRed }]}>Rejected</Text>
+      </View>
+    );
+  }
+  if (uploaded) {
+    return (
+      <View style={[styles.statusPill, { backgroundColor: Colors.systemOrange + '1A', borderColor: Colors.systemOrange + '55' }]}>
+        <Text style={[styles.statusPillText, { color: Colors.systemOrange }]}>Under Review</Text>
+      </View>
+    );
+  }
+  if (!required) return null;
+  return (
+    <View style={styles.statusPill}>
+      <Text style={styles.statusPillText}>Required</Text>
+    </View>
+  );
+}
 
 export function ProviderDocumentsScreen() {
   const insets   = useSafeAreaInsets();
@@ -96,6 +130,12 @@ export function ProviderDocumentsScreen() {
   // Auto-submit model: a doc is "submitted" the moment it's uploaded (web on
   // select, native in uploadDocNative). All required docs uploaded = fully submitted.
   const allSubmitted  = requiredDone === requiredTotal;
+  // Distinct from allSubmitted: "submitted" only means uploaded, not reviewed.
+  // Without this, the "under review, 1-2 business days" banner kept showing
+  // even after admin had already approved every required doc — a
+  // fully-approved provider would still be told their account was pending.
+  const allApproved   = requiredTotal > 0 && DOC_TYPES.filter(t => t.required)
+    .every(t => serverDocs[t.id]?.status === 'APPROVED');
 
   // ── Compress an image data-URL via canvas ──────────────────────────────────
   async function compressDataUrl(rawDataUrl: string): Promise<string> {
@@ -274,9 +314,17 @@ export function ProviderDocumentsScreen() {
           </View>
         </View>
 
-        {allSubmitted ? (
+        {allApproved ? (
+          <View style={[styles.submittedBanner, styles.approvedBanner]}>
+            <Text style={styles.submittedBannerIcon}>✓</Text>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.submittedBannerTitle}>All Documents Approved</Text>
+              <Text style={styles.submittedBannerSub}>You're fully verified and ready to accept jobs</Text>
+            </View>
+          </View>
+        ) : allSubmitted ? (
           <View style={styles.submittedBanner}>
-            <Text style={styles.submittedBannerIcon}>✅</Text>
+            <Text style={styles.submittedBannerIcon}>⏳</Text>
             <View style={{ flex: 1 }}>
               <Text style={styles.submittedBannerTitle}>Documents Submitted to Admin</Text>
               <Text style={styles.submittedBannerSub}>Our team will review within 1–2 business days</Text>
@@ -317,26 +365,33 @@ export function ProviderDocumentsScreen() {
             : (localNative?.uploadedAt || server?.submittedAt);
           const isLoading    = uploading === docType.id;
           const btnLabel     = isLoading ? 'Uploading…' : uploaded ? 'Replace Photo' : 'Upload Photo';
+          // One status color drives the card border, the icon tint AND the
+          // icon wrap background together — previously the wrap tinted
+          // green on any upload while the icon inside stayed brand-pink,
+          // two unrelated hues signaling the same "uploaded" state, and the
+          // card border went green even for a REJECTED doc.
+          const statusColor = server?.status === 'APPROVED' ? Colors.systemGreen
+            : server?.status === 'REJECTED' ? Colors.systemRed
+            : uploaded ? Colors.systemOrange
+            : null;
 
           return (
-            <View key={docType.id} style={[styles.docCard, uploaded && styles.docCardUploaded]}>
+            <View key={docType.id} style={[styles.docCard, statusColor && { borderColor: statusColor + '55', shadowColor: statusColor }]}>
               {/* Top row */}
               <View style={styles.docCardTop}>
-                <View style={[styles.docIconWrap, { backgroundColor: uploaded ? '#ECFDF5' : '#F9FAFB' }]}>
-                  <docType.Icon size={24} color={uploaded ? Colors.brand : Colors.secondaryLabel} />
+                <View style={[styles.docIconWrap, statusColor && { backgroundColor: statusColor + '15', borderColor: statusColor + '30' }]}>
+                  <docType.Icon size={24} color={statusColor ?? Colors.secondaryLabel} />
                 </View>
                 <View style={styles.docCardInfo}>
+                  {/* One status badge instead of three separate "approved"
+                      indicators stacked on the same fact (a title-row pill,
+                      a colored text line, and a checkmark+text line below
+                      it) — this single pill now carries every state
+                      (Required, Under Review, Approved, Rejected), and
+                      nothing else on the card repeats it. */}
                   <View style={styles.docCardTitleRow}>
                     <Text style={styles.docCardTitle}>{docType.label}</Text>
-                    {docType.required && serverDocs[docType.id]?.status === 'APPROVED' ? (
-                      <View style={[styles.requiredBadge, { backgroundColor: '#D1FAE5', borderColor: '#6EE7B7' }]}>
-                        <Text style={[styles.requiredBadgeText, { color: '#065F46' }]}>✓ Approved</Text>
-                      </View>
-                    ) : docType.required && (
-                      <View style={styles.requiredBadge}>
-                        <Text style={styles.requiredBadgeText}>Required</Text>
-                      </View>
-                    )}
+                    <StatusPill status={serverDocs[docType.id]?.status} required={docType.required} uploaded={uploaded} />
                   </View>
                   <Text style={styles.docCardSub}>{docType.sublabel}</Text>
                   {uploadedAt && (
@@ -344,19 +399,8 @@ export function ProviderDocumentsScreen() {
                       Uploaded {new Date(uploadedAt).toLocaleDateString('en-CA', { month: 'short', day: 'numeric', year: 'numeric' })}
                     </Text>
                   )}
-                  {uploaded && serverDocs[docType.id] && (
-                    <Text style={[
-                      styles.docUploadedDate,
-                      { color: serverDocs[docType.id].status === 'APPROVED' ? '#059669' : serverDocs[docType.id].status === 'REJECTED' ? '#DC2626' : '#D97706' }
-                    ]}>
-                      {serverDocs[docType.id].status === 'APPROVED' ? '✅ Admin Approved' : serverDocs[docType.id].status === 'REJECTED' ? `❌ Rejected${serverDocs[docType.id].rejectionReason ? ': ' + serverDocs[docType.id].rejectionReason : ''}` : '⏳ Under Review'}
-                    </Text>
-                  )}
-                  {serverDocs[docType.id]?.status === 'APPROVED' && (
-                    <View style={styles.approvedBadge}>
-                      <CheckCircleIcon size={16} color={Colors.onlineGreen} />
-                      <Text style={styles.approvedText}>Approved by Admin</Text>
-                    </View>
+                  {serverDocs[docType.id]?.status === 'REJECTED' && !!serverDocs[docType.id]?.rejectionReason && (
+                    <Text style={styles.rejectionReason}>{serverDocs[docType.id].rejectionReason}</Text>
                   )}
                 </View>
               </View>
@@ -441,7 +485,15 @@ export function ProviderDocumentsScreen() {
 
         {/* ── Status card (auto-submit: no manual submit needed) ──────── */}
         <View style={styles.submitSection}>
-          {allSubmitted ? (
+          {allApproved ? (
+            <View style={styles.doneCard}>
+              <View style={styles.doneCardIcon}><CheckCircleIcon size={44} color={Colors.onlineGreen} /></View>
+              <Text style={styles.doneCardTitle}>All Documents Approved</Text>
+              <Text style={styles.doneCardSub}>
+                Your account is fully verified. You can still replace any document above if it needs updating.
+              </Text>
+            </View>
+          ) : allSubmitted ? (
             <View style={styles.doneCard}>
               <View style={styles.doneCardIcon}><CheckCircleIcon size={44} color={Colors.onlineGreen} /></View>
               <Text style={styles.doneCardTitle}>All Documents Submitted</Text>
@@ -472,13 +524,16 @@ export function ProviderDocumentsScreen() {
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#F5F5F7' },
+  // Was a cold neutral gray — every other screen in the app uses this warm
+  // rose-tinted background instead (see colors.ts: system gray on a warm
+  // page "reads cold" and is the tell of an unstyled default screen).
+  container: { flex: 1, backgroundColor: Colors.systemGroupedBackground },
 
   header: { paddingHorizontal: 20, paddingBottom: 24 },
   backBtn: { marginBottom: 16 },
   backBtnText: { color: 'rgba(255,255,255,0.75)', fontSize: 15, fontWeight: '600' },
   headerBody: { marginBottom: 20 },
-  headerTitle: { color: '#fff', fontSize: 30, fontWeight: '900', letterSpacing: -0.5, marginBottom: 4 },
+  headerTitle: { color: '#fff', fontSize: 28, fontFamily: Fonts.display, letterSpacing: -0.3, marginBottom: 4 },
   headerSub: { color: 'rgba(255,255,255,0.65)', fontSize: 14 },
 
   progressWrap: { marginBottom: 16 },
@@ -496,13 +551,10 @@ const styles = StyleSheet.create({
   submittedBannerIcon: { fontSize: 24 },
   submittedBannerTitle: { color: '#fff', fontSize: 14, fontWeight: '800', marginBottom: 2 },
   submittedBannerSub: { color: 'rgba(255,255,255,0.65)', fontSize: 12 },
-  readyBanner: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 14, padding: 14,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
-  },
-  readyBannerIcon: { fontSize: 20 },
-  readyBannerText: { color: '#fff', fontSize: 13, fontWeight: '700', flex: 1 },
+  // Distinct tint from the default "under review" banner (which reuses the
+  // same shape) — a real, brighter green so "fully approved" reads as
+  // conclusively different from "still pending," not just a re-skin.
+  approvedBanner: { backgroundColor: 'rgba(59,165,93,0.22)', borderColor: 'rgba(59,165,93,0.45)' },
 
   body: { padding: 16, gap: 12, paddingBottom: 40 },
 
@@ -521,7 +573,6 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 10, elevation: 3,
     borderWidth: 1.5, borderColor: '#E5E7EB',
   },
-  docCardUploaded: { borderColor: '#A7F3D0', shadowColor: '#059669', shadowOpacity: 0.1 },
   docCardTop: { flexDirection: 'row', alignItems: 'flex-start', gap: 14 },
   docIconWrap: {
     width: 52, height: 52, borderRadius: 16,
@@ -532,15 +583,21 @@ const styles = StyleSheet.create({
   docCardInfo: { flex: 1 },
   docCardTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 4, flexWrap: 'wrap' },
   docCardTitle: { fontSize: 16, fontWeight: '700', color: '#111827' },
-  requiredBadge: {
+  // The one status indicator per card — see StatusPill. Neutral gray/amber
+  // "Required" default; StatusPill overrides background/border/text color
+  // inline for the Approved/Rejected/Under Review states.
+  statusPill: {
     backgroundColor: '#FEF3C7', borderRadius: 6, paddingHorizontal: 8, paddingVertical: 2,
     borderWidth: 1, borderColor: '#FCD34D',
   },
-  requiredBadgeText: { fontSize: 11, fontWeight: '700', color: '#92400E' },
+  statusPillText: { fontSize: 11, fontWeight: '700', color: '#92400E' },
   docCardSub: { fontSize: 13, color: '#6B7280', lineHeight: 18, marginBottom: 4 },
-  docUploadedDate: { fontSize: 12, color: '#059669', fontWeight: '600' },
-  approvedBadge: { flexDirection: 'row', alignItems: 'center', gap: 6, marginTop: 6 },
-  approvedText: { color: Colors.onlineGreen, fontSize: 13, fontWeight: '700' },
+  // Neutral regardless of status now — the status pill above is the one
+  // place color carries meaning; a colored date here used to repeat it a
+  // second time (and was wrong for Rejected docs, which still showed their
+  // upload date in success-green).
+  docUploadedDate: { fontSize: 12, color: '#9CA3AF', fontWeight: '600' },
+  rejectionReason: { fontSize: 12.5, color: Colors.systemRed, marginTop: 4, lineHeight: 17 },
 
   docPreviewWrap: { borderRadius: 14, overflow: 'hidden', height: 160, backgroundColor: '#F3F4F6', position: 'relative' },
   docPreview: { width: '100%', height: '100%' },

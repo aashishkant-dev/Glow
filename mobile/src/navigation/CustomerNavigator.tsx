@@ -68,7 +68,7 @@ export type CustomerStackParams = {
 export type CustomerTabParams = {
   HomeTab: undefined;
   ExploreTab: { openSearch?: boolean } | undefined;
-  SavedTab: { initialTab?: 'Looks' | 'Artists' } | undefined;
+  SavedTab: { initialTab?: 'Looks' | 'Artists' | 'Posts' } | undefined;
   ProfileTab: undefined;
 };
 

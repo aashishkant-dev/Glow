@@ -19,6 +19,14 @@ const ILLUSTRATED_SERVICE_ICON_MAP: Record<string, ServiceIconComponent> = {
   'Threading':     ThreadNeedleIcon,
   'Waxing':        WaxWarmerIcon,
   'Makeup':        LipstickBrushIcon,
+  // Was missing — the only one of the 11 seeded catalog services (see
+  // scripts/seed-catalog.js) not in this map, so it fell through to
+  // SERVICE_ICON_MAP's plain SparkleIcon: a generic glyph that doesn't
+  // match the illustrated linework style every other service type gets.
+  // Same icon as "Makeup" — Party Makeup is a makeup variant, not a
+  // different service, so it should read as visually related, not
+  // arbitrary.
+  'Party Makeup':  LipstickBrushIcon,
   'Facial':        FacialProfileIcon,
   'Bridal Makeup': BrideProfileIcon,
   'Mehendi':       HennaConeIcon,
@@ -69,7 +77,26 @@ export function ServiceIcon({
     illustrated ?? SERVICE_ICON_MAP[serviceType ?? ''] ?? FallbackIcon;
 
   if (!bubble) {
-    return illustrated ? <IconComponent size={size} /> : <IconComponent size={size} color={accent} />;
+    // Illustrated icons have no `color` prop at all — their linework is
+    // baked into fixed muted rose-brown fills (see IllustratedIcons.tsx),
+    // so a caller passing `color` here (e.g. white, for a dark hero) was
+    // silently ignored and the icon rendered in its fixed colors directly
+    // on whatever background sat behind it. On a similarly dark/rose
+    // background that reads as barely visible or outright blank — this hit
+    // JobDetailScreen's hero and TrackingScreen's booking card. A small
+    // light backing (no border, tighter than the bubble mode's) keeps
+    // `bubble={false}` visually "bare" while still giving illustrated
+    // icons the light surface they need to actually be legible; icons that
+    // DO take a real `color` prop are unaffected and still render bare.
+    if (illustrated) {
+      const wrap = Math.round(size * 1.5);
+      return (
+        <View style={[{ width: wrap, height: wrap, borderRadius: wrap * 0.3, backgroundColor: 'rgba(255,255,255,0.92)', alignItems: 'center', justifyContent: 'center' }, style]}>
+          <IconComponent size={size * 0.72} />
+        </View>
+      );
+    }
+    return <IconComponent size={size} color={accent} />;
   }
 
   const wrap = bubbleSize ?? Math.round(size * 1.7);

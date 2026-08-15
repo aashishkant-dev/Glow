@@ -1120,6 +1120,13 @@ export function apiGetExplorePosts(sort: 'recent' | 'top', cursor?: string, limi
   return request<{ posts: Post[]; nextCursor: string | null }>('GET', `/posts/explore?${params.toString()}`);
 }
 
+// Posts the current user has liked — the read side of apiLikePost, backing
+// the Saved screen's Posts tab.
+export function apiGetLikedPosts(cursor?: string, limit = 20) {
+  const params = new URLSearchParams({ limit: String(limit), ...(cursor ? { cursor } : {}) });
+  return request<{ posts: Post[]; nextCursor: string | null }>('GET', `/posts/liked?${params.toString()}`);
+}
+
 // A self-served look (badge, theme, gallery, video) from any approved
 // artist — without this, that content only exists behind a direct visit to
 // one artist's profile, never surfaced the way curated data/looks.ts is.

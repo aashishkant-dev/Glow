@@ -125,7 +125,7 @@ export function RequestsScreen({ embedded = false }: { embedded?: boolean } = {}
             </Pressable>
           )}
           <View style={styles.headerTextBlock}>
-            <Text style={styles.headerTitle}>Care Requests</Text>
+            <Text style={styles.headerTitle}>New Requests</Text>
             <Text style={styles.headerSub}>
               {requests.length === 0 ? 'No pending requests' : `${requests.length} client${requests.length > 1 ? 's' : ''} requested you`}
             </Text>

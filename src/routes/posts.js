@@ -240,6 +240,63 @@ router.delete(
 
 function toNum(v) { return v == null ? v : parseFloat(v.toString()); }
 
+// GET /posts/liked — posts the current user has liked, newest-liked first.
+// Liking a post was already fully wired (POST/DELETE /:id/like below,
+// PostDetailScreen's heart) but there was nowhere to read the list back —
+// the customer's Saved screen only ever showed saved Looks and favorited
+// Artists, never a liked Post. Must come before /:id-style routes for the
+// same reason /explore does — none defined here yet, but keeping the
+// pattern consistent.
+router.get(
+  '/liked',
+  authenticate,
+  async (req, res) => {
+    try {
+      const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
+      const cursor = req.query.cursor;
+
+      const likes = await prisma.postLike.findMany({
+        where: { userId: req.user.id, post: { active: true } },
+        orderBy: { createdAt: 'desc' },
+        take: limit + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        include: {
+          post: {
+            include: {
+              profile: {
+                select: { id: true, photoUrl: true, user: { select: { name: true } } },
+              },
+              service: { select: { id: true, name: true, price: true } },
+            },
+          },
+        },
+      });
+
+      const hasMore = likes.length > limit;
+      const page = likes.slice(0, limit).map((l) => ({
+        id: l.post.id,
+        photoUrl: l.post.photoUrl,
+        videoUrl: l.post.videoUrl,
+        caption: l.post.caption,
+        category: l.post.category,
+        likeCount: l.post.likeCount,
+        createdAt: l.post.createdAt,
+        provider: { id: l.post.profile.id, name: l.post.profile.user.name, photoUrl: l.post.profile.photoUrl },
+        service: l.post.service ? { id: l.post.service.id, name: l.post.service.name, price: toNum(l.post.service.price) } : null,
+        isLikedByMe: true,
+      }));
+
+      res.json({
+        posts: page,
+        nextCursor: hasMore ? likes[limit].id : null,
+      });
+    } catch (err) {
+      console.error('GET /posts/liked error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
 router.get(
   '/explore',
   authenticate,

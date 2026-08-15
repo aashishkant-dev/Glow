@@ -277,7 +277,15 @@ function applyJobFilter(jobs: Booking[], filter: JobFilter): Booking[] {
   return jobs.filter(j => j.status !== 'COMPLETED' && j.status !== 'CANCELLED');
 }
 
-function buildSections(jobs: Booking[]): Section[] {
+// heroJobId excludes whichever active job ActiveJobHero is already showing
+// full-size above the list — without this, that one job appeared twice on
+// screen at once (the hero card, then again as a full detail card in an
+// "Active Now" section right below it), which ate most of the viewport for
+// a single piece of information and made the list read as barely
+// scrollable even once scrolling itself worked correctly. A provider with
+// a second, genuinely different concurrent active job (rare, but the data
+// model allows it) still sees that one listed normally.
+function buildSections(jobs: Booking[], heroJobId?: string): Section[] {
   const active: Booking[]    = [];
   const today: Booking[]     = [];
   const tomorrow: Booking[]  = [];
@@ -288,7 +296,7 @@ function buildSections(jobs: Booking[]): Section[] {
 
   for (const j of jobs) {
     const d = new Date(j.scheduledAt);
-    if (ACTIVE_STATUSES.has(j.status))    { active.push(j); continue; }
+    if (ACTIVE_STATUSES.has(j.status))    { if (j._id !== heroJobId) active.push(j); continue; }
     if (j.status === 'COMPLETED')         { completed.push(j); continue; }
     if (j.status === 'CANCELLED')         { cancelled.push(j); continue; }
     if (isToday(d))                       { today.push(j); continue; }
@@ -574,9 +582,9 @@ export function ProviderCalendarScreen({ embedded = false }: { embedded?: boolea
     return () => clearInterval(t);
   }, [refreshIncremental, token]);
 
-  const sections = buildSections(applyJobFilter(jobs, filter));
-  const { totalEarned, pendingRelease } = deriveEarnings(jobs);
   const activeJob   = jobs.find(j => ACTIVE_STATUSES.has(j.status));
+  const sections = buildSections(applyJobFilter(jobs, filter), activeJob?._id);
+  const { totalEarned, pendingRelease } = deriveEarnings(jobs);
   const completedCount = jobs.filter(j => j.status === 'COMPLETED').length;
   const filterCounts: Record<JobFilter, number> = {
     ALL:       jobs.length,

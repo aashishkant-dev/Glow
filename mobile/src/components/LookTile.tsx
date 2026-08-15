@@ -141,11 +141,16 @@ export function LookTile({ look, onPress, height = 170, fitToPhoto, price, likeO
         </Pressable>
         <Text style={styles.canvasName} numberOfLines={2}>{look.name}</Text>
       </View>
-      <Text style={styles.vibe} numberOfLines={1}>{look.vibe}</Text>
+      {/* Was rendered unconditionally — for a provider-created look with no
+          vibe text (an optional field, unlike the curated catalog's
+          always-populated vibe), this still reserved a full empty line's
+          height + marginTop, showing as a blank gap between the title and
+          price with nothing wrong visibly explaining it. */}
+      {!!look.vibe && <Text style={styles.vibe} numberOfLines={1}>{look.vibe}</Text>}
       {/* No duration here — a look isn't naturally "N hours" the way a
           service booking's schedule slot is; price is what a client
           actually decides on. */}
-      <Text style={styles.meta}>
+      <Text style={[styles.meta, !look.vibe && { marginTop: 8 }]}>
         {price != null ? `From ${formatCurrency(price, { decimals: 0 })}` : 'Price varies by artist'}
         {!!likeOverride?.count && `  ·  ♥ ${likeOverride.count}`}
       </Text>

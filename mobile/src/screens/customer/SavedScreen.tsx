@@ -12,9 +12,10 @@ import { LookTile } from '../../components/LookTile';
 import { LookSheet } from '../../components/LookSheet';
 import { GlowMark } from '../../components/GlowLogo';
 import { useSavedLooks } from '../../utils/savedLooks';
-import { apiGetFavorites, PublicProviderCard } from '../../api/client';
+import { apiGetFavorites, apiGetLikedPosts, PublicProviderCard, Post } from '../../api/client';
 import { useFavorites } from '../../utils/favorites';
 import { ArtistCard } from '../../components/ArtistCard';
+import { PostMedia } from '../../components/PostMedia';
 
 export function SavedScreen() {
   const insets = useSafeAreaInsets();
@@ -23,15 +24,22 @@ export function SavedScreen() {
   const savedIds = useSavedLooks();
   const [openLook, setOpenLook] = useState<Look | null>(null);
   const [board, setBoard] = useState<string | null>(null);
-  const [tab, setTab] = useState<'Looks' | 'Artists'>(route.params?.initialTab ?? 'Looks');
+  const [tab, setTab] = useState<'Looks' | 'Artists' | 'Posts'>(route.params?.initialTab ?? 'Looks');
   const [artists, setArtists] = useState<PublicProviderCard[]>([]);
   const [artistsLoading, setArtistsLoading] = useState(true);
+  const [likedPosts, setLikedPosts] = useState<Post[]>([]);
+  const [postsLoading, setPostsLoading] = useState(true);
   const favoriteIds = useFavorites();
 
   useEffect(() => {
     if (tab !== 'Artists') return;
     apiGetFavorites().then(r => setArtists(r.providers)).catch(() => setArtists([])).finally(() => setArtistsLoading(false));
   }, [tab, favoriteIds.length]);
+
+  useEffect(() => {
+    if (tab !== 'Posts') return;
+    apiGetLikedPosts().then(r => setLikedPosts(r.posts)).catch(() => setLikedPosts([])).finally(() => setPostsLoading(false));
+  }, [tab]);
 
   const savedLooks = useMemo(
     () => LOOKS.filter(l => savedIds.includes(l.id)),
@@ -58,7 +66,7 @@ export function SavedScreen() {
         </View>
 
         <View style={styles.tabBar}>
-          {(['Looks', 'Artists'] as const).map(t => {
+          {(['Looks', 'Artists', 'Posts'] as const).map(t => {
             const active = tab === t;
             return (
               <Pressable key={t} style={[styles.tabPill, active && styles.tabPillActive]} onPress={() => setTab(t)}>
@@ -149,6 +157,40 @@ export function SavedScreen() {
             </View>
           )
         )}
+
+        {tab === 'Posts' && (
+          postsLoading ? (
+            <View style={styles.empty}>
+              <ActivityIndicator color={Colors.brand} />
+            </View>
+          ) : likedPosts.length === 0 ? (
+            <View style={styles.empty}>
+              <View style={styles.emptyArt}>
+                <GlowMark size={46} petal={Colors.brandAccent} core={Colors.gold} />
+              </View>
+              <Text style={styles.emptyTitle}>No liked posts yet</Text>
+              <Text style={styles.emptySub}>Heart a post in Explore and it'll show up here.</Text>
+              <Pressable style={({ pressed }) => [styles.emptyCta, pressed && { opacity: 0.9 }]} onPress={() => nav.navigate('ExploreTab')}>
+                <Text style={styles.emptyCtaText}>Explore posts</Text>
+              </Pressable>
+            </View>
+          ) : (
+            <View style={styles.postGrid}>
+              {likedPosts.map(post => (
+                <Pressable
+                  key={post.id}
+                  style={styles.postTile}
+                  onPress={() => nav.navigate('PostDetail', { post })}
+                >
+                  <PostMedia photoUrl={post.photoUrl} videoUrl={post.videoUrl} style={styles.postTileImage} showBadge />
+                  <View style={styles.postTileLikeBadge}>
+                    <Text style={styles.postTileLikeText}>♥ {post.likeCount}</Text>
+                  </View>
+                </Pressable>
+              ))}
+            </View>
+          )
+        )}
       </ScrollView>
 
       <LookSheet look={openLook} onClose={() => setOpenLook(null)} />
@@ -184,6 +226,16 @@ const styles = StyleSheet.create({
   tabPillTextActive: { color: '#fff' },
   artistGrid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 24, gap: 14 },
   artistGridItem: { width: Platform.OS === 'web' ? ('calc(50% - 7px)' as any) : '47%' },
+
+  postGrid: { flexDirection: 'row', flexWrap: 'wrap', paddingHorizontal: 24, gap: 10 },
+  postTile: { width: '47%', aspectRatio: 1, borderRadius: 16, overflow: 'hidden', backgroundColor: Colors.brandLight },
+  postTileImage: { width: '100%', height: '100%' },
+  postTileLikeBadge: {
+    position: 'absolute', bottom: 8, right: 8,
+    backgroundColor: 'rgba(0,0,0,0.55)', borderRadius: 100,
+    paddingHorizontal: 8, paddingVertical: 4,
+  },
+  postTileLikeText: { color: '#fff', fontSize: 11.5, fontFamily: Fonts.semibold },
 
   empty: { alignItems: 'center', paddingHorizontal: 36, paddingTop: 60 },
   emptyArt: {

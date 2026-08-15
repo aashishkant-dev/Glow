@@ -430,7 +430,7 @@ export function BookingDetailScreen() {
               <ServiceIcon serviceType={booking.serviceType} size={28} color="#fff" bubble={false} />
             </View>
             <View style={{ flex: 1, gap: 8 }}>
-              <StatusBadge status={booking.status} size="md" />
+              <StatusBadge status={booking.status} size="md" onDark />
               <Text style={styles.heroService}>{booking.serviceType}</Text>
               <Text style={styles.heroPrice}>{booking.totalPrice != null ? formatCurrency(booking.totalPrice, { decimals: 0 }) : '—'}</Text>
               <Text style={styles.heroPay}>Private pay · Secured</Text>

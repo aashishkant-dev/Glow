@@ -1539,7 +1539,19 @@ export function CreateBookingScreen() {
     // promoting BOTH double-counts one visit as two separate line items.
     if (pendingProviderLook) { setPendingServiceName(''); return; }
     if (artistMenu.length === 0) return;
-    const match = artistMenu.find(s => s.name === pendingServiceName);
+    // pendingServiceName is one of the 9 broad category names (Home's
+    // category grid — see categories.ts) but artistMenu entries are each
+    // artist's OWN free-text service names, which don't have to equal a
+    // category verbatim (an artist can name a service "Party Makeup" or
+    // "Luxury Bridal Package" instead of the plain "Makeup"/"Bridal Makeup"
+    // category label). An exact match silently found nothing for any artist
+    // who'd renamed/specialized their listing, so nothing ever got
+    // preselected — a substring fallback (case-insensitive) still resolves
+    // "Makeup" -> "Party Makeup" the way a customer would expect.
+    const norm = (s: string) => s.trim().toLowerCase();
+    const target = norm(pendingServiceName);
+    const match = artistMenu.find(s => norm(s.name) === target)
+      ?? artistMenu.find(s => norm(s.name).includes(target));
     if (match) setSelectedServices(prev => (prev.some(s => s.name === match.name) ? prev : [...prev, match]));
     setPendingServiceName('');
   }, [pendingServiceName, artistMenu, pendingProviderLook]);

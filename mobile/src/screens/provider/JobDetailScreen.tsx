@@ -388,7 +388,7 @@ export function JobDetailScreen() {
           <View style={styles.heroBody}>
             <View style={styles.heroLeft}>
               {/* Status badge */}
-              <StatusBadge status={job.status} size="md" />
+              <StatusBadge status={job.status} size="md" onDark />
               {/* Service type */}
               <Text style={styles.heroService}>{job.serviceType}</Text>
               {/* Date + time */}

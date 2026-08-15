@@ -15,15 +15,30 @@ const STATUS_LABELS: Record<string, string> = {
 interface Props {
   status: string;
   size?: 'sm' | 'md';
+  // The pill's own tint (color + '18' background, same color text) assumes
+  // a light card behind it — on a dark hero (JobDetailScreen,
+  // BookingDetailScreen both use Colors.brandDark) several status colors
+  // are themselves muted/warm tones close to that background, so the text
+  // read as barely visible ("requested" in pale yellow-brown on dark rose).
+  // Text goes white here regardless of status — legible against any dark
+  // background by construction, not tuned per color — while the dot still
+  // carries the actual color coding.
+  onDark?: boolean;
 }
 
-export function StatusBadge({ status, size = 'md' }: Props) {
+export function StatusBadge({ status, size = 'md', onDark }: Props) {
   const color = StatusColors[status] ?? '#64748B';
   const label = STATUS_LABELS[status] ?? status;
   return (
-    <View style={[styles.pill, { backgroundColor: color + '18', borderColor: color + '40' }, size === 'sm' && styles.pillSm]}>
+    <View style={[
+      styles.pill,
+      onDark
+        ? { backgroundColor: 'rgba(255,255,255,0.16)', borderColor: 'rgba(255,255,255,0.32)' }
+        : { backgroundColor: color + '18', borderColor: color + '40' },
+      size === 'sm' && styles.pillSm,
+    ]}>
       <View style={[styles.dot, { backgroundColor: color }]} />
-      <Text style={[styles.text, { color }, size === 'sm' && styles.textSm]}>{label}</Text>
+      <Text style={[styles.text, { color: onDark ? '#fff' : color }, size === 'sm' && styles.textSm]}>{label}</Text>
     </View>
   );
 }
