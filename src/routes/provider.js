@@ -16,6 +16,17 @@ const router = express.Router();
 
 const NEARBY_RADIUS_KM = () => parseFloat(process.env.NEARBY_RADIUS_KM) || 15;
 
+// A provider's own serviceRadiusKm (set via profile settings, 1-200) is
+// meant to cap how far they're willing to travel — Find Jobs and accepting
+// a job both used to ignore it entirely and apply the same fixed global
+// radius to everyone, so setting it smaller had no actual effect: a
+// provider who capped themselves at 5km could still see and accept jobs
+// 15km out. Falls back to the global default only when unset.
+function effectiveRadiusKm(profile) {
+  const r = profile?.serviceRadiusKm;
+  return (typeof r === 'number' && r > 0) ? r : NEARBY_RADIUS_KM();
+}
+
 // Prisma Decimal → JS number coercion
 function toNum(v) { return v == null ? v : parseFloat(v.toString()); }
 
@@ -257,7 +268,7 @@ router.get(
 
       // Bounding-box pre-filter: 1 degree lat ≈ 111km, 1 degree lng ≈ 79km at 46°N.
       // Pre-filter to a square roughly 2× the radius before haversine in JS.
-      const radiusKm   = NEARBY_RADIUS_KM();
+      const radiusKm   = effectiveRadiusKm(profile);
       const latDelta   = radiusKm / 111.0;
       const lngDelta   = radiusKm / (111.0 * Math.cos(providerLat * (Math.PI / 180)));
 
@@ -535,6 +546,26 @@ router.post(
       // like "I can see jobs but can't accept them."
       if (targetBooking.providerId && targetBooking.providerId !== req.user.id && !targetBooking.openToPool) {
         return res.status(403).json({ error: 'This booking was requested for a different Provider.' });
+      }
+
+      // Open-pool jobs (no specific artist chosen, or opened to the pool after
+      // the original artist didn't respond) are the ones Find Jobs lists by
+      // distance — but that filter was display-only. Nothing stopped a
+      // provider from accepting one outside their own configured
+      // serviceRadiusKm (or the global default) via a stale client-side list
+      // or a direct API call, silently ignoring the radius setting they'd
+      // deliberately set. A dedicated request (client picked this specific
+      // artist by name) intentionally skips this — see GET /jobs/requests'
+      // own "NOT distance-filtered" comment; that's a deliberate choice
+      // there, not an oversight.
+      if (!targetBooking.providerId || targetBooking.openToPool) {
+        if (req.user.lat && req.user.lng && targetBooking.lat && targetBooking.lng) {
+          const distanceKm = haversineKm(req.user.lat, req.user.lng, targetBooking.lat, targetBooking.lng);
+          const maxKm = effectiveRadiusKm(profile);
+          if (distanceKm > maxKm) {
+            return res.status(403).json({ error: `This job is ${Math.round(distanceKm)}km away, outside your ${maxKm}km service radius.` });
+          }
+        }
       }
 
       // Conflict detection

@@ -349,12 +349,15 @@ export function ExploreScreen() {
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingHorizontal: 24, alignItems: 'flex-start' }}>
                 {exploreLooks.map(item => (
                   <View key={item.id} style={{ width: 150 }}>
+                    {/* No fitToPhoto — see the matching comment in
+                        ProviderLooksScreen.tsx; keeps every card in this
+                        row the same height regardless of each photo's own
+                        aspect ratio. */}
                     <LookTile
                       look={exploreLookToLook(item)}
                       price={item.price}
                       onPress={() => openExploreLook(item)}
                       height={130}
-                      fitToPhoto
                       photoCount={item.media.length}
                       coverVideo={item.media[0]?.type === 'video' ? item.media[0].url : undefined}
                       badge={item.badge}

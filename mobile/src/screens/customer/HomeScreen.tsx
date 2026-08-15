@@ -589,10 +589,16 @@ export function HomeScreen() {
           </View>
           <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll} contentContainerStyle={styles.lookRow}>
             {trendingLooks.map(look => (
-              <View key={look.id} style={{ width: 190 }}>
+              // 150/130 matches every other horizontal-scroll look strip in
+              // the app (ProviderLooksScreen, ProviderPublicProfileScreen,
+              // Explore's "From our artists") — this row was the one place
+              // still using a bigger, one-off 190/150 for no functional
+              // reason, so the same look rendered a different size depending
+              // on which screen you saw it from.
+              <View key={look.id} style={{ width: 150 }}>
                 <LookTile
                   look={look}
-                  height={150}
+                  height={130}
                   price={catalogPrices[look.serviceType]}
                   onPress={() => setOpenLook(look)}
                 />

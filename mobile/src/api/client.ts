@@ -1182,6 +1182,7 @@ export interface ProviderPublicProfile {
     rating: number;
     comment: string;
     customerName: string;
+    customerPhotoUrl?: string | null;
     createdAt: string;
   }[];
   // Pricing

@@ -3,9 +3,9 @@
  * photo drops into `look.photo` when assets land, or a muted looping video
  * via `coverVideo`), name, meta, heart-save.
  */
-import React, { useEffect, useState } from 'react';
+import React from 'react';
 import { Image } from 'expo-image';
-import { Image as RNImage, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Fonts } from '../utils/colors';
@@ -19,15 +19,8 @@ import { formatCurrency } from '../utils/format';
 interface LookTileProps {
   look: Look;
   onPress: () => void;
-  /** Height of the art canvas; masonry passes varying values. Ignored when
-   *  `fitToPhoto` is set and a real photo/video loads. */
+  /** Height of the art canvas; masonry passes varying values. */
   height?: number;
-  // Real portfolio media (fitToPhoto rows) has actual aspect ratios worth
-  // showing — a portrait shot cropped to the same fixed box as a landscape
-  // one loses what made it a good photo. Off by default: the curated
-  // catalog's gradient-only entries have no real photo to size from, and a
-  // masonry column split still needs to predict heights before layout.
-  fitToPhoto?: boolean;
   price?: number;
   // Overrides the default local "saved looks" heart (device-only bookmark)
   // with a server-tracked like on a specific artist's look — used on artist
@@ -47,34 +40,10 @@ function CoverVideo({ uri }: { uri: string }) {
   return <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" nativeControls={false} />;
 }
 
-// Real width/height of the cover photo, as a CSS-style aspectRatio (w/h) —
-// undefined until it resolves, so the caller can keep the fixed `height`
-// prop as a placeholder and swap to the real shape once known instead of
-// the card visibly jumping from nothing to a size.
-function usePhotoAspectRatio(uri: string | undefined): number | undefined {
-  const [ratio, setRatio] = useState<number | undefined>(undefined);
-  useEffect(() => {
-    setRatio(undefined);
-    if (!uri) return;
-    let cancelled = false;
-    RNImage.getSize(uri, (w, h) => {
-      if (cancelled || w <= 0 || h <= 0) return;
-      // Clamp to a sane portrait..landscape band — an unusually shaped
-      // real-world upload (a near-panorama, an almost-square screenshot)
-      // shouldn't be allowed to produce a card so tall or short it breaks
-      // the grid, just genuinely differently-proportioned than a fixed box.
-      setRatio(Math.min(1.4, Math.max(0.6, w / h)));
-    }, () => {});
-    return () => { cancelled = true; };
-  }, [uri]);
-  return ratio;
-}
-
-export function LookTile({ look, onPress, height = 170, fitToPhoto, price, likeOverride, photoCount, coverVideo, badge }: LookTileProps) {
+export function LookTile({ look, onPress, height = 170, price, likeOverride, photoCount, coverVideo, badge }: LookTileProps) {
   const savedIds = useSavedLooks();
   const saved = likeOverride ? likeOverride.liked : savedIds.includes(look.id);
-  const photoRatio = usePhotoAspectRatio(fitToPhoto ? (look.photo ?? undefined) : undefined);
-  const canvasSize = fitToPhoto && photoRatio ? { aspectRatio: photoRatio } : { height };
+  const canvasSize = { height };
   return (
     <Pressable onPress={onPress} style={({ pressed }) => [styles.wrap, pressed && { transform: [{ scale: 0.98 }] }]}>
       <View style={[styles.canvas, canvasSize]}>

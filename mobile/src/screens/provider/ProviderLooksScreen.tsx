@@ -246,12 +246,20 @@ export function ProviderLooksScreen() {
                           <Text style={styles.mostLovedBadgeText}>♥ Most Loved</Text>
                         </View>
                       )}
+                      {/* fitToPhoto let each card's real photo aspect ratio
+                          drive its own height — fine for a single card, but
+                          with two or more in this row a portrait photo next
+                          to a landscape one produced visibly different card
+                          heights, so their price/action rows landed at
+                          different Y positions instead of lining up. A
+                          shared fixed height keeps every card in the row the
+                          same size, matching how every other look-card row
+                          in the app already works. */}
                       <LookTile
                         look={customLookToLook(item)}
                         price={item.price}
                         onPress={() => setEditingLook(item)}
                         height={130}
-                        fitToPhoto
                         likeOverride={{ liked: false, count: item.likeCount || 0, onToggle: () => {} }}
                         photoCount={item.media.length}
                         coverVideo={coverVideoFor(item)}

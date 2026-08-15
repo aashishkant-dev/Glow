@@ -4,12 +4,12 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { getSocket } from '../utils/socket';
-import { Storage } from '../utils/storage';
 import { scheduleLocal } from '../utils/notifications';
 import { apiGetNotifications, apiMarkNotificationsRead } from '../api/client';
 import { BellIcon, NoteIcon } from '../components/CareIcons';
 import { ChatIcon, StarIcon, CheckCircleIcon } from '../components/TabIcons';
 import { formatCurrency } from '../utils/format';
+import { useAuth } from './AuthContext';
 
 interface StoredNotification {
   id: string;
@@ -59,6 +59,7 @@ const ChatUnreadContext = createContext<ChatUnreadContextValue>({
 });
 
 export function ChatUnreadProvider({ children }: { children: React.ReactNode }) {
+  const { user } = useAuth();
   const [count, setCount] = useState(0);
   const [banner, setBanner] = useState<BannerMsg | null>(null);
   const slideY = useRef(new Animated.Value(-100)).current;
@@ -132,23 +133,46 @@ export function ChatUnreadProvider({ children }: { children: React.ReactNode }) 
     } catch { /* offline / not signed in — local cache still shows */ }
   }, []);
 
-  // Resolve the signed-in user's id FIRST (local read, no network — near
-  // instant) so the cache load below uses their own namespaced key from the
-  // start, then hydrate from the server.
+  // Re-resolve whenever the SIGNED-IN USER CHANGES, not just once on mount.
+  // This provider sits inside AuthProvider and outlives any single session —
+  // sign-out/sign-in swap AuthContext's `user` in place, with no remount and
+  // no page reload, so a one-time mount effect (the previous shape here)
+  // only ever captured whoever was signed in at cold start. Testing/using
+  // two accounts back-to-back in the same app session left every ref
+  // (userIdRef/myIdRef/roleRef) AND the `notifications` state itself
+  // pointed at the FIRST account: the second account's real-time "message"
+  // notifications got tagged with the first account's ids, rendered into
+  // the first account's still-live state, and then persisted under the
+  // first account's storage key — i.e. one account's notification history
+  // bleeding into another's, on a shared device. Depending on `user?.id`
+  // makes this rerun on every actual account change instead of relying on
+  // some sign-out path remembering to reset it.
+  const prevUserIdRef = useRef<string | undefined>(undefined);
   useEffect(() => {
-    (async () => {
-      const u = await Storage.getUser().catch(() => null);
-      myIdRef.current = (u as any)?.id ?? (u as any)?._id ?? null;
-      roleRef.current = (u as any)?.role ?? null;
-      userIdRef.current = myIdRef.current;
+    const id = (user as any)?.id ?? (user as any)?._id ?? null;
+    // Account actually changed (not just the initial mount resolving from
+    // undefined) — clear in-memory state immediately so nothing from the
+    // previous account is visible even for the brief window before the
+    // fresh load below completes.
+    if (prevUserIdRef.current !== undefined && prevUserIdRef.current !== id) {
+      setNotifications([]);
+      setCount(0);
+    }
+    prevUserIdRef.current = id ?? undefined;
 
+    myIdRef.current = id;
+    roleRef.current = (user as any)?.role ?? null;
+    userIdRef.current = id;
+
+    if (!id) return; // signed out — nothing to load
+    (async () => {
       const raw = await AsyncStorage.getItem(notifKey()).catch(() => null);
       if (aliveRef.current && raw) {
         try { setNotifications(JSON.parse(raw)); } catch {}
       }
       refreshNotifications();
     })();
-  }, [refreshNotifications]);
+  }, [user, refreshNotifications]);
 
   const addNotification = useCallback((title: string, body: string, options?: { type?: BannerMsg['type']; bookingId?: string; senderName?: string }) => {
     setNotifications(prev => {
@@ -231,7 +255,13 @@ export function ChatUnreadProvider({ children }: { children: React.ReactNode }) 
       const MAP: Record<string, { title: string; body: string; type?: BannerMsg['type'] }> = {
         ACCEPTED:  { title: 'Provider accepted',         body: isProvider ? 'You accepted the booking.' : `${who} accepted the booking and will be on the way.`, type: 'accepted' },
         ON_MY_WAY: { title: isProvider ? 'On the way' : `${who} is on the way`, body: isProvider ? 'Heading to the client now.' : 'Track their arrival in the app.', type: 'enroute' },
-        STARTED:   { title: 'Care session started', body: isProvider ? 'The care session has begun.' : `${who} has begun the session.`, type: 'started' },
+        // The data model has no separate "arrived" status — ON_MY_WAY jumps
+        // straight to STARTED the moment the artist taps "Start Job" on
+        // arrival (see JobDetailScreen's handlePrimaryAction) — so this IS
+        // the arrival notification, just worded around "session started"
+        // instead of leading with the more useful "they're here" moment a
+        // customer waiting at home actually wants to see first.
+        STARTED:   { title: isProvider ? 'Session started' : `${who} has arrived`, body: isProvider ? 'The care session has begun.' : 'Your session is starting now.', type: 'started' },
         COMPLETED: { title: 'Service completed',    body: completedBody, type: 'rating' },
         CANCELLED: { title: 'Booking cancelled',   body: d?.reason === 'provider-declined' ? 'Your Provider is unavailable — please choose another.' : 'Your booking was cancelled.', type: 'cancelled' },
         REQUESTED: d?.reason === 'provider-declined'

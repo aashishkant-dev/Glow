@@ -55,6 +55,43 @@ const REGION_LNG = parseFloat(process.env.DEFAULT_REGION_LNG) || 0;
 // True only when a stored coordinate pair is real (not the 0/null "unknown" sentinel).
 const hasRealCoords = (lat, lng) => lat != null && lng != null && (lat !== 0 || lng !== 0);
 
+// Picks the single nearest available, approved artist qualified for this
+// service (mirrors notifyNearbyProviders' qualification logic: exact look
+// match beats specialty match, both beat "nobody qualifies, pick nearest
+// anyone" so an on-demand request never comes up empty just because no one
+// has filled in their specialties yet). Used by POST /bookings' autoMatch
+// path — see the comment there for why this exists.
+async function findNearestQualifiedProvider(serviceType, lookId, lat, lng) {
+  if (!hasRealCoords(lat, lng)) return null;
+  const radiusKm = parseFloat(process.env.NEARBY_RADIUS_KM) || 15;
+
+  const profiles = await prisma.providerProfile.findMany({
+    where: { approvedByAdmin: true, availability: true },
+    select: { userId: true, specialties: true, capableLooks: true },
+  });
+  if (!profiles.length) return null;
+
+  const capability = new Map(profiles.map(p => [p.userId, p]));
+  const providerUsers = await prisma.user.findMany({
+    where: { id: { in: profiles.map(p => p.userId) }, role: 'Provider' },
+    select: { id: true, lat: true, lng: true },
+  });
+
+  const nearby = providerUsers
+    .map(u => ({ ...u, distanceKm: haversineKm(u.lat, u.lng, lat, lng) }))
+    .filter(u => hasRealCoords(u.lat, u.lng) && u.distanceKm <= radiusKm)
+    .sort((a, b) => a.distanceKm - b.distanceKm);
+  if (!nearby.length) return null;
+
+  const isQualified = (userId) => {
+    const p = capability.get(userId);
+    if (!p) return false;
+    if (lookId && p.capableLooks.includes(lookId)) return true;
+    return p.specialties.includes(serviceType);
+  };
+  return nearby.find(u => isQualified(u.id)) ?? nearby[0];
+}
+
 // ── Expo push notification helper ─────────────────────────────────────────────
 async function notifyNearbyProviders(booking, lat, lng, io) {
   const radiusKm = parseFloat(process.env.NEARBY_RADIUS_KM) || 15;
@@ -334,14 +371,6 @@ router.post(
         resolvedProviderId = providerId;
       }
 
-      // A ProviderLook belongs to exactly one artist — there's no "open pool"
-      // version of "book this specific package," so require a chosen provider
-      // up front rather than letting resolveProviderLookBooking's ownership
-      // check reject it later with a less obvious error.
-      if (providerLookId && !resolvedProviderId) {
-        return res.status(400).json({ error: 'Choose an artist to book this look with.' });
-      }
-
       let latCoord = Number(req.body.lat);
       let lngCoord = Number(req.body.lng);
       // If the client didn't send coords, fall back to the customer's own stored
@@ -354,6 +383,36 @@ router.post(
         latCoord = (me?.lat && me.lat !== 0) ? me.lat : 0;
         lngCoord = (me?.lng && me.lng !== 0) ? me.lng : 0;
       }
+
+      // On-demand ("book now") requests used to behave exactly like a
+      // scheduled booking minus the date picker — the customer still had to
+      // browse and pick a specific artist themselves, then wait for them (or
+      // the open pool) to accept. autoMatch skips that: the system finds the
+      // nearest available, qualified artist itself and books them directly,
+      // same as if the customer had picked that artist by hand — including
+      // their own price, and the existing request-timeout-sweep fallback if
+      // they don't respond in time.
+      if (req.body.autoMatch && !resolvedProviderId) {
+        const match = await findNearestQualifiedProvider(
+          requestedServices[0]?.name ?? serviceType,
+          providerLookId,
+          latCoord,
+          lngCoord,
+        );
+        if (!match) {
+          return res.status(404).json({ error: 'No available artists nearby right now. Try browsing artists instead.' });
+        }
+        resolvedProviderId = match.id;
+      }
+
+      // A ProviderLook belongs to exactly one artist — there's no "open pool"
+      // version of "book this specific package," so require a chosen provider
+      // up front rather than letting resolveProviderLookBooking's ownership
+      // check reject it later with a less obvious error.
+      if (providerLookId && !resolvedProviderId) {
+        return res.status(400).json({ error: 'Choose an artist to book this look with.' });
+      }
+
       // Dedicated booking: resolve EVERY selected service against this artist's
       // own ProviderService menu, then price the bundle. Open-pool booking (no
       // artist chosen): there is no menu to resolve against, so we fall back to
@@ -660,7 +719,7 @@ router.get(
           ratingValue: true,
           ratingComment: true,
           updatedAt: true,
-          customer: { select: { name: true } },
+          customer: { select: { name: true, photoUrl: true } },
         },
       });
 
@@ -750,6 +809,7 @@ router.get(
             rating: toNum(b.ratingValue) ?? 0,
             comment: b.ratingComment ?? '',
             customerName: b.customer?.name ? b.customer.name.split(' ')[0] + '.' : 'Anonymous',
+            customerPhotoUrl: b.customer?.photoUrl || null,
             createdAt: b.updatedAt,
           })),
           posts: recentPosts.map(p => ({

@@ -30,6 +30,7 @@ import { ShieldCheckIcon, CheckDecagramIcon, ClockIcon, InstagramIcon } from '..
 import { GlowMark } from '../../components/GlowLogo';
 import { ServiceIcon } from '../../components/ServiceIcon';
 import { LookTile } from '../../components/LookTile';
+import { Avatar } from '../../components/Avatar';
 import { LookGalleryModal } from '../../components/LookGalleryModal';
 import { PostMedia } from '../../components/PostMedia';
 import { lookById, Look } from '../../data/looks';
@@ -435,12 +436,16 @@ export function ProviderPublicProfileScreen() {
                 const key = `custom:${item.id}`;
                 return (
                   <View key={look.id} style={{ width: 150 }}>
+                    {/* No fitToPhoto — see the matching comment in
+                        ProviderLooksScreen.tsx. Two+ real photos of
+                        different aspect ratios in this same horizontal row
+                        produced visibly different card heights, breaking
+                        row alignment. */}
                     <LookTile
                       look={look}
                       price={item.price}
                       onPress={() => openCustomLook({ item, look })}
                       height={130}
-                      fitToPhoto
                       likeOverride={{ liked: likedKeys.has(key), count: likeCounts[key] || 0, onToggle: () => toggleLookLike(key) }}
                       photoCount={item.media.length}
                       coverVideo={item.media[0]?.type === 'video' ? item.media[0].url : undefined}
@@ -627,9 +632,14 @@ export function ProviderPublicProfileScreen() {
               <View key={r.id} style={styles.reviewCard}>
                 <View style={styles.reviewHead}>
                   <View style={{ flexDirection: 'row', alignItems: 'center', gap: 9 }}>
-                    <View style={styles.reviewAvatar}>
-                      <Text style={styles.reviewAvatarText}>{r.customerName[0]}</Text>
-                    </View>
+                    {/* Was always initials-only — the backend never selected
+                        the reviewing customer's photoUrl at all, so there
+                        was no photo to show even when one existed. */}
+                    {/* Avatar's initials fallback is always white text, so
+                        the bg needs to stay saturated enough for contrast —
+                        brandLight (used by the old initials-only version)
+                        is too pale for white text specifically. */}
+                    <Avatar name={r.customerName} photoUrl={r.customerPhotoUrl} size={34} bgColor={Colors.brand} />
                     <View>
                       <Text style={styles.reviewName}>{r.customerName}</Text>
                       <Text style={styles.reviewDate}>
@@ -844,8 +854,6 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: Colors.separator,
   },
   reviewHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 8 },
-  reviewAvatar: { width: 34, height: 34, borderRadius: 17, backgroundColor: Colors.brandLight, alignItems: 'center', justifyContent: 'center' },
-  reviewAvatarText: { color: Colors.brandDark, fontSize: 14, fontFamily: Fonts.bold },
   reviewName: { fontSize: 13.5, fontFamily: Fonts.semibold, color: Colors.label },
   reviewDate: { fontSize: 11, color: Colors.tertiaryLabel, marginTop: 1, fontFamily: Fonts.regular },
   reviewComment: { fontSize: 14, color: Colors.label, lineHeight: 21, fontFamily: Fonts.regular },
