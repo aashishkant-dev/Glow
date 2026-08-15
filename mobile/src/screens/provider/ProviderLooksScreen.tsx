@@ -24,7 +24,6 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   apiGetProfile,
@@ -39,7 +38,7 @@ import {
   Post,
 } from '../../api/client';
 import { Colors, Fonts } from '../../utils/colors';
-import { formatCurrency } from '../../utils/format';
+import { ProviderPricingEditor } from '../../components/ProviderPricingEditor';
 import { LOOKS, LOOK_OCCASIONS, Look } from '../../data/looks';
 import { CATEGORIES } from '../../data/categories';
 import { LookTile } from '../../components/LookTile';
@@ -194,13 +193,6 @@ export function ProviderLooksScreen() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editingLook, setEditingLook] = useState<ProviderLookItem | null>(null);
-  // Portfolio = Looks + a way to see/manage specialties & pricing without
-  // hunting through Profile > Business — this screen already loads
-  // `services` for the look-creation service picker, so the specialty view
-  // is free to build; actually editing prices still goes to the existing,
-  // fully-built Profile pricing editor rather than duplicating that logic.
-  const [viewTab, setViewTab] = useState<'looks' | 'specialties'>('looks');
-  const nav = useNavigation<any>();
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: Colors.secondarySystemBackground }} contentContainerStyle={{ paddingTop: insets.top + 16, paddingBottom: 100 }}>
@@ -214,68 +206,28 @@ export function ProviderLooksScreen() {
         <View style={{ flex: 1 }}>
           <View style={{ flexDirection: 'row', alignItems: 'center', gap: 7 }}>
             <SparkleIcon size={19} color="#fff" />
-            <Text style={styles.title}>{viewTab === 'looks' ? 'Your Looks' : 'Your Specialties'}</Text>
+            <Text style={styles.title}>Your Portfolio</Text>
           </View>
           <Text style={styles.subtitle}>
-            {viewTab === 'looks'
-              ? 'What clients see as "Looks you create" on your profile'
-              : 'The services & prices clients can book you for'}
+            Your specialties, prices & the looks clients see on your profile
           </Text>
         </View>
-        {viewTab === 'looks' && (
-          <Pressable onPress={() => setCreateOpen(true)} style={({ pressed }) => [styles.newBtn, pressed && { transform: [{ scale: 0.96 }] }]}>
-            <Text style={styles.newBtnPlus}>+</Text>
-            <Text style={styles.newBtnText}>Create a look</Text>
-          </Pressable>
-        )}
+        <Pressable onPress={() => setCreateOpen(true)} style={({ pressed }) => [styles.newBtn, pressed && { transform: [{ scale: 0.96 }] }]}>
+          <Text style={styles.newBtnPlus}>+</Text>
+          <Text style={styles.newBtnText}>Create a look</Text>
+        </Pressable>
       </LinearGradient>
 
-      <View style={styles.viewTabWrap}>
-        <View style={styles.viewTabPill}>
-          {(['looks', 'specialties'] as const).map(t => (
-            <Pressable key={t} style={[styles.viewTabBtn, viewTab === t && styles.viewTabBtnActive]} onPress={() => setViewTab(t)}>
-              <Text style={[styles.viewTabText, viewTab === t && styles.viewTabTextActive]}>
-                {t === 'looks' ? 'Looks' : 'Specialties'}
-              </Text>
-            </Pressable>
-          ))}
-        </View>
+      {/* ── Specialties & pricing — real, editable, no more bouncing to Profile ── */}
+      <View style={[styles.section, { marginTop: 24 }]}>
+        <ProviderPricingEditor />
       </View>
 
-      {viewTab === 'specialties' ? (
-        <View style={styles.section}>
-          <View style={styles.sectionTitleRow}>
-            <View style={styles.sectionAccent} />
-            <Text style={styles.sectionTitle}>Your specialties &amp; pricing</Text>
-          </View>
-          {services.length === 0 ? (
-            <Pressable onPress={() => nav.navigate('ProfileTab', { initialTab: 'business', _t: Date.now() })} style={styles.empty}>
-              <View style={styles.emptyIconWrap}><SparkleIcon size={24} color={Colors.brand} /></View>
-              <Text style={styles.emptyText}>Add your priced services so clients know what you offer</Text>
-              <Text style={styles.emptyHint}>Tap to set up your first specialty &amp; price</Text>
-            </Pressable>
-          ) : (
-            <>
-              {services.map(s => (
-                <View key={s.id} style={styles.specialtyRow}>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.specialtyName}>{s.name}</Text>
-                    <Text style={styles.specialtyMeta}>{s.durationMin ? `${s.durationMin} min` : 'No duration set'}</Text>
-                  </View>
-                  <Text style={styles.specialtyPrice}>{formatCurrency(s.price, { decimals: 0 })}</Text>
-                </View>
-              ))}
-              <Pressable style={styles.manageSpecialtiesBtn} onPress={() => nav.navigate('ProfileTab', { initialTab: 'business', _t: Date.now() })}>
-                <Text style={styles.manageSpecialtiesBtnText}>Add or edit specialties &amp; pricing</Text>
-              </Pressable>
-            </>
-          )}
-        </View>
-      ) : loading ? (
+      {loading ? (
         <ActivityIndicator style={{ marginVertical: 40 }} color={Colors.brand} />
       ) : (
         <>
-          {/* ── Your own looks ── */}
+          {/* ── Your own looks — stacked below specialties ── */}
           <View style={styles.section}>
             <View style={styles.sectionTitleRow}>
               <View style={styles.sectionAccent} />

@@ -387,7 +387,7 @@ function ProviderJobNotifier() {
 }
 
 function ProviderTabs() {
-  const { count: unreadCount, clear: clearUnread } = useChatUnread();
+  const { count: unreadCount } = useChatUnread();
   const { token, user } = useAuth();
   const [hasActiveJob, setHasActiveJob] = useState(false);
   const [nearbyBadge, setNearbyBadge] = useState(0);
@@ -417,13 +417,12 @@ function ProviderTabs() {
         if (!mounted) return;
         const active = bookings.some(j => ['ON_MY_WAY', 'STARTED'].includes(j.status));
         setHasActiveJob(active);
-        if (!active) clearUnread();
       } catch {}
     }
     check();
     const t = setInterval(check, 15_000);
     return () => { mounted = false; clearInterval(t); };
-  }, [token, clearUnread]);
+  }, [token]);
   const tabBarHeight = Platform.OS === 'ios' ? 83 : 68;
 
   // minHeight: 0 stops this flex:1 box from stretching past the real
@@ -446,9 +445,14 @@ function ProviderTabs() {
               <TabPill focused={focused}>
                 <View>
                   <HomeIcon size={22} color={color} filled={focused} />
-                  {reqBadge > 0 && (
+                  {/* Unread messages/notifications — distinct from the Requests
+                      tab's own badge below, which counts pending booking
+                      requests. These used to show the exact same number
+                      (both read reqBadge), which looked like a bug because
+                      it was one. */}
+                  {unreadCount > 0 && (
                     <View style={tabBadgeStyles.badge}>
-                      <Text style={tabBadgeStyles.badgeText}>{reqBadge > 9 ? '9+' : reqBadge}</Text>
+                      <Text style={tabBadgeStyles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
                     </View>
                   )}
                 </View>

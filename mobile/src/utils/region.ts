@@ -45,20 +45,37 @@ let currentCountryCode: string | null = DEFAULT_COUNTRY_CODE;
 
 // Several signals can name a country for the same session (device locale at
 // boot, a Google/Apple sign-in hint, live GPS, an explicit CountryPicker tap,
-// a verified phone number) and they don't all arrive in a fixed order — GPS
-// keeps refreshing every few minutes, for instance, and shouldn't be allowed
-// to stomp a phone number just because it happened to run more recently. A
+// a verified phone number) and they don't all arrive in a fixed order. Live
+// GPS ranks highest on purpose — currency should track where someone
+// actually is right now, not a stale signup-time phone number/country pick,
+// so a fresh reverse-geocoded fix is always allowed to correct it. A
 // priority number per signal (higher = more trustworthy) replaces the old
 // "whoever calls last wins" behaviour: a signal only takes effect if it's at
 // least as trustworthy as whatever is currently applied.
 const PRIORITY = {
   DEFAULT: 0,
   LOCALE: 1,   // device locale at boot, or a Google/Apple sign-in locale hint
-  GPS: 2,      // reverse-geocoded live location — more precise than a locale guess
-  PICKER: 3,   // explicit CountryPicker selection during phone signup
-  PHONE: 4,    // a real, parseable phone number — the strongest signal
+  PICKER: 2,   // explicit CountryPicker selection during phone signup
+  PHONE: 3,    // a real, parseable phone number
+  GPS: 4,      // reverse-geocoded live location — the most precise signal, wins whenever available
 } as const;
 let currentPriority: number = PRIORITY.DEFAULT;
+
+// Lightweight pub-sub so UI can re-render when the resolved currency/country
+// actually changes — every setter above is a plain synchronous function
+// (not React state), so without this, a component that already rendered
+// before a slower signal (GPS in particular, which needs a permission +
+// fetch round-trip) resolved would keep showing the old currency until it
+// happened to re-render for an unrelated reason. See AuthContext, which
+// subscribes once near the app root and forces a re-render on change.
+const listeners = new Set<() => void>();
+function notifyCurrencyChange(): void {
+  listeners.forEach(fn => fn());
+}
+export function subscribeCurrencyChange(fn: () => void): () => void {
+  listeners.add(fn);
+  return () => listeners.delete(fn);
+}
 
 // ISO 3166-1 alpha-2 country → ISO 4217 currency. CountryPicker.tsx's phone
 // signup only offers CA/US/GB/NP today, but this list is deliberately wider:
@@ -89,9 +106,11 @@ function applyCountry(country: string | null | undefined, priority: number): boo
   const currency = COUNTRY_CURRENCY[code];
   if (!currency) return false;
   if (priority < currentPriority) return false;
+  const changed = code !== currentCountryCode || currency !== currentCurrencyCode;
   currentCountryCode = code;
   currentCurrencyCode = currency;
   currentPriority = priority;
+  if (changed) notifyCurrencyChange();
   return true;
 }
 
@@ -179,6 +198,7 @@ export function resetCurrencyCode(): void {
   currentCurrencyCode = DEFAULT_CURRENCY_CODE;
   currentCountryCode = DEFAULT_COUNTRY_CODE;
   currentPriority = PRIORITY.DEFAULT;
+  notifyCurrencyChange();
 }
 
 export function getCurrencyCode(): string {

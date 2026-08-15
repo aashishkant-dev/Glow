@@ -3,7 +3,7 @@ import { Storage, StoredUser } from '../utils/storage';
 import { connectSocket, disconnectSocket } from '../utils/socket';
 import { initNotifications, addPushTokenRefreshListener } from '../utils/notifications';
 import { registerUnauthorizedHandler } from '../api/client';
-import { setCurrencyCodeForPhone, setCurrencyCodeFromDeviceLocale, resetCurrencyCode } from '../utils/region';
+import { setCurrencyCodeForPhone, setCurrencyCodeFromDeviceLocale, resetCurrencyCode, subscribeCurrencyChange } from '../utils/region';
 
 interface AuthState {
   token: string | null;
@@ -79,6 +79,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     setCurrencyCodeForPhone(state.user?.phone);
   }, [state.user?.phone]);
+
+  // region.ts's currency/country state is plain module state, not React
+  // state — a screen that already rendered before a slower signal (GPS
+  // especially, which needs a permission + fetch round-trip) resolved would
+  // otherwise keep showing the old currency indefinitely. AuthProvider sits
+  // at the root of the authenticated app, so bumping its own state here
+  // forces every mounted screen below it to re-render and pick up the fresh
+  // value the next time it calls formatCurrency/getCurrencyCode.
+  const [, setCurrencyTick] = useState(0);
+  useEffect(() => subscribeCurrencyChange(() => setCurrencyTick(t => t + 1)), []);
 
   const updatePhoto = useCallback((uri: string | null) => {
     setState(s => {
