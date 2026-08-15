@@ -1,6 +1,7 @@
 import React from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Fonts } from '../utils/colors';
 import { Radius } from '../utils/theme';
 import { PublicProviderCard } from '../api/client';
@@ -8,6 +9,10 @@ import { HeartIcon } from './TabIcons';
 import { useFavorites, toggleFavorite } from '../utils/favorites';
 import { tapLight } from '../utils/haptics';
 import { formatCurrency } from '../utils/format';
+
+function initialsOf(name: string): string {
+  return name.trim().split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+}
 
 interface Props {
   artist: PublicProviderCard;
@@ -26,7 +31,19 @@ export function ArtistCard({ artist, onPress, showFavorite = false }: Props) {
       onPress={onPress}
     >
       <View>
-        <Image source={{ uri: artist.photoUrl }} style={styles.photo} contentFit="cover" cachePolicy="memory-disk" transition={150} />
+        {artist.photoUrl ? (
+          <Image source={{ uri: artist.photoUrl }} style={styles.photo} contentFit="cover" cachePolicy="memory-disk" transition={150} />
+        ) : (
+          // No photo yet — an empty gray box (the old fallback, or the lack
+          // of one) read as a broken card. A branded gradient + initials, the
+          // same idea Avatar uses elsewhere, at least reads as "no photo" on
+          // purpose instead of "this failed to load".
+          <LinearGradient colors={[Colors.brandAccent, Colors.brandDeep]} start={{ x: 0, y: 0 }} end={{ x: 1, y: 1 }} style={styles.photo}>
+            <View style={styles.photoFallbackCenter}>
+              <Text style={styles.photoFallbackInitials}>{initialsOf(artist.name)}</Text>
+            </View>
+          </LinearGradient>
+        )}
         {showFavorite && (
           <Pressable
             style={styles.heart}
@@ -67,6 +84,8 @@ const styles = StyleSheet.create({
     height: 180,
     backgroundColor: Colors.systemGray5,
   },
+  photoFallbackCenter: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  photoFallbackInitials: { fontSize: 40, fontFamily: Fonts.bold, color: 'rgba(255,255,255,0.85)', letterSpacing: 1 },
   heart: {
     position: 'absolute', top: 8, right: 8,
     width: 28, height: 28, borderRadius: 14,

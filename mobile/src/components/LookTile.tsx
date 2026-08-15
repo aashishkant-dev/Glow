@@ -5,12 +5,13 @@
  */
 import React, { useEffect, useState } from 'react';
 import { Image } from 'expo-image';
-import { Image as RNImage, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Image as RNImage, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Fonts } from '../utils/colors';
 import { Look } from '../data/looks';
 import { HeartIcon } from './TabIcons';
+import { SparkleIcon } from './BeautyIcons';
 import { toggleSavedLook, useSavedLooks } from '../utils/savedLooks';
 import { tapLight } from '../utils/haptics';
 import { formatCurrency } from '../utils/format';
@@ -81,10 +82,29 @@ export function LookTile({ look, onPress, height = 170, fitToPhoto, price, likeO
           <CoverVideo uri={coverVideo} />
         ) : look.photo ? (
           <Image source={{ uri: look.photo }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" transition={200} />
-        ) : Platform.OS === 'web' ? (
-          <View style={[StyleSheet.absoluteFill, { background: `linear-gradient(150deg, ${look.from}, ${look.to})` } as any]} />
         ) : (
-          <View style={[StyleSheet.absoluteFill, { backgroundColor: look.from }]} />
+          // Was a web-only CSS `background` string with a flat solid
+          // `backgroundColor` fallback for native — native never actually
+          // got a gradient here, just look.from as a flat block, which is
+          // most of what a browsing customer sees before real photos exist
+          // (the curated catalog has no photography yet). LinearGradient is
+          // already imported for the photo-tint overlay below; reused here
+          // for a genuine cross-platform gradient instead.
+          <LinearGradient
+            colors={[look.from, look.to]}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          >
+            {/* A large, near-invisible sparkle watermark, bleeding off the
+                bottom-right corner — the flat gradient alone reads as an
+                unstyled placeholder; this is a deliberate design touch
+                instead, using the app's own Glow motif rather than a photo
+                that doesn't exist yet. */}
+            <View style={styles.canvasWatermark} pointerEvents="none">
+              <SparkleIcon size={110} color="rgba(255,255,255,0.12)" />
+            </View>
+          </LinearGradient>
         )}
         {/* The look's theme is a persistent style choice, not just a
             fallback for "no photo yet" — a diagonal tint of the same colors
@@ -144,6 +164,10 @@ const styles = StyleSheet.create({
   canvas: {
     borderRadius: 26, overflow: 'hidden',
     padding: 14, justifyContent: 'flex-end',
+  },
+  canvasWatermark: {
+    position: 'absolute', bottom: -20, right: -20,
+    transform: [{ rotate: '-12deg' }],
   },
   canvasGlow: {
     position: 'absolute', top: -36, right: -28,
