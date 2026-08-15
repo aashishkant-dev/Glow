@@ -791,6 +791,7 @@ router.get(
             name: l.name,
             vibe: l.vibe,
             serviceType: l.serviceType,
+            categories: l.categories,
             price: toNum(l.price),
             durationMin: l.durationMin,
             includes: l.includes,
@@ -1100,6 +1101,13 @@ router.get(
           customer: { select: { id: true, name: true, phone: true, skinTone: true, skinType: true, rating: true, photoUrl: true } },
           provider:      { select: { id: true, name: true, phone: true, rating: true, ratingCount: true, photoUrl: true } },
           services: { select: { id: true, serviceItemId: true, name: true, price: true, durationMin: true } },
+          // "Book this look" bookings (an artist's own ProviderLook, not the
+          // shared catalog) never surfaced which look was actually requested
+          // anywhere the PROVIDER could see — only the catalog lookId path
+          // (jobView.lookId, resolved client-side against data/looks.ts) was
+          // ever checked. An artist getting a request for their own "Bridal
+          // Glam" package saw a completely blank "what did they pick" gap.
+          providerLook: { select: { id: true, name: true, vibe: true, media: true, includes: true } },
         },
       });
       if (!booking) return res.status(404).json({ error: 'Booking not found' });

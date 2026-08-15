@@ -500,13 +500,14 @@ function ProviderTabs() {
           {() => <PostsScreen cameraSignal={postsCameraSignal} />}
         </Tab.Screen>
 
-        {/* ── Tab 4: Looks ── */}
+        {/* ── Tab 4: Portfolio (was "Looks" — houses Looks + a way into
+             specialties/pricing, not just the look cards) ── */}
         <Tab.Screen
           name="LooksTab"
           component={ProviderLooksScreen}
           options={{
             tabBarIcon: ({ color, focused }) => <TabPill focused={focused}><SparkleIcon size={20} color={color} /></TabPill>,
-            tabBarLabel: 'Looks',
+            tabBarLabel: 'Portfolio',
           }}
         />
 

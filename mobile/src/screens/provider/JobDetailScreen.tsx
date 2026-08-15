@@ -292,11 +292,18 @@ export function JobDetailScreen() {
 
   const lat = jobView.lat ?? 0;
   const lng = jobView.lng ?? 0;
-  // Set only when the client tapped "Book this look" on a specific catalog
-  // look (see LookSheet.tsx) rather than picking a plain service — lets the
-  // artist see exactly which reference look the client has in mind before
-  // accepting, not just the underlying service type.
-  const requestedLook = jobView.lookId ? lookById(jobView.lookId) : null;
+  // Two distinct "book this look" paths: a shared catalog look (lookId,
+  // resolved client-side against data/looks.ts) or the artist's OWN
+  // ProviderLook package (providerLook, joined server-side since it's not
+  // static data anyone has locally) — normalized to the same shape here so
+  // the section below doesn't need to care which one it was. Only the
+  // catalog case used to be checked at all, so a request against an
+  // artist's own package silently showed nothing here.
+  const requestedLook = jobView.lookId
+    ? lookById(jobView.lookId)
+    : jobView.providerLook
+      ? { name: jobView.providerLook.name, vibe: jobView.providerLook.vibe ?? '', includes: jobView.providerLook.includes }
+      : null;
 
   function openMaps() {
     Linking.openURL(`https://www.google.com/maps?q=${lat},${lng}`);

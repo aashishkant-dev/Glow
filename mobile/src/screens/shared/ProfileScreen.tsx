@@ -38,7 +38,7 @@ import {
 } from '../../components/CareIcons';
 import { ProfileStrength } from '../../components/ProfileStrength';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useRoute } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
 import * as Haptics from 'expo-haptics';
@@ -336,6 +336,7 @@ export function ProfileScreen() {
   const { user, signOut, updatePhoto, photoUri: authPhotoUri, token } = useAuth();
   const insets = useSafeAreaInsets();
   const nav    = useNavigation<any>();
+  const route  = useRoute<any>();
   const { coords, permissionStatus, requestLocation } = useLocation();
 
   const [photoUri,       setPhotoUri]       = useState<string | null>(authPhotoUri);
@@ -428,7 +429,19 @@ export function ProfileScreen() {
   // Provider-only Profile sub-tabs — Business (pricing/hours/visibility/earnings)
   // vs Account (personal info/professional profile/documents/support/legal). The
   // hero stays shared above both. Customers never see this — single scroll, unchanged.
-  const [providerProfileTab, setProviderProfileTab] = useState<'business' | 'account'>('account');
+  // The Portfolio tab's "Specialties" view deep-links here with initialTab so
+  // "add/edit a specialty" lands directly on pricing instead of Account.
+  const [providerProfileTab, setProviderProfileTab] = useState<'business' | 'account'>(
+    route.params?.initialTab === 'business' ? 'business' : 'account'
+  );
+  // Tab screens stay mounted between visits (React Navigation default), so
+  // the useState initializer above only ever fires once — without this, a
+  // second deep-link from Portfolio's "Specialties" view (after the artist
+  // had already been on Account) would land back on whatever tab was open
+  // last instead of jumping to Business again.
+  useEffect(() => {
+    if (route.params?.initialTab === 'business') setProviderProfileTab('business');
+  }, [route.params?.initialTab, route.params?._t]);
 
   const LANGUAGE_OPTIONS = ['English', 'French', 'Hindi', 'Nepali', 'Spanish', 'Mandarin', 'Punjabi', 'Arabic'];
 

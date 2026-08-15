@@ -24,6 +24,7 @@ import {
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import {
   apiGetProfile,
@@ -40,6 +41,7 @@ import {
 import { Colors, Fonts } from '../../utils/colors';
 import { formatCurrency } from '../../utils/format';
 import { LOOKS, LOOK_OCCASIONS, Look } from '../../data/looks';
+import { CATEGORIES } from '../../data/categories';
 import { LookTile } from '../../components/LookTile';
 import { CameraCapture, CapturedAsset } from '../../components/CameraCapture';
 import { FilterPreview } from '../../components/FilterPreview';
@@ -192,6 +194,13 @@ export function ProviderLooksScreen() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editingLook, setEditingLook] = useState<ProviderLookItem | null>(null);
+  // Portfolio = Looks + a way to see/manage specialties & pricing without
+  // hunting through Profile > Business — this screen already loads
+  // `services` for the look-creation service picker, so the specialty view
+  // is free to build; actually editing prices still goes to the existing,
+  // fully-built Profile pricing editor rather than duplicating that logic.
+  const [viewTab, setViewTab] = useState<'looks' | 'specialties'>('looks');
+  const nav = useNavigation<any>();
 
   return (
     <ScrollView style={{ flex: 1, backgroundColor: Colors.secondarySystemBackground }} contentContainerStyle={{ paddingTop: insets.top + 16, paddingBottom: 100 }}>
@@ -211,13 +220,56 @@ export function ProviderLooksScreen() {
             What clients see as "Looks you create" on your profile
           </Text>
         </View>
-        <Pressable onPress={() => setCreateOpen(true)} style={({ pressed }) => [styles.newBtn, pressed && { transform: [{ scale: 0.96 }] }]}>
-          <Text style={styles.newBtnPlus}>+</Text>
-          <Text style={styles.newBtnText}>Create a look</Text>
-        </Pressable>
+        {viewTab === 'looks' && (
+          <Pressable onPress={() => setCreateOpen(true)} style={({ pressed }) => [styles.newBtn, pressed && { transform: [{ scale: 0.96 }] }]}>
+            <Text style={styles.newBtnPlus}>+</Text>
+            <Text style={styles.newBtnText}>Create a look</Text>
+          </Pressable>
+        )}
       </LinearGradient>
 
-      {loading ? (
+      <View style={styles.viewTabWrap}>
+        <View style={styles.viewTabPill}>
+          {(['looks', 'specialties'] as const).map(t => (
+            <Pressable key={t} style={[styles.viewTabBtn, viewTab === t && styles.viewTabBtnActive]} onPress={() => setViewTab(t)}>
+              <Text style={[styles.viewTabText, viewTab === t && styles.viewTabTextActive]}>
+                {t === 'looks' ? 'Looks' : 'Specialties'}
+              </Text>
+            </Pressable>
+          ))}
+        </View>
+      </View>
+
+      {viewTab === 'specialties' ? (
+        <View style={styles.section}>
+          <View style={styles.sectionTitleRow}>
+            <View style={styles.sectionAccent} />
+            <Text style={styles.sectionTitle}>Your specialties &amp; pricing</Text>
+          </View>
+          {services.length === 0 ? (
+            <Pressable onPress={() => nav.navigate('ProfileTab', { initialTab: 'business', _t: Date.now() })} style={styles.empty}>
+              <View style={styles.emptyIconWrap}><SparkleIcon size={24} color={Colors.brand} /></View>
+              <Text style={styles.emptyText}>Add your priced services so clients know what you offer</Text>
+              <Text style={styles.emptyHint}>Tap to set up your first specialty &amp; price</Text>
+            </Pressable>
+          ) : (
+            <>
+              {services.map(s => (
+                <View key={s.id} style={styles.specialtyRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.specialtyName}>{s.name}</Text>
+                    <Text style={styles.specialtyMeta}>{s.durationMin ? `${s.durationMin} min` : 'No duration set'}</Text>
+                  </View>
+                  <Text style={styles.specialtyPrice}>{formatCurrency(s.price, { decimals: 0 })}</Text>
+                </View>
+              ))}
+              <Pressable style={styles.manageSpecialtiesBtn} onPress={() => nav.navigate('ProfileTab', { initialTab: 'business', _t: Date.now() })}>
+                <Text style={styles.manageSpecialtiesBtnText}>Add or edit specialties &amp; pricing</Text>
+              </Pressable>
+            </>
+          )}
+        </View>
+      ) : loading ? (
         <ActivityIndicator style={{ marginVertical: 40 }} color={Colors.brand} />
       ) : (
         <>
@@ -328,6 +380,11 @@ function CreateLookSheet({
   const [name, setName] = useState('');
   const [vibe, setVibe] = useState('');
   const [selectedService, setSelectedService] = useState<ProviderServiceItem | null>(null);
+  // Separate from selectedService — that's the ONE service this look is
+  // priced/booked against; these are the specialty categories it should
+  // additionally surface under for discovery (a bridal look with an updo
+  // is legitimately both "Bridal" and "Hair" work).
+  const [categories, setCategories] = useState<string[]>([]);
   const [price, setPrice] = useState('');
   const [durationMin, setDurationMin] = useState('');
   const [includesText, setIncludesText] = useState('');
@@ -370,6 +427,7 @@ function CreateLookSheet({
     setDurationMin(editingLook.durationMin != null ? String(editingLook.durationMin) : '');
     const matched = services.find(s => s.name === editingLook.serviceType);
     setSelectedService(matched || null);
+    setCategories(editingLook.categories ?? []);
     if (editingLook.themeFrom && editingLook.themeTo) {
       setTheme({ name: 'Custom', from: editingLook.themeFrom, to: editingLook.themeTo });
     }
@@ -377,9 +435,12 @@ function CreateLookSheet({
   }, [editingLook]);
 
   function reset() {
-    setName(''); setVibe(''); setSelectedService(null); setPrice(''); setDurationMin('');
+    setName(''); setVibe(''); setSelectedService(null); setCategories([]); setPrice(''); setDurationMin('');
     setIncludesText(''); setTheme(THEME_PRESETS[0]); setCustomFrom(''); setCustomTo('');
     setMedia([]); setFilter('original'); setBadge(''); setSubmitting(false);
+  }
+  function toggleCategory(name: string) {
+    setCategories(prev => prev.includes(name) ? prev.filter(c => c !== name) : [...prev, name]);
   }
 
   // Live-applies as soon as both fields are valid hex — no separate "apply"
@@ -430,6 +491,13 @@ function CreateLookSheet({
     setMedia(prev => prev.filter((_, i) => i !== index));
   }
 
+  // Tapping an already-added tile used to do nothing — the only way to
+  // change your mind about a photo was the small ✕ (remove it, then start
+  // the add flow over from scratch). This opens it full-screen, still
+  // inside the sheet, so you can actually look at what you picked and
+  // remove/replace it without losing your place.
+  const [previewIndex, setPreviewIndex] = useState<number | null>(null);
+
   async function submit() {
     const cleanName = name.trim();
     const cleanPrice = Number(price);
@@ -448,6 +516,7 @@ function CreateLookSheet({
           name: cleanName,
           vibe: vibe.trim() || undefined,
           serviceType: selectedService.name,
+          categories,
           price: cleanPrice,
           durationMin: durationMin ? Number(durationMin) : undefined,
           includes: includesText.split(',').map(s => s.trim()).filter(Boolean),
@@ -465,6 +534,7 @@ function CreateLookSheet({
           name: cleanName,
           vibe: vibe.trim() || undefined,
           serviceType: selectedService.name,
+          categories,
           price: cleanPrice,
           durationMin: durationMin ? Number(durationMin) : undefined,
           includes: includesText.split(',').map(s => s.trim()).filter(Boolean),
@@ -487,16 +557,38 @@ function CreateLookSheet({
   const gridItems: { key: string; type: 'photo' | 'video'; uri: string; source: 'new' | 'existing' }[] =
     media.map((m, i) => ({ key: `${m.uri}-${i}`, type: m.type, uri: m.uri, source: m.source }));
 
-  // Pull-down-to-dismiss: only fires from an overscroll past the very top
-  // (native bounce / web rubber-banding reports negative contentOffset.y
-  // there), not from an ordinary downward scroll mid-content — so scrolling
-  // back up through the form never accidentally closes it. Checked on
-  // release (onScrollEndDrag), not on every onScroll tick, so a small bounce
-  // that springs back on its own doesn't close the sheet out from under a
-  // still-scrolling thumb.
+  // Pull-down-to-dismiss. The original version only checked for a NEGATIVE
+  // contentOffset.y (native rubber-band overscroll past the top) — that
+  // never happens on the web build this is actually tested on: browsers
+  // clamp scroll position at 0 instead of bouncing negative (confirmed:
+  // Android Chrome shows an edge-glow, not a translated overscroll, and
+  // desktop wheel scrolling never goes negative at all), so the gesture
+  // silently never fired there. Tracking the raw touch drag distance
+  // instead works identically on web and native, touch or mouse.
   const scrollYRef = useRef(0);
+  const dragStartYRef = useRef<number | null>(null);
   const PULL_TO_CLOSE_THRESHOLD = 70;
+  function handleTouchStart(e: any) {
+    // Only arm the gesture when already at the top — otherwise an ordinary
+    // downward drag while scrolling through the middle of the form would
+    // close it.
+    dragStartYRef.current = scrollYRef.current <= 2 ? (e.nativeEvent.pageY ?? e.nativeEvent.touches?.[0]?.pageY ?? null) : null;
+  }
+  function handleTouchMove(e: any) {
+    if (dragStartYRef.current == null || scrollYRef.current > 2) return;
+    const y = e.nativeEvent.pageY ?? e.nativeEvent.touches?.[0]?.pageY;
+    if (y == null) return;
+    if (y - dragStartYRef.current > PULL_TO_CLOSE_THRESHOLD) {
+      dragStartYRef.current = null;
+      onClose();
+    }
+  }
+  function handleTouchEnd() {
+    dragStartYRef.current = null;
+  }
   function handleScrollEndDrag() {
+    // Kept as a fallback for platforms that DO report negative overscroll
+    // (real native iOS) — harmless no-op everywhere else.
     if (scrollYRef.current < -PULL_TO_CLOSE_THRESHOLD) onClose();
   }
 
@@ -508,6 +600,9 @@ function CreateLookSheet({
           contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
           onScroll={e => { scrollYRef.current = e.nativeEvent.contentOffset.y; }}
           onScrollEndDrag={handleScrollEndDrag}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
           scrollEventThrottle={16}
         >
           <Pressable style={styles.sheetHandleWrap} onPress={onClose} hitSlop={8}>
@@ -562,7 +657,7 @@ function CreateLookSheet({
 
               <View style={styles.photoGrid}>
                 {gridItems.map((m, i) => (
-                  <View key={m.key} style={styles.photoGridTile}>
+                  <Pressable key={m.key} style={styles.photoGridTile} onPress={() => setPreviewIndex(i)}>
                     {m.type === 'video' ? (
                       <MediaGridVideo uri={m.uri} />
                     ) : (
@@ -584,10 +679,14 @@ function CreateLookSheet({
                     {m.type === 'video' && (
                       <View style={styles.videoBadge} pointerEvents="none"><Text style={styles.videoBadgeText}>▶</Text></View>
                     )}
-                    <Pressable style={styles.photoRemoveBtn} onPress={() => removeMedia(i)} hitSlop={6}>
+                    <Pressable
+                      style={styles.photoRemoveBtn}
+                      onPress={(e) => { e.stopPropagation(); removeMedia(i); }}
+                      hitSlop={6}
+                    >
                       <Text style={styles.photoRemoveBtnText}>✕</Text>
                     </Pressable>
-                  </View>
+                  </Pressable>
                 ))}
                 {activeMediaCount < MAX_MEDIA && (
                   <Pressable onPress={() => setCameraOpen(true)} style={[styles.photoGridTile, styles.photoGridAddTile]}>
@@ -735,6 +834,23 @@ function CreateLookSheet({
                 })}
               </ScrollView>
 
+              {/* Separate from the one priced service above — this is
+                  purely "which specialties should this look show up under"
+                  for discovery, so a bridal look with an updo can surface
+                  in both Bridal and Hair without needing two separate
+                  looks or forcing a single choice. */}
+              <Text style={styles.fieldLabel}>Also show under (optional, pick any that fit)</Text>
+              <View style={{ flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+                {CATEGORIES.map(c => {
+                  const active = categories.includes(c.name);
+                  return (
+                    <Pressable key={c.id} style={[styles.chip, active && styles.chipActive]} onPress={() => toggleCategory(c.name)}>
+                      <Text style={[styles.chipText, active && styles.chipTextActive]}>{c.name}</Text>
+                    </Pressable>
+                  );
+                })}
+              </View>
+
               <View style={{ flexDirection: 'row', gap: 10 }}>
                 {/* Persistent labels, not just placeholders — a placeholder
                     vanishes the moment a number is typed, and two bare
@@ -770,6 +886,46 @@ function CreateLookSheet({
         onClose={() => setCameraOpen(false)}
         onCapture={(asset) => { addMedia(asset); setCameraOpen(false); }}
       />
+
+      {/* Full-screen review for an already-added tile — tapping it used to
+          do nothing at all. Doesn't leave the sheet (a Modal stacked on
+          the Modal, same pattern as the post picker above), so "manage
+          this photo" and "keep building the look" stay in the same place. */}
+      <Modal visible={previewIndex != null} transparent animationType="fade" onRequestClose={() => setPreviewIndex(null)}>
+        <View style={styles.previewOverlay}>
+          {previewIndex != null && gridItems[previewIndex] && (
+            <>
+              <View style={styles.previewMediaWrap}>
+                {gridItems[previewIndex].type === 'video' ? (
+                  <MediaGridVideo uri={gridItems[previewIndex].uri} />
+                ) : (
+                  <Image source={{ uri: gridItems[previewIndex].uri }} style={StyleSheet.absoluteFill} contentFit="contain" />
+                )}
+                {gridItems[previewIndex].source === 'new' && (() => {
+                  const active = PHOTO_FILTERS.find(f => f.id === filter);
+                  return active?.previewOverlay ? (
+                    <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: active.previewOverlay }]} />
+                  ) : null;
+                })()}
+              </View>
+              {previewIndex === 0 && (
+                <Text style={styles.previewCoverNote}>This is the cover photo clients see first.</Text>
+              )}
+              <View style={styles.previewActions}>
+                <Pressable
+                  style={[styles.cancelBtn, { flex: 1 }]}
+                  onPress={() => { removeMedia(previewIndex); setPreviewIndex(null); }}
+                >
+                  <Text style={[styles.cancelBtnText, { color: Colors.systemRed }]}>Remove</Text>
+                </Pressable>
+                <Pressable style={[styles.postBtn, { flex: 1 }]} onPress={() => setPreviewIndex(null)}>
+                  <Text style={styles.postBtnText}>Done</Text>
+                </Pressable>
+              </View>
+            </>
+          )}
+        </View>
+      </Modal>
 
       {/* Reuse an already-posted photo/video instead of shooting again — the
           same post can back this look and others at once. */}
@@ -834,6 +990,30 @@ const styles = StyleSheet.create({
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, marginBottom: 6 },
   sectionAccent: { width: 4, height: 16, borderRadius: 2, backgroundColor: Colors.brand },
   sectionTitle: { fontSize: 17.5, fontFamily: Fonts.display, color: Colors.label },
+
+  // Looks / Specialties segmented control — same blush-track pill pattern
+  // as Profile's Business/Account split, so the two "sub-tab inside a tab"
+  // controls in the app feel like one design language, not two.
+  viewTabWrap: { paddingHorizontal: 16, marginTop: 16, marginBottom: 20 },
+  viewTabPill: { flexDirection: 'row', backgroundColor: Colors.surfaceBlush, borderRadius: 100, padding: 4 },
+  viewTabBtn: { flex: 1, paddingVertical: 9, borderRadius: 100, alignItems: 'center' },
+  viewTabBtnActive: { backgroundColor: '#fff', shadowColor: Colors.cardShadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 6, elevation: 2 },
+  viewTabText: { fontSize: 13.5, fontFamily: Fonts.semibold, color: Colors.secondaryLabel },
+  viewTabTextActive: { color: Colors.brand },
+
+  specialtyRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: '#fff', borderRadius: 16, padding: 14, marginHorizontal: 16, marginBottom: 10,
+    borderWidth: 1, borderColor: Colors.separator,
+  },
+  specialtyName: { fontSize: 15, fontFamily: Fonts.semibold, color: Colors.label },
+  specialtyMeta: { fontSize: 12.5, color: Colors.tertiaryLabel, marginTop: 2, fontFamily: Fonts.regular },
+  specialtyPrice: { fontSize: 15, fontFamily: Fonts.bold, color: Colors.brand },
+  manageSpecialtiesBtn: {
+    marginHorizontal: 16, marginTop: 4, paddingVertical: 13, borderRadius: 14,
+    alignItems: 'center', backgroundColor: Colors.brandLight,
+  },
+  manageSpecialtiesBtnText: { fontSize: 14, fontFamily: Fonts.semibold, color: Colors.brand },
 
   empty: {
     alignItems: 'center', paddingVertical: 40, paddingHorizontal: 24, gap: 6,
@@ -949,4 +1129,9 @@ const styles = StyleSheet.create({
   cancelBtnText: { fontSize: 15, fontWeight: '700', color: Colors.secondaryLabel },
   postBtn: { flex: 1, paddingVertical: 13, borderRadius: 14, alignItems: 'center', backgroundColor: Colors.brand },
   postBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+
+  previewOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.92)', justifyContent: 'center', padding: 20, gap: 16 },
+  previewMediaWrap: { width: '100%', aspectRatio: 4 / 5, borderRadius: 20, overflow: 'hidden', backgroundColor: '#111' },
+  previewCoverNote: { color: 'rgba(255,255,255,0.7)', fontSize: 13, textAlign: 'center' },
+  previewActions: { flexDirection: 'row', gap: 10 },
 });

@@ -11,6 +11,7 @@ const { cacheGet, cacheSet, cacheDel, cacheFlushPattern } = require('../utils/ca
 const { listedPriceFor, computeFees } = require('../utils/pricing');
 const { uploadFile } = require('../utils/storage');
 const { PHOTO_FILTERS } = require('../utils/photoFilters');
+const { CATEGORIES } = require('../utils/categories');
 
 const router = express.Router();
 
@@ -292,6 +293,7 @@ router.get(
         },
         include: {
           customer: { select: { id: true, name: true, phone: true, skinTone: true, skinType: true, rating: true, photoUrl: true } },
+          providerLook: { select: { id: true, name: true, vibe: true, media: true, includes: true } },
           services: { select: { id: true, serviceItemId: true, name: true, price: true, durationMin: true } },
         },
         take: 200, // hard cap — bounding box should already be tight
@@ -310,6 +312,7 @@ router.get(
         },
         include: {
           customer: { select: { id: true, name: true, phone: true, skinTone: true, skinType: true, rating: true, photoUrl: true } },
+          providerLook: { select: { id: true, name: true, vibe: true, media: true, includes: true } },
           services: { select: { id: true, serviceItemId: true, name: true, price: true, durationMin: true } },
         },
         take: 50,
@@ -409,6 +412,7 @@ router.get(
         // older bookings that were created without booking.lat/lng.
         include: {
           customer: { select: { id: true, name: true, phone: true, skinTone: true, skinType: true, rating: true, ratingCount: true, photoUrl: true, lat: true, lng: true } },
+          providerLook: { select: { id: true, name: true, vibe: true, media: true, includes: true } },
           services: { select: { id: true, serviceItemId: true, name: true, price: true, durationMin: true } },
         },
         take:    100,
@@ -661,6 +665,7 @@ router.post(
         where: { id: req.params.id },
         include: {
           customer: { select: { id: true, name: true, phone: true, skinTone: true, skinType: true, address: true, photoUrl: true } },
+          providerLook: { select: { id: true, name: true, vibe: true, media: true, includes: true } },
           provider:      { select: { id: true, name: true, phone: true, photoUrl: true } },
           services: { select: { id: true, serviceItemId: true, name: true, price: true, durationMin: true } },
         },
@@ -724,6 +729,7 @@ router.post(
         data:  { status: 'ON_MY_WAY', providerArrivingAt: new Date() },
         include: {
           customer: { select: { id: true, name: true, phone: true, skinTone: true, skinType: true, address: true, photoUrl: true } },
+          providerLook: { select: { id: true, name: true, vibe: true, media: true, includes: true } },
           provider:      { select: { id: true, name: true, phone: true, photoUrl: true } },
         },
       });
@@ -779,6 +785,7 @@ router.post(
         data:  { status: 'STARTED', startedAt: new Date() },
         include: {
           customer: { select: { id: true, name: true, phone: true, skinTone: true, skinType: true, address: true, photoUrl: true } },
+          providerLook: { select: { id: true, name: true, vibe: true, media: true, includes: true } },
           provider:      { select: { id: true, name: true, phone: true, photoUrl: true } },
         },
       });
@@ -842,6 +849,7 @@ router.post(
         },
         include: {
           customer: { select: { id: true, name: true, phone: true, skinTone: true, skinType: true, address: true, photoUrl: true } },
+          providerLook: { select: { id: true, name: true, vibe: true, media: true, includes: true } },
           provider:      { select: { id: true, name: true, phone: true, photoUrl: true } },
         },
       });
@@ -1034,6 +1042,7 @@ router.get(
         orderBy: { scheduledAt: 'desc' },
         include: {
           customer: { select: { id: true, name: true, phone: true, skinTone: true, skinType: true, rating: true, address: true, photoUrl: true } },
+          providerLook: { select: { id: true, name: true, vibe: true, media: true, includes: true } },
           services: { select: { id: true, serviceItemId: true, name: true, price: true, durationMin: true } },
         },
       });
@@ -1375,6 +1384,7 @@ function serializeLook(l, likeCount = 0) {
     name: l.name,
     vibe: l.vibe,
     serviceType: l.serviceType,
+    categories: l.categories,
     price: toNum(l.price),
     durationMin: l.durationMin,
     includes: l.includes,
@@ -1478,9 +1488,12 @@ router.post(
       const existingCount = await prisma.providerLook.count({ where: { profileId: profile.id, active: true } });
       if (existingCount >= 24) return res.status(400).json({ error: 'You can have up to 24 looks. Remove one to add another.' });
 
-      const { name, vibe, serviceType, price, durationMin, includes, media, filter, themeFrom, themeTo, badge, autoTheme } = req.body;
+      const { name, vibe, serviceType, categories, price, durationMin, includes, media, filter, themeFrom, themeTo, badge, autoTheme } = req.body;
       const cleanName = String(name || '').trim().slice(0, 60);
       const cleanServiceType = String(serviceType || '').trim().slice(0, 80);
+      const cleanCategories = Array.isArray(categories)
+        ? [...new Set(categories.filter(c => CATEGORIES.includes(c)))]
+        : [];
       const cleanPrice = Number(price);
       // media: [{ type: 'photo'|'video', base64: string }] for a fresh shot, or
       // [{ type, url: string }] to reuse a photo/video already posted (the
@@ -1526,6 +1539,7 @@ router.post(
         name: cleanName,
         vibe: vibe ? String(vibe).trim().slice(0, 140) : null,
         serviceType: cleanServiceType,
+        categories: cleanCategories,
         price: cleanPrice,
         durationMin: durationMin != null ? Math.min(Math.max(Number(durationMin) || 60, 5), 720) : null,
         includes: Array.isArray(includes) ? includes.filter(i => typeof i === 'string' && i.trim()).map(i => i.trim().slice(0, 60)).slice(0, 10) : [],
@@ -1711,7 +1725,7 @@ router.patch(
       if (!look || !look.active) return res.status(404).json({ error: 'Look not found' });
       if (look.profileId !== profile.id) return res.status(403).json({ error: 'Not your look' });
 
-      const { name, vibe, serviceType, price, durationMin, includes, badge, themeFrom, themeTo, media, filter, autoTheme } = req.body;
+      const { name, vibe, serviceType, categories, price, durationMin, includes, badge, themeFrom, themeTo, media, filter, autoTheme } = req.body;
       const data = {};
       if (name !== undefined) {
         const cleanName = String(name).trim().slice(0, 60);
@@ -1723,6 +1737,9 @@ router.patch(
         const cleanServiceType = String(serviceType).trim().slice(0, 80);
         if (!cleanServiceType) return res.status(400).json({ error: 'serviceType cannot be empty' });
         data.serviceType = cleanServiceType;
+      }
+      if (categories !== undefined) {
+        data.categories = Array.isArray(categories) ? [...new Set(categories.filter(c => CATEGORIES.includes(c)))] : [];
       }
       if (price !== undefined) {
         const cleanPrice = Number(price);

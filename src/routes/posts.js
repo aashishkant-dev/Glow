@@ -7,6 +7,7 @@ const { uploadFile } = require('../utils/storage');
 const prisma  = require('../lib/prisma');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { PHOTO_FILTERS } = require('../utils/photoFilters');
+const { CATEGORIES } = require('../utils/categories');
 
 const router = express.Router();
 
@@ -23,17 +24,11 @@ function videoExtAndType(mimeType) {
   return { ext: 'mp4', contentType: 'video/mp4' };
 }
 
-// Same 9 categories used across the mobile app's Home grid and Glow Match —
-// kept as a fixed list (not tied to ProviderService) so any artist can tag a
+// Kept as a fixed list (not tied to ProviderService) so any artist can tag a
 // post regardless of pricing model or whether they've set up a service menu.
-// Must match mobile/src/data/categories.ts's CATEGORIES[].name exactly — the
-// waxing entry used to read just 'Waxing' here while the client sent
-// 'Waxing & Hair Removal', so every post tagged with that category was
-// silently rejected with a 400 at upload time.
-const POST_CATEGORIES = [
-  'Hair', 'Nails', 'Brows & Lashes', 'Waxing & Hair Removal', 'Makeup',
-  'Facials & Skin', 'Bridal', 'Henna', 'Spa & Massage',
-];
+// See utils/categories.js — shared with provider.js's look categories so
+// the two never drift the way this list once did against the mobile client.
+const POST_CATEGORIES = CATEGORIES;
 
 router.post(
   '/',

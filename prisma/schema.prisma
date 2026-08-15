@@ -752,6 +752,13 @@ model ProviderLook {
   name        String   @db.VarChar(60)
   vibe        String?  @db.VarChar(140)
   serviceType String
+  // Which specialty categories (mobile/src/data/categories.ts names) this
+  // look should surface under besides its one pricing-linked serviceType —
+  // a bridal look with an updo is legitimately both "Bridal" and "Hair"
+  // work, but serviceType alone can only name one for booking purposes.
+  // Purely a discovery/tagging field; serviceType stays the source of truth
+  // for what gets priced and booked.
+  categories  String[] @default([])
   price       Decimal  @db.Decimal(10,2)
   durationMin Int?
   includes    String[] @default([])

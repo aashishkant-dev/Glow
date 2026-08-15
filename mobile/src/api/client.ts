@@ -174,6 +174,11 @@ export interface ProviderLookItem {
   name: string;
   vibe: string | null;
   serviceType: string;
+  // Which specialty categories (see data/categories.ts) this look should
+  // surface under besides its one pricing-linked serviceType — a bridal
+  // look with an updo is legitimately both "Bridal" and "Hair" work, but
+  // serviceType alone can only name one for booking purposes.
+  categories?: string[];
   price: number;
   durationMin: number | null;
   includes: string[];
@@ -203,6 +208,7 @@ export function apiCreateLook(payload: {
   name: string;
   vibe?: string;
   serviceType: string;
+  categories?: string[];
   price: number;
   durationMin?: number;
   includes?: string[];
@@ -247,6 +253,7 @@ export function apiUpdateLook(lookId: string, payload: {
   name?: string;
   vibe?: string;
   serviceType?: string;
+  categories?: string[];
   price?: number;
   durationMin?: number;
   includes?: string[];
@@ -879,6 +886,13 @@ export interface Booking {
   // rather than the generic service picker — look it up client-side to show
   // the artist what look reference the client actually wants (see JobDetailScreen).
   lookId?: string | null;
+  // The joined ProviderLook itself (not just an id) when the booking was
+  // "book this look" against one of the ARTIST'S OWN packages rather than
+  // the shared catalog — lookId above only ever covers the catalog case, so
+  // an artist's own "Bridal Glam" package request had nowhere to surface at
+  // all until this was added. Present only on responses whose query
+  // included the relation (booking detail, nearby-jobs, requests).
+  providerLook?: { id: string; name: string; vibe: string | null; includes: string[]; media: LookMediaItem[] } | null;
   // Optional: only present on responses whose query included the relation
   // (booking detail, my-bookings, my-jobs, nearby-jobs, requests, accept).
   // Always fall back to `serviceType` when absent.
