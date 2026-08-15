@@ -19,6 +19,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Radius, Shadow, Spacing, Typography } from '../../utils/theme';
 import { OSMMap } from '../../components/OSMMap';
 import { formatCurrency, humanizeQualification } from '../../utils/format';
+import { lookById } from '../../data/looks';
 
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-CA', { weekday: 'long', month: 'long', day: 'numeric' });
@@ -291,6 +292,11 @@ export function JobDetailScreen() {
 
   const lat = jobView.lat ?? 0;
   const lng = jobView.lng ?? 0;
+  // Set only when the client tapped "Book this look" on a specific catalog
+  // look (see LookSheet.tsx) rather than picking a plain service — lets the
+  // artist see exactly which reference look the client has in mind before
+  // accepting, not just the underlying service type.
+  const requestedLook = jobView.lookId ? lookById(jobView.lookId) : null;
 
   function openMaps() {
     Linking.openURL(`https://www.google.com/maps?q=${lat},${lng}`);
@@ -474,6 +480,30 @@ export function JobDetailScreen() {
             </View>
           </View>
         ) : null}
+
+        {/* ── Look requested — the client picked this exact reference look,
+             not just "Bridal Makeup" in the abstract. Shown before the artist
+             accepts so they know what the client actually wants, the same
+             way they'd see it if the client had described it in person. ── */}
+        {requestedLook && (
+          <View style={styles.section}>
+            <Text style={styles.sectionLabel}>LOOK REQUESTED</Text>
+            <View style={styles.card}>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Look</Text>
+                <Text style={styles.detailValue}>{requestedLook.name}</Text>
+              </View>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Vibe</Text>
+                <Text style={styles.detailValue}>{requestedLook.vibe}</Text>
+              </View>
+              <View style={styles.detailRow}>
+                <Text style={styles.detailLabel}>Includes</Text>
+                <Text style={styles.detailValue}>{requestedLook.includes.join(', ')}</Text>
+              </View>
+            </View>
+          </View>
+        )}
 
         {/* ── Client profile — so the artist can prep the right shades/products
              before arriving, not just what services were picked. ── */}

@@ -10,7 +10,7 @@ const prisma = require('../src/lib/prisma');
 // Base prices are suggested defaults shown before a provider is chosen; each
 // provider sets their own price via PUT /provider/services.
 const BEAUTY_SERVICES = [
-  { name: 'Makeup',        description: 'Professional makeup for any occasion',      basePrice: 60,  durationMin: 60,  popular: true,  sortOrder: 1,  icon: 'makeup' },
+  { name: 'Makeup',        description: 'Professional makeup for any occasion',      basePrice: 60,  durationMin: 75,  popular: true,  sortOrder: 1,  icon: 'makeup' },
   { name: 'Bridal Makeup', description: 'Complete bridal look with trial',           basePrice: 250, durationMin: 180, popular: true,  sortOrder: 2,  icon: 'bridal' },
   { name: 'Party Makeup',  description: 'Glam look for parties and events',          basePrice: 80,  durationMin: 90,  popular: true,  sortOrder: 3,  icon: 'party' },
   { name: 'Threading',     description: 'Eyebrow and facial threading',              basePrice: 10,  durationMin: 20,  popular: true,  sortOrder: 4,  icon: 'threading' },

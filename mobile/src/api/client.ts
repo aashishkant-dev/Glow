@@ -129,7 +129,7 @@ export function apiVerifyPhone(payload: { otp: string; phone?: string }) {
 }
 
 export function apiGoogleSignIn(payload: { idToken: string; role?: 'CUSTOMER' | 'Provider' }) {
-  return request<{ token: string; user: AuthUser; requiresPhoneVerification?: boolean }>('POST', '/auth/google', payload, false, 2);
+  return request<{ token: string; user: AuthUser; requiresPhoneVerification?: boolean; locale?: string }>('POST', '/auth/google', payload, false, 2);
 }
 
 export function apiAppleSignIn(payload: { idToken: string; role?: 'CUSTOMER' | 'Provider'; name?: string }) {
@@ -156,6 +156,122 @@ export function apiSubmitProviderOnboarding(payload: {
   priceNegotiable?: boolean;
 }) {
   return request<{ message: string }>('POST', '/auth/provider-profile', payload);
+}
+
+// Editable any time after onboarding too (Looks tab) — same upsert endpoint,
+// just this one field.
+export function apiUpdateCapableLooks(capableLooks: string[]) {
+  return request<{ message: string }>('POST', '/auth/provider-profile', { capableLooks });
+}
+
+// ─── Provider Looks (self-served packages, distinct from the curated
+//     data/looks.ts catalog above) ─────────────────────────────────────────
+
+export interface LookMediaItem { type: 'photo' | 'video'; url: string; }
+
+export interface ProviderLookItem {
+  id: string;
+  name: string;
+  vibe: string | null;
+  serviceType: string;
+  price: number;
+  durationMin: number | null;
+  includes: string[];
+  // Up to 5, in display order — [0] is the cover shown on the card, the rest
+  // are a swipeable gallery. Can mix photos and short video clips. Empty
+  // when the look uses a theme instead.
+  media: LookMediaItem[];
+  // Short marketing label ("Bestseller", "Bridal Special") shown on the
+  // card — how an artist packages a look as a promoted offer.
+  badge?: string | null;
+  themeFrom: string | null;
+  themeTo: string | null;
+  createdAt: string;
+  likeCount?: number;
+}
+
+export function apiGetMyLooks() {
+  return request<{ looks: ProviderLookItem[] }>('GET', '/jobs/looks');
+}
+
+// A look's media item is either a fresh shot (base64, gets uploaded) or a
+// reference to a photo/video the artist already posted (url, reused as-is)
+// — the same photo can back both a Post and one or more Looks at once.
+export type LookMediaInput = { type: 'photo' | 'video'; base64: string; mimeType?: string } | { type: 'photo' | 'video'; url: string };
+
+export function apiCreateLook(payload: {
+  name: string;
+  vibe?: string;
+  serviceType: string;
+  price: number;
+  durationMin?: number;
+  includes?: string[];
+  media?: LookMediaInput[];
+  filter?: string;
+  themeFrom?: string;
+  themeTo?: string;
+  badge?: string;
+  // Samples the cover photo's own colors server-side (sharp resamples the
+  // whole image to one pixel) instead of using themeFrom/themeTo — the
+  // card's tint then always matches what's actually in the photo.
+  autoTheme?: boolean;
+}) {
+  return request<{ look: ProviderLookItem }>('POST', '/jobs/looks', payload);
+}
+
+export function apiDeleteLook(lookId: string) {
+  return request<{ success: boolean }>('DELETE', `/jobs/looks/${lookId}`);
+}
+
+// "Post into a look instead of the feed" — appends one photo or video to an
+// existing look's gallery, either a fresh shot or a reused existing post.
+// Used by PostsScreen's create flow as an alternative destination to
+// apiCreatePost, and by the look editor's "+" tile.
+export function apiAddLookMedia(
+  lookId: string,
+  item: { photoBase64?: string; videoBase64?: string; videoMimeType?: string; existingUrl?: string; existingType?: 'photo' | 'video' },
+  filter?: string,
+  autoTheme?: boolean,
+) {
+  return request<{ look: ProviderLookItem }>('POST', `/jobs/looks/${lookId}/photos`, { ...item, filter, autoTheme });
+}
+
+export function apiDeleteLookMedia(lookId: string, index: number) {
+  return request<{ look: ProviderLookItem }>('DELETE', `/jobs/looks/${lookId}/media/${index}`);
+}
+
+// Edits an existing look's details — name/vibe/service/price/duration/
+// includes/badge/theme. Media is managed incrementally (apiAddLookMedia /
+// apiDeleteLookMedia), not through this call.
+export function apiUpdateLook(lookId: string, payload: {
+  name?: string;
+  vibe?: string;
+  serviceType?: string;
+  price?: number;
+  durationMin?: number;
+  includes?: string[];
+  badge?: string;
+  themeFrom?: string;
+  themeTo?: string;
+  // When present, REPLACES the look's whole gallery in one commit — the
+  // edit sheet stages every photo/crop locally and sends the final array
+  // only on "Save changes", the same one-commit model as creating a look.
+  media?: LookMediaInput[];
+  filter?: string;
+  autoTheme?: boolean;
+}) {
+  return request<{ look: ProviderLookItem }>('PATCH', `/jobs/looks/${lookId}`, payload);
+}
+
+// A "look like" is scoped to (artist, look) — liking "Bridal Glow" under one
+// artist is independent of liking the same catalog entry under another.
+// lookKey is "catalog:<data/looks.ts id>" or "custom:<ProviderLook.id>".
+export function apiLikeLook(providerId: string, lookKey: string) {
+  return request<{ success: boolean }>('POST', `/providers/${providerId}/looks/${encodeURIComponent(lookKey)}/like`);
+}
+
+export function apiUnlikeLook(providerId: string, lookKey: string) {
+  return request<{ success: boolean }>('DELETE', `/providers/${providerId}/looks/${encodeURIComponent(lookKey)}/like`);
 }
 
 export interface ProviderServiceItem {
@@ -216,6 +332,9 @@ export function apiCreateBooking(payload: {
   notes?: string;
   // Negotiated offer against the SUMMED total of `services`, not per line item.
   proposedPrice?: number;
+  // data/looks.ts catalog ID when this came from "Book this look" — lets the
+  // backend prefer artists who confirmed this specific look (see notifyNearbyProviders).
+  lookId?: string;
 }) {
   return request<{ booking: Booking }>('POST', '/bookings', payload);
 }
@@ -692,6 +811,9 @@ export interface AvailableProvider {
   hourlyRate?: number;
   priceNegotiable?: boolean;
   services?: { name: string; price: number; durationMin: number }[];
+  // data/looks.ts catalog IDs this artist confirmed during onboarding —
+  // used to rank artists who can do a specific booked look first.
+  capableLooks?: string[];
 }
 
 export interface NearbyProvider {
@@ -709,6 +831,7 @@ export interface NearbyProvider {
   pricingModel?: 'PER_SERVICE' | 'HOURLY';
   hourlyRate?: number;
   priceNegotiable?: boolean;
+  capableLooks?: string[];
 }
 
 export interface SubmittedDocument {
@@ -747,6 +870,10 @@ export interface Booking {
   provider?: { _id: string; name: string; phone: string; rating?: number; ratingCount?: number; photoUrl?: string };
   serviceType: string;
   hours: number;
+  // data/looks.ts catalog ID when this booking came from "Book this look"
+  // rather than the generic service picker — look it up client-side to show
+  // the artist what look reference the client actually wants (see JobDetailScreen).
+  lookId?: string | null;
   // Optional: only present on responses whose query included the relation
   // (booking detail, my-bookings, my-jobs, nearby-jobs, requests, accept).
   // Always fall back to `serviceType` when absent.
@@ -805,6 +932,8 @@ export interface UserProfile {
     photoUrl?: string;
     photos?: string[];
     specialties?: string[];
+    // data/looks.ts catalog IDs this artist confirmed they can create.
+    capableLooks?: string[];
     policeCheckCleared?: boolean;
     pricingModel?: 'PER_SERVICE' | 'HOURLY';
     hourlyRate?: number;
@@ -915,7 +1044,10 @@ export function apiUploadPhoto(photoBase64: string, mimeType = 'image/jpeg', pur
 
 export interface Post {
   id: string;
-  photoUrl: string;
+  // Exactly one is set — a post is either a photo or a short in-app-camera
+  // video, never both.
+  photoUrl: string | null;
+  videoUrl?: string | null;
   caption: string | null;
   category?: string | null;
   likeCount: number;
@@ -925,7 +1057,7 @@ export interface Post {
   isLikedByMe?: boolean;
 }
 
-export function apiCreatePost(payload: { photoBase64: string; mimeType?: string; caption?: string; serviceId?: string; category?: string }) {
+export function apiCreatePost(payload: { photoBase64?: string; videoBase64?: string; mimeType?: string; caption?: string; serviceId?: string; category?: string; filter?: string }) {
   return request<{ post: Post }>('POST', '/posts', payload);
 }
 
@@ -952,6 +1084,30 @@ export function apiGetExplorePosts(sort: 'recent' | 'top', cursor?: string, limi
     ...(category ? { category } : {}),
   });
   return request<{ posts: Post[]; nextCursor: string | null }>('GET', `/posts/explore?${params.toString()}`);
+}
+
+// A self-served look (badge, theme, gallery, video) from any approved
+// artist — without this, that content only exists behind a direct visit to
+// one artist's profile, never surfaced the way curated data/looks.ts is.
+export interface ExploreLookItem {
+  id: string;
+  name: string;
+  vibe: string | null;
+  serviceType: string;
+  price: number;
+  durationMin: number | null;
+  includes: string[];
+  media: LookMediaItem[];
+  badge?: string | null;
+  themeFrom: string | null;
+  themeTo: string | null;
+  likeCount: number;
+  provider: { id: string; name: string; photoUrl?: string | null };
+}
+
+export function apiGetExploreLooks(sort: 'recent' | 'top' = 'recent', cursor?: string, limit = 20) {
+  const params = new URLSearchParams({ sort, limit: String(limit), ...(cursor ? { cursor } : {}) });
+  return request<{ looks: ExploreLookItem[]; nextCursor: string | null }>('GET', `/posts/explore-looks?${params.toString()}`);
 }
 
 // ─── Provider Reviews & Tips ───────────────────────────────────────────────────────
@@ -992,6 +1148,16 @@ export interface ProviderPublicProfile {
   hourlyRate?: number;
   priceNegotiable: boolean;
   services: { name: string; price: number; durationMin: number }[];
+  // data/looks.ts catalog IDs this artist confirmed during onboarding they can
+  // create — rendered on the public profile as their "Looks I create" packages.
+  capableLooks?: string[];
+  // Self-served looks this artist built themselves (see ProviderLook) — merged
+  // alongside capableLooks in the same section, both rendered via LookTile.
+  customLooks?: ProviderLookItem[];
+  // lookKey ("catalog:<id>" | "custom:<id>") → like count, and which of those
+  // keys the current viewer has liked — see LookLike schema comment.
+  lookLikes?: Record<string, number>;
+  myLikedLookKeys?: string[];
   // Where they work + rough location — 0/0 means ungeocoded (never rendered as a real point).
   homeService?: boolean;
   salonService?: boolean;
@@ -1002,7 +1168,8 @@ export interface ProviderPublicProfile {
   lng?: number;
   posts?: {
     id: string;
-    photoUrl: string;
+    photoUrl: string | null;
+    videoUrl?: string | null;
     caption: string | null;
     likeCount: number;
     createdAt: string;

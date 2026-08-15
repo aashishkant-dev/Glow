@@ -28,6 +28,13 @@
         "UIBackgroundModes": [
           "remote-notification",
           "location"
+        ],
+        "CFBundleURLTypes": [
+          {
+            "CFBundleURLSchemes": [
+              "com.googleusercontent.apps.692646116677-fpsjp4gudalbb0r75db4g1hrb4qjh4rc"
+            ]
+          }
         ]
       }
     },
@@ -85,6 +92,12 @@
           "cameraPermission": "Glow needs camera access to take profile and portfolio photos."
         }
       ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Glow needs camera access so you can shoot posts and looks directly in the app."
+        }
+      ],
       "expo-font",
       [
         "expo-splash-screen",
@@ -111,7 +124,9 @@
       "expo-status-bar",
       "expo-localization",
       "@sentry/react-native",
-      "expo-web-browser"
+      "expo-web-browser",
+      "expo-video",
+      "expo-sharing"
     ],
     "extra": {
       "apiUrl": "https://glow-backend-production-ae1e.up.railway.app",

@@ -2,12 +2,15 @@
 'use strict';
 
 const express  = require('express');
+const sharp    = require('sharp');
 const prisma   = require('../lib/prisma');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { sendPush, pushTo } = require('../utils/push');
 const { notify } = require('../utils/notify');
 const { cacheGet, cacheSet, cacheDel, cacheFlushPattern } = require('../utils/cache');
 const { listedPriceFor, computeFees } = require('../utils/pricing');
+const { uploadFile } = require('../utils/storage');
+const { PHOTO_FILTERS } = require('../utils/photoFilters');
 
 const router = express.Router();
 
@@ -1313,6 +1316,480 @@ router.put(
       res.json({ services: services.map(s => ({ ...s, price: toNum(s.price) })) });
     } catch (err) {
       console.error('PUT /provider/services error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+// ── Provider Looks — self-served, photographed/themed packages shown on the
+//    public profile alongside the curated data/looks.ts catalog (see
+//    ProviderLook's schema comment). ─────────────────────────────────────
+const MAX_LOOK_MEDIA = 5;
+const MAX_LOOK_VIDEO_BASE64 = 12_000_000; // ~9MB raw — same 6s-clip budget as posts.js
+
+function serializeLook(l, likeCount = 0) {
+  return {
+    id: l.id,
+    name: l.name,
+    vibe: l.vibe,
+    serviceType: l.serviceType,
+    price: toNum(l.price),
+    durationMin: l.durationMin,
+    includes: l.includes,
+    media: l.media,
+    badge: l.badge,
+    themeFrom: l.themeFrom,
+    themeTo: l.themeTo,
+    createdAt: l.createdAt,
+    likeCount,
+  };
+}
+
+// Uploads one media item (photo, filtered through sharp; video, raw) and
+// returns the { type, url } entry to store in ProviderLook.media.
+// Shrinks the photo to a single pixel — sharp resamples/averages the whole
+// image down to that one value, so it's a genuine (cheap) read of the
+// photo's overall color, not a guess. A darkened second stop turns that one
+// color into the same two-stop gradient shape every theme already uses.
+async function dominantThemeFromBuffer(buf) {
+  const { data } = await sharp(buf).resize(1, 1).raw().toBuffer({ resolveWithObject: true });
+  const [r, g, b] = data;
+  const toHex = (n) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, '0');
+  const from = `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+  const to = `#${toHex(r * 0.45)}${toHex(g * 0.45)}${toHex(b * 0.45)}`;
+  return { from, to };
+}
+
+// The mobile app records video two ways: native (expo-camera's recordAsync)
+// always produces real MP4/MOV, but on web (recordAsync is native-only)
+// capture goes through the browser's own MediaRecorder, which only speaks
+// WebM/VP9 — labeling that as video/mp4 (the old hardcoded default) uploads
+// a WebM file with a .mp4 name, which then fails to play. Pick the real
+// extension/content-type from whatever the client actually sent.
+function videoExtAndType(mimeType) {
+  if (typeof mimeType === 'string' && mimeType.startsWith('video/webm')) {
+    return { ext: 'webm', contentType: 'video/webm' };
+  }
+  return { ext: 'mp4', contentType: 'video/mp4' };
+}
+
+async function uploadLookMedia(profileId, index, item, filter) {
+  if (item.type === 'video') {
+    const buf = Buffer.from(item.base64, 'base64');
+    const { ext, contentType } = videoExtAndType(item.mimeType);
+    const result = await uploadFile(`looks/${profileId}-${Date.now()}-${index}.${ext}`, buf, contentType);
+    if (!result?.url) throw new Error('Video upload failed');
+    return { type: 'video', url: result.url };
+  }
+  let buf = Buffer.from(item.base64, 'base64');
+  let theme = null;
+  try {
+    theme = await dominantThemeFromBuffer(buf);
+  } catch {}
+  try {
+    let img = sharp(buf).resize(1080, 1350, { fit: 'inside', withoutEnlargement: true });
+    img = PHOTO_FILTERS[filter || 'original'](img);
+    buf = await img.jpeg({ quality: 80 }).toBuffer();
+  } catch {}
+  const result = await uploadFile(`looks/${profileId}-${Date.now()}-${index}.jpg`, buf, 'image/jpeg');
+  if (!result?.url) throw new Error('Photo upload failed');
+  return { type: 'photo', url: result.url, theme };
+}
+
+router.get(
+  '/looks',
+  authenticate,
+  requireRole('Provider'),
+  async (req, res) => {
+    try {
+      const profile = await prisma.providerProfile.findUnique({ where: { userId: req.user.id }, select: { id: true } });
+      if (!profile) return res.status(403).json({ error: 'Provider profile not found.' });
+      const looks = await prisma.providerLook.findMany({
+        where: { profileId: profile.id, active: true },
+        orderBy: { createdAt: 'desc' },
+      });
+      // So the artist can see which of their own looks clients respond to
+      // most (surfaced as a "Most Loved" badge client-side).
+      const likeCounts = await prisma.lookLike.groupBy({
+        by: ['lookKey'],
+        where: { profileId: profile.id, lookKey: { startsWith: 'custom:' } },
+        _count: { lookKey: true },
+      });
+      const countByKey = Object.fromEntries(likeCounts.map(l => [l.lookKey, l._count.lookKey]));
+      res.json({ looks: looks.map(l => serializeLook(l, countByKey[`custom:${l.id}`] || 0)) });
+    } catch (err) {
+      console.error('GET /provider/looks error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+router.post(
+  '/looks',
+  authenticate,
+  requireRole('Provider'),
+  async (req, res) => {
+    try {
+      const profile = await prisma.providerProfile.findUnique({ where: { userId: req.user.id }, select: { id: true } });
+      if (!profile) return res.status(403).json({ error: 'Provider profile not found.' });
+
+      const existingCount = await prisma.providerLook.count({ where: { profileId: profile.id, active: true } });
+      if (existingCount >= 24) return res.status(400).json({ error: 'You can have up to 24 looks. Remove one to add another.' });
+
+      const { name, vibe, serviceType, price, durationMin, includes, media, filter, themeFrom, themeTo, badge, autoTheme } = req.body;
+      const cleanName = String(name || '').trim().slice(0, 60);
+      const cleanServiceType = String(serviceType || '').trim().slice(0, 80);
+      const cleanPrice = Number(price);
+      // media: [{ type: 'photo'|'video', base64: string }] for a fresh shot, or
+      // [{ type, url: string }] to reuse a photo/video already posted (the
+      // artist's own post library) — same look can share media with a post,
+      // and the same post can be reused across several looks. Up to
+      // MAX_LOOK_MEDIA, in order — [0] becomes the cover.
+      const mediaList = Array.isArray(media)
+        ? media.filter(m => m && (m.type === 'photo' || m.type === 'video') && (typeof m.base64 === 'string' || typeof m.url === 'string'))
+        : [];
+      if (!cleanName) return res.status(400).json({ error: 'name is required' });
+      if (!cleanServiceType) return res.status(400).json({ error: 'serviceType is required' });
+      if (Number.isNaN(cleanPrice) || cleanPrice < 0 || cleanPrice > 100000) {
+        return res.status(400).json({ error: 'A valid price is required' });
+      }
+      if (mediaList.length > MAX_LOOK_MEDIA) {
+        return res.status(400).json({ error: `You can add up to ${MAX_LOOK_MEDIA} photos/videos per look.` });
+      }
+      if (mediaList.length === 0 && !(themeFrom && themeTo)) {
+        return res.status(400).json({ error: 'Add at least one photo/video or pick a theme for this look' });
+      }
+      if (filter && !PHOTO_FILTERS[filter]) {
+        return res.status(400).json({ error: `filter must be one of: ${Object.keys(PHOTO_FILTERS).join(', ')}` });
+      }
+      // Hex only (#RGB / #RRGGBB) — themeFrom/themeTo feed straight into the
+      // client's gradient overlay (LookTile draws it on every card, photo or
+      // not), so anything else renders as a broken/blank tint.
+      const HEX = /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/;
+      const hasTheme = !!(themeFrom && themeTo);
+      if (hasTheme && (!HEX.test(themeFrom) || !HEX.test(themeTo))) {
+        return res.status(400).json({ error: 'themeFrom/themeTo must be hex colors like #A34D63' });
+      }
+      for (const m of mediaList) {
+        if (m.base64) {
+          const cap = m.type === 'video' ? MAX_LOOK_VIDEO_BASE64 : 8_000_000;
+          if (m.base64.length > cap) {
+            return res.status(413).json({ error: m.type === 'video' ? 'Each video must be under ~9 MB (6s clip).' : 'Each photo must be under 6 MB.' });
+          }
+        }
+      }
+
+      const data = {
+        profileId: profile.id,
+        name: cleanName,
+        vibe: vibe ? String(vibe).trim().slice(0, 140) : null,
+        serviceType: cleanServiceType,
+        price: cleanPrice,
+        durationMin: durationMin != null ? Math.min(Math.max(Number(durationMin) || 60, 5), 720) : null,
+        includes: Array.isArray(includes) ? includes.filter(i => typeof i === 'string' && i.trim()).map(i => i.trim().slice(0, 60)).slice(0, 10) : [],
+        badge: badge ? String(badge).trim().slice(0, 24) : null,
+        // A theme is a persistent style choice now — it draws as a color
+        // overlay on top of whatever media the card has, not just a
+        // fallback for when there's no photo. Store it whenever given.
+        themeFrom: hasTheme ? String(themeFrom).slice(0, 9) : null,
+        themeTo: hasTheme ? String(themeTo).slice(0, 9) : null,
+        media: [],
+      };
+
+      let extractedTheme = null;
+      if (mediaList.length > 0) {
+        const items = [];
+        for (let i = 0; i < mediaList.length; i++) {
+          const m = mediaList[i];
+          if (m.url) {
+            // Reusing an existing post/look photo — no upload needed.
+            items.push({ type: m.type, url: String(m.url) });
+            continue;
+          }
+          if (!process.env.BLOB_READ_WRITE_TOKEN) {
+            return res.status(500).json({ error: 'File storage is not configured. Contact support.' });
+          }
+          try {
+            // Same filter applied across freshly-shot items — a look is one
+            // consistent visual moment. Reused media keeps whatever look it
+            // already had as a post.
+            const uploaded = await uploadLookMedia(profile.id, i, m, filter);
+            if (uploaded.theme && !extractedTheme) extractedTheme = uploaded.theme; // cover photo's colors
+            items.push({ type: uploaded.type, url: uploaded.url });
+          } catch {
+            return res.status(500).json({ error: 'Upload failed. Please try again.' });
+          }
+        }
+        data.media = items;
+      }
+      // "Auto" theme — sampled from the cover photo itself rather than a
+      // hand-picked preset, so the card's tint always matches what's in it.
+      if (autoTheme && extractedTheme) {
+        data.themeFrom = extractedTheme.from;
+        data.themeTo = extractedTheme.to;
+      }
+
+      const look = await prisma.providerLook.create({ data });
+      cacheFlushPattern('providers:*').catch(() => {});
+      res.status(201).json({ look: serializeLook(look) });
+    } catch (err) {
+      console.error('POST /provider/looks error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+// POST /looks/:id/photos — the "post into a look instead of the feed" path
+// from PostsScreen's create flow. Appends one photo to an existing look's
+// gallery rather than creating a Post record.
+router.post(
+  '/looks/:id/photos',
+  authenticate,
+  requireRole('Provider'),
+  async (req, res) => {
+    try {
+      const profile = await prisma.providerProfile.findUnique({ where: { userId: req.user.id }, select: { id: true } });
+      if (!profile) return res.status(403).json({ error: 'Provider profile not found.' });
+
+      const look = await prisma.providerLook.findUnique({ where: { id: req.params.id } });
+      if (!look || !look.active) return res.status(404).json({ error: 'Look not found' });
+      if (look.profileId !== profile.id) return res.status(403).json({ error: 'Not your look' });
+      if (look.media.length >= MAX_LOOK_MEDIA) {
+        return res.status(400).json({ error: `This look already has ${MAX_LOOK_MEDIA} photos/videos — remove one first.` });
+      }
+
+      const { photoBase64, videoBase64, videoMimeType, existingUrl, existingType, filter, autoTheme } = req.body;
+      const providedCount = [photoBase64, videoBase64, existingUrl].filter(Boolean).length;
+      if (providedCount === 0) return res.status(400).json({ error: 'photoBase64, videoBase64, or existingUrl is required' });
+      if (providedCount > 1) return res.status(400).json({ error: 'One item at a time' });
+      if (photoBase64 && photoBase64.length > 8_000_000) return res.status(413).json({ error: 'Image too large. Maximum 6 MB.' });
+      if (videoBase64 && videoBase64.length > MAX_LOOK_VIDEO_BASE64) return res.status(413).json({ error: 'Video too large. Maximum ~9 MB (6s clip).' });
+      if (existingUrl && existingType !== 'photo' && existingType !== 'video') {
+        return res.status(400).json({ error: "existingType must be 'photo' or 'video'" });
+      }
+      if (filter && !PHOTO_FILTERS[filter]) {
+        return res.status(400).json({ error: `filter must be one of: ${Object.keys(PHOTO_FILTERS).join(', ')}` });
+      }
+
+      let entry;
+      let extractedTheme = null;
+      if (existingUrl) {
+        // Reusing a photo/video already posted (this artist's own library) —
+        // just reference it, no upload.
+        entry = { type: existingType, url: String(existingUrl) };
+      } else {
+        if (!process.env.BLOB_READ_WRITE_TOKEN) {
+          return res.status(500).json({ error: 'File storage is not configured. Contact support.' });
+        }
+        try {
+          const uploaded = videoBase64
+            ? await uploadLookMedia(profile.id, look.media.length, { type: 'video', base64: videoBase64, mimeType: videoMimeType })
+            : await uploadLookMedia(profile.id, look.media.length, { type: 'photo', base64: photoBase64 }, filter);
+          extractedTheme = uploaded.theme || null;
+          entry = { type: uploaded.type, url: uploaded.url };
+        } catch {
+          return res.status(500).json({ error: 'Upload failed. Please try again.' });
+        }
+      }
+
+      const updateData = { media: [...look.media, entry] };
+      if (autoTheme && extractedTheme) {
+        updateData.themeFrom = extractedTheme.from;
+        updateData.themeTo = extractedTheme.to;
+      }
+      const updated = await prisma.providerLook.update({
+        where: { id: look.id },
+        data: updateData,
+      });
+      cacheFlushPattern('providers:*').catch(() => {});
+      res.status(201).json({ look: serializeLook(updated) });
+    } catch (err) {
+      console.error('POST /provider/looks/:id/photos error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+// DELETE /looks/:id/media/:index — removes one item from the gallery (an
+// artist curating what's already up, distinct from adding more via the
+// /photos route above). Deleting the last item leaves media empty — the
+// card falls back to its theme, matching the "add at least one or pick a
+// theme" rule the create route enforces.
+router.delete(
+  '/looks/:id/media/:index',
+  authenticate,
+  requireRole('Provider'),
+  async (req, res) => {
+    try {
+      const profile = await prisma.providerProfile.findUnique({ where: { userId: req.user.id }, select: { id: true } });
+      if (!profile) return res.status(403).json({ error: 'Provider profile not found.' });
+
+      const look = await prisma.providerLook.findUnique({ where: { id: req.params.id } });
+      if (!look || !look.active) return res.status(404).json({ error: 'Look not found' });
+      if (look.profileId !== profile.id) return res.status(403).json({ error: 'Not your look' });
+
+      const index = parseInt(req.params.index, 10);
+      if (Number.isNaN(index) || index < 0 || index >= look.media.length) {
+        return res.status(400).json({ error: 'Invalid media index' });
+      }
+      const nextMedia = look.media.filter((_, i) => i !== index);
+      // A theme-only look never had media in the first place, so this can't
+      // leave a card with neither — only reachable by emptying real media,
+      // and the card already has a from/to fallback for that case.
+      const updated = await prisma.providerLook.update({ where: { id: look.id }, data: { media: nextMedia } });
+      cacheFlushPattern('providers:*').catch(() => {});
+      res.json({ look: serializeLook(updated) });
+    } catch (err) {
+      console.error('DELETE /provider/looks/:id/media/:index error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+// PATCH /looks/:id — edit an existing look. Text/config fields
+// (name/vibe/service/price/duration/includes/badge/theme) always worked
+// this way. `media`, if present, REPLACES the look's whole gallery in one
+// shot — the edit sheet stages every photo/crop/reorder locally and sends
+// the final array only when "Save changes" is tapped, the same one-commit
+// model as creating a look, instead of each photo action hitting the
+// server immediately mid-edit (which read as the look silently going
+// live/changing before the artist had finished — the old /photos and
+// /media/:index single-item routes below are kept for any other caller,
+// but the edit sheet no longer uses them).
+router.patch(
+  '/looks/:id',
+  authenticate,
+  requireRole('Provider'),
+  async (req, res) => {
+    try {
+      const profile = await prisma.providerProfile.findUnique({ where: { userId: req.user.id }, select: { id: true } });
+      if (!profile) return res.status(403).json({ error: 'Provider profile not found.' });
+
+      const look = await prisma.providerLook.findUnique({ where: { id: req.params.id } });
+      if (!look || !look.active) return res.status(404).json({ error: 'Look not found' });
+      if (look.profileId !== profile.id) return res.status(403).json({ error: 'Not your look' });
+
+      const { name, vibe, serviceType, price, durationMin, includes, badge, themeFrom, themeTo, media, filter, autoTheme } = req.body;
+      const data = {};
+      if (name !== undefined) {
+        const cleanName = String(name).trim().slice(0, 60);
+        if (!cleanName) return res.status(400).json({ error: 'name cannot be empty' });
+        data.name = cleanName;
+      }
+      if (vibe !== undefined) data.vibe = vibe ? String(vibe).trim().slice(0, 140) : null;
+      if (serviceType !== undefined) {
+        const cleanServiceType = String(serviceType).trim().slice(0, 80);
+        if (!cleanServiceType) return res.status(400).json({ error: 'serviceType cannot be empty' });
+        data.serviceType = cleanServiceType;
+      }
+      if (price !== undefined) {
+        const cleanPrice = Number(price);
+        if (Number.isNaN(cleanPrice) || cleanPrice < 0 || cleanPrice > 100000) {
+          return res.status(400).json({ error: 'A valid price is required' });
+        }
+        data.price = cleanPrice;
+      }
+      if (durationMin !== undefined) {
+        data.durationMin = durationMin != null ? Math.min(Math.max(Number(durationMin) || 60, 5), 720) : null;
+      }
+      if (includes !== undefined) {
+        data.includes = Array.isArray(includes) ? includes.filter(i => typeof i === 'string' && i.trim()).map(i => i.trim().slice(0, 60)).slice(0, 10) : [];
+      }
+      if (badge !== undefined) data.badge = badge ? String(badge).trim().slice(0, 24) : null;
+      // Theme only takes effect for a look with no media (media always wins
+      // as the visual, same rule as creation) — still fine to store it now
+      // so it's ready if all media later gets removed.
+      if (themeFrom !== undefined || themeTo !== undefined) {
+        const HEX = /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/;
+        const nextFrom = themeFrom !== undefined ? themeFrom : look.themeFrom;
+        const nextTo = themeTo !== undefined ? themeTo : look.themeTo;
+        if (nextFrom && nextTo && (!HEX.test(nextFrom) || !HEX.test(nextTo))) {
+          return res.status(400).json({ error: 'themeFrom/themeTo must be hex colors like #A34D63' });
+        }
+        if (themeFrom !== undefined) data.themeFrom = themeFrom ? String(themeFrom).slice(0, 9) : null;
+        if (themeTo !== undefined) data.themeTo = themeTo ? String(themeTo).slice(0, 9) : null;
+      }
+
+      if (media !== undefined) {
+        const mediaList = Array.isArray(media)
+          ? media.filter(m => m && (m.type === 'photo' || m.type === 'video') && (typeof m.base64 === 'string' || typeof m.url === 'string'))
+          : [];
+        if (mediaList.length > MAX_LOOK_MEDIA) {
+          return res.status(400).json({ error: `You can add up to ${MAX_LOOK_MEDIA} photos/videos per look.` });
+        }
+        const nextFrom = themeFrom !== undefined ? themeFrom : look.themeFrom;
+        const nextTo = themeTo !== undefined ? themeTo : look.themeTo;
+        if (mediaList.length === 0 && !(nextFrom && nextTo)) {
+          return res.status(400).json({ error: 'Add at least one photo/video or pick a theme for this look' });
+        }
+        if (filter && !PHOTO_FILTERS[filter]) {
+          return res.status(400).json({ error: `filter must be one of: ${Object.keys(PHOTO_FILTERS).join(', ')}` });
+        }
+        for (const m of mediaList) {
+          if (m.base64) {
+            const cap = m.type === 'video' ? MAX_LOOK_VIDEO_BASE64 : 8_000_000;
+            if (m.base64.length > cap) {
+              return res.status(413).json({ error: m.type === 'video' ? 'Each video must be under ~9 MB (6s clip).' : 'Each photo must be under 6 MB.' });
+            }
+          }
+        }
+
+        let extractedTheme = null;
+        const items = [];
+        for (let i = 0; i < mediaList.length; i++) {
+          const m = mediaList[i];
+          if (m.url) {
+            // Already-uploaded item (kept as-is from the previous gallery, or
+            // reused from the artist's post library) — no re-upload needed.
+            items.push({ type: m.type, url: String(m.url) });
+            continue;
+          }
+          if (!process.env.BLOB_READ_WRITE_TOKEN) {
+            return res.status(500).json({ error: 'File storage is not configured. Contact support.' });
+          }
+          try {
+            const uploaded = await uploadLookMedia(profile.id, i, m, filter);
+            if (uploaded.theme && !extractedTheme) extractedTheme = uploaded.theme;
+            items.push({ type: uploaded.type, url: uploaded.url });
+          } catch {
+            return res.status(500).json({ error: 'Upload failed. Please try again.' });
+          }
+        }
+        data.media = items;
+        if (autoTheme && extractedTheme) {
+          data.themeFrom = extractedTheme.from;
+          data.themeTo = extractedTheme.to;
+        }
+      }
+
+      const updated = await prisma.providerLook.update({ where: { id: look.id }, data });
+      cacheFlushPattern('providers:*').catch(() => {});
+      res.json({ look: serializeLook(updated) });
+    } catch (err) {
+      console.error('PATCH /provider/looks/:id error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+router.delete(
+  '/looks/:id',
+  authenticate,
+  requireRole('Provider'),
+  async (req, res) => {
+    try {
+      const profile = await prisma.providerProfile.findUnique({ where: { userId: req.user.id }, select: { id: true } });
+      if (!profile) return res.status(403).json({ error: 'Provider profile not found.' });
+
+      const look = await prisma.providerLook.findUnique({ where: { id: req.params.id } });
+      if (!look || !look.active) return res.status(404).json({ error: 'Look not found' });
+      if (look.profileId !== profile.id) return res.status(403).json({ error: 'Not your look' });
+
+      await prisma.providerLook.update({ where: { id: look.id }, data: { active: false } });
+      cacheFlushPattern('providers:*').catch(() => {});
+      res.json({ success: true });
+    } catch (err) {
+      console.error('DELETE /provider/looks/:id error:', err);
       res.status(500).json({ error: 'Server error' });
     }
   }

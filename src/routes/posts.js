@@ -6,8 +6,22 @@ const sharp   = require('sharp');
 const { uploadFile } = require('../utils/storage');
 const prisma  = require('../lib/prisma');
 const { authenticate, requireRole } = require('../middleware/auth');
+const { PHOTO_FILTERS } = require('../utils/photoFilters');
 
 const router = express.Router();
+
+// The mobile app records video two ways: native (expo-camera's recordAsync)
+// always produces real MP4/MOV, but on web (recordAsync is native-only)
+// capture goes through the browser's own MediaRecorder, which only speaks
+// WebM/VP9 — labeling that as video/mp4 (the old hardcoded default) uploads
+// a WebM file with a .mp4 name, which then fails to play. Pick the real
+// extension/content-type from whatever the client actually sent.
+function videoExtAndType(mimeType) {
+  if (typeof mimeType === 'string' && mimeType.startsWith('video/webm')) {
+    return { ext: 'webm', contentType: 'video/webm' };
+  }
+  return { ext: 'mp4', contentType: 'video/mp4' };
+}
 
 // Same 9 categories used across the mobile app's Home grid and Glow Match —
 // kept as a fixed list (not tied to ProviderService) so any artist can tag a
@@ -23,12 +37,21 @@ router.post(
   requireRole('Provider'),
   async (req, res) => {
     try {
-      const { photoBase64, mimeType = 'image/jpeg', caption, serviceId, category } = req.body;
-      if (!photoBase64) return res.status(400).json({ error: 'photoBase64 required' });
-      if (photoBase64.length > 8_000_000) return res.status(413).json({ error: 'Image too large. Maximum 6 MB.' });
+      const { photoBase64, videoBase64, mimeType = 'image/jpeg', caption, serviceId, category, filter } = req.body;
+      if (!photoBase64 && !videoBase64) return res.status(400).json({ error: 'photoBase64 or videoBase64 required' });
+      if (photoBase64 && videoBase64) return res.status(400).json({ error: 'A post is either a photo or a video, not both' });
+      if (photoBase64 && photoBase64.length > 8_000_000) return res.status(413).json({ error: 'Image too large. Maximum 6 MB.' });
+      // ~6s of video at a phone-camera bitrate comfortably fits under this.
+      // Capped below express.json's global 15mb body limit (app.js) — not up
+      // against it — since the surrounding JSON (caption, keys, etc.) also
+      // has to fit inside that same 15mb.
+      if (videoBase64 && videoBase64.length > 12_000_000) return res.status(413).json({ error: 'Video too large. Maximum ~9 MB (6s clip).' });
       if (caption && caption.length > 500) return res.status(400).json({ error: 'Caption must be 500 characters or fewer' });
       if (category && !POST_CATEGORIES.includes(category)) {
         return res.status(400).json({ error: `category must be one of: ${POST_CATEGORIES.join(', ')}` });
+      }
+      if (filter && !PHOTO_FILTERS[filter]) {
+        return res.status(400).json({ error: `filter must be one of: ${Object.keys(PHOTO_FILTERS).join(', ')}` });
       }
 
       const profile = await prisma.providerProfile.findUnique({ where: { userId: req.user.id } });
@@ -45,28 +68,32 @@ router.post(
         return res.status(500).json({ error: 'File storage is not configured. Contact support.' });
       }
 
-      let buf = Buffer.from(photoBase64, 'base64');
-      try {
-        buf = await sharp(buf)
-          .resize(1080, 1350, { fit: 'inside', withoutEnlargement: true })
-          .jpeg({ quality: 80 })
-          .toBuffer();
-      } catch {}
+      const data = {
+        profileId: profile.id,
+        caption: caption || null,
+        serviceId: serviceId || null,
+        category: category || null,
+      };
 
-      const result = await uploadFile(`posts/${profile.id}-${Date.now()}.jpg`, buf, 'image/jpeg');
-      if (!result?.url) {
-        return res.status(500).json({ error: 'Photo upload failed. Please try again.' });
+      if (videoBase64) {
+        const buf = Buffer.from(videoBase64, 'base64');
+        const { ext, contentType } = videoExtAndType(mimeType);
+        const result = await uploadFile(`posts/${profile.id}-${Date.now()}.${ext}`, buf, contentType);
+        if (!result?.url) return res.status(500).json({ error: 'Video upload failed. Please try again.' });
+        data.videoUrl = result.url;
+      } else {
+        let buf = Buffer.from(photoBase64, 'base64');
+        try {
+          let img = sharp(buf).resize(1080, 1350, { fit: 'inside', withoutEnlargement: true });
+          img = PHOTO_FILTERS[filter || 'original'](img);
+          buf = await img.jpeg({ quality: 80 }).toBuffer();
+        } catch {}
+        const result = await uploadFile(`posts/${profile.id}-${Date.now()}.jpg`, buf, 'image/jpeg');
+        if (!result?.url) return res.status(500).json({ error: 'Photo upload failed. Please try again.' });
+        data.photoUrl = result.url;
       }
 
-      const post = await prisma.post.create({
-        data: {
-          profileId: profile.id,
-          photoUrl: result.url,
-          caption: caption || null,
-          serviceId: serviceId || null,
-          category: category || null,
-        },
-      });
+      const post = await prisma.post.create({ data });
 
       res.status(201).json({ post });
     } catch (err) {
@@ -108,7 +135,7 @@ router.get(
       if (!profile) return res.status(400).json({ error: 'Provider profile not found' });
 
       const posts = await prisma.post.findMany({
-        where: { profileId: profile.id },
+        where: { profileId: profile.id, active: true },
         orderBy: { createdAt: 'desc' },
         include: { service: true },
       });
@@ -215,6 +242,7 @@ router.get(
       const page = posts.slice(0, limit).map((p) => ({
         id: p.id,
         photoUrl: p.photoUrl,
+        videoUrl: p.videoUrl,
         caption: p.caption,
         category: p.category,
         likeCount: p.likeCount,
@@ -230,6 +258,76 @@ router.get(
       });
     } catch (err) {
       console.error('GET /posts/explore error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+// GET /posts/explore-looks — self-served Looks (ProviderLook) across all
+// approved artists, for the app's main discovery surfaces (Explore, Home).
+// Without this, a look's badge/theme/gallery/video only exist behind a
+// direct visit to that one artist's profile — findable only if you already
+// know them, never surfaced to a browsing customer the way curated
+// data/looks.ts entries are.
+router.get(
+  '/explore-looks',
+  authenticate,
+  async (req, res) => {
+    try {
+      const sort = req.query.sort || 'recent';
+      if (sort !== 'recent' && sort !== 'top') {
+        return res.status(400).json({ error: 'sort must be "recent" or "top"' });
+      }
+      const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
+      const cursor = req.query.cursor;
+
+      const looks = await prisma.providerLook.findMany({
+        where: { active: true, profile: { approvedByAdmin: true, publicProfile: true } },
+        orderBy: sort === 'top' ? { createdAt: 'desc' } : { createdAt: 'desc' }, // likeCount isn't a column (see LookLike comment) — recency stands in for "top" until that's aggregated below
+        take: limit + 1,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+        include: {
+          profile: {
+            select: { id: true, photoUrl: true, user: { select: { id: true, name: true } } },
+          },
+        },
+      });
+
+      const hasMore = looks.length > limit;
+      const page = looks.slice(0, limit);
+
+      // Like counts, batched — same lookKey scheme as the public-profile route.
+      const likeCounts = page.length
+        ? await prisma.lookLike.groupBy({
+            by: ['profileId', 'lookKey'],
+            where: { OR: page.map(l => ({ profileId: l.profileId, lookKey: `custom:${l.id}` })) },
+            _count: { lookKey: true },
+          })
+        : [];
+      const countByLookId = Object.fromEntries(
+        likeCounts.map(c => [`${c.profileId}:${c.lookKey.replace('custom:', '')}`, c._count.lookKey])
+      );
+
+      let ordered = page.map(l => ({
+        id: l.id,
+        name: l.name,
+        vibe: l.vibe,
+        serviceType: l.serviceType,
+        price: toNum(l.price),
+        durationMin: l.durationMin,
+        includes: l.includes,
+        media: l.media,
+        badge: l.badge,
+        themeFrom: l.themeFrom,
+        themeTo: l.themeTo,
+        likeCount: countByLookId[`${l.profileId}:${l.id}`] || 0,
+        provider: { id: l.profile.user.id, name: l.profile.user.name, photoUrl: l.profile.photoUrl },
+      }));
+      if (sort === 'top') ordered = [...ordered].sort((a, b) => b.likeCount - a.likeCount);
+
+      res.json({ looks: ordered, nextCursor: hasMore ? page[page.length - 1].id : null });
+    } catch (err) {
+      console.error('GET /posts/explore-looks error:', err);
       res.status(500).json({ error: 'Server error' });
     }
   }

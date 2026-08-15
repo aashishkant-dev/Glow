@@ -1,24 +1,95 @@
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Image } from 'expo-image';
-import * as ImagePicker from 'expo-image-picker';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { apiCreatePost, apiDeletePost, apiGetMyPosts, Post } from '../../api/client';
-import { Colors } from '../../utils/colors';
+import { LinearGradient } from 'expo-linear-gradient';
+import { apiCreatePost, apiDeletePost, apiGetMyPosts, apiGetMyLooks, apiAddLookMedia, Post, ProviderLookItem } from '../../api/client';
+import { Colors, Fonts } from '../../utils/colors';
 import { CameraIcon } from '../../components/TabIcons';
+import { SparkleIcon } from '../../components/BeautyIcons';
 import { CATEGORIES } from '../../data/categories';
+import { CameraCapture } from '../../components/CameraCapture';
+import { PostMedia } from '../../components/PostMedia';
+import { Toast } from '../../components/Toast';
 
-// Picked-but-not-yet-posted image, staged while the caption sheet is open.
-interface StagedAsset { uri: string; base64: string; mimeType: string; }
+// A post's photo/video can also be reused inside one of the artist's Looks
+// (either picked at post-time via the camera's "post to a Look" destination,
+// or reused afterward from the Looks "From posts" picker) — this surfaces
+// that link on the thumbnail itself instead of it being invisible once posted.
+function linkedLookName(post: Post, looks: ProviderLookItem[]): string | null {
+  const url = post.photoUrl || post.videoUrl;
+  if (!url) return null;
+  const match = looks.find(l => l.media.some(m => m.url === url));
+  return match?.name ?? null;
+}
 
-export function PostsScreen() {
+function PostThumb({ post, lookName, onDelete }: { post: Post; lookName: string | null; onDelete: (id: string) => void }) {
+  return (
+    // Shadow lives on the outer wrapper (no overflow:hidden) — a shadow on
+    // a clipped view renders fine on web's CSS box-shadow but gets clipped
+    // away entirely on native, so the rounded/clipped media sits in an
+    // inner view instead.
+    <View style={styles.thumbShadowWrap}>
+    <View style={styles.thumb}>
+      <PostMedia photoUrl={post.photoUrl} videoUrl={post.videoUrl} style={styles.thumbImg} showBadge />
+      {/* Bottom scrim keeps whatever's overlaid (look tag, like count)
+          legible against any photo, bright or dark, instead of a flat
+          translucent chip fighting the image underneath. */}
+      {(!!lookName || post.likeCount > 0) && (
+        <LinearGradient pointerEvents="none" colors={['#00000000', 'rgba(0,0,0,0.55)']} style={styles.thumbScrim} />
+      )}
+      <View style={styles.thumbFooter} pointerEvents="none">
+        {!!lookName && (
+          <Text style={styles.lookTagText} numberOfLines={1}>✨ {lookName}</Text>
+        )}
+        {post.likeCount > 0 && (
+          <Text style={styles.likeCountText}>♥ {post.likeCount}</Text>
+        )}
+      </View>
+      <Pressable
+        style={styles.removeBtn}
+        hitSlop={6}
+        onPress={() => {
+          // Alert.alert with a multi-button array is a no-op on RN-Web —
+          // the confirm dialog never appears, so the button looked broken.
+          if (Platform.OS === 'web') {
+            if (typeof window !== 'undefined' && window.confirm('Delete this post? This cannot be undone.')) {
+              onDelete(post.id);
+            }
+            return;
+          }
+          Alert.alert('Delete post?', 'This cannot be undone.', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Delete', style: 'destructive', onPress: () => onDelete(post.id) },
+          ]);
+        }}
+      >
+        <Text style={styles.removeBtnText}>✕</Text>
+      </Pressable>
+    </View>
+    </View>
+  );
+}
+
+interface Props {
+  // Bumped by the tab bar's tabPress listener every time the Posts tab is
+  // tapped — camera-first, Snapchat/Instagram-style: tapping the tab opens
+  // the camera immediately instead of landing on the grid first. A ref-
+  // compared "signal" (not a boolean) so it fires again even when the value
+  // doesn't logically change, e.g. tapping the tab twice in a row.
+  cameraSignal?: number;
+}
+
+export function PostsScreen({ cameraSignal }: Props) {
   const insets = useSafeAreaInsets();
   const [myPosts, setMyPosts] = useState<Post[]>([]);
-  const [postCaption, setPostCaption] = useState('');
-  const [postCategory, setPostCategory] = useState<string | null>(null);
-  const [stagedAsset, setStagedAsset] = useState<StagedAsset | null>(null);
-  const [creatingPost, setCreatingPost] = useState(false);
+  const [myLooks, setMyLooks] = useState<ProviderLookItem[]>([]);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  // Set when the camera was opened from a specific category's "+" tile (or
+  // the "add a photo for X" prompt) — pre-selected once the compose panel
+  // (inside CameraCapture) appears.
+  const [pendingCategory, setPendingCategory] = useState<string | undefined>(undefined);
   const [loading, setLoading] = useState(true);
+  const [toast, setToast] = useState<string | null>(null);
 
   async function loadMyPosts() {
     try {
@@ -30,52 +101,74 @@ export function PostsScreen() {
     setLoading(false);
   }
 
-  useEffect(() => { loadMyPosts(); }, []);
+  useEffect(() => {
+    loadMyPosts();
+    apiGetMyLooks().then(({ looks }) => setMyLooks(looks)).catch(() => {});
+  }, []);
 
-  // Step 1: pick an image, then open the caption sheet — caption is now part of
-  // the "add post" step instead of sitting permanently above the grid with no
-  // effect until "+ New Post" is tapped.
-  async function pickImage() {
-    const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (status !== 'granted') { Alert.alert('Permission needed', 'Allow photo library access to create a post.'); return; }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ['images'],
-      allowsEditing: true,
-      aspect: [4, 5],
-      quality: 0.8,
-      base64: true,
-    });
-    if (result.canceled || !result.assets[0]) return;
-    const asset = result.assets[0];
-    if (!asset.base64) { Alert.alert('Could not read image'); return; }
-    setStagedAsset({ uri: asset.uri, base64: asset.base64, mimeType: asset.mimeType ?? 'image/jpeg' });
-  }
-
-  // Step 2: confirm from the caption sheet — actually uploads the post.
-  async function submitPost() {
-    if (!stagedAsset) return;
-    setCreatingPost(true);
-    try {
-      await apiCreatePost({
-        photoBase64: stagedAsset.base64,
-        mimeType: stagedAsset.mimeType,
-        caption: postCaption.trim() || undefined,
-        category: postCategory || undefined,
-      });
-      setPostCaption('');
-      setPostCategory(null);
-      setStagedAsset(null);
-      await loadMyPosts();
-    } catch (e: any) {
-      Alert.alert('Post failed', e?.message || 'Could not create post. Please try again.');
+  // Fires on every tab-bar tap of "Posts" (see ProviderNavigator's tabPress
+  // listener). The baseline is a hardcoded 0, NOT `useRef(cameraSignal)` —
+  // React Navigation lazy-mounts a tab's screen on its FIRST focus, which
+  // happens in the same update as the tabPress listener's setState, so by
+  // the time this component's first render runs, `cameraSignal` has
+  // already ticked from 0 to 1. Seeding the ref from the prop would then
+  // read 1 as the "starting" value and silently swallow that very first
+  // press. A fixed 0 baseline with a monotonic ">" catches it regardless of
+  // mount timing.
+  const seenCameraSignal = useRef(0);
+  useEffect(() => {
+    if (cameraSignal !== undefined && cameraSignal > seenCameraSignal.current) {
+      seenCameraSignal.current = cameraSignal;
+      openCamera();
     }
-    setCreatingPost(false);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cameraSignal]);
+
+  // Entry point for every "add a post photo" tap — opens the full-screen,
+  // camera-first capture flow (see CameraCapture) instead of an OS action
+  // sheet. `presetCategory` carries through from a specific category's "+"
+  // tile (or the "add a photo for X" prompt) to the resulting post.
+  function openCamera(presetCategory?: string) {
+    setPendingCategory(presetCategory);
+    setCameraOpen(true);
   }
 
-  function cancelStagedPost() {
-    setStagedAsset(null);
-    setPostCaption('');
-    setPostCategory(null);
+  // CameraCapture owns the whole compose flow (filter, caption, category,
+  // "post to a Look" destination) and hands back one finished submission —
+  // either uploads a normal post, or (when a look is picked as the
+  // destination) appends this photo to that look's gallery instead, since a
+  // shot either builds the feed or the portfolio, not both at once.
+  async function handlePost(params: {
+    asset?: { uri: string; base64: string; mimeType: string };
+    videoBase64?: string;
+    videoMimeType?: string;
+    filter: string;
+    caption?: string;
+    category?: string;
+    lookId?: string;
+  }) {
+    if (params.lookId) {
+      const { look } = await apiAddLookMedia(
+        params.lookId,
+        params.asset
+          ? { photoBase64: params.asset.base64 }
+          : { videoBase64: params.videoBase64, videoMimeType: params.videoMimeType },
+        params.filter !== 'original' ? params.filter : undefined,
+      );
+      setMyLooks(prev => prev.map(l => l.id === look.id ? look : l));
+      setToast(`Added to "${look.name}" ✨`);
+      return;
+    }
+    await apiCreatePost({
+      photoBase64: params.asset?.base64,
+      videoBase64: params.videoBase64,
+      mimeType: params.asset?.mimeType ?? params.videoMimeType,
+      caption: params.caption,
+      category: params.category,
+      filter: params.filter !== 'original' ? params.filter : undefined,
+    });
+    await loadMyPosts();
+    setToast('Posted to your profile ✨');
   }
 
   async function deletePost(postId: string) {
@@ -87,159 +180,232 @@ export function PostsScreen() {
     }
   }
 
+  // Group by the fixed category list (same 9 used at post-creation) so
+  // sections render in a stable order regardless of upload order. A post
+  // whose category isn't one of the 9 (or has none — legacy posts predate
+  // category tagging) falls into its own "Uncategorized" bucket rather than
+  // silently vanishing from the grid.
+  const postsByCategory = useMemo(() => {
+    const map: Record<string, Post[]> = {};
+    for (const post of myPosts) {
+      if (post.category && CATEGORIES.some(c => c.name === post.category)) {
+        (map[post.category] ??= []).push(post);
+      }
+    }
+    return map;
+  }, [myPosts]);
+  const categoryNames = new Set<string>(CATEGORIES.map(c => c.name));
+  const uncategorizedPosts = useMemo(
+    () => myPosts.filter(p => !p.category || !categoryNames.has(p.category)),
+    [myPosts]
+  );
+  const categoriesWithoutPosts = useMemo(
+    () => CATEGORIES.filter(c => !postsByCategory[c.name]?.length),
+    [postsByCategory]
+  );
+
   return (
-    <ScrollView style={{ flex: 1, backgroundColor: Colors.systemBackground }} contentContainerStyle={{ paddingTop: insets.top + 16, paddingBottom: 100 }}>
-      <View style={styles.header}>
+    <View style={{ flex: 1, backgroundColor: Colors.secondarySystemBackground }}>
+    <ScrollView style={{ flex: 1 }} contentContainerStyle={{ paddingTop: insets.top + 16, paddingBottom: 100 }}>
+      <LinearGradient
+        colors={[Colors.brandAccent, Colors.brand, Colors.brandDeep]}
+        start={{ x: 0, y: 0 }}
+        end={{ x: 1, y: 1 }}
+        style={styles.hero}
+      >
+        <View style={styles.heroGlow} pointerEvents="none" />
         <View>
-          <Text style={styles.title}>Posts</Text>
-          {!loading && myPosts.length > 0 && (
-            <Text style={styles.subtitle}>{myPosts.length} {myPosts.length === 1 ? 'post' : 'posts'}</Text>
-          )}
+          <Text style={styles.title}>Your Posts</Text>
+          <Text style={styles.subtitle}>
+            {!loading && myPosts.length > 0
+              ? `${myPosts.length} ${myPosts.length === 1 ? 'post' : 'posts'} · shown in Explore`
+              : 'Share your work — get discovered in Explore'}
+          </Text>
         </View>
-        <Pressable onPress={pickImage} disabled={creatingPost} style={styles.newPostBtn}>
-          {creatingPost
-            ? <ActivityIndicator size="small" color="#fff" />
-            : <Text style={styles.newPostBtnText}>+ New Post</Text>}
+        {/* Instagram/Snapchat-style: tapping opens the full-screen camera
+            immediately — no OS action sheet, no chooser in the way. Library
+            is still reachable via a small icon inside the camera view. */}
+        <Pressable onPress={() => openCamera()} style={({ pressed }) => [styles.newPostBtn, pressed && { transform: [{ scale: 0.96 }] }]}>
+          <CameraIcon size={18} color={Colors.brand} />
+          <Text style={styles.newPostBtnText}>New Post</Text>
         </Pressable>
-      </View>
+      </LinearGradient>
 
       {loading ? (
         <ActivityIndicator style={{ marginVertical: 40 }} color={Colors.brand} />
       ) : myPosts.length === 0 ? (
-        <Pressable onPress={pickImage} style={styles.empty}>
+        <Pressable onPress={() => openCamera()} style={styles.empty}>
+          <View style={styles.emptySparkleLeft}><SparkleIcon size={16} color={Colors.brandAccent} /></View>
           <View style={styles.emptyIconWrap}><CameraIcon size={26} color={Colors.brand} /></View>
+          <View style={styles.emptySparkleRight}><SparkleIcon size={12} color={Colors.brandAccent} /></View>
           <Text style={styles.emptyText}>Share your work to get discovered in Explore</Text>
-          <Text style={styles.emptyHint}>Tap "+ New Post" to add your first one</Text>
+          <Text style={styles.emptyHint}>Tap "New Post" to add your first one</Text>
         </Pressable>
       ) : (
-        // Full-bleed grid, Instagram-profile style — no framing card, so a
-        // handful of posts doesn't read as a mostly-empty bordered box.
-        <View style={styles.grid}>
-          {myPosts.map((post) => (
-            <View key={post.id} style={styles.thumb}>
-              <Image source={{ uri: post.photoUrl }} style={styles.thumbImg} contentFit="cover" cachePolicy="memory-disk" />
-              <Pressable
-                style={styles.removeBtn}
-                hitSlop={6}
-                onPress={() => {
-                  // Alert.alert with a multi-button array is a no-op on RN-Web —
-                  // the confirm dialog never appears, so the button looked broken.
-                  if (Platform.OS === 'web') {
-                    if (typeof window !== 'undefined' && window.confirm('Delete this post? This cannot be undone.')) {
-                      deletePost(post.id);
-                    }
-                    return;
-                  }
-                  Alert.alert('Delete post?', 'This cannot be undone.', [
-                    { text: 'Cancel', style: 'cancel' },
-                    { text: 'Delete', style: 'destructive', onPress: () => deletePost(post.id) },
-                  ]);
-                }}
-              >
-                <Text style={styles.removeBtnText}>✕</Text>
-              </Pressable>
+        <>
+          {/* Grouped by specialty — a provider tapping "Nails" in Explore/their
+              storefront should see a coherent Nails set, not their whole feed
+              in upload order. Categories with no posts yet don't get a section
+              here (nothing to group); they show as prompts below instead. */}
+          {CATEGORIES.filter(c => postsByCategory[c.name]?.length).map(c => (
+            <View key={c.id} style={styles.categorySection}>
+              <View style={styles.categorySectionHeader}>
+                <View style={styles.categorySectionAccent} />
+                <Text style={styles.categorySectionTitle}>{c.name}</Text>
+                <View style={styles.categorySectionCountPill}>
+                  <Text style={styles.categorySectionCount}>{postsByCategory[c.name].length}</Text>
+                </View>
+              </View>
+              <View style={styles.grid}>
+                {postsByCategory[c.name].map(post => (
+                  <PostThumb key={post.id} post={post} lookName={linkedLookName(post, myLooks)} onDelete={deletePost} />
+                ))}
+                <Pressable style={[styles.thumbShadowWrap, styles.thumb, styles.addTile]} onPress={() => openCamera(c.name)}>
+                  <Text style={styles.addTileText}>+</Text>
+                </Pressable>
+              </View>
             </View>
           ))}
-        </View>
-      )}
 
-      {/* Caption sheet — shown right after an image is picked, so the caption
-          field is part of the "add post" step instead of sitting permanently
-          above the grid with no effect until "+ New Post" is tapped. */}
-      <Modal visible={!!stagedAsset} transparent animationType="slide" onRequestClose={cancelStagedPost}>
-        <View style={styles.overlay}>
-          <View style={[styles.sheet, { paddingBottom: insets.bottom + 20 }]}>
-            <Text style={styles.sheetTitle}>New post</Text>
-            {stagedAsset && (
-              <Image source={{ uri: stagedAsset.uri }} style={styles.stagedPreview} contentFit="cover" />
-            )}
-            <TextInput
-              style={styles.postCaptionInput}
-              value={postCaption}
-              onChangeText={setPostCaption}
-              placeholder="Add a caption (optional)"
-              placeholderTextColor={Colors.tertiaryLabel}
-              multiline
-              maxLength={280}
-            />
-            <Text style={styles.categoryLabel}>Category (helps clients find it)</Text>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 14 }} contentContainerStyle={{ gap: 8 }}>
-              {CATEGORIES.map(c => {
-                const active = postCategory === c.name;
-                return (
-                  <Pressable
-                    key={c.id}
-                    style={[styles.categoryChip, active && styles.categoryChipActive]}
-                    onPress={() => setPostCategory(active ? null : c.name)}
-                  >
-                    <Text style={[styles.categoryChipText, active && styles.categoryChipTextActive]}>{c.name}</Text>
-                  </Pressable>
-                );
-              })}
-            </ScrollView>
-            <View style={styles.sheetBtnRow}>
-              <Pressable style={styles.cancelBtn} onPress={cancelStagedPost} disabled={creatingPost}>
-                <Text style={styles.cancelBtnText}>Cancel</Text>
-              </Pressable>
-              <Pressable style={styles.postBtn} onPress={submitPost} disabled={creatingPost}>
-                {creatingPost
-                  ? <ActivityIndicator size="small" color="#fff" />
-                  : <Text style={styles.postBtnText}>Post</Text>}
-              </Pressable>
+          {uncategorizedPosts.length > 0 && (
+            <View style={styles.categorySection}>
+              <View style={styles.categorySectionHeader}>
+                <View style={styles.categorySectionAccent} />
+                <Text style={styles.categorySectionTitle}>Uncategorized</Text>
+                <View style={styles.categorySectionCountPill}>
+                  <Text style={styles.categorySectionCount}>{uncategorizedPosts.length}</Text>
+                </View>
+              </View>
+              <View style={styles.grid}>
+                {uncategorizedPosts.map(post => (
+                  <PostThumb key={post.id} post={post} lookName={linkedLookName(post, myLooks)} onDelete={deletePost} />
+                ))}
+              </View>
             </View>
-          </View>
-        </View>
-      </Modal>
+          )}
+
+          {/* Specialties with zero posts yet — a client browsing your profile
+              can't tell you also do these until there's a photo to show it. */}
+          {categoriesWithoutPosts.length > 0 && (
+            <View style={styles.promptSection}>
+              <Text style={styles.promptTitle}>Add a photo for these specialties</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingHorizontal: 16 }}>
+                {categoriesWithoutPosts.map(c => (
+                  <Pressable key={c.id} style={styles.promptChip} onPress={() => openCamera(c.name)}>
+                    <Text style={styles.promptChipPlus}>+</Text>
+                    <Text style={styles.promptChipText}>{c.name}</Text>
+                  </Pressable>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+        </>
+      )}
     </ScrollView>
+
+      <CameraCapture
+        visible={cameraOpen}
+        initialCategory={pendingCategory}
+        myLooks={myLooks}
+        onClose={() => { setCameraOpen(false); setPendingCategory(undefined); }}
+        onPost={async (params) => {
+          await handlePost(params);
+          setCameraOpen(false);
+          setPendingCategory(undefined);
+        }}
+      />
+      <Toast message={toast} onHide={() => setToast(null)} />
+    </View>
   );
 }
 
 const styles = StyleSheet.create({
-  header: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', paddingHorizontal: 16, marginBottom: 16 },
-  title: { fontSize: 22, fontWeight: '800', color: Colors.label },
-  subtitle: { fontSize: 12.5, color: Colors.secondaryLabel, marginTop: 2, fontWeight: '500' },
-  newPostBtn: { backgroundColor: Colors.brand, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 9 },
-  newPostBtnText: { color: '#fff', fontSize: 13, fontWeight: '700' },
-  postCaptionInput: {
-    fontSize: 14, color: Colors.label, minHeight: 44, textAlignVertical: 'top',
-    backgroundColor: Colors.systemGray6, borderRadius: 14, borderWidth: 1, borderColor: Colors.brandAccent,
-    paddingHorizontal: 12, paddingVertical: 10, marginBottom: 12,
+  hero: {
+    flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
+    marginHorizontal: 16, marginBottom: 22, borderRadius: 30, padding: 20,
+    overflow: 'hidden',
+    shadowColor: Colors.cardShadow, shadowOffset: { width: 0, height: 10 }, shadowOpacity: 0.22, shadowRadius: 20, elevation: 8,
   },
+  heroGlow: {
+    position: 'absolute', top: -50, right: -40, width: 160, height: 160, borderRadius: 80,
+    backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  title: { fontSize: 23, fontFamily: Fonts.display, color: '#fff', letterSpacing: -0.3 },
+  subtitle: { fontSize: 12.5, color: 'rgba(255,255,255,0.85)', marginTop: 4, fontFamily: Fonts.medium, maxWidth: 170 },
+  newPostBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#fff', borderRadius: 20, paddingHorizontal: 14, paddingVertical: 11,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.15, shadowRadius: 8, elevation: 4,
+  },
+  newPostBtnText: { color: Colors.brand, fontSize: 13, fontFamily: Fonts.bold },
   empty: {
     alignItems: 'center', paddingVertical: 48, paddingHorizontal: 24, gap: 6,
-    marginHorizontal: 16, borderRadius: 20,
+    marginHorizontal: 16, borderRadius: 26,
     backgroundColor: '#fff', borderWidth: 1, borderColor: Colors.separator,
+    shadowColor: Colors.cardShadow, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.06, shadowRadius: 16, elevation: 2,
+    position: 'relative',
   },
   emptyIconWrap: {
     width: 56, height: 56, borderRadius: 28, backgroundColor: Colors.brandLight,
     alignItems: 'center', justifyContent: 'center', marginBottom: 6,
   },
-  emptyText: { fontSize: 14, fontWeight: '600', color: Colors.secondaryLabel, textAlign: 'center' },
-  emptyHint: { fontSize: 12.5, color: Colors.tertiaryLabel },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 2, paddingHorizontal: 2 },
-  thumb: { width: '33.13%', aspectRatio: 1, overflow: 'hidden', position: 'relative' },
+  emptySparkleLeft: { position: 'absolute', top: 30, left: '28%', fontSize: 14, opacity: 0.7, transform: [{ rotate: '-12deg' }] },
+  emptySparkleRight: { position: 'absolute', top: 44, right: '28%', fontSize: 11, opacity: 0.55, transform: [{ rotate: '14deg' }] },
+  emptyText: { fontSize: 14, fontFamily: Fonts.semibold, color: Colors.secondaryLabel, textAlign: 'center' },
+  emptyHint: { fontSize: 12.5, color: Colors.tertiaryLabel, fontFamily: Fonts.medium },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, paddingHorizontal: 16 },
+  // Split in two: the shadow lives on the unclipped outer wrapper, the
+  // rounded/clipped media sits in `thumb` inside it — a shadow on a view
+  // with overflow:hidden renders fine on web's CSS box-shadow but gets
+  // clipped away entirely on native.
+  thumbShadowWrap: {
+    width: '31%', borderRadius: 18,
+    shadowColor: Colors.cardShadow, shadowOffset: { width: 0, height: 5 }, shadowOpacity: 0.12, shadowRadius: 10, elevation: 3,
+  },
+  thumb: {
+    flex: 1, aspectRatio: 0.82, overflow: 'hidden', position: 'relative',
+    borderRadius: 18, backgroundColor: Colors.systemGray6,
+  },
   thumbImg: { width: '100%', height: '100%' },
+  thumbScrim: { position: 'absolute', left: 0, right: 0, bottom: 0, height: '55%' },
+  thumbFooter: {
+    position: 'absolute', left: 7, right: 7, bottom: 7,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 4,
+  },
   removeBtn: {
-    position: 'absolute', top: 5, right: 5, width: 22, height: 22, borderRadius: 11,
-    backgroundColor: 'rgba(61,35,41,0.62)', alignItems: 'center', justifyContent: 'center',
+    position: 'absolute', top: 6, right: 6, width: 24, height: 24, borderRadius: 12,
+    backgroundColor: 'rgba(29,29,31,0.55)', alignItems: 'center', justifyContent: 'center',
   },
-  removeBtnText: { color: '#fff', fontSize: 11, fontWeight: '700' },
+  removeBtnText: { color: '#fff', fontSize: 11, fontFamily: Fonts.bold },
+  lookTagText: { color: '#fff', fontSize: 10, fontFamily: Fonts.bold, flexShrink: 1 },
+  likeCountText: { color: '#fff', fontSize: 10, fontFamily: Fonts.bold },
 
-  overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
-  sheet: { backgroundColor: Colors.systemBackground, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 },
-  sheetTitle: { fontSize: 18, fontWeight: '800', color: Colors.label, marginBottom: 12 },
-  stagedPreview: { width: '100%', aspectRatio: 4 / 5, borderRadius: 14, marginBottom: 12, backgroundColor: Colors.systemGray6 },
-  categoryLabel: { fontSize: 12.5, fontWeight: '700', color: Colors.secondaryLabel, marginBottom: 8 },
-  categoryChip: {
-    paddingHorizontal: 14, paddingVertical: 8, borderRadius: 16,
-    backgroundColor: Colors.systemGray6, borderWidth: 1, borderColor: Colors.separator,
+  categorySection: { marginBottom: 24 },
+  categorySectionHeader: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    paddingHorizontal: 16, marginBottom: 10,
   },
-  categoryChipActive: { backgroundColor: Colors.brand, borderColor: Colors.brand },
-  categoryChipText: { fontSize: 13, fontWeight: '600', color: Colors.secondaryLabel },
-  categoryChipTextActive: { color: '#fff' },
-  sheetBtnRow: { flexDirection: 'row', gap: 10, marginTop: 4 },
-  cancelBtn: { flex: 1, paddingVertical: 13, borderRadius: 14, alignItems: 'center', backgroundColor: Colors.systemGray6 },
-  cancelBtnText: { fontSize: 15, fontWeight: '700', color: Colors.secondaryLabel },
-  postBtn: { flex: 1, paddingVertical: 13, borderRadius: 14, alignItems: 'center', backgroundColor: Colors.brand },
-  postBtnText: { fontSize: 15, fontWeight: '700', color: '#fff' },
+  categorySectionAccent: { width: 4, height: 16, borderRadius: 2, backgroundColor: Colors.brand },
+  categorySectionTitle: { fontSize: 16.5, fontFamily: Fonts.display, color: Colors.label },
+  categorySectionCountPill: {
+    backgroundColor: Colors.brandLight, borderRadius: 10, paddingHorizontal: 8, paddingVertical: 2, marginLeft: 'auto' as any,
+  },
+  categorySectionCount: { fontSize: 12, color: Colors.brand, fontFamily: Fonts.bold },
+  addTile: {
+    alignItems: 'center', justifyContent: 'center', gap: 4,
+    backgroundColor: Colors.brandLight, borderWidth: 1.5, borderColor: Colors.brandAccent, borderStyle: 'dashed',
+    shadowOpacity: 0, elevation: 0,
+  },
+  addTileText: { fontSize: 24, color: Colors.brand, fontFamily: Fonts.light },
+
+  promptSection: { marginBottom: 24 },
+  promptTitle: { fontSize: 13.5, fontFamily: Fonts.semibold, color: Colors.secondaryLabel, paddingHorizontal: 16, marginBottom: 10 },
+  promptChip: {
+    alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, paddingVertical: 12, borderRadius: 18,
+    backgroundColor: '#fff', borderWidth: 1, borderColor: Colors.brandAccent, borderStyle: 'dashed',
+    minWidth: 84,
+  },
+  promptChipPlus: { fontSize: 18, color: Colors.brand, fontFamily: Fonts.bold },
+  promptChipText: { fontSize: 11.5, fontFamily: Fonts.semibold, color: Colors.secondaryLabel, textAlign: 'center' },
 });

@@ -32,6 +32,12 @@ export interface Look {
   to: string;                 // gradient end
   photo?: string;             // designer photography slot
   tall?: boolean;             // masonry height variance
+  // ISO 3166-1 alpha-2 countries this look is culturally specific to (e.g.
+  // ['NP'] for a Nepali festival look). Omitted/undefined = universal, shown
+  // to everyone. Read via mobile/src/utils/region.ts's getCountryCode() to
+  // surface locally-relevant looks first on Home instead of a one-size-fits
+  // -all list that skews toward whichever market it was originally written for.
+  regions?: string[];
 }
 
 export const LOOKS: Look[] = [
@@ -247,6 +253,96 @@ export const LOOKS: Look[] = [
     fromPrice: 18,
     products: [],
     from: '#E9A0B1', to: '#A34D63',
+  },
+
+  // ── Regional looks — culturally specific to one market, surfaced first for
+  //    users detected there (see getCountryCode() in utils/region.ts) rather
+  //    than competing for space in the universal list everyone sees. ──
+  {
+    id: 'newari-bridal',
+    name: 'Newari Bridal',
+    vibe: 'Heritage red-and-gold, Kathmandu Valley tradition',
+    collection: 'Bridal',
+    occasion: 'Bridal',
+    serviceType: 'Bridal Makeup',
+    includes: ['Bridal makeup', 'Haku patasi draping', 'Tilhari & jewelry setting', 'Touch-up'],
+    durationMin: 180,
+    fromPrice: 220,
+    products: ['MAC', 'Lakmé', 'Kama Ayurveda'],
+    from: '#B03A3A', to: '#5E1414',
+    tall: true,
+    regions: ['NP'],
+  },
+  {
+    id: 'teej-radiance',
+    name: 'Teej Radiance',
+    vibe: 'Red saree glam for the festival of fasting and dance',
+    collection: 'Festival',
+    occasion: 'Festival',
+    serviceType: 'Makeup',
+    includes: ['Festive makeup', 'Bindi & sindoor styling', 'Hair styling'],
+    durationMin: 75,
+    fromPrice: 65,
+    products: ['Lakmé', 'MAC', 'Kama Ayurveda'],
+    from: '#D99A6C', to: '#A3541E',
+    regions: ['NP'],
+  },
+  {
+    id: 'tihar-tika-glow',
+    name: 'Tihar Tika Glow',
+    vibe: 'Marigold-bright, ready for the tika ceremony',
+    collection: 'Festival',
+    occasion: 'Festival',
+    serviceType: 'Makeup',
+    includes: ['Festive makeup', 'Tika-ready finish', 'Brow shaping'],
+    durationMin: 60,
+    fromPrice: 55,
+    products: ['Lakmé', 'Kama Ayurveda'],
+    from: '#E3B04B', to: '#8E6F1E',
+    regions: ['NP'],
+  },
+  {
+    id: 'parisian-minimalism',
+    name: 'Parisian Minimalism',
+    vibe: '"No-makeup" makeup — skin, brows, done',
+    collection: 'Natural',
+    occasion: 'Everyday',
+    serviceType: 'Makeup',
+    includes: ['Skin prep', 'Sheer base', 'Brow shaping'],
+    durationMin: 45,
+    fromPrice: 60,
+    products: ['Chanel', 'Nuxe', 'Bioderma'],
+    from: '#EFE6DD', to: '#B9A88F',
+    regions: ['FR'],
+  },
+  {
+    id: 'chic-chignon',
+    name: 'Chic Chignon',
+    vibe: 'The effortless French twist',
+    collection: 'Minimal',
+    occasion: 'Everyday',
+    serviceType: 'Hair Styling',
+    includes: ['Wash & prep', 'Low chignon updo', 'Finishing shine spray'],
+    durationMin: 50,
+    fromPrice: 50,
+    products: ['Kérastase', 'Leonor Greyl'],
+    from: '#C9B8A8', to: '#7A6653',
+    regions: ['FR'],
+  },
+  {
+    id: 'rajasthani-bridal',
+    name: 'Rajasthani Bridal',
+    vibe: 'Mirror-work jewel tones, desert-royal drama',
+    collection: 'Bridal',
+    occasion: 'Bridal',
+    serviceType: 'Bridal Makeup',
+    includes: ['Bridal makeup', 'Mehendi (both hands)', 'Dupatta & jewelry setting'],
+    durationMin: 210,
+    fromPrice: 250,
+    products: ['Lakmé', 'MAC', 'Huda Beauty'],
+    from: '#8E4257', to: '#3B1520',
+    tall: true,
+    regions: ['IN'],
   },
 ];
 

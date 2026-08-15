@@ -26,7 +26,7 @@ import { apiLogin, apiGoogleSignIn, apiAppleSignIn, apiSendLoginOtp } from '../.
 import { Colors, Fonts } from '../../utils/colors';
 import { GlowLogo, GlowMark, GlowTagline } from '../../components/GlowLogo';
 import { CountryPicker, Country } from '../../components/CountryPicker';
-import { DEFAULT_REGION_NAME } from '../../utils/region';
+import { DEFAULT_REGION_NAME, setCurrencyCodeFromLocaleHint, setCurrencyCodeForCountryCode } from '../../utils/region';
 import { useAuth } from '../../context/AuthContext';
 import { useCountdown } from '../../hooks/useCountdown';
 
@@ -118,8 +118,18 @@ export function PhoneScreen() {
   // window.location — including the current path (e.g. "/phone"). Google only
   // has the bare origin allow-listed, so any non-root route produced a
   // redirect_uri_mismatch. Pinning to the origin matches the Console config.
+  // Google's "iOS" OAuth client type validates the redirect URI against the
+  // reversed-client-ID scheme (com.googleusercontent.apps.<id>) it derives from
+  // the client ID — NOT against the app's own custom scheme. Sending glow://
+  // here (as we do on Android, which validates by package name + SHA-1 instead
+  // and doesn't care) gets rejected by Google as redirect_uri_mismatch on iOS.
+  // The matching CFBundleURLTypes entry lives in app.json's ios.infoPlist.
+  const iosGoogleClientIdPrefix = (process.env.EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS || '')
+    .replace(/\.apps\.googleusercontent\.com$/, '');
   const googleRedirectUri = Platform.OS === 'web' && typeof window !== 'undefined'
     ? window.location.origin
+    : Platform.OS === 'ios' && iosGoogleClientIdPrefix
+    ? AuthSession.makeRedirectUri({ scheme: `com.googleusercontent.apps.${iosGoogleClientIdPrefix}` })
     : AuthSession.makeRedirectUri({ scheme: 'glow' });
 
   const [, googleResponse, promptGoogleAsync] = Google.useIdTokenAuthRequest({
@@ -249,8 +259,13 @@ export function PhoneScreen() {
       // Same role choice used for phone signup applies here too — Google no
       // longer implies "customer," it just means "skip the phone/OTP step for
       // login" (artists still verify their phone right after, separately).
-      const { token, user } = await apiGoogleSignIn({ idToken, role: role === 'Provider' ? 'Provider' : 'CUSTOMER' });
+      const { token, user, locale } = await apiGoogleSignIn({ idToken, role: role === 'Provider' ? 'Provider' : 'CUSTOMER' });
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
+      // Currency guess for the stretch between Google sign-in and a verified
+      // phone (Providers verify right after this; Customers may go a while
+      // without one) — setCurrencyCodeForPhone below always wins once a real
+      // phone resolves, this is just better than the deploy default until then.
+      if (!user.phone) setCurrencyCodeFromLocaleHint(locale);
       await signIn(token, {
         id: user.id, name: user.name, phone: user.phone ?? undefined,
         role: user.role as 'CUSTOMER' | 'Provider' | 'ADMIN' | 'SALON',
@@ -458,7 +473,7 @@ export function PhoneScreen() {
                       <View style={styles.phoneRow}>
                         <CountryPicker
                           value={country}
-                          onChange={c => { setCountry(c); setPhone(''); }}
+                          onChange={c => { setCountry(c); setPhone(''); setCurrencyCodeForCountryCode(c.code); }}
                         />
                         <TextInput
                           style={[styles.textInput, styles.phoneInput]}

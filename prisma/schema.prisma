@@ -192,6 +192,7 @@ model User {
   favoritesAsCustomer Favorite[] @relation("FavoritedBy")
   favoritedByCustomers Favorite[] @relation("FavoritedProviders")
   postLikes          PostLike[]
+  lookLikes          LookLike[]
 
   @@index([role, isVerified])
   @@index([role, createdAt(sort: Desc)])
@@ -291,6 +292,8 @@ model ProviderProfile {
   documents          Document[]
   services           ProviderService[]
   posts              Post[]
+  looks              ProviderLook[]
+  lookLikes          LookLike[]
 
   @@index([approvedByAdmin, availability])
   @@index([approvedByAdmin, availability, userId])  // nearby Provider lookup covering index
@@ -308,6 +311,13 @@ model Booking {
   provider                   User?         @relation("ProviderBookings", fields: [providerId], references: [id])
 
   serviceType           String
+  // Optional data/looks.ts catalog ID (mobile) when this booking came from
+  // "Book this look" rather than the generic service picker. Used to prefer
+  // notifying providers whose ProviderProfile.capableLooks confirmed this
+  // specific look over a plain serviceType broadcast — never required, since
+  // most bookings (and every artist who hasn't confirmed any looks) don't
+  // have one. Not a foreign key: the look catalog lives in app code, not the DB.
+  lookId                String?
   // Not customer-facing — Glow's services are flat-rate-per-service (set by
   // the Provider or the platform catalog), not hourly. This only matters for
   // the FALLBACK_RATE * hours pricing path when a Provider has no explicit
@@ -675,7 +685,10 @@ model Post {
   id          String    @id @default(cuid())
   profileId   String
   profile     ProviderProfile  @relation(fields: [profileId], references: [id], onDelete: Cascade)
-  photoUrl    String
+  // Exactly one of these is set — a post is either a photo or a short
+  // (≤6s) video shot straight from the in-app camera, never both.
+  photoUrl    String?
+  videoUrl    String?
   caption     String?   @db.VarChar(500)
   serviceId   String?
   service     ProviderService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
@@ -701,4 +714,60 @@ model PostLike {
 
   @@unique([postId, userId])
   @@index([userId])
+}
+
+// A "look" an artist has built themselves — a named, priced, photographed
+// package (e.g. "My Bridal Glow Package") shown on their public profile next
+// to the curated data/looks.ts catalog. Distinct from ProviderService (a bare
+// price line): a Look carries the same editorial presentation the curated
+// catalog gets (photo or theme gradient, vibe line, included items), self-
+// served instead of admin-authored.
+model ProviderLook {
+  id          String   @id @default(cuid())
+  profileId   String
+  profile     ProviderProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  name        String   @db.VarChar(60)
+  vibe        String?  @db.VarChar(140)
+  serviceType String
+  price       Decimal  @db.Decimal(10,2)
+  durationMin Int?
+  includes    String[] @default([])
+  // Up to 5, in display order — media[0] is the cover shown on the card; the
+  // rest are a swipeable gallery a client opens before booking. Each entry
+  // is `{ type: 'photo' | 'video', url: string }` — a look can mix a couple
+  // of short video clips in with photos, the way a real portfolio piece
+  // (not just a single photoUrl) would show off a finished result.
+  media       Json[]   @default([])
+  // Short marketing label shown on the card ("Bestseller", "Bridal Special",
+  // artist's own wording) — purely cosmetic, how an artist packages a look
+  // as a promoted offer rather than just another item in the list.
+  badge       String?  @db.VarChar(24)
+  // Gradient card theme, used when media is empty — hex pair, matches the
+  // curated catalog's from/to fields so both render identically via LookTile.
+  themeFrom   String?
+  themeTo     String?
+  active      Boolean  @default(true)
+  createdAt   DateTime @default(now())
+
+  @@index([profileId])
+}
+
+// A client's like on one specific artist's look — either a ProviderLook
+// (lookKey "custom:<id>") or that artist's confirmation of a shared
+// data/looks.ts catalog entry (lookKey "catalog:<id>"). Keyed by profileId
+// (not just lookKey) because a catalog look has no per-artist row to attach
+// a counter to — many artists can each be liked separately for "Bridal Glow".
+// Counted on read (groupBy) rather than a denormalized counter column, since
+// catalog likes have no row of their own to hold one.
+model LookLike {
+  id        String   @id @default(cuid())
+  profileId String
+  profile   ProviderProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  lookKey   String
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@unique([profileId, lookKey, userId])
+  @@index([profileId, lookKey])
 }

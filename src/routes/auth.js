@@ -394,6 +394,9 @@ router.post(
         // Client uses this to decide whether to route straight into a mandatory
         // phone-verify screen before anything else (new Provider accounts only).
         requiresPhoneVerification: isNewUser && user.role === 'Provider' && !user.phone,
+        // Coarse currency hint for the client (see mobile/src/utils/region.ts) —
+        // only useful until a real phone number resolves an actual country.
+        locale: payload.locale,
       });
     } catch (err) {
       console.error(err);

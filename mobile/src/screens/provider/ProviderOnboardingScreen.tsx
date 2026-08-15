@@ -24,6 +24,7 @@ import { useAuth } from '../../context/AuthContext';
 import { Colors } from '../../utils/colors';
 import { ShieldCheckIcon, KeyIcon } from '../../components/CareIcons';
 import { getCurrencySymbol } from '../../utils/format';
+import { LOOKS } from '../../data/looks';
 
 // ── Design tokens ──────────────────────────────────────────────────────────────
 const BRAND      = Colors.brand;
@@ -72,7 +73,8 @@ const STEP4_DOCS = [
   { id: 'insurance',       label: 'Liability Insurance',          required: false, hint: 'Professional liability if applicable' },
 ];
 
-const STEP_LABELS = ['Credentials', 'Specialties', 'Details', 'Pricing', 'Documents'];
+const STEP_LABELS = ['Credentials', 'Specialties', 'Looks', 'Details', 'Pricing', 'Documents'];
+const STEP_COUNT = STEP_LABELS.length;
 
 // ── SVG-style icons as text ────────────────────────────────────────────────────
 function DocIcon({ id, done }: { id: string; done?: boolean }) {
@@ -85,10 +87,10 @@ function StepIndicator({ step }: { step: number }) {
   return (
     <View style={styles.stepWrap}>
       <View style={styles.stepTrack}>
-        <View style={[styles.stepFill, { width: `${((step - 1) / 4) * 100}%` as any }]} />
+        <View style={[styles.stepFill, { width: `${((step - 1) / (STEP_COUNT - 1)) * 100}%` as any }]} />
       </View>
       <View style={styles.stepRow}>
-        {[1, 2, 3, 4, 5].map(s => (
+        {Array.from({ length: STEP_COUNT }, (_, i) => i + 1).map(s => (
           <View key={s} style={styles.stepItem}>
             <View style={[
               styles.stepDot,
@@ -129,7 +131,7 @@ export function ProviderOnboardingScreen() {
   const insets = useSafeAreaInsets();
   const { user, updateUser } = useAuth();
 
-  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5>(1);
+  const [step, setStep] = useState<1 | 2 | 3 | 4 | 5 | 6>(1);
 
   // Step 1
   const [qualType, setQualType]     = useState<QualType>('MAKEUP_ARTIST');
@@ -142,27 +144,49 @@ export function ProviderOnboardingScreen() {
   const [languages, setLanguages]     = useState<string[]>(['English']);
   const [bio, setBio]                 = useState('');
 
-  // Step 3
+  // Step 3 — looks (data/looks.ts catalog IDs) this artist has confirmed they
+  // can create. Filtered to their step-2 specialties below: no point offering
+  // "Bridal Makeup" looks to someone who didn't select that specialty. Wholly
+  // optional — "Book this look" just falls back to matching on service type
+  // alone for artists who skip this.
+  const [capableLooks, setCapableLooks] = useState<string[]>([]);
+
+  // Step 4
   const [firstAid, setFirstAid]     = useState(false);
   const [ownCar, setOwnCar]         = useState(false);
 
-  // Step 4 — Pricing (per-service only — every Artist prices their own menu)
+  // Step 5 — Pricing (per-service only — every Artist prices their own menu)
   const [servicePrices, setServicePrices]     = useState<Record<string, string>>({});
   const [priceNegotiable, setPriceNegotiable] = useState(false);
 
-  // Step 5 — per-doc upload state
+  // Step 6 — per-doc upload state
   const [docStates, setDocStates] = useState<Record<string, DocState>>(initDocStates);
 
   const [loading, setLoading] = useState(false);
 
   function toggleSpecialty(s: string) {
     if (Platform.OS !== 'web') Haptics.selectionAsync();
-    setSpecialties(prev => prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s]);
+    setSpecialties(prev => {
+      const next = prev.includes(s) ? prev.filter(x => x !== s) : [...prev, s];
+      // Drop confirmed looks whose service type no longer matches a selected
+      // specialty — otherwise unchecking "Nails" could leave a nail look
+      // silently confirmed with no way to see/undo it from this step.
+      setCapableLooks(looks => looks.filter(id => {
+        const look = LOOKS.find(l => l.id === id);
+        return look ? next.includes(look.serviceType) : false;
+      }));
+      return next;
+    });
   }
 
   function toggleLanguage(l: string) {
     if (Platform.OS !== 'web') Haptics.selectionAsync();
     setLanguages(prev => prev.includes(l) ? prev.filter(x => x !== l) : [...prev, l]);
+  }
+
+  function toggleLook(id: string) {
+    if (Platform.OS !== 'web') Haptics.selectionAsync();
+    setCapableLooks(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]);
   }
 
   function setDocField(id: string, fields: Partial<DocState>) {
@@ -178,6 +202,7 @@ export function ProviderOnboardingScreen() {
         collegeName:       college.trim(),
         experienceYears:   Number(experience) || 0,
         specialties,
+        capableLooks,
         languages:         languages.length > 0 ? languages : ['English'],
         bio:               bio.trim(),
         firstAidCertified: firstAid,
@@ -200,7 +225,7 @@ export function ProviderOnboardingScreen() {
         }
       }
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-      setStep(5);
+      setStep(6);
     } catch (e: any) {
       Alert.alert('Error', e.message || 'Could not save your profile. Please try again.');
     }
@@ -296,14 +321,16 @@ export function ProviderOnboardingScreen() {
     step === 1 ? 'Continue →' :
     step === 2 ? 'Continue →' :
     step === 3 ? 'Continue →' :
-    step === 4 ? 'Submit Profile' :
+    step === 4 ? 'Continue →' :
+    step === 5 ? 'Submit Profile' :
     'Go to Dashboard →';
 
   function handleFooterNext() {
     if (step === 1) setStep(2);
     else if (step === 2) setStep(3);
     else if (step === 3) setStep(4);
-    else if (step === 4) submitProfile();
+    else if (step === 4) setStep(5);
+    else if (step === 5) submitProfile();
     else finishOnboarding();
   }
 
@@ -311,6 +338,7 @@ export function ProviderOnboardingScreen() {
     if (step === 2) setStep(1);
     else if (step === 3) setStep(2);
     else if (step === 4) setStep(3);
+    else if (step === 5) setStep(4);
   }
 
   const anyUploading = Object.values(docStates).some(d => d.uploading);
@@ -329,14 +357,15 @@ export function ProviderOnboardingScreen() {
             style={[styles.header, { paddingTop: insets.top + 24 }]}
           >
             <View style={styles.headerBadge}>
-              <Text style={styles.headerBadgeText}>Step {step} of 5</Text>
+              <Text style={styles.headerBadgeText}>Step {step} of {STEP_COUNT}</Text>
             </View>
             <Text style={styles.headerTitle}>Artist Verification</Text>
             <Text style={styles.headerSub}>
               {step === 1 ? 'Tell us about your credential' :
                step === 2 ? 'Specialties & languages' :
-               step === 3 ? 'Final details' :
-               step === 4 ? 'Set your prices' :
+               step === 3 ? 'Looks you can create' :
+               step === 4 ? 'Final details' :
+               step === 5 ? 'Set your prices' :
                'Upload your documents'}
             </Text>
             <StepIndicator step={step} />
@@ -459,8 +488,63 @@ export function ProviderOnboardingScreen() {
               </>
             )}
 
-            {/* ── STEP 3: Details ── */}
+            {/* ── STEP 3: Looks you can create ── */}
             {step === 3 && (
+              <>
+                <Text style={styles.sectionTitle}>Looks You Can Create</Text>
+                <Text style={styles.sectionSub}>
+                  Optional — confirm specific looks from Glow's catalog you can deliver. Clients booking
+                  "{'{'}look{'}'}" from Explore get matched to artists who confirmed it here first.
+                </Text>
+
+                {specialties.length === 0 ? (
+                  <View style={[styles.infoBox, { backgroundColor: '#FEF3C7', borderColor: '#FCD34D' }]}>
+                    <Text style={styles.infoBoxIcon}>⚠️</Text>
+                    <Text style={[styles.infoBoxText, { color: '#92400E' }]}>
+                      No specialties selected yet. Go back to Step 2 to select specialties — looks are filtered to match.
+                    </Text>
+                  </View>
+                ) : (
+                  Object.entries(
+                    LOOKS
+                      .filter(l => specialties.includes(l.serviceType))
+                      .reduce<Record<string, typeof LOOKS>>((groups, look) => {
+                        (groups[look.serviceType] ??= []).push(look);
+                        return groups;
+                      }, {})
+                  ).map(([serviceType, looks]) => (
+                    <View key={serviceType} style={{ marginBottom: 4 }}>
+                      <Text style={styles.fieldLabel}>{serviceType.toUpperCase()}</Text>
+                      <View style={styles.chipGrid}>
+                        {looks.map(look => {
+                          const active = capableLooks.includes(look.id);
+                          return (
+                            <Pressable
+                              key={look.id}
+                              style={[styles.chip, active && styles.chipActive]}
+                              onPress={() => toggleLook(look.id)}
+                            >
+                              <Text style={[styles.chipText, active && styles.chipTextActive]}>{look.name}</Text>
+                            </Pressable>
+                          );
+                        })}
+                      </View>
+                    </View>
+                  ))
+                )}
+
+                <View style={styles.infoBox}>
+                  <Text style={styles.infoBoxIcon}>💡</Text>
+                  <Text style={styles.infoBoxText}>
+                    Skip this if you're not sure — you can confirm looks any time from your profile, and clients
+                    can still book you directly by service either way.
+                  </Text>
+                </View>
+              </>
+            )}
+
+            {/* ── STEP 4: Details ── */}
+            {step === 4 && (
               <>
                 <Text style={styles.sectionTitle}>Almost Done</Text>
                 <Text style={styles.sectionSub}>These details help clients find the right match.</Text>
@@ -500,8 +584,8 @@ export function ProviderOnboardingScreen() {
               </>
             )}
 
-            {/* ── STEP 4: Pricing ── */}
-            {step === 4 && (
+            {/* ── STEP 5: Pricing ── */}
+            {step === 5 && (
               <>
                 <Text style={styles.sectionTitle}>Set Your Prices</Text>
                 <Text style={styles.sectionSub}>Set a price for each service you offer. Clients see the exact amount before booking. You can change this later from your profile.</Text>
@@ -561,8 +645,8 @@ export function ProviderOnboardingScreen() {
               </>
             )}
 
-            {/* ── STEP 5: Account Created + Documents ── */}
-            {step === 5 && (
+            {/* ── STEP 6: Account Created + Documents ── */}
+            {step === 6 && (
               <>
                 {/* "You're in!" celebration banner */}
                 <View style={styles.celebrationCard}>
@@ -586,6 +670,12 @@ export function ProviderOnboardingScreen() {
                   const ds = docStates[doc.id];
                   const isDone = !!ds.uploadedUrl;
                   const isLoading = ds.uploading;
+                  // Nudge toward at least one shot per selected specialty instead
+                  // of a generic hint — a portfolio with only nail photos doesn't
+                  // help a client trying to judge this artist's bridal makeup.
+                  const hint = doc.id === 'photo' && specialties.length > 0
+                    ? `Add at least one photo for each: ${specialties.join(', ')}`
+                    : doc.hint;
 
                   return (
                     <View key={doc.id} style={[styles.docCard, isDone && styles.docCardDone]}>
@@ -603,7 +693,7 @@ export function ProviderOnboardingScreen() {
                               </View>
                             )}
                           </View>
-                          <Text style={styles.docHint}>{doc.hint}</Text>
+                          <Text style={styles.docHint}>{hint}</Text>
                         </View>
                       </View>
 
@@ -659,7 +749,7 @@ export function ProviderOnboardingScreen() {
 
         {/* ── Sticky footer ── */}
         <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
-          {step > 1 && step < 5 && (
+          {step > 1 && step < 6 && (
             <Pressable style={styles.backBtn} onPress={handleFooterBack} accessibilityRole="button">
               <Text style={styles.backBtnText}>← Back</Text>
             </Pressable>

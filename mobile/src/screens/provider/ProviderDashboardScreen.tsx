@@ -381,7 +381,7 @@ export function ProviderDashboardScreen() {
                   <Text style={[styles.periodTabValue, active && styles.periodTabValueActive]} numberOfLines={1}>
                     {formatCurrency(amount, { decimals: 0 })}
                   </Text>
-                  <Text style={[styles.periodTabLabel, active && styles.periodTabLabelActive]}>{label}</Text>
+                  <Text style={[styles.periodTabLabel, active && styles.periodTabLabelActive]} numberOfLines={1} adjustsFontSizeToFit minimumFontScale={0.8}>{label}</Text>
                 </Pressable>
               );
             })}
@@ -545,6 +545,19 @@ export function ProviderDashboardScreen() {
           </View>
         )}
 
+        {/* ── Upcoming Appointment — matches the customer-side card ── */}
+        {activeJob && (
+          <>
+            <View style={styles.sectionHeader}>
+              <Text style={styles.sectionTitle}>Upcoming Appointment</Text>
+            </View>
+            <ActiveJobBanner
+              job={activeJob}
+              onPress={() => nav.navigate('JobDetail', { job: activeJob })}
+            />
+          </>
+        )}
+
         {/* ── Quick Actions ── */}
         <View style={styles.quickWrap}>
           <Text style={styles.sectionTitle}>Quick Actions</Text>
@@ -580,19 +593,6 @@ export function ProviderDashboardScreen() {
             </View>
             <ChevronForwardIcon size={20} color={Colors.tertiaryLabel} />
           </Pressable>
-        )}
-
-        {/* ── Upcoming Appointment — matches the customer-side card ── */}
-        {activeJob && (
-          <>
-            <View style={styles.sectionHeader}>
-              <Text style={styles.sectionTitle}>Upcoming Appointment</Text>
-            </View>
-            <ActiveJobBanner
-              job={activeJob}
-              onPress={() => nav.navigate('JobDetail', { job: activeJob })}
-            />
-          </>
         )}
 
         {/* ── Pending approval overlay card ── */}
@@ -786,7 +786,7 @@ const styles = StyleSheet.create({
   },
 
   // Stat grid — 2×2 metric cards
-  statGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginHorizontal: 16, marginTop: 12, marginBottom: 4 },
+  statGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginHorizontal: 16, marginTop: 12 },
 
   // Today/This Week/Month tabs — replaces the old static "Today"/"This Week"
   // stat cards; selecting one reshapes the earnings graph below.
@@ -810,9 +810,12 @@ const styles = StyleSheet.create({
   statCardValue: { fontSize: 24, fontFamily: Fonts.bold, letterSpacing: -0.6 },
   statCardLabel: { fontSize: 11.5, color: Colors.secondaryLabel, marginTop: 5, fontFamily: Fonts.medium, textTransform: 'uppercase', letterSpacing: 0.6 },
 
-  // Doc verification card
+  // Doc verification card — explicit marginTop so the gap above it is
+  // consistent (16px) whether it's preceded directly by the stat cards or by
+  // the New Requests banner, instead of relying on whatever margin the
+  // preceding sibling happened to leave behind.
   docCard: {
-    marginHorizontal: 16, marginBottom: 16,
+    marginHorizontal: 16, marginTop: 16, marginBottom: 16,
     borderRadius: 20, padding: 18, paddingHorizontal: 20,
     backgroundColor: Colors.cardBackground,
     borderWidth: 1, borderColor: Colors.cardBorder,
@@ -939,7 +942,7 @@ const styles = StyleSheet.create({
   requestsBannerChevron: { fontSize: 26, color: '#fff', fontWeight: '700', lineHeight: 26, width: 16, textAlign: 'center', flexShrink: 0 },
 
   docOkCard: {
-    marginHorizontal: 16, marginBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 12,
+    marginHorizontal: 16, marginTop: 16, marginBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 12,
     backgroundColor: Colors.cardBackground, borderRadius: 16, padding: 16,
     borderWidth: 1, borderColor: Colors.cardBorder,
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 6, elevation: 2,

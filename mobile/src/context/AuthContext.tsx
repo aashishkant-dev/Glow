@@ -3,7 +3,7 @@ import { Storage, StoredUser } from '../utils/storage';
 import { connectSocket, disconnectSocket } from '../utils/socket';
 import { initNotifications, addPushTokenRefreshListener } from '../utils/notifications';
 import { registerUnauthorizedHandler } from '../api/client';
-import { setCurrencyCodeForPhone } from '../utils/region';
+import { setCurrencyCodeForPhone, resetCurrencyCode } from '../utils/region';
 
 interface AuthState {
   token: string | null;
@@ -60,6 +60,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     await Storage.clearAuth();
     await Storage.clearDocuments();
     await Storage.clearPhotoUri();
+    resetCurrencyCode();
     setState({ token: null, user: null, isLoading: false, photoUri: null });
   }, []);
 

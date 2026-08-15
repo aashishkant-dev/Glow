@@ -185,7 +185,7 @@ export function ChatUnreadProvider({ children }: { children: React.ReactNode }) 
         createdAt: new Date().toISOString(),
       };
       const next = [notif, ...prev].slice(0, MAX_STORED);
-      AsyncStorage.setItem(NOTIF_STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+      AsyncStorage.setItem(notifKey(), JSON.stringify(next)).catch(() => {});
       setCount(c => c + 1);
       return next;
     });
@@ -194,7 +194,7 @@ export function ChatUnreadProvider({ children }: { children: React.ReactNode }) 
   const markAllRead = useCallback(() => {
     setNotifications(prev => {
       const next = prev.map(n => ({ ...n, read: true }));
-      AsyncStorage.setItem(NOTIF_STORAGE_KEY, JSON.stringify(next)).catch(() => {});
+      AsyncStorage.setItem(notifKey(), JSON.stringify(next)).catch(() => {});
       return next;
     });
     setCount(0);

@@ -22,13 +22,17 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
-import { apiGetProviderPublicProfile, ProviderPublicProfile } from '../../api/client';
+import { apiGetProviderPublicProfile, apiLikeLook, apiUnlikeLook, ProviderPublicProfile, ProviderLookItem } from '../../api/client';
 import { Colors, Fonts } from '../../utils/colors';
 import { formatCurrency } from '../../utils/format';
 import { CloseCircleIcon, StarIcon, CheckCircleIcon, ChevronForwardIcon } from '../../components/TabIcons';
 import { ShieldCheckIcon, CheckDecagramIcon, ClockIcon, InstagramIcon } from '../../components/CareIcons';
 import { GlowMark } from '../../components/GlowLogo';
 import { ServiceIcon } from '../../components/ServiceIcon';
+import { LookTile } from '../../components/LookTile';
+import { LookGalleryModal } from '../../components/LookGalleryModal';
+import { PostMedia } from '../../components/PostMedia';
+import { lookById, Look } from '../../data/looks';
 import { OSMMap } from '../../components/OSMMap';
 import { LocationIcon, HeartIcon } from '../../components/TabIcons';
 import { tapLight } from '../../utils/haptics';
@@ -55,7 +59,13 @@ function StarRow({ rating, size = 14 }: { rating: number; size?: number }) {
 
 function PhotoCarousel({ photos, name, photoUrl }: { photos: string[]; name: string; photoUrl?: string }) {
   const [active, setActive] = useState(0);
-  const slides = photos.length > 0 ? photos : photoUrl ? [photoUrl] : [];
+  // Portfolio photos take priority as the hero, but a broken/expired URL among
+  // them shouldn't blank the whole header — drop failed ones and fall back to
+  // the personal avatar (and finally initials) so the client always sees a face.
+  const [failed, setFailed] = useState<Set<string>>(new Set());
+  const workingPhotos = photos.filter(u => !failed.has(u));
+  const slides = workingPhotos.length > 0 ? workingPhotos : photoUrl && !failed.has(photoUrl) ? [photoUrl] : [];
+  const markFailed = (uri: string) => setFailed(prev => (prev.has(uri) ? prev : new Set(prev).add(uri)));
   const initials = name.split(' ').slice(0, 2).map(s => s[0]?.toUpperCase() ?? '').join('');
 
   if (slides.length === 0) {
@@ -71,7 +81,7 @@ function PhotoCarousel({ photos, name, photoUrl }: { photos: string[]; name: str
   if (slides.length === 1) {
     return (
       <View style={styles.carouselContainer}>
-        <Image source={{ uri: slides[0] }} style={styles.carouselImage} contentFit="cover" cachePolicy="memory-disk" />
+        <Image source={{ uri: slides[0] }} style={styles.carouselImage} contentFit="cover" cachePolicy="memory-disk" onError={() => markFailed(slides[0])} />
         <LinearGradient colors={['transparent', 'rgba(20,8,12,0.72)']} style={styles.carouselGradient} />
       </View>
     );
@@ -88,13 +98,16 @@ function PhotoCarousel({ photos, name, photoUrl }: { photos: string[]; name: str
         }}
         scrollEventThrottle={16}
         renderItem={({ item }) => (
-          <Image source={{ uri: item }} style={{ width: SCREEN_W, height: PHOTO_H }} contentFit="cover" cachePolicy="memory-disk" />
+          <Image source={{ uri: item }} style={{ width: SCREEN_W, height: PHOTO_H }} contentFit="cover" cachePolicy="memory-disk" onError={() => markFailed(item)} />
         )}
       />
       <LinearGradient colors={['transparent', 'rgba(20,8,12,0.72)']} style={styles.carouselGradient} pointerEvents="none" />
       <View style={styles.dotRow}>
+        {/* Clamp: an image failing mid-view shrinks `slides` via markFailed,
+            but `active` (last real scroll position) isn't reset — comparing
+            against a clamped index keeps a dot highlighted instead of none. */}
         {slides.map((_, i) => (
-          <View key={i} style={[styles.dot, i === active && styles.dotActive]} />
+          <View key={i} style={[styles.dot, i === Math.min(active, slides.length - 1) && styles.dotActive]} />
         ))}
       </View>
     </View>
@@ -112,13 +125,81 @@ export function ProviderPublicProfileScreen() {
   const favoriteIds = useFavorites();
   const favorited = provider ? favoriteIds.includes(provider.id) : false;
 
+  // Local, optimistic overlay on top of provider.lookLikes/myLikedLookKeys —
+  // lets the heart flip instantly instead of waiting on a round trip.
+  const [likedKeys, setLikedKeys] = useState<Set<string>>(new Set());
+  const [likeCounts, setLikeCounts] = useState<Record<string, number>>({});
+
   useEffect(() => {
     if (!providerId) { setError('No artist selected'); setLoading(false); return; }
     apiGetProviderPublicProfile(providerId)
-      .then(res => setProvider(res.provider))
+      .then(res => {
+        setProvider(res.provider);
+        setLikedKeys(new Set(res.provider.myLikedLookKeys ?? []));
+        setLikeCounts(res.provider.lookLikes ?? {});
+      })
       .catch(err => setError(err.message ?? 'Could not load this artist'))
       .finally(() => setLoading(false));
   }, [providerId]);
+
+  function toggleLookLike(lookKey: string) {
+    if (!provider) return;
+    tapLight();
+    const wasLiked = likedKeys.has(lookKey);
+    setLikedKeys(prev => {
+      const next = new Set(prev);
+      wasLiked ? next.delete(lookKey) : next.add(lookKey);
+      return next;
+    });
+    setLikeCounts(prev => ({ ...prev, [lookKey]: Math.max(0, (prev[lookKey] || 0) + (wasLiked ? -1 : 1)) }));
+    const call = wasLiked ? apiUnlikeLook(provider.id, lookKey) : apiLikeLook(provider.id, lookKey);
+    call.catch(() => {
+      // Revert on failure — this local overlay is the only place the "false"
+      // optimistic state lives, so undoing it here is the only undo there is.
+      setLikedKeys(prev => {
+        const next = new Set(prev);
+        wasLiked ? next.add(lookKey) : next.delete(lookKey);
+        return next;
+      });
+      setLikeCounts(prev => ({ ...prev, [lookKey]: Math.max(0, (prev[lookKey] || 0) + (wasLiked ? 1 : -1)) }));
+    });
+  }
+
+  // Looks (data/looks.ts) this artist confirmed at onboarding they can
+  // create — booking one carries the specific look through (lookId), same as
+  // "Book this look" from Home/Explore's LookSheet, so pricing/matching stays
+  // consistent whichever entry point a client used.
+  function bookLook(look: Look) {
+    if (!provider) return;
+    tapLight();
+    if (fromBooking) {
+      nav.navigate('NewBooking', { providerId: provider.id, serviceType: look.serviceType, lookId: look.id });
+      return;
+    }
+    nav.navigate('NewBooking', {
+      bookingMode: 'scheduled',
+      providerId: provider.id,
+      serviceType: look.serviceType,
+      lookId: look.id,
+      _t: Date.now(),
+    });
+  }
+
+  // Custom looks (ProviderLook) have no shared catalog entry, so unlike
+  // bookLook above there's no lookId to carry — booking flow just resolves
+  // on serviceType, same as tapping a plain Signature package.
+  function bookCustomLook(item: ProviderLookItem) {
+    book(item.serviceType);
+  }
+
+  const [galleryFor, setGalleryFor] = useState<{ item: ProviderLookItem; look: Look } | null>(null);
+  // A single-photo (or theme-only) look books straight away — the gallery
+  // only earns its interruption when there's actually more than one shot to
+  // swipe through.
+  function openCustomLook(entry: { item: ProviderLookItem; look: Look }) {
+    if (entry.item.media.length > 1) { setGalleryFor(entry); return; }
+    bookCustomLook(entry.item);
+  }
 
   function book(serviceType?: string) {
     if (!provider) return;
@@ -166,6 +247,41 @@ export function ProviderPublicProfileScreen() {
   const p = provider;
   const rating = Number(p.rating) || 0;
   const fromPrice = p.services?.length ? Math.min(...p.services.map(s => s.price)) : p.hourlyRate;
+
+  // Looks this artist confirmed they can create, resolved from the shared
+  // curated catalog. Price prefers whatever they've actually set for the
+  // matching service on their own menu over the editorial fallback, same
+  // rule the rest of the app follows (see data/looks.ts's header comment).
+  const catalogLooks = (p.capableLooks ?? [])
+    .map(id => lookById(id))
+    .filter((l): l is Look => !!l);
+  function priceForLook(look: Look): number {
+    const matched = p.services?.find(s => s.name === look.serviceType);
+    return matched ? matched.price : look.fromPrice;
+  }
+
+  // Self-served looks this artist built themselves (ProviderLook — no shared
+  // catalog entry). Adapted into the same Look shape so LookTile renders both
+  // kinds identically; the real ProviderLookItem is kept alongside for
+  // bookLookCustom below since it carries its own price directly.
+  const customLooks: { item: ProviderLookItem; look: Look }[] = (p.customLooks ?? []).map(item => ({
+    item,
+    look: {
+      id: `custom-${item.id}`,
+      name: item.name,
+      vibe: item.vibe || '',
+      collection: 'Trending',
+      occasion: '',
+      serviceType: item.serviceType,
+      includes: item.includes,
+      durationMin: item.durationMin ?? 60,
+      fromPrice: item.price,
+      products: [],
+      from: item.themeFrom || Colors.brand,
+      to: item.themeTo || Colors.brandAccent,
+      photo: item.media[0]?.type === 'photo' ? item.media[0].url : undefined,
+    },
+  }));
 
   // Highlight chips — every one backed by a real profile field.
   const highlights: string[] = [];
@@ -288,6 +404,49 @@ export function ProviderPublicProfileScreen() {
           </View>
         </View>
 
+        {/* ── Looks this artist creates — the curated, outcome-based catalog
+             (data/looks.ts) they confirmed at onboarding, distinct from the
+             raw priced service menu below. Leads with the emotional pitch
+             ("Soft Glam") a client can picture, same as Home/Explore. ── */}
+        {(catalogLooks.length > 0 || customLooks.length > 0) && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Looks {p.name.split(' ')[0]} creates</Text>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14 }}>
+              {customLooks.map(({ item, look }) => {
+                const key = `custom:${item.id}`;
+                return (
+                  <View key={look.id} style={{ width: 150 }}>
+                    <LookTile
+                      look={look}
+                      price={item.price}
+                      onPress={() => openCustomLook({ item, look })}
+                      height={130}
+                      likeOverride={{ liked: likedKeys.has(key), count: likeCounts[key] || 0, onToggle: () => toggleLookLike(key) }}
+                      photoCount={item.media.length}
+                      coverVideo={item.media[0]?.type === 'video' ? item.media[0].url : undefined}
+                      badge={item.badge}
+                    />
+                  </View>
+                );
+              })}
+              {catalogLooks.map(look => {
+                const key = `catalog:${look.id}`;
+                return (
+                  <View key={look.id} style={{ width: 150 }}>
+                    <LookTile
+                      look={look}
+                      price={priceForLook(look)}
+                      onPress={() => bookLook(look)}
+                      height={130}
+                      likeOverride={{ liked: likedKeys.has(key), count: likeCounts[key] || 0, onToggle: () => toggleLookLike(key) }}
+                    />
+                  </View>
+                );
+              })}
+            </ScrollView>
+          </View>
+        )}
+
         {/* ── Signature packages ── */}
         {p.services?.length > 0 && (
           <View style={styles.section}>
@@ -340,13 +499,7 @@ export function ProviderPublicProfileScreen() {
             <View style={styles.postsGrid}>
               {p.posts.map(post => (
                 <View key={post.id} style={styles.postThumb}>
-                  <Image
-                    source={{ uri: post.photoUrl }}
-                    style={styles.postThumbImg}
-                    contentFit="cover"
-                    cachePolicy="memory-disk"
-                    transition={200}
-                  />
+                  <PostMedia photoUrl={post.photoUrl} videoUrl={post.videoUrl} style={styles.postThumbImg} showBadge />
                   {post.likeCount > 0 && (
                     <View style={styles.postLikeBadge}>
                       <Text style={styles.postLikeBadgeText}>♥ {post.likeCount}</Text>
@@ -492,6 +645,16 @@ export function ProviderPublicProfileScreen() {
           <Text style={styles.bookBtnText}>Book {p.name.split(' ')[0]}</Text>
         </Pressable>
       </View>
+
+      <LookGalleryModal
+        visible={!!galleryFor}
+        media={galleryFor?.item.media ?? []}
+        name={galleryFor?.look.name ?? ''}
+        vibe={galleryFor?.look.vibe}
+        price={galleryFor?.item.price}
+        onClose={() => setGalleryFor(null)}
+        onBook={() => { if (galleryFor) bookCustomLook(galleryFor.item); setGalleryFor(null); }}
+      />
     </View>
   );
 }

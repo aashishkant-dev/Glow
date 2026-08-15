@@ -9,8 +9,8 @@ import { BookingCard } from '../../components/BookingCard';
 import { BookingCardSkeleton } from '../../components/SkeletonLoader';
 import { Colors } from '../../utils/colors';
 import { StatusBadge } from '../../components/StatusBadge';
-import { NoteIcon, ClockIcon, KeyIcon, PhoneMobileIcon } from '../../components/CareIcons';
-import { CheckCircleIcon, HourglassIcon } from '../../components/TabIcons';
+import { NoteIcon, KeyIcon, PhoneMobileIcon } from '../../components/CareIcons';
+import { CheckCircleIcon, HourglassIcon, CashIcon } from '../../components/TabIcons';
 import { formatCurrency } from '../../utils/format';
 
 type IconComp = (p: { size?: number; color?: string }) => React.ReactElement;
@@ -196,14 +196,16 @@ export function BookingsScreen() {
   const awaitingCount     = bookings.filter(b => b.status === 'REQUESTED').length;
   const upcomingCount     = bookings.filter(b => b.status === 'ACCEPTED').length;
   const completedBookings = bookings.filter(b => b.status === 'COMPLETED');
-  const totalHours        = completedBookings.reduce((s, b) => s + (b.hours ?? 0), 0);
+  // "Hours" isn't a metric customers think about for a beauty appointment —
+  // what they spent on completed visits is a more meaningful third stat here.
+  const totalSpent        = completedBookings.reduce((s, b) => s + (b.totalPrice ?? 0), 0);
 
   const statsHeader = !loading && bookings.length > 0 ? (
     <View style={styles.statsCard}>
       {([
         [NoteIcon, String(bookings.length),              'Bookings'],
         [CheckCircleIcon, String(completedBookings.length), 'Completed'],
-        [ClockIcon, `${totalHours}h`,                        'Hours'],
+        [CashIcon, formatCurrency(totalSpent),                'Spent'],
       ] as [IconComp, string, string][]).map(([Icon, val, label]) => (
         <View key={label} style={styles.statCell}>
           <View style={styles.statCellIcon}><Icon size={18} color={Colors.brand} /></View>

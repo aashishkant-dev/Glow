@@ -1,4 +1,4 @@
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
+import { createBottomTabNavigator, BottomTabBarProps, BottomTabBarHeightCallbackContext } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { addTapListener, scheduleLocal } from '../utils/notifications';
@@ -19,6 +19,7 @@ import { EarningsScreen } from '../screens/provider/EarningsScreen';
 import { RequestsScreen } from '../screens/provider/RequestsScreen';
 import { RequestsHubScreen } from '../screens/provider/RequestsHubScreen';
 import { PostsScreen } from '../screens/provider/PostsScreen';
+import { ProviderLooksScreen } from '../screens/provider/ProviderLooksScreen';
 import { requestsBadge } from '../utils/providerBadges';
 import { HelpScreen } from '../screens/shared/HelpScreen';
 import { ProfileScreen } from '../screens/shared/ProfileScreen';
@@ -29,6 +30,7 @@ import { Booking, apiNearbyJobs, apiMyJobs, apiGetRequests } from '../api/client
 import { getSocket, joinBookingRoom, joinUserRoom } from '../utils/socket';
 import { HomeIcon, CameraIcon, PersonIcon } from '../components/TabIcons';
 import { BellIcon } from '../components/CareIcons';
+import { SparkleIcon } from '../components/BeautyIcons';
 import { useNavigation } from '@react-navigation/native';
 import { DEFAULT_REGION_NAME } from '../utils/region';
 import { formatCurrency } from '../utils/format';
@@ -38,7 +40,7 @@ import { formatCurrency } from '../utils/format';
 // the OS itself) treats a "you" tab. Falls back to PersonIcon for accounts
 // that haven't uploaded a photo yet.
 function ProfileTabAvatar({ photoUrl, color, focused }: { photoUrl?: string | null; color: string; focused: boolean }) {
-  if (!photoUrl) return <PersonIcon size={24} color={color} />;
+  if (!photoUrl) return <PersonIcon size={24} color={color} filled={focused} />;
   return (
     <Image
       source={{ uri: photoUrl }}
@@ -73,30 +75,34 @@ export type PROVIDERStackParams = {
 const Tab = createBottomTabNavigator();
 const Stack = createNativeStackNavigator<PROVIDERStackParams>();
 
-const ACTIVE = Colors.onlineGreen;
+const ACTIVE = Colors.brand;
 const INACTIVE = Colors.systemGray2;
 
 // requestsBadge lives in utils/providerBadges to avoid a circular import with RequestsScreen.
 function bumpRequests() { requestsBadge.current += 1; }
 
-// Active-tab pill (matches CustomerNavigator's TabPill) so which tab you're
-// on is unambiguous, tinted for the Provider side's green brand accent.
+// Active-tab pill — identical treatment to CustomerNavigator's TabPill,
+// same rose brand tint, so the two sides of the app read as one product
+// instead of the Provider side looking like a different, older app.
 // Springs in (scale + fade) on focus — matches CustomerNavigator's TabPill.
-function TabPill({ focused, children }: { focused: boolean; children: React.ReactNode }) {
-  const anim = useRef(new Animated.Value(focused ? 1 : 0)).current;
-  useEffect(() => {
-    Animated.spring(anim, { toValue: focused ? 1 : 0, useNativeDriver: true, speed: 22, bounciness: 6 }).start();
-  }, [focused]);
+// See the matching TabPill in CustomerNavigator.tsx for the full explanation:
+// react-navigation renders tabBarIcon TWICE per tab (forced focused:true and
+// forced focused:false, each in its own opacity-crossfade layer — see
+// node_modules/@react-navigation/bottom-tabs' TabBarIcon.js), so a second,
+// independent Animated.spring driven off the `focused` prop this component
+// receives double-animates on top of that and can settle a layer at the
+// wrong opacity. A static opacity avoids fighting the animation
+// react-navigation already runs.
+// The active indicator is the single sliding pill ProviderCustomTabBar
+// renders behind the whole row (see slidingPill) — this wrapper just keeps
+// every icon's hit/layout box a consistent size, it no longer paints its
+// own per-tab fill. See the matching comment in CustomerNavigator.tsx's
+// CustomTabBar for why a real slide is safe in a fully custom bar like
+// this one.
+function TabPill({ children }: { focused: boolean; children: React.ReactNode }) {
   return (
     <View style={tabPillStyles.pill}>
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          tabPillStyles.pillFill,
-          { opacity: anim, transform: [{ scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.75, 1] }) }] },
-        ]}
-      />
-      {children}
+      <View style={{ position: 'relative' }}>{children}</View>
     </View>
   );
 }
@@ -105,29 +111,43 @@ const tabPillStyles = StyleSheet.create({
     width: 52, height: 32, borderRadius: 16,
     alignItems: 'center', justifyContent: 'center',
   },
-  pillFill: { ...StyleSheet.absoluteFill, borderRadius: 16, backgroundColor: Colors.onlineGreen + '1A' },
 });
+const SLIDING_PILL_WIDTH = 52;
 
 // Tab bar background — matches CustomerNavigator's (see that file's comment
 // for why web is solid, not glass: backdrop-filter doesn't reliably render
 // here and let vivid page content bleed through, making icons unreadable).
 function GlassTabBarBackground() {
   if (Platform.OS === 'web') {
+    // Real frosted-glass on web too (matches the native BlurView below)
+    // instead of a flat opaque white fill.
     return (
       <View
         style={[
           StyleSheet.absoluteFill,
-          { backgroundColor: '#fff', borderRadius: 100 },
+          {
+            backgroundColor: 'rgba(255,255,255,0.7)',
+            borderRadius: 100,
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+          } as any,
         ]}
       />
     );
   }
   return (
-    <BlurView
-      intensity={85}
-      tint="light"
-      style={[StyleSheet.absoluteFill, { borderRadius: 100, overflow: 'hidden' }]}
-    />
+    <>
+      <BlurView
+        intensity={85}
+        tint="light"
+        style={[StyleSheet.absoluteFill, { borderRadius: 100, overflow: 'hidden' }]}
+      />
+      {/* Blur alone let vivid page content bleed through and wash out the
+          icons/labels — this tint brings native in line with web's
+          rgba(255,255,255,0.7) fill so the bar stays legible over anything
+          scrolling behind it, while still reading as glass, not opaque. */}
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 100, backgroundColor: 'rgba(255,255,255,0.45)' }]} />
+    </>
   );
 }
 
@@ -138,6 +158,107 @@ const tabBadgeStyles = StyleSheet.create({
     paddingHorizontal: 4, borderWidth: 2, borderColor: '#FFFFFF',
   },
   badgeText: { color: '#fff', fontSize: 9, fontWeight: '800' },
+});
+
+// Same custom tab bar as CustomerNavigator.tsx (see the comment on
+// CustomTabBar there for the full "why") — bypasses react-navigation's
+// built-in double-layer icon rendering (a real bug on this app's web build)
+// and reports its own real height back into BottomTabBarHeightContext, since
+// nothing else does that once the default bar is replaced.
+function ProviderCustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
+  const bottomOffset = Platform.OS === 'ios' ? 24 : 14;
+  const setTabBarHeight = React.useContext(BottomTabBarHeightCallbackContext);
+
+  // One shared pill slides between tab positions instead of each icon
+  // fading its own static fill — see the matching CustomTabBar comment in
+  // CustomerNavigator.tsx for why that's safe in a fully custom bar.
+  // Hidden routes (NearbyJobs/MyJobs, tabBarButton: () => null) don't get a
+  // slot in the row, so they're excluded here the same way they're excluded
+  // from rendering below — otherwise the slide math would be off by however
+  // many hidden routes sit before the focused one.
+  const [barWidth, setBarWidth] = useState(0);
+  const slideX = useRef(new Animated.Value(0)).current;
+  const visibleRoutes = state.routes.filter(r => !descriptors[r.key].options.tabBarButton);
+  const focusedKey = state.routes[state.index]?.key;
+  const focusedVisibleIndex = Math.max(0, visibleRoutes.findIndex(r => r.key === focusedKey));
+  const tabWidth = visibleRoutes.length > 0 ? barWidth / visibleRoutes.length : 0;
+
+  useEffect(() => {
+    if (!tabWidth) return;
+    Animated.spring(slideX, {
+      toValue: tabWidth * focusedVisibleIndex + (tabWidth - SLIDING_PILL_WIDTH) / 2,
+      useNativeDriver: true,
+      speed: 18,
+      bounciness: 6,
+    }).start();
+  }, [focusedVisibleIndex, tabWidth, slideX]);
+
+  return (
+    <View
+      pointerEvents="box-none"
+      style={[providerTabBarStyles.wrap, { bottom: bottomOffset }]}
+      onLayout={e => setTabBarHeight?.(e.nativeEvent.layout.height + bottomOffset)}
+    >
+      <View style={providerTabBarStyles.bar} onLayout={e => setBarWidth(e.nativeEvent.layout.width)}>
+        <GlassTabBarBackground />
+        {!!tabWidth && (
+          <Animated.View pointerEvents="none" style={[providerTabBarStyles.slidingPill, { transform: [{ translateX: slideX }] }]} />
+        )}
+        {state.routes.map((route, index) => {
+          const { options } = descriptors[route.key];
+          // Hidden routes (NearbyJobs/MyJobs) set tabBarButton: () => null to
+          // stay registered for nav.navigate(...) deep-links without showing
+          // a tab button — skip rendering them here the same way.
+          if (options.tabBarButton) return null;
+          const focused = state.index === index;
+          const color = focused ? ACTIVE : INACTIVE;
+          const label = typeof options.tabBarLabel === 'string' ? options.tabBarLabel : route.name;
+          const icon = options.tabBarIcon?.({ focused, color, size: 22 });
+
+          const onPress = () => {
+            const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
+            if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
+          };
+
+          return (
+            <Pressable key={route.key} onPress={onPress} style={providerTabBarStyles.tab} accessibilityRole="tab" accessibilityState={{ selected: focused }}>
+              {icon}
+              <Text style={[providerTabBarStyles.label, { color }]}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+const providerTabBarStyles = StyleSheet.create({
+  wrap: { position: 'absolute', left: 16, right: 16, zIndex: 5 },
+  bar: {
+    flexDirection: 'row',
+    height: 70,
+    paddingTop: 10,
+    paddingHorizontal: 8,
+    borderRadius: 100,
+    borderWidth: 1,
+    borderColor: Colors.separator,
+    shadowColor: Colors.cardShadow,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.14,
+    shadowRadius: 30,
+    elevation: 12,
+    overflow: 'visible',
+  },
+  tab: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2 },
+  label: { fontSize: 10.5, fontFamily: 'Inter_500Medium', marginTop: 2 },
+  slidingPill: {
+    position: 'absolute',
+    top: 10,
+    left: 0,
+    width: SLIDING_PILL_WIDTH,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: Colors.brand + '2E',
+  },
 });
 
 // ── Global new-job notifier — runs across all Provider screens ─────────────────────
@@ -324,6 +445,11 @@ function ProviderTabs() {
   const [hasActiveJob, setHasActiveJob] = useState(false);
   const [nearbyBadge, setNearbyBadge] = useState(0);
   const [reqBadge, setReqBadge] = useState(0);
+  // Bumped on every tap of the Posts tab button (see ProviderCustomTabBar's
+  // onPress, which emits 'tabPress' regardless of whether the tab was
+  // already focused) so PostsScreen opens the camera immediately —
+  // Instagram/Snapchat-style, camera-first, not landing on the grid first.
+  const [postsCameraSignal, setPostsCameraSignal] = useState(0);
 
   // Sync badges from module-level refs (nearby = NearbyJobsScreen, requests = poller)
   useEffect(() => {
@@ -353,44 +479,15 @@ function ProviderTabs() {
   }, [token, clearUnread]);
   const tabBarHeight = Platform.OS === 'ios' ? 83 : 68;
 
+  // minHeight: 0 stops this flex:1 box from stretching past the real
+  // viewport to fit a tall screen's scroll content — see the matching
+  // comment in CustomerNavigator.tsx's HomeTabs for the full explanation.
   return (
-    <View style={{ flex: 1, overflow: 'hidden' as const }}>
+    <View style={{ flex: 1, minHeight: 0, overflow: 'hidden' as const }}>
       <Tab.Navigator
+        tabBar={props => <ProviderCustomTabBar {...props} />}
         screenOptions={{
-          tabBarBackground: GlassTabBarBackground,
           headerShown: false,
-          tabBarActiveTintColor: Colors.brand,
-          tabBarInactiveTintColor: Colors.systemGray2,
-          tabBarShowLabel: true,
-          tabBarLabelStyle: {
-            fontSize: 10,
-            fontWeight: '600',
-            marginTop: 2,
-          },
-          // Floating pill bar — background is transparent here,
-          // GlassTabBarBackground paints the actual frosted fill (matches
-          // CustomerNavigator's tab bar treatment).
-          tabBarStyle: {
-            position: 'absolute' as const,
-            left: 16, right: 16,
-            bottom: Platform.OS === 'ios' ? 24 : 14,
-            borderTopWidth: 0,
-            backgroundColor: 'transparent',
-            height: 70,
-            paddingBottom: 10,
-            paddingTop: 10,
-            paddingHorizontal: 8,
-            borderRadius: 100,
-            borderWidth: 1,
-            borderColor: Colors.separator,
-            shadowColor: Colors.cardShadow,
-            shadowOffset: { width: 0, height: 12 },
-            shadowOpacity: 0.14,
-            shadowRadius: 30,
-            elevation: 12,
-            overflow: 'visible' as const,
-            zIndex: 5,
-          },
         }}
       >
         {/* ── Tab 1: Home ── */}
@@ -401,7 +498,7 @@ function ProviderTabs() {
             tabBarIcon: ({ color, focused }) => (
               <TabPill focused={focused}>
                 <View>
-                  <HomeIcon size={22} color={color} />
+                  <HomeIcon size={22} color={color} filled={focused} />
                   {reqBadge > 0 && (
                     <View style={tabBadgeStyles.badge}>
                       <Text style={tabBadgeStyles.badgeText}>{reqBadge > 9 ? '9+' : reqBadge}</Text>
@@ -440,17 +537,33 @@ function ProviderTabs() {
           }}
         />
 
-        {/* ── Tab 3: Posts ── */}
+        {/* ── Tab 3: Posts — camera-first: tapping the tab opens the camera
+             directly (postsCameraSignal), the grid is what you land on after
+             closing it, not before. ── */}
         <Tab.Screen
           name="PostsTab"
-          component={PostsScreen}
           options={{
             tabBarIcon: ({ color, focused }) => <TabPill focused={focused}><CameraIcon size={20} color={color} /></TabPill>,
             tabBarLabel: 'Posts',
           }}
+          listeners={{
+            tabPress: () => setPostsCameraSignal(s => s + 1),
+          }}
+        >
+          {() => <PostsScreen cameraSignal={postsCameraSignal} />}
+        </Tab.Screen>
+
+        {/* ── Tab 4: Looks ── */}
+        <Tab.Screen
+          name="LooksTab"
+          component={ProviderLooksScreen}
+          options={{
+            tabBarIcon: ({ color, focused }) => <TabPill focused={focused}><SparkleIcon size={20} color={color} /></TabPill>,
+            tabBarLabel: 'Looks',
+          }}
         />
 
-        {/* ── Tab 4: Profile ── */}
+        {/* ── Tab 5: Profile ── */}
         <Tab.Screen
           name="ProfileTab"
           component={ProfileScreen}

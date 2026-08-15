@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import { BlurView } from 'expo-blur';
 import {
   Animated,
   Easing,
@@ -15,6 +16,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 import { StarIcon, CalendarIcon, SearchIcon, LocationIcon, ChevronDownIcon } from '../../components/TabIcons';
 import { GlowLogo, GlowMark } from '../../components/GlowLogo';
 import {
@@ -38,6 +40,7 @@ import { Storage } from '../../utils/storage';
 import { useChatUnread } from '../../context/ChatUnreadContext';
 import { tapLight } from '../../utils/haptics';
 import { humanizeQualification } from '../../utils/format';
+import { getCountryCode } from '../../utils/region';
 
 /**
  * Category-first home. Every card is a real ServiceItem grouping (see
@@ -303,10 +306,26 @@ export function HomeScreen() {
     [artists],
   );
 
-  const trendingLooks = React.useMemo(
-    () => [...LOOKS].sort((a, b) => Number(!!b.tall) - Number(!!a.tall)).slice(0, 6),
-    [],
-  );
+  // Region-specific looks (e.g. Nepal's Teej Radiance, France's Chic Chignon —
+  // see data/looks.ts) rank above the universal list for a user detected in
+  // that country, instead of competing on equal footing with looks written
+  // for a different market. A look with no `regions` is universal and always
+  // eligible; nothing is ever hidden, just reordered.
+  const trendingLooks = React.useMemo(() => {
+    const country = getCountryCode();
+    return [...LOOKS]
+      .sort((a, b) => {
+        const aLocal = country && a.regions?.includes(country) ? 1 : 0;
+        const bLocal = country && b.regions?.includes(country) ? 1 : 0;
+        if (aLocal !== bLocal) return bLocal - aLocal;
+        return Number(!!b.tall) - Number(!!a.tall);
+      })
+      .slice(0, 6);
+    // getCountryCode() reads a plain module-level variable (region.ts), not
+    // reactive state — re-keying on user?.phone (resolved async, after this
+    // screen can already have mounted) forces a recompute once the real
+    // country lands, instead of freezing on whatever it was at first render.
+  }, [user?.phone]);
 
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined') return;
@@ -334,6 +353,21 @@ export function HomeScreen() {
   const firstName = user?.name?.split(' ')[0] ?? 'there';
   const hour      = new Date().getHours();
   const greeting  = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
+  // The tab bar and Find My Glow are floating, `position: absolute` overlays
+  // that paint on top of whatever's beneath them — that's the whole point of
+  // a floating bar. Earlier this screen tried to prevent them ever painting
+  // over content by shrinking the ScrollView's own visible frame (marginBottom
+  // = tabBarHeight + …), but that traded "content invisible behind an opaque
+  // bar" for "content hard-clipped mid-row at a scroll boundary that moves
+  // with device/viewport height" — neither reads as intentional. The actual
+  // fix: make both overlays properly translucent (real blur, not solid fill —
+  // see GlassTabBarBackground and matchCta below) and let the ScrollView run
+  // full height like any normal scroll view. Content scrolling underneath a
+  // frosted-glass bar is the standard, deliberate pattern (iOS tab bars,
+  // Instagram, etc.) — it's never fully hidden, just softly blurred through,
+  // which reads as "there's a floating control here" instead of "this is
+  // broken."
+  const tabBarHeight = useBottomTabBarHeight();
 
   return (
     <View style={styles.container}>
@@ -471,7 +505,9 @@ export function HomeScreen() {
                 <View style={styles.serviceIcon}>
                   <c.Icon size={50} />
                 </View>
-                <Text style={styles.serviceName} numberOfLines={2}>{SHORT_SERVICE_LABEL[c.id] ?? c.name}</Text>
+                <View style={styles.serviceNameWrap}>
+                  <Text style={styles.serviceName} numberOfLines={2}>{SHORT_SERVICE_LABEL[c.id] ?? c.name}</Text>
+                </View>
               </Touch>
             ))}
           </View>
@@ -578,10 +614,19 @@ export function HomeScreen() {
         </Animated.View>
       </ScrollView>
 
-      {/* ── Find My Glow — the one primary CTA ── */}
-      <View pointerEvents="box-none" style={[styles.matchCtaWrap, { bottom: (Platform.OS === 'ios' ? 24 : 14) + 70 + 14 }]}>
+      {/* ── Find My Glow — the one primary CTA, floating just above the tab
+          bar so it stays reachable while scrolling. Translucent (not solid)
+          for the same reason the tab bar is: content scrolls naturally
+          underneath instead of being clipped or hidden, and stays legible
+          through the blur instead of vanishing behind an opaque pill. ── */}
+      <View pointerEvents="box-none" style={[styles.matchCtaWrap, { bottom: tabBarHeight + 14 }]}>
         <Touch onPress={() => { tapLight(); setShowMatch(true); }}>
           <View style={styles.matchCta}>
+            {Platform.OS === 'web' ? (
+              <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.matchCtaGlass]} />
+            ) : (
+              <BlurView intensity={60} tint="light" style={[StyleSheet.absoluteFill, { borderRadius: 100, overflow: 'hidden' }]} />
+            )}
             <Text style={styles.matchCtaText}>✨ Find My Glow</Text>
           </View>
         </Touch>
@@ -717,11 +762,15 @@ const styles = StyleSheet.create({
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 6, elevation: 1,
     alignItems: 'center', justifyContent: 'center', marginBottom: 8,
   },
-  // Fixed height (regardless of numberOfLines) so a two-line label can never
-  // push its row taller than its neighbors and throw off the grid rhythm.
+  // Fixed-height wrapper (regardless of numberOfLines) so a two-line label can
+  // never push its row taller than its neighbors, with the text itself
+  // vertically centered inside it — otherwise a 1-line label ("Hair", "Nails")
+  // sits flush at the top of the box while a 2-line label ("Brows & Lashes")
+  // fills it, making the row look uneven even though the boxes line up.
+  serviceNameWrap: { height: 28, justifyContent: 'center' },
   serviceName: {
     fontSize: 11.5, fontFamily: Fonts.medium, color: Colors.label,
-    textAlign: 'center', lineHeight: 14, height: 28,
+    textAlign: 'center', lineHeight: 14,
   },
 
   // Clamps every horizontal row to the screen width on web — without an
@@ -791,13 +840,20 @@ const styles = StyleSheet.create({
     ...(Platform.OS === 'android' ? { elevation: 20 } : null),
   },
   matchCta: {
-    backgroundColor: Colors.brand,
     borderRadius: 100,
     paddingVertical: 15, paddingHorizontal: 30,
     shadowColor: Colors.brand,
     shadowOffset: { width: 0, height: 10 },
     shadowOpacity: 0.4, shadowRadius: 20, elevation: 10,
     borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.55)',
+    overflow: 'hidden',
   },
+  // Translucent brand fill (not a flat opaque color) — content scrolling
+  // underneath shows through softly instead of vanishing behind this button.
+  matchCtaGlass: {
+    backgroundColor: 'rgba(217,122,145,0.82)',
+    backdropFilter: 'blur(16px)',
+    WebkitBackdropFilter: 'blur(16px)',
+  } as any,
   matchCtaText: { color: '#fff', fontSize: 15.5, fontFamily: Fonts.semibold, letterSpacing: 0.2 },
 });

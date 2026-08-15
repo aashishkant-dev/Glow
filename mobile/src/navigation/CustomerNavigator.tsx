@@ -1,8 +1,8 @@
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
-import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
-import React, { useEffect, useRef } from 'react';
+import { createBottomTabNavigator, BottomTabBarProps, BottomTabBarHeightCallbackContext } from '@react-navigation/bottom-tabs';
+import React, { useEffect, useRef, useState } from 'react';
 import { addTapListener } from '../utils/notifications';
-import { Animated, Platform, StyleSheet, View } from 'react-native';
+import { Animated, Platform, Pressable, StyleSheet, View, Text } from 'react-native';
 import { BlurView } from 'expo-blur';
 import { Image } from 'expo-image';
 import { useAuth } from '../context/AuthContext';
@@ -118,41 +118,68 @@ function CustomerMessageListener() {
 // effect that depends on browser/GPU support we can't rely on here.
 function GlassTabBarBackground() {
   if (Platform.OS === 'web') {
+    // Real frosted-glass on web too (matches the native BlurView below)
+    // instead of a flat opaque white fill — backdropFilter is a plain CSS
+    // property RN Web passes straight through, no library needed for it.
     return (
       <View
         style={[
           StyleSheet.absoluteFill,
-          { backgroundColor: '#fff', borderRadius: 100 },
+          {
+            backgroundColor: 'rgba(255,255,255,0.7)',
+            borderRadius: 100,
+            backdropFilter: 'blur(20px)',
+            WebkitBackdropFilter: 'blur(20px)',
+          } as any,
         ]}
       />
     );
   }
   return (
-    <BlurView
-      intensity={85}
-      tint="light"
-      style={[StyleSheet.absoluteFill, { borderRadius: 100, overflow: 'hidden' }]}
-    />
+    <>
+      <BlurView
+        intensity={85}
+        tint="light"
+        style={[StyleSheet.absoluteFill, { borderRadius: 100, overflow: 'hidden' }]}
+      />
+      {/* Blur alone let vivid page content bleed through and wash out the
+          icons/labels — this tint brings native in line with web's
+          rgba(255,255,255,0.7) fill so the bar stays legible over anything
+          scrolling behind it, while still reading as glass, not opaque. */}
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 100, backgroundColor: 'rgba(255,255,255,0.45)' }]} />
+    </>
   );
 }
 
 // Active-tab pill — springs in behind the focused icon (scale + fade) so
 // switching tabs feels alive instead of just a flat color swap.
-function TabPill({ focused, children }: { focused: boolean; children: React.ReactNode }) {
-  const anim = useRef(new Animated.Value(focused ? 1 : 0)).current;
-  useEffect(() => {
-    Animated.spring(anim, { toValue: focused ? 1 : 0, useNativeDriver: true, speed: 22, bounciness: 6 }).start();
-  }, [focused]);
+// react-navigation's TabBarIcon renders `tabBarIcon` TWICE per tab, on top of
+// each other — once forced `focused: true` (wrapped in its own opacity
+// crossfade toward the active tint), once forced `focused: false` (crossfade
+// toward inactive) — see TabBarIcon.js. TabPill is called from inside that
+// callback, so the `focused` prop it receives is NOT "is this tab actually
+// focused right now" — it's "which of the two permanently-mounted render
+// slots is this." Driving a SECOND, independent Animated.spring off that value
+// used to double-animate on top of react-navigation's own crossfade (each
+// slot's spring settles once at mount and never revisits it, since its
+// `focused` prop never subsequently changes) — the two independently-timed
+// opacity animations could compound to render either layer invisible
+// depending on exactly when each mounted, which is what made a specific
+// icon (Explore/Compass) intermittently disappear while others happened to
+// still look right. A static opacity keyed to the same forced value avoids
+// a second animation system fighting the one react-navigation already runs;
+// the crossfade smoothness comes entirely from react-navigation's own outer
+// opacity wrapper, so nothing looks less smooth — only the pill's small
+// scale-bounce flourish is gone.
+// The active indicator is now the single sliding pill CustomTabBar renders
+// behind the whole row (see slidingPill) — this wrapper just keeps every
+// icon's hit/layout box a consistent size, it no longer paints its own
+// per-tab fill (that used to be a static-opacity fade; see CustomTabBar's
+// comment for why it's a slide now instead).
+function TabPill({ children }: { focused: boolean; children: React.ReactNode }) {
   return (
     <View style={tabPillStyles.pill}>
-      <Animated.View
-        pointerEvents="none"
-        style={[
-          tabPillStyles.pillFill,
-          { opacity: anim, transform: [{ scale: anim.interpolate({ inputRange: [0, 1], outputRange: [0.75, 1] }) }] },
-        ]}
-      />
-      {children}
+      <View style={{ position: 'relative' }}>{children}</View>
     </View>
   );
 }
@@ -161,7 +188,122 @@ const tabPillStyles = StyleSheet.create({
     width: 52, height: 32, borderRadius: 16,
     alignItems: 'center', justifyContent: 'center',
   },
-  pillFill: { ...StyleSheet.absoluteFill, borderRadius: 16, backgroundColor: Colors.brandLight },
+});
+const SLIDING_PILL_WIDTH = 52;
+
+// Custom tab bar — replaces react-navigation's default `tabBarIcon`-driven
+// bar entirely. The default bar (via TabBarIcon.js) renders every tab's icon
+// TWICE, permanently — once forced focused:true (crossfaded in via its own
+// opacity wrapper) and once forced focused:false (crossfaded out) — so it can
+// animate between them. That's normally invisible plumbing, but in this app's
+// web build one of the two stacked layers for whichever tab is currently
+// active intermittently failed to paint (confirmed via direct DOM/computed-
+// style inspection: both layers report correct non-zero size and opacity in
+// isolation, yet the active tab's icon still doesn't appear on screen — a
+// react-native-web/Chromium compositing quirk with two absolutely-positioned,
+// opacity-animated SVGs stacked exactly on top of each other, not a bug in
+// the icon components themselves). Rendering each tab's icon exactly ONCE,
+// with its real focus state, sidesteps the double-layer stacking entirely
+// instead of chasing the compositing bug further.
+function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
+  const bottomOffset = Platform.OS === 'ios' ? 24 : 14;
+  // Screens call useBottomTabBarHeight() to reserve exactly enough space to
+  // clear this bar (see HomeScreen.tsx and friends) — that hook just reads
+  // this context, which react-navigation's OWN default tab bar keeps current
+  // via its onLayout. Replacing the default bar with this custom one means
+  // nothing was reporting a real measurement back into that context anymore,
+  // so every screen's reserved-space math was working off a stale/generic
+  // fallback number instead of this bar's actual on-screen size — reporting
+  // our own measured height (+ the gap below it, which is also space those
+  // screens need to clear) fixes it at the source instead of needing every
+  // consumer to special-case this custom bar.
+  const setTabBarHeight = React.useContext(BottomTabBarHeightCallbackContext);
+
+  // One shared pill slides between tab positions instead of each icon
+  // fading its own static-opacity fill in/out — the fade was chosen over an
+  // animated version of THAT per-icon fill specifically to dodge a
+  // react-navigation double-render quirk in its *default* tab bar (see the
+  // TabPill comment history). This bar is fully custom — react-navigation's
+  // default TabBarIcon double-mount never runs here — so a single
+  // independent sliding element behind the row doesn't touch that code path
+  // at all and is safe.
+  const [barWidth, setBarWidth] = useState(0);
+  const slideX = useRef(new Animated.Value(0)).current;
+  const visibleRoutes = state.routes.filter(r => !descriptors[r.key].options.tabBarButton);
+  const focusedKey = state.routes[state.index]?.key;
+  const focusedVisibleIndex = Math.max(0, visibleRoutes.findIndex(r => r.key === focusedKey));
+  const tabWidth = visibleRoutes.length > 0 ? barWidth / visibleRoutes.length : 0;
+
+  useEffect(() => {
+    if (!tabWidth) return;
+    Animated.spring(slideX, {
+      toValue: tabWidth * focusedVisibleIndex + (tabWidth - SLIDING_PILL_WIDTH) / 2,
+      useNativeDriver: true,
+      speed: 18,
+      bounciness: 6,
+    }).start();
+  }, [focusedVisibleIndex, tabWidth, slideX]);
+
+  return (
+    <View
+      pointerEvents="box-none"
+      style={[customTabBarStyles.wrap, { bottom: bottomOffset }]}
+      onLayout={e => setTabBarHeight?.(e.nativeEvent.layout.height + bottomOffset)}
+    >
+      <View style={customTabBarStyles.bar} onLayout={e => setBarWidth(e.nativeEvent.layout.width)}>
+        <GlassTabBarBackground />
+        {!!tabWidth && (
+          <Animated.View pointerEvents="none" style={[customTabBarStyles.slidingPill, { transform: [{ translateX: slideX }] }]} />
+        )}
+        {state.routes.map((route, index) => {
+          const { options } = descriptors[route.key];
+          const focused = state.index === index;
+          const color = focused ? ACTIVE : INACTIVE;
+          const label = typeof options.tabBarLabel === 'string' ? options.tabBarLabel : route.name;
+          const icon = options.tabBarIcon?.({ focused, color, size: 22 });
+
+          const onPress = () => {
+            const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
+            if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
+          };
+
+          return (
+            <Pressable key={route.key} onPress={onPress} style={customTabBarStyles.tab} accessibilityRole="tab" accessibilityState={{ selected: focused }}>
+              {icon}
+              <Text style={[customTabBarStyles.label, { color }]}>{label}</Text>
+            </Pressable>
+          );
+        })}
+      </View>
+    </View>
+  );
+}
+const customTabBarStyles = StyleSheet.create({
+  wrap: { position: 'absolute', left: 16, right: 16, zIndex: 5 },
+  bar: {
+    flexDirection: 'row',
+    height: 70,
+    paddingTop: 10,
+    paddingHorizontal: 8,
+    borderRadius: 100,
+    borderWidth: 1,
+    borderColor: Colors.separator,
+    shadowColor: Colors.cardShadow,
+    shadowOffset: { width: 0, height: 12 },
+    shadowOpacity: 0.14,
+    shadowRadius: 30,
+    elevation: 12,
+    overflow: 'visible',
+  },
+  tab: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2 },
+  label: { fontSize: 10.5, fontFamily: 'Inter_500Medium', marginTop: 2 },
+  // A soft, translucent rose (not a solid fill) — reads as glass sliding
+  // under the icons rather than a flat highlight stamped on top.
+  slidingPill: {
+    position: 'absolute', top: 10, left: 0,
+    width: SLIDING_PILL_WIDTH, height: 32, borderRadius: 16,
+    backgroundColor: Colors.brand + '2E',
+  },
 });
 
 function HomeTabs() {
@@ -170,43 +312,16 @@ function HomeTabs() {
     // `overflow: hidden` gives RN Web a clipping ancestor so horizontal rows
     // scroll instead of bleeding past the viewport. The floating tab bar is
     // `position: absolute` so it still renders outside this box.
-    <View style={{ flex: 1, overflow: 'hidden' }}>
+    // `minHeight: 0` stops this flex:1 box from stretching past the real
+    // viewport height to fit a tall screen's ScrollView content — without it,
+    // the absolute-positioned tab bar's `bottom: Npx` resolves against that
+    // oversized box, so it drifts up into the page instead of hugging the
+    // true screen bottom once a screen's content is tall enough to scroll.
+    <View style={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
     <Tab.Navigator
+      tabBar={props => <CustomTabBar {...props} />}
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: ACTIVE,
-        tabBarInactiveTintColor: INACTIVE,
-        tabBarShowLabel: true,
-        tabBarLabelStyle: { fontSize: 10.5, fontFamily: 'Inter_500Medium', marginTop: 2 },
-        tabBarBackground: GlassTabBarBackground,
-        // Floating pill bar — detached from the screen edges with a soft rose
-        // shadow, like modern beauty/lifestyle apps. Background is transparent
-        // here — GlassTabBarBackground paints the actual frosted fill.
-        tabBarStyle: {
-          position: 'absolute' as const,
-          left: 16, right: 16,
-          bottom: Platform.OS === 'ios' ? 24 : 14,
-          borderTopWidth: 0,
-          backgroundColor: 'transparent',
-          height: 70,
-          paddingBottom: 10,
-          paddingTop: 10,
-          paddingHorizontal: 8,
-          borderRadius: 100,
-          borderWidth: 1,
-          borderColor: Colors.separator,
-          shadowColor: Colors.cardShadow,
-          shadowOffset: { width: 0, height: 12 },
-          shadowOpacity: 0.14,
-          shadowRadius: 30,
-          elevation: 12,
-          overflow: 'visible',
-          // Explicit low zIndex: on web, RN Navigation mounts the tab bar as a
-          // later DOM sibling of screen content, so it paints over full-screen
-          // overlays (LocationPrompt, GlowSheet) despite their own higher
-          // zIndex — zIndex only ranks siblings within the same stacking context.
-          zIndex: 5,
-        },
       }}
     >
       <Tab.Screen

@@ -14,7 +14,8 @@ import { LOOKS, LOOK_OCCASIONS, Look } from '../../data/looks';
 import { LookTile } from '../../components/LookTile';
 import { LookSheet } from '../../components/LookSheet';
 import { ArtistCard } from '../../components/ArtistCard';
-import { apiPublicCatalog, apiPublicProviders, PublicProviderCard, apiGetExplorePosts, Post } from '../../api/client';
+import { PostMedia } from '../../components/PostMedia';
+import { apiPublicCatalog, apiPublicProviders, PublicProviderCard, apiGetExplorePosts, Post, apiGetExploreLooks, ExploreLookItem } from '../../api/client';
 import { SearchIcon } from '../../components/TabIcons';
 import { tapLight } from '../../utils/haptics';
 import { SEED_ARTISTS } from '../../data/seedArtists';
@@ -46,6 +47,14 @@ export function ExploreScreen() {
   const [postSort, setPostSort] = useState<PostSort>('top');
   const [postCategory, setPostCategory] = useState<PostCategoryFilter>('All');
   const [postsCursor, setPostsCursor] = useState<string | null>(null);
+  // Self-served looks (badge/theme/gallery/video) from real artists — shown
+  // above the curated catalog so that content isn't only findable behind a
+  // direct visit to one specific artist's profile.
+  const [exploreLooks, setExploreLooks] = useState<ExploreLookItem[]>([]);
+
+  useEffect(() => {
+    apiGetExploreLooks('recent', undefined, 16).then(({ looks }) => setExploreLooks(looks)).catch(() => {});
+  }, []);
 
   // Home's search bar navigates here with { openSearch: true } — auto-open
   // the search field so the customer lands with it already active.
@@ -146,6 +155,30 @@ export function ExploreScreen() {
   }, [filteredLooks]);
 
   const priceOf = (look: Look) => catalogPrices[look.serviceType];
+
+  // Adapts a self-served ExploreLookItem into the same Look shape the
+  // curated catalog uses, so LookTile renders both identically.
+  function exploreLookToLook(item: ExploreLookItem): Look {
+    return {
+      id: `explore-${item.id}`,
+      name: item.name,
+      vibe: item.vibe || '',
+      collection: 'Trending',
+      occasion: '',
+      serviceType: item.serviceType,
+      includes: item.includes,
+      durationMin: item.durationMin ?? 60,
+      fromPrice: item.price,
+      products: [],
+      from: item.themeFrom || Colors.brand,
+      to: item.themeTo || Colors.brandAccent,
+      photo: item.media[0]?.type === 'photo' ? item.media[0].url : undefined,
+    };
+  }
+  function openExploreLook(item: ExploreLookItem) {
+    tapLight();
+    nav.navigate('ProviderPublicProfile', { providerId: item.provider.id, providerName: item.provider.name });
+  }
 
   const allArtists = useMemo(() => {
     // Merge API artists with seed artists (dedupe by id)
@@ -268,6 +301,29 @@ export function ExploreScreen() {
 
       {tab === 'Looks' ? (
         <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: 130 }}>
+          {/* Self-served looks from real artists — their own badges, themes,
+              galleries and video clips, not just the curated catalog below. */}
+          {exploreLooks.length > 0 && (
+            <View style={{ marginBottom: 8 }}>
+              <Text style={styles.sectionHeading}>From our artists</Text>
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingHorizontal: 24 }}>
+                {exploreLooks.map(item => (
+                  <View key={item.id} style={{ width: 150 }}>
+                    <LookTile
+                      look={exploreLookToLook(item)}
+                      price={item.price}
+                      onPress={() => openExploreLook(item)}
+                      height={130}
+                      photoCount={item.media.length}
+                      coverVideo={item.media[0]?.type === 'video' ? item.media[0].url : undefined}
+                      badge={item.badge}
+                    />
+                  </View>
+                ))}
+              </ScrollView>
+            </View>
+          )}
+
           {/* Collection chips */}
           <View style={styles.chipBar}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={{ width: '100%' }}>
@@ -401,7 +457,7 @@ export function ExploreScreen() {
                     style={styles.postTile}
                     onPress={() => nav.navigate('PostDetail', { post })}
                   >
-                    <Image source={{ uri: post.photoUrl }} style={styles.postTileImage} contentFit="cover" cachePolicy="memory-disk" transition={150} />
+                    <PostMedia photoUrl={post.photoUrl} videoUrl={post.videoUrl} style={styles.postTileImage} showBadge />
                     <View style={styles.postTileLikeBadge}>
                       <Text style={styles.postTileLikeText}>♥ {post.likeCount}</Text>
                     </View>
@@ -455,6 +511,7 @@ const styles = StyleSheet.create({
   tabPillText: { fontSize: 14, fontFamily: Fonts.semibold, color: Colors.secondaryLabel },
   tabPillTextActive: { color: '#fff' },
 
+  sectionHeading: { fontSize: 15, fontFamily: Fonts.semibold, color: Colors.label, paddingHorizontal: 24, marginTop: 12, marginBottom: 10 },
   chipBar: { backgroundColor: Colors.systemGroupedBackground, paddingVertical: 8 },
   chipRow: { paddingHorizontal: 24, gap: 8 },
   chip: {

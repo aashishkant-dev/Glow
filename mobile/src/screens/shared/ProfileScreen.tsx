@@ -817,7 +817,6 @@ export function ProfileScreen() {
 
   // Stats values (with dash fallback)
   const customerTotalBookings = profile?.totalBookings ?? null;
-  const customerHours         = profile?.totalHours ?? null;
 
   const providerSessions  = profile?.totalSessions ?? null;
   const providerAvgRating = providerRating > 0 ? providerRating.toFixed(1) : null;
@@ -1096,10 +1095,8 @@ export function ProfileScreen() {
             </View>
             <View style={styles.statDivider} />
             <View style={styles.statCell}>
-              <Text style={styles.statNum}>
-                {customerHours !== null ? `${customerHours}h` : '—'}
-              </Text>
-              <Text style={styles.statLabel}>Hours Booked</Text>
+              <Text style={styles.statNum}>{String(favoriteCount)}</Text>
+              <Text style={styles.statLabel}>Favorite Artists</Text>
             </View>
           </View>
         )}

@@ -31,7 +31,7 @@ export function LookSheet({ look, onClose, priceOverride }: LookSheetProps) {
     if (!look) return;
     tapSuccess();
     onClose();
-    nav.navigate('NewBooking', { serviceType: look.serviceType, bookingMode: 'scheduled', _t: Date.now() });
+    nav.navigate('NewBooking', { serviceType: look.serviceType, lookId: look.id, bookingMode: 'scheduled', _t: Date.now() });
   }
 
   return (
@@ -70,13 +70,13 @@ export function LookSheet({ look, onClose, priceOverride }: LookSheetProps) {
               </View>
               <View style={styles.factDivider} />
               <View style={styles.fact}>
-                <Text style={styles.factValue}>{Math.round(look.durationMin / 60 * 10) / 10}h</Text>
-                <Text style={styles.factLabel}>Session</Text>
+                <Text style={styles.factValue}>{look.includes.length}</Text>
+                <Text style={styles.factLabel}>Included</Text>
               </View>
               <View style={styles.factDivider} />
               <View style={styles.fact}>
-                <Text style={styles.factValue}>{look.includes.length}</Text>
-                <Text style={styles.factLabel}>Included</Text>
+                <Text style={styles.factValue}>{look.products.length}</Text>
+                <Text style={styles.factLabel}>Products used</Text>
               </View>
             </View>
 

@@ -7,6 +7,7 @@ import { apiGetProviderPublicProfile, apiLikePost, apiUnlikePost } from '../../a
 import { Colors, Fonts } from '../../utils/colors';
 import { tapLight } from '../../utils/haptics';
 import { formatCurrency } from '../../utils/format';
+import { PostMedia } from '../../components/PostMedia';
 
 export function PostDetailScreen() {
   const insets = useSafeAreaInsets();
@@ -65,7 +66,7 @@ export function PostDetailScreen() {
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}>
         <View>
-          <Image source={{ uri: post.photoUrl }} style={styles.photo} contentFit="cover" transition={150} />
+          <PostMedia photoUrl={post.photoUrl} videoUrl={post.videoUrl} style={styles.photo} />
           <Pressable style={[styles.floatBack, { top: insets.top + 8 }]} onPress={() => nav.goBack()} hitSlop={12}>
             <Text style={styles.floatBackText}>‹</Text>
           </Pressable>

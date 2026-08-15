@@ -95,6 +95,27 @@ const SERVICES = [
   'Massage',
 ];
 
+// Estimated duration per service — mirrors scripts/seed-catalog.js's
+// BEAUTY_SERVICES durations. Used only as a scheduling estimate for artists
+// billed HOURLY (who have no per-service catalog of their own); it never
+// affects price, which is always the artist's hourlyRate per selection. Plain
+// "Makeup" has no fixed length in reality (a natural day look and a full glam
+// look take very different time), so it gets a mid-range estimate rather than
+// borrowing "1 hour" for every service regardless of what it actually takes.
+const SERVICE_DURATION_MIN: Record<string, number> = {
+  'Makeup': 75,
+  'Bridal Makeup': 180,
+  'Party Makeup': 90,
+  'Threading': 20,
+  'Hair Styling': 60,
+  'Hair Coloring': 120,
+  'Facial': 60,
+  'Waxing': 45,
+  'Nails': 60,
+  'Mehendi': 90,
+  'Massage': 60,
+};
+
 const START_HOURS   = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17, 18];
 
 function fmtHour(h: number) {
@@ -1437,7 +1458,7 @@ export function CreateBookingScreen() {
 
     const rate = selectedProvider.hourlyRate;
     if (rate != null && rate > 0) {
-      return SERVICES.map(name => ({ name, price: rate, durationMin: 60 }));
+      return SERVICES.map(name => ({ name, price: rate, durationMin: SERVICE_DURATION_MIN[name] ?? 60 }));
     }
 
     // No usable hourly rate: fall back to anything they did publish rather
@@ -1670,7 +1691,29 @@ export function CreateBookingScreen() {
         ...p,
         distanceKm: distMap[String(p._id)] ?? undefined,
       }));
-      const sorted = [...merged].sort((a, b) => (a.distanceKm ?? 99) - (b.distanceKm ?? 99));
+      // "Book this look" (LookSheet) arrives with a lookId — artists who
+      // confirmed that specific look during onboarding float above everyone
+      // else, then artists whose specialties match the underlying service
+      // type, before falling back to distance. Mirrors notifyNearbyProviders'
+      // isQualified in src/routes/customer.js (capableLooks match OR
+      // specialty match — not lookId-exclusive, since almost no artist has
+      // confirmed any specific look yet) so the order shown here doesn't
+      // imply a preference the backend wouldn't actually honor. Nobody is
+      // hidden: an artist matching neither just sorts by distance like before.
+      const lookId = (route.params as any)?.lookId as string | undefined;
+      const lookServiceType = (route.params as any)?.serviceType as string | undefined;
+      const matchTier = (p: typeof merged[number]) => {
+        if (lookId && p.capableLooks?.includes(lookId)) return 2;
+        if (lookServiceType && p.specialties?.includes(lookServiceType)) return 1;
+        return 0;
+      };
+      const sorted = [...merged].sort((a, b) => {
+        if (lookId || lookServiceType) {
+          const diff = matchTier(b) - matchTier(a);
+          if (diff !== 0) return diff;
+        }
+        return (a.distanceKm ?? 99) - (b.distanceKm ?? 99);
+      });
       // Seed artists trail real Providers — they're a demo showcase, never the
       // default/preselected choice, and never eligible for the preferId float below.
       const withSeed = [...sorted, ...SEED_AS_AVAILABLE_PROVIDERS];
@@ -1861,6 +1904,7 @@ export function CreateBookingScreen() {
             lng: bookingCoords?.lng,
             providerId: selectedProvider._id,
             address: address.trim(),
+            lookId: (route.params as any)?.lookId,
             // Only send a real, in-range offer — never NaN/0/negative from a
             // malformed field, and never an out-of-range value that slipped
             // past canNext's gate somehow. The offer is against the SUMMED

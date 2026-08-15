@@ -30,6 +30,10 @@ async function verifyGoogleIdToken(idToken) {
     email:   payload.email ? payload.email.toLowerCase().trim() : payload.email,
     name:    payload.name,
     picture: payload.picture,
+    // Google's account-language preference (e.g. "en-US", "ne-NP") — present
+    // only if the user has it set. Not a verified location, just a hint the
+    // client uses as a currency guess until a real phone number resolves one.
+    locale:  payload.locale,
   };
 }
 

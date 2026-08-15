@@ -61,10 +61,11 @@ async function notifyNearbyProviders(booking, lat, lng, io) {
 
   const profiles = await prisma.providerProfile.findMany({
     where: { approvedByAdmin: true, availability: true },
-    select: { userId: true },
+    select: { userId: true, specialties: true, capableLooks: true },
   });
   if (!profiles.length) return;
 
+  const capability = new Map(profiles.map(p => [p.userId, p]));
   const userIds = profiles.map(p => p.userId);
 
   const providerUsers = await prisma.user.findMany({
@@ -76,14 +77,34 @@ async function notifyNearbyProviders(booking, lat, lng, io) {
     select: { id: true, lat: true, lng: true, expoPushToken: true },
   });
 
-  const toNotify = providerUsers
+  const nearby = providerUsers
     .map(u => ({ ...u, distanceKm: haversineKm(u.lat, u.lng, lat, lng) }))
     .filter(u => {
       if (u.lat === 0 && u.lng === 0) return false;
       return u.distanceKm <= radiusKm;
     });
 
-  if (!toNotify.length) return;
+  if (!nearby.length) return;
+
+  // Prefer providers who specifically confirmed they can do this — the exact
+  // look (ProviderProfile.capableLooks) OR just the service type
+  // (specialties), whichever matches. Both are checked even when a lookId is
+  // present (not lookId-match-only): capableLooks is a brand new, opt-in
+  // field almost nobody has filled in yet, so requiring it exclusively would
+  // collapse "qualified" to near-empty for most look-based bookings and
+  // defeat the specialty-matched providers this is meant to prefer. Falls
+  // back to notifying everyone nearby (the old, unfiltered behavior) when
+  // NOBODY qualifies by either signal, so a new or niche look never silently
+  // fails to reach anyone — this narrows the pool when it helps, it never
+  // shrinks it to zero.
+  const isQualified = (userId) => {
+    const p = capability.get(userId);
+    if (!p) return false;
+    if (booking.lookId && p.capableLooks.includes(booking.lookId)) return true;
+    return p.specialties.includes(booking.serviceType);
+  };
+  const qualified = nearby.filter(u => isQualified(u.id));
+  const toNotify = qualified.length > 0 ? qualified : nearby;
 
   // Open-pool booking — price isn't set yet (it's resolved to each artist's own
   // rate only when they accept), so the broadcast can't quote a dollar amount here.
@@ -166,7 +187,7 @@ router.get(
           policeCheckCleared: true, firstAidCertified: true, approvedByAdmin: true, photoUrl: true,
           availability: true,
           homeService: true, salonService: true, salonAddress: true, serviceRadiusKm: true, coverPhotoUrl: true,
-          pricingModel: true, hourlyRate: true, priceNegotiable: true,
+          pricingModel: true, hourlyRate: true, priceNegotiable: true, capableLooks: true,
           services: { where: { active: true }, select: { name: true, price: true, durationMin: true } },
           user: {
             select: { id: true, name: true, rating: true, ratingCount: true, lat: true, lng: true, photoUrl: true, role: true, lastSeenAt: true },
@@ -215,6 +236,7 @@ router.get(
             pricingModel:       p.pricingModel || 'HOURLY',
             hourlyRate:         toNum(p.hourlyRate),
             priceNegotiable:    p.priceNegotiable || false,
+            capableLooks:       p.capableLooks || [],
             hasLocation,
             online:             p.availability && p.user.lastSeenAt != null && (Date.now() - new Date(p.user.lastSeenAt).getTime() < 10 * 60 * 1000),
           };
@@ -259,6 +281,9 @@ router.post(
     body('scheduledAt').isISO8601().withMessage('scheduledAt must be a valid ISO 8601 date'),
     body('lat').optional({ nullable: true }).isFloat({ min: -90, max: 90 }).withMessage('lat must be a valid latitude'),
     body('lng').optional({ nullable: true }).isFloat({ min: -180, max: 180 }).withMessage('lng must be a valid longitude'),
+    // Not validated against data/looks.ts (that catalog lives in the mobile
+    // app, not the backend) — just capped like any other free-form ID input.
+    body('lookId').optional({ nullable: true }).isString().isLength({ max: 100 }).withMessage('lookId must be 100 characters or fewer'),
   ],
   validate,
   async (req, res) => {
@@ -372,6 +397,7 @@ router.post(
         data: {
           customerId:        req.user.id,
           serviceType:       summaryServiceType,
+          lookId:            req.body.lookId || null,
           hours:             summaryHours,
           scheduledAt:       scheduledDate,
           lat:               latCoord,
@@ -496,7 +522,7 @@ router.get(
         // Explicit select — exclude submittedDocuments (base64 blob JSON).
         select: {
           specialties: true, photoUrl: true, policeCheckCleared: true, experienceYears: true,
-          pricingModel: true, hourlyRate: true, priceNegotiable: true,
+          pricingModel: true, hourlyRate: true, priceNegotiable: true, capableLooks: true,
           user: {
             select: { id: true, name: true, rating: true, lat: true, lng: true, photoUrl: true, lastSeenAt: true },
           },
@@ -524,6 +550,7 @@ router.get(
             pricingModel:       p.pricingModel || 'HOURLY',
             hourlyRate:         toNum(p.hourlyRate),
             priceNegotiable:    p.priceNegotiable || false,
+            capableLooks:       p.capableLooks || [],
           };
         })
         // Keep Providers within radius OR those whose distance is unknown (no coords yet) —
@@ -580,11 +607,13 @@ router.get(
           salonAddress: true,
           serviceRadiusKm: true,
           coverPhotoUrl: true,
+          photoUrl: true,
           languages: true,
           pricingModel: true,
           hourlyRate: true,
           priceNegotiable: true,
           businessHours: true,
+          capableLooks: true,
           services: { where: { active: true }, select: { name: true, price: true, durationMin: true } },
           user: {
             select: {
@@ -629,12 +658,35 @@ router.get(
         include: { service: { select: { id: true, name: true, price: true } } },
       });
 
+      // Self-served looks (see ProviderLook schema comment) — rendered next to
+      // the curated catalog on the "Looks X creates" section.
+      const customLooks = await prisma.providerLook.findMany({
+        where: { profileId: profile.id, active: true },
+        orderBy: { createdAt: 'desc' },
+      });
+
+      // Like counts for every look under this artist — counted on read since
+      // catalog looks (data/looks.ts, mobile-side static data) have no DB row
+      // of their own to hold a denormalized counter (see LookLike comment).
+      const lookLikeCounts = await prisma.lookLike.groupBy({
+        by: ['lookKey'],
+        where: { profileId: profile.id },
+        _count: { lookKey: true },
+      });
+      const likeCountByKey = Object.fromEntries(lookLikeCounts.map(l => [l.lookKey, l._count.lookKey]));
+      const myLikedKeys = new Set(
+        (await prisma.lookLike.findMany({
+          where: { profileId: profile.id, userId: req.user.id },
+          select: { lookKey: true },
+        })).map(l => l.lookKey)
+      );
+
       res.json({
         provider: {
           id: profile.userId,
           profileId: profile.id,
           name: profile.user.name,
-          photoUrl: profile.user.photoUrl,
+          photoUrl: profile.user.photoUrl || profile.photoUrl,
           rating: toNum(profile.user.rating) ?? 0,
           ratingCount: profile.user.ratingCount ?? 0,
           qualificationType: profile.qualificationType,
@@ -658,6 +710,23 @@ router.get(
           coverPhotoUrl: profile.coverPhotoUrl || '',
           languages: profile.languages ?? [],
           services: (profile.services || []).map(s => ({ name: s.name, price: toNum(s.price), durationMin: s.durationMin })),
+          capableLooks: profile.capableLooks ?? [],
+          lookLikes: likeCountByKey,
+          myLikedLookKeys: [...myLikedKeys],
+          customLooks: customLooks.map(l => ({
+            id: l.id,
+            name: l.name,
+            vibe: l.vibe,
+            serviceType: l.serviceType,
+            price: toNum(l.price),
+            durationMin: l.durationMin,
+            includes: l.includes,
+            media: l.media,
+            badge: l.badge,
+            themeFrom: l.themeFrom,
+            themeTo: l.themeTo,
+            likeCount: likeCountByKey[`custom:${l.id}`] || 0,
+          })),
           pricingModel: profile.pricingModel || 'HOURLY',
           hourlyRate: toNum(profile.hourlyRate),
           priceNegotiable: profile.priceNegotiable || false,
@@ -672,6 +741,7 @@ router.get(
           posts: recentPosts.map(p => ({
             id: p.id,
             photoUrl: p.photoUrl,
+            videoUrl: p.videoUrl,
             caption: p.caption,
             likeCount: p.likeCount,
             createdAt: p.createdAt,
@@ -681,6 +751,63 @@ router.get(
       });
     } catch (err) {
       console.error('GET /providers/:id/public error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+// A like belongs to (this artist, this look) — the same catalog look liked
+// under two different artists counts separately, since "liked" here means
+// "liked THIS artist's take on Bridal Glow", not the abstract catalog entry.
+function isValidLookKey(key) {
+  return typeof key === 'string' && /^(catalog|custom):[a-zA-Z0-9_-]{1,60}$/.test(key);
+}
+
+router.post(
+  '/providers/:id/looks/:lookKey/like',
+  authenticate,
+  requireRole('CUSTOMER', 'SALON'),
+  async (req, res) => {
+    try {
+      const { id, lookKey } = req.params;
+      if (!isValidLookKey(lookKey)) return res.status(400).json({ error: 'Invalid look' });
+      const profile = await prisma.providerProfile.findFirst({
+        where: { OR: [{ id }, { userId: id }], approvedByAdmin: true },
+        select: { id: true },
+      });
+      if (!profile) return res.status(404).json({ error: 'Artist not found' });
+
+      try {
+        await prisma.lookLike.create({ data: { profileId: profile.id, lookKey, userId: req.user.id } });
+      } catch (err) {
+        if (err.code !== 'P2002') throw err; // already liked — no-op
+      }
+      res.json({ success: true });
+    } catch (err) {
+      console.error('POST /providers/:id/looks/:lookKey/like error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+router.delete(
+  '/providers/:id/looks/:lookKey/like',
+  authenticate,
+  requireRole('CUSTOMER', 'SALON'),
+  async (req, res) => {
+    try {
+      const { id, lookKey } = req.params;
+      if (!isValidLookKey(lookKey)) return res.status(400).json({ error: 'Invalid look' });
+      const profile = await prisma.providerProfile.findFirst({
+        where: { OR: [{ id }, { userId: id }] },
+        select: { id: true },
+      });
+      if (!profile) return res.status(404).json({ error: 'Artist not found' });
+
+      await prisma.lookLike.deleteMany({ where: { profileId: profile.id, lookKey, userId: req.user.id } });
+      res.json({ success: true });
+    } catch (err) {
+      console.error('DELETE /providers/:id/looks/:lookKey/like error:', err);
       res.status(500).json({ error: 'Server error' });
     }
   }

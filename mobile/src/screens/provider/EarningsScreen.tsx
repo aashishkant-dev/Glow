@@ -154,7 +154,6 @@ export function EarningsScreen() {
   }, [wallet, withdrawing, payout, load]);
 
   const totalEarned = jobs.reduce((s, j) => s + (j.providerPayout ?? j.totalPrice ?? 0), 0);
-  const totalHours  = jobs.reduce((s, j) => s + j.hours, 0);
   const avgPerJob   = jobs.length > 0 ? Math.round(totalEarned / jobs.length) : 0;
 
   const now = new Date();
@@ -215,12 +214,12 @@ export function EarningsScreen() {
 
         <View style={styles.statsRow}>
           {([
+            // "Hours Worked" / "Avg per Hour" dropped — beauty services are
+            // priced and booked per service, not by the hour, so an hourly
+            // rate here didn't reflect anything an artist actually sets.
             [String(jobs.length), 'Jobs Done'],
-            [`${totalHours}h`,    'Hours Worked'],
-            [formatCurrency(avgPerJob, { decimals: 0 }),     'Avg / Job'],
-            // Effective take-home per hour from real payouts — never quote the
-            // customer's gross rate here (it would reveal the platform margin).
-            [totalHours > 0 ? `${formatCurrency(Math.round(totalEarned / totalHours), { decimals: 0 })}/hr` : '—', 'Avg / Hour'],
+            [formatCurrency(avgPerJob, { decimals: 0 }), 'Avg / Job'],
+            [formatCurrency(thisMonthEarned, { decimals: 0 }), 'This Month'],
           ] as [string, string][]).map(([num, label], i, arr) => (
             <View key={label} style={styles.statWrap}>
               <View style={styles.statItem}>

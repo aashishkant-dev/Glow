@@ -95,5 +95,11 @@ const styles = StyleSheet.create({
   // it, any horizontal ScrollView row (occasions, categories, trending) that
   // doesn't get clipped by an ancestor bleeds past the screen edge and the
   // page itself becomes horizontally scrollable.
-  root: { flex: 1, backgroundColor: Colors.systemBackground, overflow: 'hidden' as const },
+  // minHeight: 0 is the companion fix for the VERTICAL axis: a web flex item
+  // defaults to min-height:auto, which lets a tall child (e.g. a screen's
+  // ScrollView content) stretch this box past the real viewport height
+  // instead of being clipped to it — every bottom-anchored `position:
+  // absolute` element inside (tab bar, floating CTAs) then computes its
+  // offset against that oversized box, landing well above where it should.
+  root: { flex: 1, minHeight: 0, backgroundColor: Colors.systemBackground, overflow: 'hidden' as const },
 });

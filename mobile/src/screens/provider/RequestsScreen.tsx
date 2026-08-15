@@ -196,6 +196,13 @@ export function RequestsScreen({ embedded = false }: { embedded?: boolean } = {}
                 </View>
               )}
 
+              {/* Full details before deciding — look reference, skin type,
+                  everything JobDetailScreen already shows for an active job,
+                  now reachable before Accept/Decline too instead of only after. */}
+              <Pressable style={styles.detailsBtn} onPress={() => nav.navigate('JobDetail', { job })}>
+                <Text style={styles.detailsBtnText}>View full details</Text>
+              </Pressable>
+
               <View style={styles.actions}>
                 <Pressable style={styles.declineBtn} onPress={() => setDeclineJob(job)} disabled={busyId === job._id}>
                   <Text style={styles.declineText}>Decline</Text>
@@ -282,6 +289,8 @@ const styles = StyleSheet.create({
   address: { flex: 1, fontSize: 13, color: Colors.secondaryLabel, lineHeight: 18 },
   notes: { flex: 1, fontSize: 13, color: Colors.secondaryLabel, lineHeight: 18 },
 
+  detailsBtn: { paddingVertical: 10, alignItems: 'center', marginTop: 8 },
+  detailsBtnText: { fontSize: 13.5, fontWeight: '700', color: Colors.brand, textDecorationLine: 'underline' },
   actions: { flexDirection: 'row', gap: 12, marginTop: 16 },
   declineBtn: { flex: 1, paddingVertical: 14, borderRadius: 14, backgroundColor: Colors.systemGray5, alignItems: 'center' },
   declineText: { fontSize: 15, fontWeight: '700', color: Colors.label },
