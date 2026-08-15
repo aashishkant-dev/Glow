@@ -27,7 +27,7 @@ import { CloseCircleIcon } from './TabIcons';
 import { LookMediaItem } from '../api/client';
 import { shareLookPhoto } from '../utils/shareLook';
 
-const { width: SCREEN_W } = Dimensions.get('window');
+const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 interface Props {
   visible: boolean;
@@ -41,7 +41,7 @@ interface Props {
 
 function GalleryVideo({ uri }: { uri: string }) {
   const player = useVideoPlayer(uri, p => { p.loop = true; p.play(); });
-  return <VideoView player={player} style={{ width: SCREEN_W, height: '100%' }} contentFit="cover" nativeControls />;
+  return <VideoView player={player} style={{ width: SCREEN_W, height: SCREEN_H }} contentFit="cover" nativeControls />;
 }
 
 export function LookGalleryModal({ visible, media, name, vibe, price, onClose, onBook }: Props) {
@@ -63,10 +63,11 @@ export function LookGalleryModal({ visible, media, name, vibe, price, onClose, o
           keyExtractor={(_, i) => String(i)}
           onScroll={onScroll}
           scrollEventThrottle={16}
+          style={{ flex: 1 }}
           renderItem={({ item }) => (
             item.type === 'video'
               ? <GalleryVideo uri={item.url} />
-              : <Image source={{ uri: item.url }} style={{ width: SCREEN_W, height: '100%' }} contentFit="cover" cachePolicy="memory-disk" />
+              : <Image source={{ uri: item.url }} style={{ width: SCREEN_W, height: SCREEN_H }} contentFit="cover" cachePolicy="memory-disk" />
           )}
         />
 
@@ -77,7 +78,10 @@ export function LookGalleryModal({ visible, media, name, vibe, price, onClose, o
         </View>
 
         <Pressable style={[styles.closeBtn, { top: insets.top + 12 }]} onPress={onClose} hitSlop={10}>
-          <CloseCircleIcon size={30} color="#fff" />
+          {/* A solid white circle here would draw the icon's own X in white-on-white
+              (CloseCircleIcon always strokes the X white) — match Share's glass
+              backing instead so the X reads against it. */}
+          <CloseCircleIcon size={30} color="rgba(0,0,0,0.45)" />
         </Pressable>
         <Pressable
           style={[styles.shareBtn, { top: insets.top + 12 }]}
@@ -106,12 +110,16 @@ export function LookGalleryModal({ visible, media, name, vibe, price, onClose, o
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000' },
-  closeBtn: { position: 'absolute', right: 14, zIndex: 2 },
+  closeBtn: {
+    position: 'absolute', right: 14, zIndex: 2, borderRadius: 15, overflow: 'hidden',
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)',
+  },
   shareBtn: {
     position: 'absolute', left: 14, zIndex: 2,
-    flexDirection: 'row', alignItems: 'center',
+    flexDirection: 'row', alignItems: 'center', gap: 5,
     backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 16,
     paddingHorizontal: 12, paddingVertical: 7,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)',
   },
   shareBtnText: { color: '#fff', fontSize: 13, fontFamily: Fonts.semibold },
   dotRow: {
@@ -126,8 +134,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'flex-end', gap: 12,
     paddingHorizontal: 18, paddingTop: 40,
   },
-  name: { color: '#fff', fontSize: 19, fontFamily: Fonts.semibold, letterSpacing: -0.3 },
+  name: { color: '#fff', fontSize: 19, fontFamily: Fonts.semibold, letterSpacing: -0.3, textShadowColor: 'rgba(0,0,0,0.3)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 4 },
   vibe: { color: 'rgba(255,255,255,0.8)', fontSize: 13, fontFamily: Fonts.regular, marginTop: 2 },
-  bookBtn: { backgroundColor: Colors.brand, borderRadius: 22, paddingHorizontal: 18, paddingVertical: 12 },
+  bookBtn: {
+    backgroundColor: Colors.brand, borderRadius: 22, paddingHorizontal: 18, paddingVertical: 12,
+    shadowColor: Colors.brand, shadowOffset: { width: 0, height: 6 }, shadowOpacity: 0.35, shadowRadius: 14, elevation: 6,
+  },
   bookBtnText: { color: '#fff', fontSize: 14, fontFamily: Fonts.semibold },
 });
