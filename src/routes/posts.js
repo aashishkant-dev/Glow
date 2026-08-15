@@ -26,8 +26,12 @@ function videoExtAndType(mimeType) {
 // Same 9 categories used across the mobile app's Home grid and Glow Match —
 // kept as a fixed list (not tied to ProviderService) so any artist can tag a
 // post regardless of pricing model or whether they've set up a service menu.
+// Must match mobile/src/data/categories.ts's CATEGORIES[].name exactly — the
+// waxing entry used to read just 'Waxing' here while the client sent
+// 'Waxing & Hair Removal', so every post tagged with that category was
+// silently rejected with a 400 at upload time.
 const POST_CATEGORIES = [
-  'Hair', 'Nails', 'Brows & Lashes', 'Waxing', 'Makeup',
+  'Hair', 'Nails', 'Brows & Lashes', 'Waxing & Hair Removal', 'Makeup',
   'Facials & Skin', 'Bridal', 'Henna', 'Spa & Massage',
 ];
 
@@ -120,6 +124,41 @@ router.delete(
       res.json({ success: true });
     } catch (err) {
       console.error('DELETE /posts/:id error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+// PATCH /posts/:id — category is the only thing worth editing after the
+// fact: photo/video/filter are baked in at upload, and caption editing
+// wasn't asked for. This is specifically what lets an artist move an
+// "Uncategorized" post (one they skipped tagging, or one that predates a
+// given category existing) into a real category without re-uploading.
+router.patch(
+  '/:id',
+  authenticate,
+  requireRole('Provider'),
+  async (req, res) => {
+    try {
+      const { category } = req.body;
+      if (category && !POST_CATEGORIES.includes(category)) {
+        return res.status(400).json({ error: `category must be one of: ${POST_CATEGORIES.join(', ')}` });
+      }
+
+      const profile = await prisma.providerProfile.findUnique({ where: { userId: req.user.id } });
+      if (!profile) return res.status(400).json({ error: 'Provider profile not found' });
+
+      const post = await prisma.post.findUnique({ where: { id: req.params.id } });
+      if (!post || !post.active) return res.status(404).json({ error: 'Post not found' });
+      if (post.profileId !== profile.id) return res.status(403).json({ error: 'Not your post' });
+
+      const updated = await prisma.post.update({
+        where: { id: post.id },
+        data: { category: category || null },
+      });
+      res.json({ post: updated });
+    } catch (err) {
+      console.error('PATCH /posts/:id error:', err);
       res.status(500).json({ error: 'Server error' });
     }
   }

@@ -71,11 +71,21 @@ export function NotificationsScreen() {
     if (item.type === 'message') {
       const otherRole = isProvider ? 'CUSTOMER' : 'Provider';
       const otherName = item.senderName || (isProvider ? 'Customer' : 'Your Provider');
+      // otherPhotoUrl was always undefined here — the notification payload
+      // itself never carries it, so the header/message avatars fell back to
+      // plain initials every time someone opened a chat from a notification
+      // tap. The booking, which this bookingId can always fetch, already has
+      // it (see the customer/provider selects in provider.js/customer.js).
+      let otherPhotoUrl: string | undefined;
+      try {
+        const { booking } = await apiGetBooking(item.bookingId);
+        otherPhotoUrl = isProvider ? booking.customer?.photoUrl : booking.provider?.photoUrl;
+      } catch {}
       nav.navigate('Chat', {
         bookingId: item.bookingId,
         otherName,
         otherRole,
-        otherPhotoUrl: undefined,
+        otherPhotoUrl,
       });
       return;
     }

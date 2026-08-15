@@ -25,7 +25,7 @@ import { requestsBadge } from '../utils/providerBadges';
 import { HelpScreen } from '../screens/shared/HelpScreen';
 import { ProfileScreen } from '../screens/shared/ProfileScreen';
 import { ChatScreen } from '../screens/shared/ChatScreen';
-import { InquiriesScreen } from '../screens/provider/InquiriesScreen';
+import { InquiriesScreen } from '../screens/shared/InquiriesScreen';
 import { NotificationsScreen } from '../screens/shared/NotificationsScreen';
 import { Colors } from '../utils/colors';
 import { Booking, apiNearbyJobs, apiMyJobs, apiGetRequests } from '../api/client';
@@ -106,12 +106,11 @@ const tabPillStyles = StyleSheet.create({
   },
 });
 
-// Tab bar background — matches CustomerNavigator's. Flush, flat, and
-// noticeably more see-through than the old floating glass pill (which also
-// carried the shadow that rendered as a hard smear on real Android/web —
-// dropped entirely below, not just tuned, since a flush bar sitting flat on
-// the screen edge doesn't need a shadow to read as "above" the content the
-// way a floating pill did).
+// Tab bar background — matches CustomerNavigator's. Floating rounded pill
+// (the curved shape), noticeably more see-through than before, but no
+// shadow at all — that's what used to render as a hard smear on real
+// Android/web, so it's dropped entirely rather than just tuned. Definition
+// against content comes from the 1px border on `bar` instead.
 function GlassTabBarBackground() {
   if (Platform.OS === 'web') {
     return (
@@ -120,6 +119,7 @@ function GlassTabBarBackground() {
           StyleSheet.absoluteFill,
           {
             backgroundColor: 'rgba(255,249,248,0.7)',
+            borderRadius: 100,
             backdropFilter: 'blur(20px)',
             WebkitBackdropFilter: 'blur(20px)',
           } as any,
@@ -129,8 +129,8 @@ function GlassTabBarBackground() {
   }
   return (
     <>
-      <BlurView intensity={65} tint="light" style={StyleSheet.absoluteFill} />
-      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: 'rgba(255,249,248,0.38)' }]} />
+      <BlurView intensity={65} tint="light" style={[StyleSheet.absoluteFill, { borderRadius: 100 }]} />
+      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 100, backgroundColor: 'rgba(255,249,248,0.38)' }]} />
     </>
   );
 }
@@ -151,15 +151,16 @@ const tabBadgeStyles = StyleSheet.create({
 // nothing else does that once the default bar is replaced.
 function ProviderCustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
   const insets = useSafeAreaInsets();
+  const bottomOffset = Math.max(insets.bottom, Platform.OS === 'ios' ? 24 : 14);
   const setTabBarHeight = React.useContext(BottomTabBarHeightCallbackContext);
 
   return (
     <View
       pointerEvents="box-none"
-      style={providerTabBarStyles.wrap}
-      onLayout={e => setTabBarHeight?.(e.nativeEvent.layout.height)}
+      style={[providerTabBarStyles.wrap, { bottom: bottomOffset }]}
+      onLayout={e => setTabBarHeight?.(e.nativeEvent.layout.height + bottomOffset)}
     >
-      <View style={[providerTabBarStyles.bar, { paddingBottom: insets.bottom + 10 }]}>
+      <View style={providerTabBarStyles.bar}>
         <GlassTabBarBackground />
         {state.routes.map((route, index) => {
           const { options } = descriptors[route.key];
@@ -188,18 +189,19 @@ function ProviderCustomTabBar({ state, descriptors, navigation }: BottomTabBarPr
     </View>
   );
 }
-// Flush full-width bar sitting flat on the screen edge — not a floating
-// rounded pill with side margins. No shadow anywhere (that's what used to
-// smear); the only separation from content is a hairline top border, same
-// as the reference design.
+// Floating rounded pill, off the sides and bottom — the curved shape. No
+// shadow anywhere (that used to render as a hard smear on real Android/web);
+// the 1px border alone gives it enough definition against content.
 const providerTabBarStyles = StyleSheet.create({
-  wrap: { position: 'absolute', left: 0, right: 0, bottom: 0, zIndex: 5 },
+  wrap: { position: 'absolute', left: 16, right: 16, zIndex: 5 },
   bar: {
     flexDirection: 'row',
-    paddingTop: 12,
+    height: 70,
+    paddingTop: 10,
     paddingHorizontal: 8,
-    borderTopWidth: 1,
-    borderTopColor: Colors.separator,
+    borderRadius: 100,
+    borderWidth: 1,
+    borderColor: Colors.separator,
     overflow: 'hidden',
   },
   tab: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2 },

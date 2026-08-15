@@ -677,6 +677,15 @@ export function ProviderCalendarScreen({ embedded = false }: { embedded?: boolea
 
       {viewMode === 'list' ? (
         <SectionList
+          // Neither this nor the calendar-mode ScrollView below had an
+          // explicit flex — as a plain-flex-column sibling of the header
+          // (and, embedded in RequestsHubScreen, two more fixed headers
+          // above that), it sized to its own content instead of the
+          // remaining viewport, so anything past the fold was just clipped
+          // rather than scrollable — "frozen" rather than actually frozen.
+          // minHeight: 0 matters specifically on web — a flex:1 flexbox
+          // child otherwise refuses to shrink below its content size there.
+          style={{ flex: 1, minHeight: 0 }}
           sections={loading ? [] : sections}
           keyExtractor={i => i._id}
           contentContainerStyle={styles.list}
@@ -724,6 +733,7 @@ export function ProviderCalendarScreen({ embedded = false }: { embedded?: boolea
         />
       ) : (
         <ScrollView
+          style={{ flex: 1, minHeight: 0 }}
           contentContainerStyle={styles.list}
           refreshControl={
             <RefreshControl refreshing={refreshing} onRefresh={() => load(true)} tintColor={Colors.systemGreen} />

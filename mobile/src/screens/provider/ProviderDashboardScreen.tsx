@@ -326,6 +326,14 @@ export function ProviderDashboardScreen() {
               <Text style={styles.heroName} numberOfLines={1}>{firstName}</Text>
             </View>
             <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+              <Pressable style={styles.heroBtn} onPress={() => nav.navigate('Inquiries')} accessibilityLabel="My messages">
+                <ChatIcon size={18} color={Colors.label} />
+                {inquiryThreads.some(t => t.unread) && (
+                  <View style={styles.bellBadge}>
+                    <Text style={styles.bellBadgeText}>{inquiryThreads.filter(t => t.unread).length > 9 ? '9+' : inquiryThreads.filter(t => t.unread).length}</Text>
+                  </View>
+                )}
+              </Pressable>
               <Pressable style={styles.heroBtn} onPress={() => nav.navigate('Notifications')}>
                 <BellIcon size={18} color={Colors.label} />
                 {unreadCount > 0 && (
@@ -487,10 +495,16 @@ export function ProviderDashboardScreen() {
           ))}
         </View>
 
-        {/* ── New Requests banner (client picked this Provider) — top priority ── */}
+        {/* ── New Requests banner (client picked this Provider) — top priority.
+             Same dark-card + badge + pill-button language as ActiveJobBanner
+             above, instead of a flat brand-pink pill — the two used to look
+             like they belonged to different apps. ── */}
         {pendingRequests.length > 0 && (
           <Pressable style={styles.requestsBanner} onPress={() => nav.navigate('Requests')}>
-            <View style={styles.requestsBell}><BellIcon size={24} color="#fff" /></View>
+            <View style={styles.requestsBadge}>
+              <Text style={styles.requestsBadgeLabel}>NEW</Text>
+              <Text style={styles.requestsBadgeCount}>{pendingRequests.length}</Text>
+            </View>
             <View style={styles.requestsBannerText}>
               <Text style={styles.requestsBannerTitle} numberOfLines={1}>
                 {pendingRequests.length} new booking request{pendingRequests.length > 1 ? 's' : ''}
@@ -499,20 +513,19 @@ export function ProviderDashboardScreen() {
                 A client requested you — tap to accept or decline
               </Text>
             </View>
-            {/* wrap chevron so it has breathing room from the card edge + a true touch target */}
-            <View style={styles.requestsChevronWrap}>
-              <ChevronForwardIcon size={22} color="#fff" />
+            <View style={styles.requestsViewBtn}>
+              <Text style={styles.requestsViewBtnText}>Review</Text>
             </View>
           </Pressable>
         )}
 
         {/* ── New messages banner — pre-booking inquiries, a client asking
              before committing to a date. Same visual weight as the booking
-             requests banner above, just chat-colored instead of brand-pink
-             so the two read as distinct things at a glance. ── */}
+             requests banner above, just a chat icon badge instead of a
+             count so the two read as distinct things at a glance. ── */}
         {inquiryThreads.some(t => t.unread) && (
           <Pressable style={[styles.requestsBanner, styles.messagesBanner]} onPress={() => nav.navigate('Inquiries')}>
-            <View style={styles.requestsBell}><ChatIcon size={22} color="#fff" /></View>
+            <View style={styles.requestsBadge}><ChatIcon size={22} color="#fff" /></View>
             <View style={styles.requestsBannerText}>
               <Text style={styles.requestsBannerTitle} numberOfLines={1}>
                 {inquiryThreads.filter(t => t.unread).length} new message{inquiryThreads.filter(t => t.unread).length > 1 ? 's' : ''}
@@ -521,8 +534,8 @@ export function ProviderDashboardScreen() {
                 A client messaged you before booking — tap to reply
               </Text>
             </View>
-            <View style={styles.requestsChevronWrap}>
-              <ChevronForwardIcon size={22} color="#fff" />
+            <View style={styles.requestsViewBtn}>
+              <Text style={styles.requestsViewBtnText}>Reply</Text>
             </View>
           </Pressable>
         )}
@@ -944,29 +957,33 @@ const styles = StyleSheet.create({
   pendingBannerSub: { fontSize: 12, color: Colors.secondaryLabel, lineHeight: 17 },
 
   // New requests banner (prominent, brand green)
-  // Solid brand-green so it pops as the top-priority alert (was pale-green-on-green
-  // = low contrast, hard to read). White text + white icon bubble.
+  // Same dark-card language as activeJobBannerStyles.banner above (#2C1A20,
+  // borderRadius 20, no shadow) — was a flat solid-brand pill with a heavy
+  // drop shadow, the one card on this screen that didn't match.
   requestsBanner: {
     marginHorizontal: 16, marginTop: 16, marginBottom: 16,
-    flexDirection: 'row', alignItems: 'center', gap: 12,
-    backgroundColor: Colors.brand, borderRadius: 16, padding: 16,
-    shadowColor: Colors.brandDark, shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.25, shadowRadius: 10, elevation: 5,
+    flexDirection: 'row', alignItems: 'center', gap: 14,
+    backgroundColor: '#2C1A20', borderRadius: 20, padding: 16,
   },
   messagesBanner: {
-    marginTop: 0, backgroundColor: '#0A2540', shadowColor: '#0A2540',
+    marginTop: 0, backgroundColor: '#0A2540',
   },
-  requestsBell: {
-    width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.22)',
-    alignItems: 'center', justifyContent: 'center', flexShrink: 0, overflow: 'hidden',
+  // Mirrors activeJobBannerStyles.dateBadge's two-line composition (small
+  // caption over a bigger number) instead of a plain bell glyph — the count
+  // is the actual information, so it's shown, not just implied by an icon.
+  requestsBadge: {
+    width: 48, height: 48, borderRadius: 14, backgroundColor: Colors.brand,
+    alignItems: 'center', justifyContent: 'center', flexShrink: 0,
   },
-  // Chevron gets its own padded container so it never jams against the card edge
-  // and the whole row stays vertically centered.
-  requestsChevronWrap: { width: 24, alignItems: 'center', justifyContent: 'center', flexShrink: 0 },
-  // flex:1 + minWidth:0 lets the text column shrink so the chevron never overlaps it.
+  requestsBadgeLabel: { fontSize: 9.5, fontFamily: Fonts.semibold, color: 'rgba(255,255,255,0.85)', letterSpacing: 0.5 },
+  requestsBadgeCount: { fontSize: 18, fontFamily: Fonts.bold, color: '#fff', marginTop: 1 },
+  // Named "Review"/"Reply" pill instead of a bare chevron — matches
+  // activeJobBannerStyles.viewBtn's real button treatment.
+  requestsViewBtn: { backgroundColor: Colors.brand, borderRadius: 100, paddingHorizontal: 14, paddingVertical: 8, flexShrink: 0 },
+  requestsViewBtnText: { fontSize: 12.5, fontFamily: Fonts.semibold, color: '#fff' },
   requestsBannerText: { flex: 1, minWidth: 0 },
-  requestsBannerTitle: { fontSize: 15, fontWeight: '800', color: '#fff' },
-  requestsBannerSub: { fontSize: 12, color: 'rgba(255,255,255,0.85)', marginTop: 2, lineHeight: 16 },
-  requestsBannerChevron: { fontSize: 26, color: '#fff', fontWeight: '700', lineHeight: 26, width: 16, textAlign: 'center', flexShrink: 0 },
+  requestsBannerTitle: { fontSize: 14.5, fontFamily: Fonts.semibold, color: '#fff' },
+  requestsBannerSub: { fontSize: 12, color: 'rgba(255,255,255,0.65)', marginTop: 3, lineHeight: 16, fontFamily: Fonts.regular },
 
   docOkCard: {
     marginHorizontal: 16, marginTop: 16, marginBottom: 16, flexDirection: 'row', alignItems: 'center', gap: 12,

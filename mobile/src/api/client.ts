@@ -1095,6 +1095,10 @@ export function apiDeletePost(postId: string) {
   return request<{ success: boolean }>('DELETE', `/posts/${postId}`);
 }
 
+export function apiUpdatePostCategory(postId: string, category: string) {
+  return request<{ post: Post }>('PATCH', `/posts/${postId}`, { category });
+}
+
 export function apiGetMyPosts() {
   return request<{ posts: Post[] }>('GET', '/posts/mine');
 }

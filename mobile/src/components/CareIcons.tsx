@@ -227,6 +227,38 @@ export function BellIcon({ size = 24, color = Colors.brand }: IconProps) {
   );
 }
 
+// ShareIcon/PencilIcon/TrashIcon — a real icon set for card action rows
+// (look card Share/Edit/Remove) that previously used plain Unicode glyphs
+// (↗ ✎) rendered as Text, inconsistent with every other icon in the app.
+export function ShareIcon({ size = 24, color = Colors.brand }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 3v13" stroke={color} {...S} />
+      <Path d="M7 8l5-5 5 5" stroke={color} {...S} />
+      <Path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" stroke={color} {...S} />
+    </Svg>
+  );
+}
+
+export function PencilIcon({ size = 24, color = Colors.brand }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4 12.5-12.5z" stroke={color} {...S} />
+    </Svg>
+  );
+}
+
+export function TrashIcon({ size = 24, color = Colors.brand }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M4 7h16" stroke={color} {...S} />
+      <Path d="M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2" stroke={color} {...S} />
+      <Path d="M6 7l1 13a1 1 0 0 0 1 1h8a1 1 0 0 0 1-1l1-13" stroke={color} {...S} />
+      <Path d="M10 11v6M14 11v6" stroke={color} {...S} />
+    </Svg>
+  );
+}
+
 /**
  * NoteIcon — bookings/notes (~31 call sites). Squircle board (rx 4) matching
  * BriefcaseIcon and CalendarIcon, fully rounded clip, and bloom-dot bullets

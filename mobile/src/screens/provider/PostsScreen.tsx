@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { LinearGradient } from 'expo-linear-gradient';
-import { apiCreatePost, apiDeletePost, apiGetMyPosts, apiGetMyLooks, apiAddLookMedia, Post, ProviderLookItem } from '../../api/client';
+import { apiCreatePost, apiDeletePost, apiGetMyPosts, apiGetMyLooks, apiAddLookMedia, apiUpdatePostCategory, Post, ProviderLookItem } from '../../api/client';
 import { Colors, Fonts } from '../../utils/colors';
 import { CameraIcon } from '../../components/TabIcons';
 import { SparkleIcon } from '../../components/BeautyIcons';
@@ -82,8 +82,19 @@ function PostThumb({ post, lookName, onDelete, onView }: { post: Post; lookName:
 // category, likes, linked look) plus the delete action moved down here from
 // the thumbnail, so the grid's own remove button is one less thing crowding
 // each card.
-function PostDetailModal({ post, lookName, onClose, onDelete }: { post: Post | null; lookName: string | null; onClose: () => void; onDelete: (id: string) => void }) {
+function PostDetailModal({ post, lookName, onClose, onDelete, onSetCategory }: {
+  post: Post | null; lookName: string | null; onClose: () => void; onDelete: (id: string) => void;
+  onSetCategory: (postId: string, category: string) => void;
+}) {
   const insets = useSafeAreaInsets();
+  // Reset whenever a different post opens — otherwise the picker could stay
+  // open (or closed) carrying over from whichever post was viewed last.
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const openPostId = useRef<string | null>(null);
+  if (post && openPostId.current !== post.id) {
+    openPostId.current = post.id;
+    if (pickerOpen) setPickerOpen(false);
+  }
   if (!post) return null;
 
   function confirmDelete() {
@@ -108,12 +119,16 @@ function PostDetailModal({ post, lookName, onClose, onDelete }: { post: Post | n
 
         <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={detailStyles.footerGradient} pointerEvents="none" />
         <View style={[detailStyles.footer, { paddingBottom: insets.bottom + 16 }]}>
+          {/* Any post's category chip is tappable to re-file it — not just
+              the "no category yet" case — since a miscategorized post (or one
+              that predates a category existing at all) needed the exact same
+              fix and there's no reason to make that a second, different flow. */}
           <View style={detailStyles.metaRow}>
-            {!!post.category && (
-              <View style={detailStyles.chip}>
-                <Text style={detailStyles.chipText}>{post.category}</Text>
-              </View>
-            )}
+            <Pressable style={[detailStyles.chip, !post.category && detailStyles.chipMissing]} onPress={() => setPickerOpen(v => !v)}>
+              <Text style={[detailStyles.chipText, !post.category && detailStyles.chipMissingText]}>
+                {post.category ? post.category : '+ Add category'}
+              </Text>
+            </Pressable>
             {!!lookName && (
               <View style={detailStyles.chip}>
                 <Text style={detailStyles.chipText}>✨ {lookName}</Text>
@@ -125,6 +140,19 @@ function PostDetailModal({ post, lookName, onClose, onDelete }: { post: Post | n
               </View>
             )}
           </View>
+          {pickerOpen && (
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={detailStyles.pickerRow}>
+              {CATEGORIES.map(c => (
+                <Pressable
+                  key={c.id}
+                  style={[detailStyles.pickerChip, post.category === c.name && detailStyles.pickerChipActive]}
+                  onPress={() => { onSetCategory(post!.id, c.name); setPickerOpen(false); }}
+                >
+                  <Text style={[detailStyles.pickerChipText, post.category === c.name && detailStyles.pickerChipTextActive]}>{c.name}</Text>
+                </Pressable>
+              ))}
+            </ScrollView>
+          )}
           {!!post.caption && <Text style={detailStyles.caption}>{post.caption}</Text>}
           <Pressable style={detailStyles.deleteBtn} onPress={confirmDelete}>
             <Text style={detailStyles.deleteBtnText}>Delete post</Text>
@@ -153,6 +181,19 @@ const detailStyles = StyleSheet.create({
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.18)',
   },
   chipText: { color: '#fff', fontSize: 12, fontFamily: Fonts.medium },
+  // A dashed, brand-tinted outline instead of the plain glass chip — reads
+  // as "tap to fill this in," not just another read-only meta tag.
+  chipMissing: { backgroundColor: 'rgba(232,99,140,0.18)', borderColor: Colors.brand, borderStyle: 'dashed' },
+  chipMissingText: { color: '#fff', fontFamily: Fonts.semibold },
+  pickerRow: { gap: 8, paddingVertical: 2 },
+  pickerChip: {
+    backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: 100,
+    paddingHorizontal: 12, paddingVertical: 7,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+  },
+  pickerChipActive: { backgroundColor: Colors.brand, borderColor: Colors.brand },
+  pickerChipText: { color: 'rgba(255,255,255,0.85)', fontSize: 12, fontFamily: Fonts.medium },
+  pickerChipTextActive: { color: '#fff', fontFamily: Fonts.semibold },
   caption: { color: '#fff', fontSize: 14.5, fontFamily: Fonts.regular, lineHeight: 20 },
   deleteBtn: { alignSelf: 'flex-start', paddingVertical: 6 },
   deleteBtnText: { color: Colors.systemRed, fontSize: 13.5, fontFamily: Fonts.semibold },
@@ -266,6 +307,20 @@ export function PostsScreen({ cameraSignal }: Props) {
       setMyPosts(prev => prev.filter(p => p.id !== postId));
     } catch (e: any) {
       Alert.alert('Delete failed', e?.message || 'Could not delete post.');
+    }
+  }
+
+  async function setPostCategory(postId: string, category: string) {
+    // Optimistic — the picker already closed on tap, so the grid re-sorting
+    // the tile into its new section right away reads as instant, not a
+    // second async step after the fact.
+    setMyPosts(prev => prev.map(p => p.id === postId ? { ...p, category } : p));
+    setViewingPost(prev => prev && prev.id === postId ? { ...prev, category } : prev);
+    try {
+      await apiUpdatePostCategory(postId, category);
+    } catch (e: any) {
+      await loadMyPosts();
+      Alert.alert('Couldn’t update category', e?.message || 'Please try again.');
     }
   }
 
@@ -411,6 +466,7 @@ export function PostsScreen({ cameraSignal }: Props) {
         lookName={viewingPost ? linkedLookName(viewingPost, myLooks) : null}
         onClose={() => setViewingPost(null)}
         onDelete={deletePost}
+        onSetCategory={setPostCategory}
       />
     </View>
   );

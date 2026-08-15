@@ -1,8 +1,10 @@
 /**
- * InquiriesScreen — a provider's inbox of pre-booking messages. A client can
- * message an artist directly from a look or profile before picking a date
- * (see Message.bookingId's schema comment for why these aren't tied to a
- * booking); this is where the artist sees and replies to those threads.
+ * InquiriesScreen — an inbox of pre-booking messages, shared by both roles.
+ * A client can message an artist directly from a look or profile before
+ * picking a date (see Message.bookingId's schema comment for why these
+ * aren't tied to a booking); this is where either side sees and replies to
+ * those threads — a provider sees clients who messaged them, a customer
+ * sees artists they've messaged.
  */
 import React, { useCallback, useState } from 'react';
 import { ActivityIndicator, FlatList, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -13,6 +15,7 @@ import { Avatar } from '../../components/Avatar';
 import { apiGetInquiryThreads, InquiryThread } from '../../api/client';
 import { Colors, Fonts } from '../../utils/colors';
 import { tapLight } from '../../utils/haptics';
+import { useAuth } from '../../context/AuthContext';
 
 function fmtWhen(iso: string): string {
   const d = new Date(iso);
@@ -26,6 +29,13 @@ function fmtWhen(iso: string): string {
 export function InquiriesScreen() {
   const nav = useNavigation<any>();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+  // Was hardcoded to 'CUSTOMER' — correct only when the viewer is a
+  // Provider. A customer opening their own inbox would then hand ChatScreen
+  // 'CUSTOMER' as the OTHER party's role, i.e. claim the artist they're
+  // messaging is a customer — wrong role for every customer-side thread.
+  // The other party's role is always the opposite of whoever's looking.
+  const otherRole = user?.role === 'Provider' ? 'CUSTOMER' : 'Provider';
   const [threads, setThreads] = useState<InquiryThread[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -38,7 +48,7 @@ export function InquiriesScreen() {
 
   function openThread(t: InquiryThread) {
     tapLight();
-    nav.navigate('Chat', { otherUserId: t.otherUserId, otherName: t.otherName, otherPhotoUrl: t.otherPhotoUrl ?? undefined, otherRole: 'CUSTOMER' });
+    nav.navigate('Chat', { otherUserId: t.otherUserId, otherName: t.otherName, otherPhotoUrl: t.otherPhotoUrl ?? undefined, otherRole });
   }
 
   return (
@@ -61,7 +71,11 @@ export function InquiriesScreen() {
             <View style={styles.empty}>
               <View style={styles.emptyIcon}><ChatIcon size={30} color={Colors.brand} /></View>
               <Text style={styles.emptyTitle}>No messages yet</Text>
-              <Text style={styles.emptySub}>When a client messages you before booking, it shows up here.</Text>
+              <Text style={styles.emptySub}>
+                {otherRole === 'CUSTOMER'
+                  ? 'When a client messages you before booking, it shows up here.'
+                  : 'Message an artist from their profile or a look — your conversations show up here.'}
+              </Text>
             </View>
           }
           renderItem={({ item }) => (

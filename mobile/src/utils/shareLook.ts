@@ -15,7 +15,25 @@ import * as Sharing from 'expo-sharing';
 export async function shareLookPhoto(imageUrl: string, caption: string) {
   if (Platform.OS === 'web') {
     const nav = typeof navigator !== 'undefined' ? (navigator as any) : null;
+    // Sharing { url: imageUrl } handed the share sheet a raw Vercel Blob
+    // storage URL (a long random hash filename) — whatever received the
+    // share (Instagram included) rendered that literal link, which is what
+    // read as "weird." Sharing the actual photo as a file instead (Web
+    // Share API Level 2) needs no link at all — that's also the only way a
+    // web share sheet lets Instagram add the photo straight to a Story
+    // instead of just posting a link.
     if (nav?.share) {
+      try {
+        const res = await fetch(imageUrl);
+        const blob = await res.blob();
+        const file = new File([blob], 'glow-look.jpg', { type: blob.type || 'image/jpeg' });
+        if (nav.canShare?.({ files: [file] })) {
+          await nav.share({ title: caption, text: caption, files: [file] });
+          return;
+        }
+      } catch {
+        // fall through to a link-based share below
+      }
       try {
         await nav.share({ title: caption, text: caption, url: imageUrl });
       } catch {

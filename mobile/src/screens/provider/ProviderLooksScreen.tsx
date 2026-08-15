@@ -7,7 +7,7 @@
  *     photo or a gradient theme, the same editorial presentation the curated
  *     catalog gets, shown on your public profile next to it.
  */
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Image } from 'expo-image';
 import { useVideoPlayer, VideoView } from 'expo-video';
 import {
@@ -45,6 +45,7 @@ import { CameraCapture, CapturedAsset } from '../../components/CameraCapture';
 import { FilterPreview } from '../../components/FilterPreview';
 import { PHOTO_FILTERS } from '../../data/photoFilters';
 import { SparkleIcon } from '../../components/BeautyIcons';
+import { ShareIcon, PencilIcon, TrashIcon } from '../../components/CareIcons';
 import { shareLookPhoto } from '../../utils/shareLook';
 
 
@@ -259,21 +260,21 @@ export function ProviderLooksScreen() {
                       <View style={styles.cardActionRow}>
                         <Pressable
                           style={styles.cardActionBtn}
+                          hitSlop={6}
+                          accessibilityLabel="Share this look"
                           onPress={() => {
                             const cover = item.media[0];
                             if (!cover) { Alert.alert('Add a photo first', 'This look needs at least one photo to share.'); return; }
                             shareLookPhoto(cover.url, `${item.name} — see it on Glow ✨`);
                           }}
                         >
-                          <Text style={styles.cardActionIcon}>↗</Text>
-                          <Text style={styles.cardActionText}>Share</Text>
+                          <ShareIcon size={16} color={Colors.brand} />
                         </Pressable>
-                        <Pressable style={styles.cardActionBtn} onPress={() => setEditingLook(item)}>
-                          <Text style={styles.cardActionIcon}>✎</Text>
-                          <Text style={styles.cardActionText}>Edit</Text>
+                        <Pressable style={styles.cardActionBtn} hitSlop={6} accessibilityLabel="Edit this look" onPress={() => setEditingLook(item)}>
+                          <PencilIcon size={15} color={Colors.brand} />
                         </Pressable>
-                        <Pressable style={[styles.cardActionBtn, styles.cardActionBtnDanger]} onPress={() => deleteCustomLook(item)}>
-                          <Text style={[styles.cardActionText, { color: Colors.systemRed }]}>Remove</Text>
+                        <Pressable style={[styles.cardActionBtn, styles.cardActionBtnDanger]} hitSlop={6} accessibilityLabel="Remove this look" onPress={() => deleteCustomLook(item)}>
+                          <TrashIcon size={15} color={Colors.systemRed} />
                         </Pressable>
                       </View>
                     </View>
@@ -478,10 +479,32 @@ function CreateLookSheet({
   const gridItems: { key: string; type: 'photo' | 'video'; uri: string; source: 'new' | 'existing' }[] =
     media.map((m, i) => ({ key: `${m.uri}-${i}`, type: m.type, uri: m.uri, source: m.source }));
 
+  // Pull-down-to-dismiss: only fires from an overscroll past the very top
+  // (native bounce / web rubber-banding reports negative contentOffset.y
+  // there), not from an ordinary downward scroll mid-content — so scrolling
+  // back up through the form never accidentally closes it. Checked on
+  // release (onScrollEndDrag), not on every onScroll tick, so a small bounce
+  // that springs back on its own doesn't close the sheet out from under a
+  // still-scrolling thumb.
+  const scrollYRef = useRef(0);
+  const PULL_TO_CLOSE_THRESHOLD = 70;
+  function handleScrollEndDrag() {
+    if (scrollYRef.current < -PULL_TO_CLOSE_THRESHOLD) onClose();
+  }
+
   return (
     <Modal visible={visible} transparent animationType="slide" onRequestClose={onClose}>
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={styles.overlay}>
-        <ScrollView style={[styles.sheet, { maxHeight: '88%' }]} contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}>
+        <ScrollView
+          style={[styles.sheet, { maxHeight: '88%' }]}
+          contentContainerStyle={{ paddingBottom: insets.bottom + 20 }}
+          onScroll={e => { scrollYRef.current = e.nativeEvent.contentOffset.y; }}
+          onScrollEndDrag={handleScrollEndDrag}
+          scrollEventThrottle={16}
+        >
+          <Pressable style={styles.sheetHandleWrap} onPress={onClose} hitSlop={8}>
+            <View style={styles.sheetHandle} />
+          </Pressable>
           <Text style={styles.sheetTitle}>{isEditing ? 'Edit look' : 'Create a look'}</Text>
 
           {services.length === 0 ? (
@@ -820,18 +843,24 @@ const styles = StyleSheet.create({
   emptyText: { fontSize: 14, fontWeight: '600', color: Colors.secondaryLabel, textAlign: 'center' },
   emptyHint: { fontSize: 12.5, color: Colors.tertiaryLabel },
 
-  cardActionRow: { flexDirection: 'row', gap: 6, marginTop: 10 },
+  // Real circular icon buttons instead of three cramped text pills squeezed
+  // into a 150px card — each one is a proper ~44pt touch target (visual
+  // circle is 34px, hitSlop makes up the rest) instead of paddingVertical:7
+  // pills that were too small to comfortably tap, especially the
+  // destructive one.
+  cardActionRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
   cardActionBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 3, flex: 1, justifyContent: 'center',
-    paddingVertical: 7, borderRadius: 16, backgroundColor: Colors.brandLight,
+    width: 34, height: 34, borderRadius: 17,
+    alignItems: 'center', justifyContent: 'center',
+    backgroundColor: Colors.brandLight,
   },
-  // Colors.systemGray6 (#F9F9FB) is nearly indistinguishable from this
-  // screen's own background (#FFF9F8) — Remove read as an unstyled bare
-  // label next to Share/Edit's clearly-pink pills. A light red tint gives it
-  // the same "pill" weight while still reading as the destructive action.
-  cardActionBtnDanger: { backgroundColor: Colors.systemRed + '17', flex: 0.85 },
-  cardActionIcon: { fontSize: 11, color: Colors.brand },
-  cardActionText: { fontSize: 11, color: Colors.brand, fontFamily: Fonts.semibold },
+  // A red border, not just a red tint fill (which alone was too close to
+  // Share/Edit's pink tint at a glance) — the clearest possible break from
+  // the two non-destructive actions beside it.
+  cardActionBtnDanger: {
+    backgroundColor: Colors.systemRed + '12',
+    borderWidth: 1.5, borderColor: Colors.systemRed + '55',
+  },
 
   mostLovedBadge: {
     position: 'absolute', top: -8, left: 8, zIndex: 1,
@@ -856,6 +885,10 @@ const styles = StyleSheet.create({
 
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)', justifyContent: 'flex-end' },
   sheet: { backgroundColor: Colors.systemBackground, borderTopLeftRadius: 24, borderTopRightRadius: 24, padding: 20 },
+  // Signals "this scrolls closed" before anyone tries it — a plain grabber
+  // bar, tappable too as a fallback for anyone who doesn't think to scroll.
+  sheetHandleWrap: { alignItems: 'center', paddingBottom: 12, marginTop: -6 },
+  sheetHandle: { width: 36, height: 4, borderRadius: 2, backgroundColor: Colors.separator },
   sheetTitle: { fontSize: 18, fontWeight: '800', color: Colors.label, marginBottom: 14 },
 
   formSectionTitle: { fontSize: 14, fontWeight: '800', color: Colors.label, marginBottom: 4 },

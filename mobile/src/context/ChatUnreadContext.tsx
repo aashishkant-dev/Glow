@@ -33,6 +33,7 @@ interface BannerMsg {
     | 'accepted' | 'enroute' | 'started' | 'cancelled' | 'tip';
   bookingId?: string;
   senderName?: string;
+  senderPhotoUrl?: string;
 }
 
 interface ChatUnreadContextValue {
@@ -201,8 +202,8 @@ export function ChatUnreadProvider({ children }: { children: React.ReactNode }) 
     apiMarkNotificationsRead().catch(() => {});
   }, []);
 
-  const showBanner = useCallback((title: string, body: string, options?: { type?: BannerMsg['type']; bookingId?: string; senderName?: string }) => {
-    setBanner({ title, body, type: options?.type, bookingId: options?.bookingId, senderName: options?.senderName });
+  const showBanner = useCallback((title: string, body: string, options?: { type?: BannerMsg['type']; bookingId?: string; senderName?: string; senderPhotoUrl?: string }) => {
+    setBanner({ title, body, type: options?.type, bookingId: options?.bookingId, senderName: options?.senderName, senderPhotoUrl: options?.senderPhotoUrl });
     addNotification(title, body, options);
   }, [addNotification]);
 
@@ -256,7 +257,7 @@ export function ChatUnreadProvider({ children }: { children: React.ReactNode }) 
       const body  = d?.text || 'You have a new message.';
       // showBanner already bumps the bell count via addNotification — don't double-count.
       // Persist senderName so the Notifications screen can open the chat with a header.
-      showBanner(senderName, body, { type: 'message', bookingId: d?.bookingId, senderName });
+      showBanner(senderName, body, { type: 'message', bookingId: d?.bookingId, senderName, senderPhotoUrl: d?.senderPhotoUrl });
       // Also fire a system/local notification so it shows even when the app/tab is
       // backgrounded — works on web (Notification API) and native (expo-notifications).
       // No emoji in the title (brand rule); the chat icon comes from the OS channel.
@@ -340,9 +341,11 @@ export function ChatUnreadProvider({ children }: { children: React.ReactNode }) 
     if (!banner) return;
     
     if (banner.type === 'message' && banner.bookingId) {
-      // Pass the sender name from the banner title so the chat header isn't blank
-      // before message history loads. ChatScreen derives the rest as a fallback.
-      nav.navigate('Chat', { bookingId: banner.bookingId, otherName: banner.title });
+      // Pass the sender name/photo from the banner so the chat header isn't
+      // blank before message history loads — ChatScreen has no fallback
+      // fetch of its own for either, it just renders whatever route params
+      // it's handed.
+      nav.navigate('Chat', { bookingId: banner.bookingId, otherName: banner.title, otherPhotoUrl: banner.senderPhotoUrl });
     } else if ((banner.type === 'booking' || banner.type === 'rating') && banner.bookingId) {
       // Completed→rating + general booking updates open the booking detail
       // (which auto-scrolls to the rating section when COMPLETED).

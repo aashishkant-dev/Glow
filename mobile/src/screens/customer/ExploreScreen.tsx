@@ -217,7 +217,7 @@ export function ExploreScreen() {
   function messageExploreLookArtist(item: ExploreLookItem) {
     tapLight();
     setGalleryFor(null);
-    nav.navigate('Chat', { otherUserId: item.provider.id, otherName: item.provider.name, otherRole: 'Provider' });
+    nav.navigate('Chat', { otherUserId: item.provider.id, otherName: item.provider.name, otherPhotoUrl: item.provider.photoUrl ?? undefined, otherRole: 'Provider' });
   }
 
   const allArtists = useMemo(() => {

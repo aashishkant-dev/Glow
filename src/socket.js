@@ -92,7 +92,7 @@ function initSocket(httpServer) {
       try {
         const [booking, sender] = await Promise.all([
           prisma.booking.findUnique({ where: { id: bookingId } }),
-          prisma.user.findUnique({ where: { id: socket.userId }, select: { name: true, role: true } }),
+          prisma.user.findUnique({ where: { id: socket.userId }, select: { name: true, role: true, photoUrl: true } }),
         ]);
         if (!booking || !sender) return;
         const isParty =
@@ -115,6 +115,7 @@ function initSocket(httpServer) {
           bookingId,
           senderId:   socket.userId,
           senderName: msg.senderName,
+          senderPhotoUrl: sender.photoUrl,
           senderRole: msg.senderRole,
           text:       msg.text,
           createdAt:  msg.createdAt,
@@ -183,7 +184,7 @@ function initSocket(httpServer) {
       try {
         const [pair, sender] = await Promise.all([
           resolveInquiryPair(socket.userId, otherUserId),
-          prisma.user.findUnique({ where: { id: socket.userId }, select: { name: true, role: true } }),
+          prisma.user.findUnique({ where: { id: socket.userId }, select: { name: true, role: true, photoUrl: true } }),
         ]);
         if (!pair || !sender) return;
 
@@ -203,6 +204,7 @@ function initSocket(httpServer) {
           otherUserId,
           senderId:   socket.userId,
           senderName: msg.senderName,
+          senderPhotoUrl: sender.photoUrl,
           senderRole: msg.senderRole,
           text:       msg.text,
           createdAt:  msg.createdAt,

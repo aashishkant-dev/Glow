@@ -9,7 +9,7 @@ import { apiGetRequests, apiAcceptJob, apiSkipJob, Booking } from '../../api/cli
 import { requestsBadge } from '../../utils/providerBadges';
 import { Colors, Fonts } from '../../utils/colors';
 import { ServiceIcon } from '../../components/ServiceIcon';
-import { PersonIcon, StarIcon } from '../../components/TabIcons';
+import { PersonIcon, StarIcon, ChevronForwardIcon } from '../../components/TabIcons';
 import { PinIcon, NoteIcon, ClockIcon, BellIcon } from '../../components/CareIcons';
 import { JobCardSkeleton } from '../../components/SkeletonLoader';
 import { formatCurrency } from '../../utils/format';
@@ -213,6 +213,7 @@ export function RequestsScreen({ embedded = false }: { embedded?: boolean } = {}
                   now reachable before Accept/Decline too instead of only after. */}
               <Pressable style={styles.detailsBtn} onPress={() => nav.navigate('JobDetail', { job })}>
                 <Text style={styles.detailsBtnText}>View full details</Text>
+                <ChevronForwardIcon size={14} color={Colors.brand} />
               </Pressable>
 
               <View style={styles.actions}>
@@ -312,8 +313,16 @@ const styles = StyleSheet.create({
   address: { flex: 1, fontSize: 13, color: Colors.secondaryLabel, lineHeight: 18, fontFamily: Fonts.regular },
   notes: { flex: 1, fontSize: 13, color: Colors.secondaryLabel, lineHeight: 18, fontFamily: Fonts.regular },
 
-  detailsBtn: { paddingVertical: 10, alignItems: 'center', marginTop: 8 },
-  detailsBtnText: { fontSize: 13.5, fontFamily: Fonts.bold, color: Colors.brand, textDecorationLine: 'underline' },
+  // Was a bare underlined text link — read as an afterthought sitting right
+  // above the much heavier Decline/Accept pills. A proper outlined pill
+  // gives it real button weight (between Decline's neutral fill and
+  // Accept's solid brand fill) instead of looking optional/skippable.
+  detailsBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4,
+    paddingVertical: 10, borderRadius: 14, marginTop: 8,
+    borderWidth: 1.5, borderColor: Colors.brand,
+  },
+  detailsBtnText: { fontSize: 13.5, fontFamily: Fonts.bold, color: Colors.brand },
   actions: { flexDirection: 'row', gap: 12, marginTop: 16 },
   declineBtn: { flex: 1, paddingVertical: 14, borderRadius: 14, backgroundColor: Colors.systemGray5, alignItems: 'center' },
   declineText: { fontSize: 15, fontFamily: Fonts.bold, color: Colors.label },

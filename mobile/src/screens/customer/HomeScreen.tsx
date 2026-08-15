@@ -17,12 +17,13 @@ import {
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
-import { StarIcon, CalendarIcon, SearchIcon, LocationIcon, ChevronDownIcon } from '../../components/TabIcons';
+import { StarIcon, CalendarIcon, SearchIcon, LocationIcon, ChevronDownIcon, ChatIcon } from '../../components/TabIcons';
 import { GlowLogo, GlowMark } from '../../components/GlowLogo';
 import {
   apiMyBookings,
   apiPublicCatalog,
   apiPublicProviders,
+  apiGetInquiryThreads,
   Booking,
   PublicProviderCard,
 } from '../../api/client';
@@ -217,6 +218,12 @@ export function HomeScreen() {
 
   const { notifications } = useChatUnread();
   const unreadCount = notifications.filter(n => !n.read).length;
+  const [unreadInquiries, setUnreadInquiries] = useState(0);
+  useFocusEffect(useCallback(() => {
+    apiGetInquiryThreads()
+      .then(r => setUnreadInquiries(r.threads.filter(t => t.unread).length))
+      .catch(() => {});
+  }, []));
 
   const activeBooking = bookings.find(b => ACTIVE_STATUSES.has(b.status));
 
@@ -397,6 +404,18 @@ export function HomeScreen() {
                 accessibilityLabel="My bookings"
               >
                 <CalendarIcon size={18} color={Colors.label} />
+              </Pressable>
+              <Pressable
+                style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.7 }]}
+                onPress={() => nav.navigate('Inquiries')}
+                accessibilityLabel="My messages"
+              >
+                <ChatIcon size={18} color={Colors.label} />
+                {unreadInquiries > 0 && (
+                  <View style={styles.bellBadge}>
+                    <Text style={styles.bellBadgeText}>{unreadInquiries > 9 ? '9+' : unreadInquiries}</Text>
+                  </View>
+                )}
               </Pressable>
               <Pressable style={({ pressed }) => [styles.iconBtn, pressed && { opacity: 0.7 }]} onPress={() => nav.navigate('Notifications')}>
                 <BellIcon size={18} color={Colors.label} />
