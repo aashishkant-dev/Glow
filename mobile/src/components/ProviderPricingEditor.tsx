@@ -50,6 +50,7 @@ export function ProviderPricingEditor() {
   const [services, setServices] = useState<ProviderServiceItem[]>([]);
   const [servicesLoading, setServicesLoading] = useState(true);
   const [priceEdits, setPriceEdits] = useState<Record<string, string>>({});
+  const [durationEdits, setDurationEdits] = useState<Record<string, string>>({});
   const [pricesSaving, setPricesSaving] = useState(false);
   const [priceNegotiable, setPriceNegotiable] = useState(false);
   const [negotiableSaving, setNegotiableSaving] = useState(false);
@@ -73,10 +74,13 @@ export function ProviderPricingEditor() {
       .finally(() => setServicesLoading(false));
   }, []);
 
-  const hasPriceEdits = Object.keys(priceEdits).length > 0;
+  const hasPriceEdits = Object.keys(priceEdits).length > 0 || Object.keys(durationEdits).length > 0;
 
   function priceValueFor(s: ProviderServiceItem) {
     return priceEdits[s.id] ?? String(s.price);
+  }
+  function durationValueFor(s: ProviderServiceItem) {
+    return durationEdits[s.id] ?? String(s.durationMin);
   }
 
   async function savePriceEdits() {
@@ -85,11 +89,12 @@ export function ProviderPricingEditor() {
       const updated = services.map(s => ({
         name: s.name,
         price: priceEdits[s.id] !== undefined ? (Number(priceEdits[s.id]) || 0) : s.price,
-        durationMin: s.durationMin,
+        durationMin: durationEdits[s.id] !== undefined ? (Number(durationEdits[s.id]) || s.durationMin) : s.durationMin,
       }));
       const { services: saved } = await apiSetProviderServices(updated);
       setServices(saved.map((s, i) => ({ ...s, id: services[i]?.id ?? String(i) })));
       setPriceEdits({});
+      setDurationEdits({});
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (e: any) {
       Alert.alert('Could not save prices', e?.message || 'Please try again.');
@@ -160,7 +165,17 @@ export function ProviderPricingEditor() {
               <View style={styles.priceRow}>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.priceRowName} numberOfLines={1}>{s.name}</Text>
-                  <Text style={styles.priceRowDuration}>{s.durationMin} min</Text>
+                  <View style={styles.durationRow}>
+                    <TextInput
+                      style={styles.durationInput}
+                      value={durationValueFor(s)}
+                      onChangeText={v => setDurationEdits(prev => ({ ...prev, [s.id]: v.replace(/[^0-9]/g, '') }))}
+                      keyboardType="number-pad"
+                      placeholder="60"
+                      placeholderTextColor={Colors.tertiaryLabel}
+                    />
+                    <Text style={styles.priceRowDuration}>min</Text>
+                  </View>
                 </View>
                 <View style={styles.priceInputWrap}>
                   <Text style={styles.priceInputDollar}>{getCurrencySymbol()}</Text>
@@ -322,7 +337,12 @@ const styles = StyleSheet.create({
     paddingVertical: 12, gap: 12,
   },
   priceRowName: { fontSize: 14.5, fontFamily: Fonts.semibold, color: Colors.label },
-  priceRowDuration: { fontSize: 12, color: Colors.tertiaryLabel, marginTop: 3 },
+  priceRowDuration: { fontSize: 12, color: Colors.tertiaryLabel },
+  durationRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 3, marginTop: 3 },
+  durationInput: {
+    fontSize: 12, color: Colors.tertiaryLabel, fontFamily: Fonts.medium,
+    padding: 0, width: 24, textAlign: 'right', borderBottomWidth: 1, borderBottomColor: Colors.separator,
+  },
   priceInputWrap: {
     flexDirection: 'row', alignItems: 'center', flexShrink: 0,
     backgroundColor: Colors.surfaceCream, borderRadius: R_WELL,

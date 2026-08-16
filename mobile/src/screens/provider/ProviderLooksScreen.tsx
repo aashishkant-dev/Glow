@@ -242,11 +242,17 @@ export function ProviderLooksScreen() {
                 <Text style={styles.emptyHint}>Tap "+ Create a look" to make your first one</Text>
               </Pressable>
             ) : (
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 14, paddingHorizontal: 16, alignItems: 'flex-start' }}>
+              // Was a horizontal ScrollView with fixed-width (150px) cards —
+              // fine for one or two looks, but a third+ card just scrolled
+              // off-screen with no visual cue there was more, and the fixed
+              // width had no relationship to the actual device width. A
+              // wrapping 2-column grid scales with the screen and shows
+              // every look at once, matching the Explore grid's pattern.
+              <View style={styles.looksGrid}>
                 {myLooks.map(item => {
                   const mostLoved = item.id === mostLovedLookId;
                   return (
-                    <View key={item.id} style={{ width: 150 }}>
+                    <View key={item.id} style={styles.lookGridCard}>
                       {mostLoved && (
                         <View style={styles.mostLovedBadge}>
                           <Text style={styles.mostLovedBadgeText}>♥ Most Loved</Text>
@@ -265,7 +271,7 @@ export function ProviderLooksScreen() {
                         look={customLookToLook(item)}
                         price={item.price}
                         onPress={() => setEditingLook(item)}
-                        height={130}
+                        height={160}
                         likeOverride={{ liked: false, count: item.likeCount || 0, onToggle: () => {} }}
                         photoCount={item.media.length}
                         coverVideo={coverVideoFor(item)}
@@ -294,7 +300,7 @@ export function ProviderLooksScreen() {
                     </View>
                   );
                 })}
-              </ScrollView>
+              </View>
             )}
           </View>
 
@@ -990,6 +996,13 @@ const styles = StyleSheet.create({
   // circle is 34px, hitSlop makes up the rest) instead of paddingVertical:7
   // pills that were too small to comfortably tap, especially the
   // destructive one.
+  looksGrid: {
+    flexDirection: 'row', flexWrap: 'wrap',
+    gap: 14, paddingHorizontal: 16,
+  },
+  // Percentage width (not a fixed px) so the 2-column grid actually scales
+  // with the device instead of assuming one phone size.
+  lookGridCard: { width: '46%' },
   cardActionRow: { flexDirection: 'row', gap: 10, marginTop: 12 },
   cardActionBtn: {
     width: 34, height: 34, borderRadius: 17,
