@@ -195,6 +195,7 @@ model User {
   favoritedByCustomers Favorite[] @relation("FavoritedProviders")
   postLikes          PostLike[]
   lookLikes          LookLike[]
+  bookingSkips       BookingSkip[]
 
   @@index([role, isVerified])
   @@index([role, createdAt(sort: Desc)])
@@ -387,6 +388,7 @@ model Booking {
 
   messages              Message[]
   services              BookingService[]
+  skips                 BookingSkip[]
 
   @@index([customerId, status])
   @@index([providerId, status])
@@ -399,6 +401,22 @@ model Booking {
   @@index([customerId, scheduledAt(sort: Desc)])
   @@index([openToPool, status, scheduledAt])        // pool job surfacing query
   @@index([status, openToPool])                     // admin dashboard filters
+}
+
+// A Provider explicitly declining/skipping a pool job from GET /jobs/nearby.
+// Was an in-memory Map<providerId, Set<bookingId>> — wiped on every restart or
+// redeploy, so declined jobs silently reappeared in the Provider's feed.
+// Persisted here instead so a skip survives process restarts.
+model BookingSkip {
+  id         String   @id @default(cuid())
+  bookingId  String
+  providerId String
+  booking    Booking  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+  provider   User     @relation(fields: [providerId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now())
+
+  @@unique([bookingId, providerId])
+  @@index([providerId])
 }
 
 // One line item per service in a booking. EVERY booking has >= 1 row here,

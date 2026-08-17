@@ -8,6 +8,7 @@ import { Colors, Fonts } from '../../utils/colors';
 import { tapLight } from '../../utils/haptics';
 import { formatCurrency } from '../../utils/format';
 import { PostMedia } from '../../components/PostMedia';
+import { shareLookMedia } from '../../utils/shareLook';
 
 export function PostDetailScreen() {
   const insets = useSafeAreaInsets();
@@ -36,6 +37,11 @@ export function PostDetailScreen() {
     } finally {
       setLiking(false);
     }
+  }
+
+  function goBack() {
+    if (nav.canGoBack()) nav.goBack();
+    else nav.navigate('Home');
   }
 
   function openProvider() {
@@ -67,7 +73,7 @@ export function PostDetailScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}>
         <View>
           <PostMedia photoUrl={post.photoUrl} videoUrl={post.videoUrl} style={styles.photo} />
-          <Pressable style={[styles.floatBack, { top: insets.top + 8 }]} onPress={() => nav.goBack()} hitSlop={12}>
+          <Pressable style={[styles.floatBack, { top: insets.top + 8 }]} onPress={goBack} hitSlop={12}>
             <Text style={styles.floatBackText}>‹</Text>
           </Pressable>
         </View>
@@ -89,11 +95,23 @@ export function PostDetailScreen() {
 
           {!!post.caption && <Text style={styles.caption}>{post.caption}</Text>}
 
-          <Pressable style={[styles.likeBtn, liked && styles.likeBtnActive]} onPress={toggleLike} disabled={liking}>
-            <Text style={[styles.likeBtnText, liked && styles.likeBtnTextActive]}>
-              {liked ? '♥' : '♡'} {likeCount}
-            </Text>
-          </Pressable>
+          <View style={{ flexDirection: 'row', gap: 10 }}>
+            <Pressable style={[styles.likeBtn, liked && styles.likeBtnActive]} onPress={toggleLike} disabled={liking}>
+              <Text style={[styles.likeBtnText, liked && styles.likeBtnTextActive]}>
+                {liked ? '♥' : '♡'} {likeCount}
+              </Text>
+            </Pressable>
+            <Pressable
+              style={styles.likeBtn}
+              onPress={() => {
+                tapLight();
+                const url = post.videoUrl || post.photoUrl;
+                if (url) shareLookMedia(url, post.caption || 'Check this out on Glow ✨', post.videoUrl ? 'video' : 'photo');
+              }}
+            >
+              <Text style={styles.likeBtnText}>↗ Share</Text>
+            </Pressable>
+          </View>
 
           {!!post.service && (
             <Pressable style={styles.serviceChip} onPress={bookThisService}>

@@ -171,6 +171,8 @@ export function RequestsScreen({ embedded = false }: { embedded?: boolean } = {}
                 </View>
               </View>
 
+              <View style={styles.divider} />
+
               <View style={styles.clientRow}>
                 {job.customer?.photoUrl ? (
                   <Image source={{ uri: job.customer.photoUrl }} style={styles.clientAvatar} contentFit="cover" />
@@ -179,32 +181,36 @@ export function RequestsScreen({ embedded = false }: { embedded?: boolean } = {}
                     <PersonIcon size={14} color={Colors.brand} />
                   </View>
                 )}
-                <Text style={styles.clientLabel}>{job.customer?.name ?? 'Client'}</Text>
+                <Text style={styles.clientLabel} numberOfLines={1}>{job.customer?.name ?? 'Client'}</Text>
                 {(job.customer?.rating ?? 0) > 0 && (
-                  <>
-                    <View style={{ marginLeft: 4 }}><StarIcon size={14} color="#F59E0B" /></View>
-                    <Text style={styles.clientRating}>{job.customer?.rating?.toFixed(1)}</Text>
-                  </>
+                  <View style={styles.clientRatingWrap}>
+                    <StarIcon size={12} color="#F59E0B" />
+                    <Text style={styles.clientRating} numberOfLines={1}>{job.customer?.rating?.toFixed(1)}</Text>
+                  </View>
+                )}
+                {/* Distance — the "is this worth the drive?" signal — lives on the
+                    same line as who's asking, not buried below the address. */}
+                {fmtDistance(job.distanceKm) && (
+                  <View style={styles.distancePill}>
+                    <Text style={styles.distanceText} numberOfLines={1}>{fmtDistance(job.distanceKm)}</Text>
+                  </View>
                 )}
               </View>
-              {!!job.address && (
-                <View style={styles.metaRow}>
-                  <PinIcon size={14} color={Colors.tertiaryLabel} />
-                  <Text style={styles.address} numberOfLines={2}>{job.address}</Text>
-                </View>
-              )}
-              {/* Distance chip — Provider → client, brand-tinted so it stands out as the
-                  "is this worth the drive?" signal. Only shows when known. */}
-              {fmtDistance(job.distanceKm) && (
-                <View style={styles.distancePill}>
-                  <PinIcon size={13} color={Colors.brand} />
-                  <Text style={styles.distanceText}>{fmtDistance(job.distanceKm)}</Text>
-                </View>
-              )}
-              {!!job.notes && (
-                <View style={styles.metaRow}>
-                  <NoteIcon size={14} color={Colors.tertiaryLabel} />
-                  <Text style={styles.notes} numberOfLines={3}>{job.notes}</Text>
+
+              {(!!job.address || !!job.notes) && (
+                <View style={styles.metaBlock}>
+                  {!!job.address && (
+                    <View style={styles.metaRow}>
+                      <PinIcon size={14} color={Colors.tertiaryLabel} />
+                      <Text style={styles.address} numberOfLines={2}>{job.address}</Text>
+                    </View>
+                  )}
+                  {!!job.notes && (
+                    <View style={styles.metaRow}>
+                      <NoteIcon size={14} color={Colors.tertiaryLabel} />
+                      <Text style={styles.notes} numberOfLines={3}>{job.notes}</Text>
+                    </View>
+                  )}
                 </View>
               )}
 
@@ -292,24 +298,33 @@ const styles = StyleSheet.create({
   price: { fontSize: 20, fontFamily: Fonts.extrabold, color: Colors.brand },
   priceSub: { fontSize: 10, color: Colors.tertiaryLabel, fontFamily: Fonts.medium },
 
-  // Distance Provider → client. Brand-tinted self-sizing pill (alignSelf flex-start so it
-  // hugs its text instead of stretching the card width).
+  // Distance Provider → client. Brand-tinted self-sizing pill, now inline on
+  // the client row (was its own full-width paragraph, adding vertical bulk
+  // to a card that's already dense before the client even scrolls to it).
   distancePill: {
-    flexDirection: 'row', alignItems: 'center', gap: 5, alignSelf: 'flex-start',
-    marginTop: 10, paddingHorizontal: 10, paddingVertical: 5, borderRadius: 999,
+    flexShrink: 0, marginLeft: 'auto',
+    paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999,
     backgroundColor: Colors.brandLight, borderWidth: 1, borderColor: Colors.brandAccent,
   },
-  distanceText: { fontSize: 12.5, fontFamily: Fonts.bold, color: Colors.brand },
+  distanceText: { fontSize: 11.5, fontFamily: Fonts.bold, color: Colors.brand },
 
+  divider: { height: 1, backgroundColor: Colors.separator, marginTop: 14 },
   clientRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
   clientAvatar: { width: 26, height: 26, borderRadius: 13 },
   clientAvatarFallback: {
     width: 26, height: 26, borderRadius: 13, backgroundColor: Colors.brandLight,
     alignItems: 'center', justifyContent: 'center',
   },
-  clientLabel: { fontSize: 14, fontFamily: Fonts.bold, color: Colors.label },
+  clientLabel: { fontSize: 14, fontFamily: Fonts.bold, color: Colors.label, flexShrink: 1 },
+  clientRatingWrap: { flexDirection: 'row', alignItems: 'center', gap: 3, flexShrink: 0 },
   clientRating: { fontSize: 13, color: Colors.secondaryLabel, fontFamily: Fonts.semibold },
-  metaRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6, marginTop: 8 },
+  // Address + notes grouped into one visually contained block instead of two
+  // loose paragraphs — easier to scan as "the details" at a glance.
+  metaBlock: {
+    marginTop: 10, gap: 8, padding: 10, borderRadius: 12,
+    backgroundColor: Colors.secondarySystemBackground,
+  },
+  metaRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
   address: { flex: 1, fontSize: 13, color: Colors.secondaryLabel, lineHeight: 18, fontFamily: Fonts.regular },
   notes: { flex: 1, fontSize: 13, color: Colors.secondaryLabel, lineHeight: 18, fontFamily: Fonts.regular },
 

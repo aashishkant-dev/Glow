@@ -93,6 +93,11 @@ export function AdminProviderDetailScreen() {
   const [viewerUri, setViewerUri] = useState<string | null>(null);
   const [viewerLbl, setViewerLbl] = useState('');
 
+  function goBack() {
+    if (nav.canGoBack()) nav.goBack();
+    else nav.navigate('AdminHome');
+  }
+
   async function load() {
     try {
       const { provider: data } = await apiGetProviderDetail(providerId);
@@ -191,7 +196,7 @@ export function AdminProviderDetailScreen() {
     return (
       <View style={[styles.centered, { paddingTop: insets.top }]}>
         <Text style={styles.errorText}>Provider not found</Text>
-        <Pressable onPress={() => nav.goBack()} style={styles.backBtnFallback}>
+        <Pressable onPress={goBack} style={styles.backBtnFallback}>
           <Text style={styles.backBtnFallbackText}>← Go Back</Text>
         </Pressable>
       </View>
@@ -217,7 +222,7 @@ export function AdminProviderDetailScreen() {
         colors={['#1E1B4B', '#3730A3', '#4338CA']}
         style={[styles.header, { paddingTop: insets.top + 8 }]}
       >
-        <Pressable style={styles.backBtn} onPress={() => nav.goBack()}>
+        <Pressable style={styles.backBtn} onPress={goBack}>
           <Text style={styles.backBtnText}>← Workers</Text>
         </Pressable>
 

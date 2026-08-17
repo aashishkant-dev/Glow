@@ -4,6 +4,9 @@
  */
 import React from 'react';
 import { Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { Image } from 'expo-image';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { GlowSheet } from './GlowSheet';
 import { HeartIcon, CheckCircleIcon } from './TabIcons';
@@ -13,6 +16,11 @@ import { Look } from '../data/looks';
 import { toggleSavedLook, useSavedLooks } from '../utils/savedLooks';
 import { tapLight, tapSuccess } from '../utils/haptics';
 import { formatCurrency } from '../utils/format';
+
+function HeroVideo({ uri }: { uri: string }) {
+  const player = useVideoPlayer(uri, p => { p.loop = true; p.muted = true; p.play(); });
+  return <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" nativeControls={false} />;
+}
 
 interface LookSheetProps {
   look: Look | null;
@@ -38,16 +46,30 @@ export function LookSheet({ look, onClose, priceOverride }: LookSheetProps) {
     <GlowSheet visible={!!look} onClose={onClose}>
       {look && (
         <ScrollView bounces={false} showsVerticalScrollIndicator={false}>
-          {/* Editorial hero — photography slot, gradient until assets land */}
+          {/* Editorial hero — real photography/video when the catalog has it,
+              gradient fallback otherwise. */}
           <View style={styles.hero}>
-            {Platform.OS === 'web' ? (
+            {look.coverVideo ? (
+              <HeroVideo uri={look.coverVideo} />
+            ) : look.photo ? (
+              <Image source={{ uri: look.photo }} style={StyleSheet.absoluteFill} contentFit="cover" cachePolicy="memory-disk" transition={200} />
+            ) : Platform.OS === 'web' ? (
               <View style={[StyleSheet.absoluteFill, { background: `linear-gradient(150deg, ${look.from}, ${look.to})` } as any]} />
             ) : (
               <View style={[StyleSheet.absoluteFill, { backgroundColor: look.from }]} />
             )}
+            {(!!look.photo || !!look.coverVideo) && (
+              <LinearGradient
+                pointerEvents="none"
+                colors={[`${look.from}00`, `${look.to}66`]}
+                start={{ x: 0, y: 0 }}
+                end={{ x: 1, y: 1 }}
+                style={StyleSheet.absoluteFill}
+              />
+            )}
             <View style={styles.heroGlow} />
             <View style={styles.heroTag}>
-              <Text style={styles.heroTagText}>{look.collection.toUpperCase()}</Text>
+              <Text style={styles.heroTagText} numberOfLines={1} ellipsizeMode="tail">{look.collection.toUpperCase()}</Text>
             </View>
             <Pressable
               style={styles.heartBtn}
@@ -57,8 +79,8 @@ export function LookSheet({ look, onClose, priceOverride }: LookSheetProps) {
             >
               <HeartIcon size={20} color={saved ? Colors.brand : '#fff'} filled={saved} />
             </Pressable>
-            <Text style={styles.heroName}>{look.name}</Text>
-            <Text style={styles.heroVibe}>{look.vibe}</Text>
+            <Text style={styles.heroName} numberOfLines={2} ellipsizeMode="tail">{look.name}</Text>
+            <Text style={styles.heroVibe} numberOfLines={1} ellipsizeMode="tail">{look.vibe}</Text>
           </View>
 
           <View style={styles.body}>
@@ -125,7 +147,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.16)',
   },
   heroTag: {
-    position: 'absolute', top: 16, left: 18,
+    position: 'absolute', top: 16, left: 18, maxWidth: '60%',
     backgroundColor: 'rgba(255,255,255,0.28)', borderRadius: 100,
     paddingHorizontal: 11, paddingVertical: 4,
   },

@@ -26,7 +26,7 @@ import { Colors, Fonts } from '../utils/colors';
 import { formatCurrency } from '../utils/format';
 import { CloseCircleIcon, ChevronForwardIcon } from './TabIcons';
 import { LookMediaItem } from '../api/client';
-import { shareLookPhoto } from '../utils/shareLook';
+import { shareLookMedia } from '../utils/shareLook';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -110,7 +110,10 @@ export function LookGalleryModal({ visible, media, name, vibe, price, durationMi
         </Pressable>
         <Pressable
           style={[styles.shareBtn, { top: insets.top + 12 }]}
-          onPress={() => shareLookPhoto(media[active]?.url, `${name} — see it on Glow ✨`)}
+          onPress={() => {
+            const item = media[active];
+            if (item) shareLookMedia(item.url, `${name} — see it on Glow ✨`, item.type === 'video' ? 'video' : 'photo');
+          }}
           hitSlop={10}
         >
           <Text style={styles.shareBtnText}>↗ Share</Text>
@@ -147,7 +150,7 @@ export function LookGalleryModal({ visible, media, name, vibe, price, durationMi
 
           <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
             <View style={{ flex: 1 }}>
-              <Text style={styles.name}>{name}</Text>
+              <Text style={styles.name} numberOfLines={2} ellipsizeMode="tail">{name}</Text>
               {!!vibe && <Text style={styles.vibe} numberOfLines={1}>{vibe}</Text>}
             </View>
             {!!onMessageArtist && (

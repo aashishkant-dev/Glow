@@ -10,7 +10,7 @@ interface Props {
   videoUrl?: string | null;
   style?: StyleProp<ImageStyle>;
   contentFit?: 'cover' | 'contain';
-  /** Shows a small ▶ badge in the corner when it's a video — off for large detail views. */
+  /** Shows a small "Reel" badge in the corner when it's a video — off for large detail views. */
   showBadge?: boolean;
 }
 
@@ -28,7 +28,7 @@ export function PostMedia({ photoUrl, videoUrl, style, contentFit = 'cover', sho
         <VideoView player={player} style={StyleSheet.absoluteFill} contentFit={contentFit} nativeControls={false} />
         {showBadge && (
           <View pointerEvents="none" style={styles.badge}>
-            <Text style={styles.badgeText}>▶</Text>
+            <Text style={styles.badgeText}>▶ Reel</Text>
           </View>
         )}
       </View>
@@ -41,8 +41,8 @@ export function PostMedia({ photoUrl, videoUrl, style, contentFit = 'cover', sho
 const styles = StyleSheet.create({
   badge: {
     position: 'absolute', top: 6, right: 6,
-    width: 20, height: 20, borderRadius: 10,
-    backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center',
+    paddingHorizontal: 7, height: 20, borderRadius: 10,
+    backgroundColor: 'rgba(0,0,0,0.55)', alignItems: 'center', justifyContent: 'center',
   },
-  badgeText: { color: '#fff', fontSize: 9, fontFamily: Fonts.semibold },
+  badgeText: { color: '#fff', fontSize: 9.5, fontFamily: Fonts.semibold },
 });

@@ -1098,7 +1098,7 @@ router.get(
           // after mounting with the correct route-params copy, so its refetch
           // was silently clobbering a correct CLIENT PROFILE section with one
           // that always looked empty.
-          customer: { select: { id: true, name: true, phone: true, skinTone: true, skinType: true, rating: true, photoUrl: true } },
+          customer: { select: { id: true, name: true, phone: true, skinTone: true, skinType: true, rating: true, ratingCount: true, photoUrl: true, lat: true, lng: true } },
           provider:      { select: { id: true, name: true, phone: true, rating: true, ratingCount: true, photoUrl: true } },
           services: { select: { id: true, serviceItemId: true, name: true, price: true, durationMin: true } },
           // "Book this look" bookings (an artist's own ProviderLook, not the
@@ -1117,7 +1117,23 @@ router.get(
         booking.customer = { ...booking.customer, phone: null };
       }
 
-      const result = { booking: formatBooking(booking) };
+      // Distance Provider → client — same "is this worth the drive?" signal
+      // /jobs/requests shows pre-accept, previously lost once this endpoint
+      // (not /jobs/requests) became the source of truth after accept/refetch.
+      let distanceKm;
+      if (req.user.role === 'Provider') {
+        const providerUser = await prisma.user.findUnique({ where: { id: req.user.id }, select: { lat: true, lng: true } });
+        const pLat = (providerUser?.lat && providerUser.lat !== 0) ? providerUser.lat : null;
+        const pLng = (providerUser?.lng && providerUser.lng !== 0) ? providerUser.lng : null;
+        const cLat = (booking.lat && booking.lat !== 0) ? booking.lat : (booking.customer?.lat && booking.customer.lat !== 0 ? booking.customer.lat : null);
+        const cLng = (booking.lng && booking.lng !== 0) ? booking.lng : (booking.customer?.lng && booking.customer.lng !== 0 ? booking.customer.lng : null);
+        if (pLat != null && pLng != null && cLat != null && cLng != null) {
+          distanceKm = Math.round(haversineKm(pLat, pLng, cLat, cLng) * 10) / 10;
+        }
+      }
+      if (booking.customer) { delete booking.customer.lat; delete booking.customer.lng; } // don't leak exact client coords
+
+      const result = { booking: { ...formatBooking(booking), distanceKm } };
       const ttl = ['COMPLETED', 'CANCELLED'].includes(booking.status) ? 120 : 5;
       await cacheSet(cacheKey, result, ttl);
       res.json(result);

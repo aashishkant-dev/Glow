@@ -8,7 +8,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import * as Haptics from 'expo-haptics';
 import * as Linking from 'expo-linking';
-import { apiAcceptJob, apiCompleteJob, apiGetBooking, apiOnMyWay, apiRateCustomer, apiStartJob, Booking } from '../../api/client';
+import { apiAcceptJob, apiCompleteJob, apiGetBooking, apiGetClientHistory, apiOnMyWay, apiRateCustomer, apiStartJob, Booking } from '../../api/client';
 import { getSocket } from '../../utils/socket';
 import { Avatar } from '../../components/Avatar';
 import { RatingModal } from '../../components/RatingModal';
@@ -26,6 +26,10 @@ function formatDate(iso: string) {
 }
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-CA', { hour: 'numeric', minute: '2-digit', hour12: true });
+}
+function fmtDistance(km?: number): string | null {
+  if (km == null || !isFinite(km) || km <= 0) return null;
+  return km < 1 ? `${Math.round(km * 1000)} m away` : `${km.toFixed(1)} km away`;
 }
 
 interface CareChecklistItem {
@@ -169,6 +173,12 @@ export function JobDetailScreen() {
   const paramJobId: string | undefined = route.params?.bookingId ?? paramJob?._id;
   const [job, setJob] = useState<Booking | null>(paramJob ?? null);
   const [loading, setLoading] = useState(false);
+
+  // Opened from a notification has no prior screen to pop.
+  function goBack() {
+    if (nav.canGoBack()) nav.goBack();
+    else nav.navigate('ProviderHome');
+  }
   const [serviceNotes, setCareNotes] = useState('');
   const [showNotesModal, setShowNotesModal] = useState(false);
   const [showRateModal, setShowRateModal] = useState(false);
@@ -194,6 +204,20 @@ export function JobDetailScreen() {
     }).catch(() => {});
     return () => { cancelled = true; };
   }, [paramJobId]);
+
+  // Repeat vs first-time client — resolves once the client id is known,
+  // silently no-ops (404) if this provider has no relationship with them yet.
+  const [clientHistory, setClientHistory] = useState<{ totalCompletedBookings: number; bookingsWithMe: number } | null>(null);
+  useEffect(() => {
+    const customerId = job?.customer?._id;
+    if (!customerId) return;
+    let cancelled = false;
+    setClientHistory(null);
+    apiGetClientHistory(customerId).then(({ totalCompletedBookings, bookingsWithMe }) => {
+      if (!cancelled) setClientHistory({ totalCompletedBookings, bookingsWithMe });
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [job?.customer?._id]);
 
   // This screen previously never refreshed after mount — no poll, no
   // useFocusEffect, no socket subscription. If a client cancelled the
@@ -386,7 +410,7 @@ export function JobDetailScreen() {
         {/* ── Hero ── */}
         <View style={[styles.hero, { paddingTop: insets.top + 12 }]}>
           {/* Back button */}
-          <Pressable style={styles.backButton} onPress={() => nav.goBack()}>
+          <Pressable style={styles.backButton} onPress={goBack}>
             <ArrowBackIcon size={18} color="rgba(255,255,255,0.8)" />
             <Text style={styles.backButtonText}>Jobs</Text>
           </Pressable>
@@ -543,6 +567,7 @@ export function JobDetailScreen() {
               ['Start Time', formatTime(job.scheduledAt)],
               ['Duration', `${job.hours} hours`],
               ['Address', job.address || 'Your area'],
+              ...(fmtDistance(job.distanceKm) ? [['Distance', fmtDistance(job.distanceKm)!]] : []),
             ] as [string, string][]).map(([label, value]) => (
               <View key={label} style={styles.detailRow}>
                 <Text style={styles.detailLabel}>{label}</Text>
@@ -615,6 +640,15 @@ export function JobDetailScreen() {
                   <Text style={styles.customerRating}>★ {job.customer?.rating?.toFixed(1)}</Text>
                   <Text style={styles.customerRatingCount}>({(job.customer as any)?.ratingCount || 0})</Text>
                 </View>
+              )}
+              {clientHistory && (
+                <Text style={styles.customerHistory}>
+                  {clientHistory.bookingsWithMe > 0
+                    ? `Booked you ${clientHistory.bookingsWithMe}x before`
+                    : clientHistory.totalCompletedBookings > 0
+                      ? `${clientHistory.totalCompletedBookings} past booking${clientHistory.totalCompletedBookings === 1 ? '' : 's'} on Glow`
+                      : 'First booking on Glow'}
+                </Text>
               )}
             </View>
             {isActive && (
@@ -913,6 +947,7 @@ const styles = StyleSheet.create({
   customerRatingRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   customerRating: { fontSize: 13, fontWeight: '600', color: '#FF9500' },
   customerRatingCount: { fontSize: 12, color: Colors.secondaryLabel },
+  customerHistory: { fontSize: 12, color: Colors.secondaryLabel, marginTop: 3 },
   customerActions: { flexDirection: 'row', gap: 8 },
   iconBtn: {
     width: 40,

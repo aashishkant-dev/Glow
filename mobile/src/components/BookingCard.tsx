@@ -36,7 +36,7 @@ function BookingCardBase({ booking, onPress, showProvider = true }: Props) {
           )}
         </View>
         <View style={styles.right}>
-          <Text style={styles.price}>{formatCurrency(booking.totalPrice)}</Text>
+          <Text style={styles.price} numberOfLines={1} ellipsizeMode="tail">{formatCurrency(booking.totalPrice)}</Text>
           <StatusBadge status={booking.status} size="sm" />
         </View>
       </View>
@@ -61,6 +61,6 @@ const styles = StyleSheet.create({
   serviceType: { ...Typography.headline },
   dateTime:    { ...Typography.footnote, marginTop: 3 },
   providerName:     { ...Typography.caption1, marginTop: 3, color: Colors.secondaryLabel },
-  right:       { alignItems: 'flex-end', gap: Spacing.xs },
+  right:       { alignItems: 'flex-end', gap: Spacing.xs, flexShrink: 0, maxWidth: '38%' },
   price:       { fontSize: 18, fontWeight: '700', color: Colors.brand },
 });

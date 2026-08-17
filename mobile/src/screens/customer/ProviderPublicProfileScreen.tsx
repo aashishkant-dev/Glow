@@ -126,6 +126,11 @@ export function ProviderPublicProfileScreen() {
   const favoriteIds = useFavorites();
   const favorited = provider ? favoriteIds.includes(provider.id) : false;
 
+  function goBack() {
+    if (nav.canGoBack()) nav.goBack();
+    else nav.navigate('Home');
+  }
+
   // Local, optimistic overlay on top of provider.lookLikes/myLikedLookKeys —
   // lets the heart flip instantly instead of waiting on a round trip.
   const [likedKeys, setLikedKeys] = useState<Set<string>>(new Set());
@@ -257,7 +262,7 @@ export function ProviderPublicProfileScreen() {
       <View style={[styles.centered, { paddingTop: insets.top + 60 }]}>
         <CloseCircleIcon size={32} color={Colors.systemRed} />
         <Text style={styles.errorText}>{error || 'Profile not found'}</Text>
-        <Pressable onPress={() => nav.goBack()} style={styles.retryBtn}>
+        <Pressable onPress={goBack} style={styles.retryBtn}>
           <Text style={styles.retryBtnText}>Go Back</Text>
         </Pressable>
       </View>
@@ -329,7 +334,7 @@ export function ProviderPublicProfileScreen() {
         {/* ── Hero ── */}
         <View>
           <PhotoCarousel photos={p.photos ?? []} name={p.name} photoUrl={p.photoUrl} />
-          <Pressable style={[styles.floatBack, { top: insets.top + 8 }]} onPress={() => nav.goBack()} hitSlop={12}>
+          <Pressable style={[styles.floatBack, { top: insets.top + 8 }]} onPress={goBack} hitSlop={12}>
             <Text style={styles.floatBackText}>‹</Text>
           </Pressable>
           <Pressable

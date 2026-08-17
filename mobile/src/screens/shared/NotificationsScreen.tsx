@@ -124,7 +124,15 @@ export function NotificationsScreen() {
   return (
     <View style={[styles.container, { paddingTop: insets.top }]}>
       <View style={styles.header}>
-        <Pressable onPress={() => nav.goBack()} style={styles.back} hitSlop={8}>
+        <Pressable
+          onPress={() => {
+            // Shared between Customer/Provider stacks — no single fallback route.
+            if (nav.canGoBack()) nav.goBack();
+            else nav.navigate(user?.role === 'Provider' ? 'ProviderHome' : 'Home');
+          }}
+          style={styles.back}
+          hitSlop={8}
+        >
           <ArrowBackIcon size={22} color={Colors.label} />
         </Pressable>
         <Text style={styles.headerTitle}>Notifications</Text>

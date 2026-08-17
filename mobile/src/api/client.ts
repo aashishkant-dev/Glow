@@ -872,7 +872,7 @@ export interface BookingServiceLine {
 export interface Booking {
   _id: string;
   customer: {
-    _id: string; name: string; phone: string; rating?: number; photoUrl?: string;
+    _id: string; name: string; phone: string; rating?: number; ratingCount?: number; photoUrl?: string;
     // Surfaced to the artist so they can prep the right products/shades for
     // the client before arriving — not shown to the artist until they have
     // an active booking with this customer (see the selects in provider.js).
@@ -900,6 +900,9 @@ export interface Booking {
   scheduledAt: string;
   lat: number;
   lng: number;
+  // Provider → client distance, computed server-side when both sides have
+  // real coordinates. Present on /jobs/requests and /bookings/:id (Provider only).
+  distanceKm?: number;
   address?: string;
   notes?: string;
   urgency?: 'routine' | 'urgent' | 'emergency';
@@ -916,7 +919,6 @@ export interface Booking {
   createdAt: string;
   updatedAt?: string;
   startedAt?: string | null; // set when the Provider starts the session — used for the early-completion warning
-  distanceKm?: number;
   hasConflict?: boolean;
 }
 
@@ -1170,6 +1172,14 @@ export function apiGetExploreLooks(sort: 'recent' | 'top' = 'recent', cursor?: s
 export function apiGetProviderReviews(providerId: string) {
   return request<{ reviews: { rating: number; comment: string; createdAt: string; customerName: string; serviceType: string }[] }>(
     'GET', `/jobs/provider/${providerId}/reviews`
+  );
+}
+
+// Repeat vs first-time signal for the provider's "review details" screen —
+// only resolves for a client this provider has an actual booking with.
+export function apiGetClientHistory(customerId: string) {
+  return request<{ totalCompletedBookings: number; bookingsWithMe: number; memberSince: string }>(
+    'GET', `/jobs/customer/${customerId}/history`
   );
 }
 

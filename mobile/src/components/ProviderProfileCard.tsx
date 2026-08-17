@@ -98,7 +98,7 @@ function ReviewsList({ providerId }: { providerId: string }) {
       {reviews.slice(0, 8).map((r, i) => (
         <View key={i} style={styles.reviewCard}>
           <View style={styles.reviewTop}>
-            <Text style={styles.reviewName}>{r.customerName || 'Verified client'}</Text>
+            <Text style={styles.reviewName} numberOfLines={1} ellipsizeMode="tail">{r.customerName || 'Verified client'}</Text>
             <View style={styles.reviewStars}>
               {[1, 2, 3, 4, 5].map(n => (
                 <StarIcon key={n} size={13} color={Colors.accentGold} filled={n <= Math.round(r.rating)} />

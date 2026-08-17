@@ -39,8 +39,8 @@ function JobCardBase({ job, onPress, actionSlot }: Props) {
           <Text style={styles.dateTime}>{dateStr} · {timeStr}</Text>
         </View>
         <View style={styles.priceWrap}>
-          <Text style={styles.price}>{formatCurrency(Number(job.totalPrice) || 0, { decimals: 0 })}</Text>
-          <Text style={styles.hours}>{job.hours}h</Text>
+          <Text style={styles.price} numberOfLines={1} ellipsizeMode="tail">{formatCurrency(Number(job.totalPrice) || 0, { decimals: 0 })}</Text>
+          <Text style={styles.hours} numberOfLines={1}>{job.hours}h</Text>
         </View>
       </View>
 
@@ -59,7 +59,7 @@ function JobCardBase({ job, onPress, actionSlot }: Props) {
         {(job as any).distanceKm !== undefined && (
           <View style={styles.detailItem}>
             <Text style={styles.detailLabel}>Distance</Text>
-            <Text style={styles.detailValue}>{(job as any).distanceKm} km</Text>
+            <Text style={styles.detailValue} numberOfLines={1}>{(job as any).distanceKm} km</Text>
           </View>
         )}
 
@@ -104,7 +104,7 @@ const styles = StyleSheet.create({
   icon:        { fontSize: 24 },
   serviceType: { ...Typography.headline, marginBottom: 2 },
   dateTime:    { ...Typography.footnote },
-  priceWrap:   { alignItems: 'flex-end' },
+  priceWrap:   { alignItems: 'flex-end', flexShrink: 0, maxWidth: '42%' },
   price:       { fontSize: 22, fontWeight: '800', color: Colors.brand },
   hours:       { ...Typography.caption1 },
   divider:     { height: 1, backgroundColor: Colors.separator, marginVertical: Spacing.md },

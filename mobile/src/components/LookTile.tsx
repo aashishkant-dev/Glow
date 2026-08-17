@@ -108,18 +108,18 @@ export function LookTile({ look, onPress, height = 170, price, likeOverride, pho
         >
           <HeartIcon size={17} color={saved ? Colors.brand : '#fff'} filled={saved} />
         </Pressable>
-        <Text style={styles.canvasName} numberOfLines={2}>{look.name}</Text>
+        <Text style={styles.canvasName} numberOfLines={2} ellipsizeMode="tail">{look.name}</Text>
       </View>
       {/* Was rendered unconditionally — for a provider-created look with no
           vibe text (an optional field, unlike the curated catalog's
           always-populated vibe), this still reserved a full empty line's
           height + marginTop, showing as a blank gap between the title and
           price with nothing wrong visibly explaining it. */}
-      {!!look.vibe && <Text style={styles.vibe} numberOfLines={1}>{look.vibe}</Text>}
+      {!!look.vibe && <Text style={styles.vibe} numberOfLines={1} ellipsizeMode="tail">{look.vibe}</Text>}
       {/* No duration here — a look isn't naturally "N hours" the way a
           service booking's schedule slot is; price is what a client
           actually decides on. */}
-      <Text style={[styles.meta, !look.vibe && { marginTop: 8 }]}>
+      <Text style={[styles.meta, !look.vibe && { marginTop: 8 }]} numberOfLines={1} ellipsizeMode="tail">
         {price != null ? `From ${formatCurrency(price, { decimals: 0 })}` : 'Price varies by artist'}
         {!!likeOverride?.count && `  ·  ♥ ${likeOverride.count}`}
       </Text>
@@ -161,7 +161,7 @@ const styles = StyleSheet.create({
   },
   galleryPillText: { color: '#fff', fontSize: 10.5, fontFamily: Fonts.semibold },
   badgePill: {
-    position: 'absolute', top: 10, left: 10, right: 40,
+    position: 'absolute', top: 10, left: 10, maxWidth: '75%',
     paddingHorizontal: 9, paddingVertical: 3, borderRadius: 10,
     backgroundColor: Colors.gold, alignSelf: 'flex-start',
   },

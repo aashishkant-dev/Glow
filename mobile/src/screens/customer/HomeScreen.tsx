@@ -202,6 +202,8 @@ export function HomeScreen() {
   const nav    = useNavigation<any>();
   const insets = useSafeAreaInsets();
   const [bookings,   setBookings]   = useState<Booking[]>([]);
+  const [bookingsError, setBookingsError] = useState(false);
+  const [artistsError, setArtistsError]   = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [showIOSHint, setShowIOSHint] = useState(false);
   const [cityName, setCityName] = useState<string | null>(null);
@@ -288,11 +290,25 @@ export function HomeScreen() {
     try {
       const { bookings: data } = await apiMyBookings(true);
       setBookings(data.sort((a, b) => new Date(b.scheduledAt).getTime() - new Date(a.scheduledAt).getTime()));
-    } catch {}
+      setBookingsError(false);
+    } catch {
+      // Previously silent — a network blip rendered as "no upcoming appointment"
+      // with no way to tell that apart from a legitimately empty schedule.
+      setBookingsError(true);
+    }
     setRefreshing(false);
   }, []);
 
   useFocusEffect(useCallback(() => { load(); }, [load]));
+
+  const loadArtists = useCallback(() => {
+    apiPublicProviders()
+      .then(({ providers }) => { setArtists(providers); setArtistsError(false); })
+      // Same silent-failure issue as bookings above, for the "Loved by clients"
+      // section — an empty result from a failed fetch looked identical to a
+      // legitimately empty directory.
+      .catch(() => setArtistsError(true));
+  }, []);
 
   // Public catalog (live look prices) + artist directory — cached server-side.
   useEffect(() => {
@@ -303,10 +319,8 @@ export function HomeScreen() {
         setCatalogPrices(map);
       })
       .catch(() => {});
-    apiPublicProviders()
-      .then(({ providers }) => setArtists(providers))
-      .catch(() => {});
-  }, []);
+    loadArtists();
+  }, [loadArtists]);
 
   const topArtists = React.useMemo(
     () => [...artists].sort((a, b) => (Number(b.rating) || 0) - (Number(a.rating) || 0)).slice(0, 8),
@@ -467,6 +481,17 @@ export function HomeScreen() {
             </Pressable>
           </View>
 
+          {bookingsError && (
+            <View style={[styles.sectionPad, { marginBottom: 16 }]}>
+              <View style={styles.errorBox}>
+                <Text style={styles.errorBoxText}>Something went wrong loading your bookings.</Text>
+                <Pressable onPress={() => load()} hitSlop={8}>
+                  <Text style={styles.errorBoxRetry}>Retry</Text>
+                </Pressable>
+              </View>
+            </View>
+          )}
+
           {/* ── Hero banner ── */}
           <View style={styles.sectionPad}>
             <Touch onPress={() => { tapLight(); setShowMatch(true); }}>
@@ -562,21 +587,32 @@ export function HomeScreen() {
           )}
 
           {/* ── Top rated artists ── */}
-          {topArtists.length > 0 && (
+          {(topArtists.length > 0 || artistsError) && (
             <>
               <View style={styles.sectionHeader}>
                 <Text style={styles.sectionTitle}>Loved by clients</Text>
-                <SparkleBurstButton />
+                {!artistsError && <SparkleBurstButton />}
               </View>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll} contentContainerStyle={styles.artistRow}>
-                {topArtists.map(a => (
-                  <ArtistCard
-                    key={a.id}
-                    artist={a}
-                    onPress={() => nav.navigate('ProviderPublicProfile', { providerId: a.id, providerName: a.name })}
-                  />
-                ))}
-              </ScrollView>
+              {artistsError ? (
+                <View style={styles.sectionPad}>
+                  <View style={styles.errorBox}>
+                    <Text style={styles.errorBoxText}>Something went wrong loading artists.</Text>
+                    <Pressable onPress={loadArtists} hitSlop={8}>
+                      <Text style={styles.errorBoxRetry}>Retry</Text>
+                    </Pressable>
+                  </View>
+                </View>
+              ) : (
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.hScroll} contentContainerStyle={styles.artistRow}>
+                  {topArtists.map(a => (
+                    <ArtistCard
+                      key={a.id}
+                      artist={a}
+                      onPress={() => nav.navigate('ProviderPublicProfile', { providerId: a.id, providerName: a.name })}
+                    />
+                  ))}
+                </ScrollView>
+              )}
             </>
           )}
 
@@ -852,6 +888,16 @@ const styles = StyleSheet.create({
   },
   iosHintText:    { flex: 1, fontSize: 13, color: Colors.label, lineHeight: 18, fontFamily: Fonts.regular },
   iosHintDismiss: { color: Colors.tertiaryLabel, fontSize: 14, fontFamily: Fonts.bold },
+
+  // Inline "something failed, retry" affordance for silently-swallowed fetches —
+  // distinguishes a real error from a legitimately empty section.
+  errorBox: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+    backgroundColor: '#FEF2F2', borderRadius: 16, padding: 14,
+    borderWidth: 1, borderColor: '#FCA5A5',
+  },
+  errorBoxText:  { flex: 1, fontSize: 13, color: '#B91C1C', fontFamily: Fonts.regular, lineHeight: 18 },
+  errorBoxRetry: { fontSize: 13, fontFamily: Fonts.semibold, color: Colors.brandDark },
 
   footer: { alignItems: 'center', paddingVertical: 40, gap: 8 },
   footerNote: { fontSize: 12.5, color: Colors.tertiaryLabel, fontFamily: Fonts.regular },

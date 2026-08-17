@@ -160,7 +160,14 @@ export function ChatScreen() {
         colors={['#9C5560', '#B76E79']}
         style={[styles.header, { paddingTop: insets.top + 12 }]}
       >
-        <Pressable onPress={() => nav.goBack()} style={styles.backBtn}>
+        <Pressable
+          onPress={() => {
+            // Shared between Customer/Provider stacks — no single fallback route.
+            if (nav.canGoBack()) nav.goBack();
+            else nav.navigate(user?.role === 'Provider' ? 'ProviderHome' : 'Home');
+          }}
+          style={styles.backBtn}
+        >
           <ArrowBackIcon size={24} color="#fff" />
         </Pressable>
         <Avatar name={otherName} photoUrl={otherPhotoUrl} size={38} style={{ marginRight: 10 }} />

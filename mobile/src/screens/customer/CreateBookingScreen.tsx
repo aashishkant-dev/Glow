@@ -35,32 +35,7 @@ import { OSMMap, OSMMarker } from '../../components/OSMMap';
 import { DEFAULT_REGION, DEFAULT_REGION_NAME } from '../../utils/region';
 import { VerifyPhoneSheet } from '../../components/VerifyPhoneSheet';
 import { useAuth } from '../../context/AuthContext';
-import { SEED_ARTISTS } from '../../data/seedArtists';
 import { formatCurrency, getCurrencySymbol } from '../../utils/format';
-
-// Seed artists (Explore's curated showcase) shown as pickable cards here too, so
-// the booking flow doesn't look empty before real Providers are onboarded — but
-// they carry no real backend account, so handleBook blocks submitting against
-// them (see the seed-id guard there) rather than letting checkout fail confusingly.
-const SEED_AS_AVAILABLE_PROVIDERS: AvailableProvider[] = SEED_ARTISTS.map(s => ({
-  _id: s.id,
-  name: s.name,
-  rating: s.rating ?? 0,
-  ratingCount: s.ratingCount,
-  lat: 0,
-  lng: 0,
-  qualificationType: s.qualificationType,
-  photoUrl: s.photoUrl,
-  experienceYears: s.experienceYears,
-  specialties: s.specialties,
-  bio: s.bio,
-  approvedByAdmin: true,
-  policeCheckCleared: s.policeCheckCleared,
-  firstAidCertified: s.firstAidCertified,
-  available: true,
-  hasLocation: false,
-  online: false,
-}));
 
 // ─── Brand tokens ───────────────────────────────────────────────────────────────
 const BRAND_DARK  = Colors.brandDark;
@@ -168,13 +143,6 @@ export type SelectedService = {
   durationMin: number;
   serviceItemId?: string | null;
 };
-
-// Seed/demo artists (Explore's curated showcase) carry no real backend account.
-// Single definition shared by the Services-step empty state and handleBook's
-// submit guard so the two can never disagree about what counts as a demo.
-function isSeedProvider(provider: { _id: string } | null): boolean {
-  return !!provider && String(provider._id).startsWith('seed-');
-}
 
 // ─── Provider pricing helpers ──────────────────────────────────────────────
 // Per-service catalog pricing is the primary (and normally only) model — every
@@ -288,11 +256,6 @@ const t = {
   servicesSub:            'Tap to add as many as you like — prices are this artist\'s own.',
   noArtistMenu:           'This artist hasn\'t published a service menu yet.',
   noArtistMenuSub:        'Pick a different artist to continue.',
-  // Seed/demo artists have no real backend account. Since Choose Artist is now
-  // the FIRST step, say so here rather than letting the generic no-menu copy
-  // send the user off to "pick a different artist" for the wrong reason.
-  demoArtistMenu:         'This is a demo artist — booking isn\'t available for them yet.',
-  demoArtistMenuSub:      'Please choose another artist.',
   summaryBarEmpty:        'Select at least one service',
   summaryBarCount:        (n: number) => `${n} service${n !== 1 ? 's' : ''}`,
   confirmServices:        'Services',
@@ -1783,19 +1746,16 @@ export function CreateBookingScreen() {
         }
         return (a.distanceKm ?? 99) - (b.distanceKm ?? 99);
       });
-      // Seed artists trail real Providers — they're a demo showcase, never the
-      // default/preselected choice, and never eligible for the preferId float below.
-      const withSeed = [...sorted, ...SEED_AS_AVAILABLE_PROVIDERS];
       // Glow Match / artist-profile entry: a specific artist was already chosen —
       // float them to the top and preselect so booking stays a confirm, not a search.
       const preferId = (route.params as any)?.providerId as string | undefined;
       const preferred = preferId ? sorted.find(p => String(p._id) === String(preferId)) : undefined;
       if (preferred) {
-        setProviders([preferred, ...withSeed.filter(p => p !== preferred)]);
+        setProviders([preferred, ...sorted.filter(p => p !== preferred)]);
         setSelectedProvider(preferred);
         setProviderMode('browse');
       } else {
-        setProviders(withSeed);
+        setProviders(sorted);
       }
     }).finally(() => setLoadingProviders(false));
   }, [step, hasPreselectedProvider]);
@@ -1891,15 +1851,6 @@ export function CreateBookingScreen() {
 
   async function handleBook() {
     if (!selectedProvider) return;
-
-    // Seed/demo artists (Explore's curated showcase) have no real backend account —
-    // submitting a booking against one would fail server-side. Block early with a
-    // clear message instead of letting the user hit a confusing checkout error.
-    if (isSeedProvider(selectedProvider)) {
-      const msg = 'This is a demo artist — booking isn\'t available for them yet. Please choose another artist.';
-      if (Platform.OS === 'web') window.alert(msg); else Alert.alert('Demo Artist', msg);
-      return;
-    }
 
     if (!user?.phoneVerified) {
       setShowVerifySheet(true);
@@ -2043,7 +1994,11 @@ export function CreateBookingScreen() {
   function goBack() {
     // Preselected artist: slot 1 (Choose Artist) is never shown, so leaving
     // slot 2 exits the screen entirely.
-    if (step === 1 || (step === 2 && hasPreselectedProvider)) { nav.goBack(); return; }
+    if (step === 1 || (step === 2 && hasPreselectedProvider)) {
+      if (nav.canGoBack()) nav.goBack();
+      else nav.navigate('Home');
+      return;
+    }
     // On-demand: no Date & Time slot, so Confirm (4) goes back to Services (2).
     if (step === 4 && bookingMode === 'ondemand') { setStep(2); return; }
     setStep(s => (s - 1) as Step);
@@ -2343,10 +2298,10 @@ export function CreateBookingScreen() {
                   {artistMenu.length === 0 ? (
                     <View style={styles.emptyBox}>
                       <Text style={styles.emptyText}>
-                        {isSeedProvider(selectedProvider) ? t.demoArtistMenu : t.noArtistMenu}
+                        {t.noArtistMenu}
                       </Text>
                       <Text style={[styles.emptyText, { fontSize: 13, marginTop: 4 }]}>
-                        {isSeedProvider(selectedProvider) ? t.demoArtistMenuSub : t.noArtistMenuSub}
+                        {t.noArtistMenuSub}
                       </Text>
                     </View>
                   ) : (

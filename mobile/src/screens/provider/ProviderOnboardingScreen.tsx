@@ -325,7 +325,22 @@ export function ProviderOnboardingScreen() {
     step === 5 ? 'Submit Profile' :
     'Go to Dashboard →';
 
+  // A blank profile (no qualification, no specialties, no bio) was previously
+  // able to sail through all 6 steps untouched. qualType always has a default
+  // value so this check is mostly a safety net; specialties/bio are the real gate.
+  const canNext =
+    step === 1 ? !!qualType :
+    step === 2 ? (specialties.length > 0 && bio.trim().length > 0) :
+    true;
+
+  const nextHint =
+    step === 1 && !canNext ? 'Select your qualification to continue' :
+    step === 2 && specialties.length === 0 ? 'Select at least one specialty to continue' :
+    step === 2 && bio.trim().length === 0 ? 'Add a short bio to continue' :
+    null;
+
   function handleFooterNext() {
+    if (!canNext) return;
     if (step === 1) setStep(2);
     else if (step === 2) setStep(3);
     else if (step === 3) setStep(4);
@@ -473,7 +488,7 @@ export function ProviderOnboardingScreen() {
                   })}
                 </View>
 
-                <Text style={styles.fieldLabel}>SHORT BIO <Text style={styles.optional}>(Optional)</Text></Text>
+                <Text style={styles.fieldLabel}>SHORT BIO</Text>
                 <TextInput
                   style={[styles.input, styles.bioInput]}
                   value={bio}
@@ -748,29 +763,34 @@ export function ProviderOnboardingScreen() {
         </ScrollView>
 
         {/* ── Sticky footer ── */}
-        <View style={[styles.footer, { paddingBottom: insets.bottom + 12 }]}>
-          {step > 1 && step < 6 && (
-            <Pressable style={styles.backBtn} onPress={handleFooterBack} accessibilityRole="button">
-              <Text style={styles.backBtnText}>← Back</Text>
-            </Pressable>
+        <View style={[styles.footer, { paddingBottom: insets.bottom + 12, flexWrap: 'wrap' }]}>
+          {nextHint && (
+            <Text style={styles.ctaHint}>{nextHint}</Text>
           )}
-          <Pressable
-            style={[styles.nextBtn, (loading || anyUploading) && { opacity: 0.65 }]}
-            onPress={handleFooterNext}
-            disabled={loading || anyUploading}
-            accessibilityRole="button"
-          >
-            <LinearGradient
-              colors={[BRAND_DARK, BRAND]}
-              start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
-              style={styles.nextBtnGrad}
+          <View style={{ flexDirection: 'row', alignItems: 'center', gap: 12, width: '100%' }}>
+            {step > 1 && step < 6 && (
+              <Pressable style={styles.backBtn} onPress={handleFooterBack} accessibilityRole="button">
+                <Text style={styles.backBtnText}>← Back</Text>
+              </Pressable>
+            )}
+            <Pressable
+              style={[styles.nextBtn, (loading || anyUploading || !canNext) && { opacity: 0.65 }]}
+              onPress={handleFooterNext}
+              disabled={loading || anyUploading || !canNext}
+              accessibilityRole="button"
             >
-              {loading
-                ? <ActivityIndicator color="#fff" />
-                : <Text style={styles.nextBtnText}>{footerLabel}</Text>
-              }
-            </LinearGradient>
-          </Pressable>
+              <LinearGradient
+                colors={[BRAND_DARK, BRAND]}
+                start={{ x: 0, y: 0 }} end={{ x: 1, y: 0 }}
+                style={styles.nextBtnGrad}
+              >
+                {loading
+                  ? <ActivityIndicator color="#fff" />
+                  : <Text style={styles.nextBtnText}>{footerLabel}</Text>
+                }
+              </LinearGradient>
+            </Pressable>
+          </View>
         </View>
       </View>
     </KeyboardAvoidingView>
@@ -979,6 +999,7 @@ const styles = StyleSheet.create({
     backgroundColor: SURFACE, minHeight: 44,
   },
   backBtnText: { fontSize: 15, fontWeight: '600', color: MUTED },
+  ctaHint: { textAlign: 'center', color: '#B45309', fontSize: 13, fontWeight: '600', marginBottom: 8, width: '100%' },
   nextBtn: { flex: 1, height: 52, borderRadius: 14, overflow: 'hidden', minHeight: 44 },
   nextBtnGrad: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   nextBtnText: { color: '#fff', fontSize: 16, fontWeight: '700', letterSpacing: -0.2 },

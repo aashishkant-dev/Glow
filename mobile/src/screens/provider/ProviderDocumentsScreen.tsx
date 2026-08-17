@@ -99,6 +99,11 @@ export function ProviderDocumentsScreen() {
   // web: track which docs uploaded directly to server (bypasses AsyncStorage)
   const [webUploaded, setWebUploaded] = useState<Record<string, { previewUrl: string; uploadedAt: string }>>({});
 
+  function goBack() {
+    if (nav.canGoBack()) nav.goBack();
+    else nav.navigate('ProviderHome');
+  }
+
   // Build serverDocs map (status + url) from the API response — reused by focus + after upload.
   function applyServerDocs(documents: { docType: string; status: string; rejectionReason?: string; url?: string; previewUrl?: string; submittedAt?: string }[]) {
     const map: Record<string, { status: string; rejectionReason?: string; url?: string; submittedAt?: string }> = {};
@@ -295,7 +300,7 @@ export function ProviderDocumentsScreen() {
         end={{ x: 1, y: 1 }}
         style={[styles.header, { paddingTop: insets.top + 16 }]}
       >
-        <Pressable style={styles.backBtn} onPress={() => nav.goBack()}>
+        <Pressable style={styles.backBtn} onPress={goBack}>
           <Text style={styles.backBtnText}>← Back</Text>
         </Pressable>
 

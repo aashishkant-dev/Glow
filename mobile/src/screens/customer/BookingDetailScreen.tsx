@@ -84,6 +84,13 @@ export function BookingDetailScreen() {
   const paramBooking: Booking | undefined = route.params?.booking;
   const paramBookingId: string | undefined = route.params?.bookingId ?? paramBooking?._id;
 
+  // Opened from a notification (case 2 above) has no prior screen to pop —
+  // canGoBack() is false there, so fall back to Home instead of a no-op tap.
+  function goBack() {
+    if (nav.canGoBack()) nav.goBack();
+    else nav.navigate('Home');
+  }
+
   const [booking,    setBooking]    = useState<Booking | null>(paramBooking ?? null);
   const [rated,      setRated]      = useState<boolean>(!!paramBooking?.ratingGiven);
   const [showRateModal, setShowRateModal] = useState(false);
@@ -277,7 +284,7 @@ export function BookingDetailScreen() {
     <View style={styles.container}>
       {/* ── Back button — floating over the map card ── */}
       <View style={[styles.backOverlay, { top: insets.top + 12 }]} pointerEvents="box-none">
-        <Pressable style={styles.backButton} onPress={() => nav.goBack()}>
+        <Pressable style={styles.backButton} onPress={goBack}>
           <View style={styles.backButtonPill}>
             <ArrowBackIcon size={20} color="#fff" />
             <Text style={styles.backButtonText}>Bookings</Text>

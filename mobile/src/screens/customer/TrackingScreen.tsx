@@ -262,6 +262,11 @@ export function TrackingScreen() {
     : null;
   const canCancel = status === 'REQUESTED' || status === 'ACCEPTED';
 
+  function goBack() {
+    if (nav.canGoBack()) nav.goBack();
+    else nav.navigate('Home');
+  }
+
   // True when the Provider marker position is older than the staleness threshold.
   // Recomputed on each render — `data` refreshes every 5s so this stays current.
   const locationIsStale = useMemo(() => {
@@ -272,7 +277,7 @@ export function TrackingScreen() {
   async function doCancel() {
     try {
       await apiCancelBooking(bookingId);
-      nav.goBack();
+      goBack();
     } catch (e: any) {
       const msg = e?.message || 'Could not cancel booking. Please try again.';
       if (Platform.OS === 'web') window.alert(msg);
@@ -353,7 +358,7 @@ export function TrackingScreen() {
 
         {/* Back button — floating pill */}
         <View style={[styles.topBar, { paddingTop: insets.top + 12 }]}>
-          <Pressable onPress={() => nav.goBack()} style={styles.backBtn}>
+          <Pressable onPress={goBack} style={styles.backBtn}>
             <Text style={styles.backBtnText}>← Back</Text>
           </Pressable>
           <View style={styles.statusPill}>

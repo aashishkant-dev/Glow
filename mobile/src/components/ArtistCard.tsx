@@ -59,10 +59,10 @@ export function ArtistCard({ artist, onPress, showFavorite = false }: Props) {
         <Text style={styles.name} numberOfLines={1}>{artist.name}</Text>
         <Text style={styles.specialty} numberOfLines={1}>{artist.qualificationType?.replace(/_/g, ' ').toLowerCase().replace(/\b\w/g, c => c.toUpperCase())}</Text>
         <View style={styles.ratingRow}>
-          <Text style={styles.rating}>★ {artist.rating?.toFixed(1) ?? '—'}</Text>
-          <Text style={styles.reviews}>({artist.ratingCount})</Text>
+          <Text style={styles.rating} numberOfLines={1}>★ {artist.rating?.toFixed(1) ?? '—'}</Text>
+          <Text style={styles.reviews} numberOfLines={1}>({artist.ratingCount})</Text>
           {artist.startingPrice != null && artist.startingPrice > 0 && (
-            <Text style={styles.price}>From {formatCurrency(artist.startingPrice)}</Text>
+            <Text style={styles.price} numberOfLines={1} ellipsizeMode="tail">From {formatCurrency(artist.startingPrice)}</Text>
           )}
         </View>
       </View>
@@ -124,6 +124,7 @@ const styles = StyleSheet.create({
   },
   price: {
     marginLeft: 'auto',
+    flexShrink: 1,
     fontSize: 13,
     fontFamily: Fonts.bold,
     color: Colors.brand,

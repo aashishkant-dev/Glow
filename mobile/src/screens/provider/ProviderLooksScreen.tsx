@@ -47,7 +47,7 @@ import { FilterPreview } from '../../components/FilterPreview';
 import { PHOTO_FILTERS } from '../../data/photoFilters';
 import { SparkleIcon } from '../../components/BeautyIcons';
 import { ShareIcon, PencilIcon, TrashIcon } from '../../components/CareIcons';
-import { shareLookPhoto } from '../../utils/shareLook';
+import { shareLookMedia } from '../../utils/shareLook';
 
 
 // A media item staged for a look — either a fresh shot (needs uploading) or
@@ -194,6 +194,12 @@ export function ProviderLooksScreen() {
   const [createOpen, setCreateOpen] = useState(false);
   const [editingLook, setEditingLook] = useState<ProviderLookItem | null>(null);
 
+  // Two tabs at the top of the Portfolio: Specialty (pricing you offer — the
+  // day-to-day thing an artist tweaks most) is the default; Look (the
+  // portfolio gallery + "Create a look") only appears once tapped, so the
+  // two don't compete for space or scroll past each other.
+  const [activeTab, setActiveTab] = useState<'specialty' | 'look'>('specialty');
+
   return (
     <ScrollView style={{ flex: 1, backgroundColor: Colors.secondarySystemBackground }} contentContainerStyle={{ paddingTop: insets.top + 16, paddingBottom: 100 }}>
       <LinearGradient
@@ -209,102 +215,124 @@ export function ProviderLooksScreen() {
             <Text style={styles.title}>Your Portfolio</Text>
           </View>
           <Text style={styles.subtitle}>
-            Your specialties, prices & the looks clients see on your profile
+            {activeTab === 'specialty'
+              ? 'What you offer & what you charge'
+              : 'The looks clients see on your profile'}
           </Text>
         </View>
-        <Pressable onPress={() => setCreateOpen(true)} style={({ pressed }) => [styles.newBtn, pressed && { transform: [{ scale: 0.96 }] }]}>
-          <Text style={styles.newBtnPlus}>+</Text>
-          <Text style={styles.newBtnText}>Create a look</Text>
-        </Pressable>
+        {activeTab === 'look' && (
+          <Pressable onPress={() => setCreateOpen(true)} style={({ pressed }) => [styles.newBtn, pressed && { transform: [{ scale: 0.96 }] }]}>
+            <Text style={styles.newBtnPlus}>+</Text>
+            <Text style={styles.newBtnText}>Create a look</Text>
+          </Pressable>
+        )}
       </LinearGradient>
 
-      {/* ── Specialties & pricing — real, editable, no more bouncing to Profile ── */}
-      <View style={[styles.section, { marginTop: 24 }]}>
-        <ProviderPricingEditor />
+      <View style={styles.tabRow}>
+        <Pressable
+          style={[styles.tabBtn, activeTab === 'specialty' && styles.tabBtnActive]}
+          onPress={() => setActiveTab('specialty')}
+        >
+          <Text style={[styles.tabBtnText, activeTab === 'specialty' && styles.tabBtnTextActive]}>Specialty</Text>
+        </Pressable>
+        <Pressable
+          style={[styles.tabBtn, activeTab === 'look' && styles.tabBtnActive]}
+          onPress={() => setActiveTab('look')}
+        >
+          <Text style={[styles.tabBtnText, activeTab === 'look' && styles.tabBtnTextActive]}>Look</Text>
+        </Pressable>
       </View>
 
-      {loading ? (
-        <ActivityIndicator style={{ marginVertical: 40 }} color={Colors.brand} />
-      ) : (
-        <>
-          {/* ── Your own looks — stacked below specialties ── */}
-          <View style={styles.section}>
-            <View style={styles.sectionTitleRow}>
-              <View style={styles.sectionAccent} />
-              <Text style={styles.sectionTitle}>Your looks</Text>
-            </View>
-            {myLooks.length === 0 ? (
-              <Pressable onPress={() => setCreateOpen(true)} style={styles.empty}>
-                <View style={styles.emptySparkleLeft}><SparkleIcon size={16} color={Colors.brandAccent} /></View>
-                <View style={styles.emptyIconWrap}><SparkleIcon size={24} color={Colors.brand} /></View>
-                <View style={styles.emptySparkleRight}><SparkleIcon size={12} color={Colors.brandAccent} /></View>
-                <Text style={styles.emptyText}>Build a themed, priced package clients can book directly</Text>
-                <Text style={styles.emptyHint}>Tap "+ Create a look" to make your first one</Text>
-              </Pressable>
-            ) : (
-              // Was a horizontal ScrollView with fixed-width (150px) cards —
-              // fine for one or two looks, but a third+ card just scrolled
-              // off-screen with no visual cue there was more, and the fixed
-              // width had no relationship to the actual device width. A
-              // wrapping 2-column grid scales with the screen and shows
-              // every look at once, matching the Explore grid's pattern.
-              <View style={styles.looksGrid}>
-                {myLooks.map(item => {
-                  const mostLoved = item.id === mostLovedLookId;
-                  return (
-                    <View key={item.id} style={styles.lookGridCard}>
-                      {mostLoved && (
-                        <View style={styles.mostLovedBadge}>
-                          <Text style={styles.mostLovedBadgeText}>♥ Most Loved</Text>
-                        </View>
-                      )}
-                      {/* fitToPhoto let each card's real photo aspect ratio
-                          drive its own height — fine for a single card, but
-                          with two or more in this row a portrait photo next
-                          to a landscape one produced visibly different card
-                          heights, so their price/action rows landed at
-                          different Y positions instead of lining up. A
-                          shared fixed height keeps every card in the row the
-                          same size, matching how every other look-card row
-                          in the app already works. */}
-                      <LookTile
-                        look={customLookToLook(item)}
-                        price={item.price}
-                        onPress={() => setEditingLook(item)}
-                        height={160}
-                        likeOverride={{ liked: false, count: item.likeCount || 0, onToggle: () => {} }}
-                        photoCount={item.media.length}
-                        coverVideo={coverVideoFor(item)}
-                        badge={item.badge}
-                      />
-                      <View style={styles.cardActionRow}>
-                        <Pressable
-                          style={styles.cardActionBtn}
-                          hitSlop={6}
-                          accessibilityLabel="Share this look"
-                          onPress={() => {
-                            const cover = item.media[0];
-                            if (!cover) { Alert.alert('Add a photo first', 'This look needs at least one photo to share.'); return; }
-                            shareLookPhoto(cover.url, `${item.name} — see it on Glow ✨`);
-                          }}
-                        >
-                          <ShareIcon size={16} color={Colors.brand} />
-                        </Pressable>
-                        <Pressable style={styles.cardActionBtn} hitSlop={6} accessibilityLabel="Edit this look" onPress={() => setEditingLook(item)}>
-                          <PencilIcon size={15} color={Colors.brand} />
-                        </Pressable>
-                        <Pressable style={[styles.cardActionBtn, styles.cardActionBtnDanger]} hitSlop={6} accessibilityLabel="Remove this look" onPress={() => deleteCustomLook(item)}>
-                          <TrashIcon size={15} color={Colors.systemRed} />
-                        </Pressable>
-                      </View>
-                    </View>
-                  );
-                })}
-              </View>
-            )}
-          </View>
+      {activeTab === 'specialty' && (
+        /* ── Specialties & pricing — real, editable, no more bouncing to Profile ── */
+        <View style={[styles.section, { marginTop: 20 }]}>
+          <ProviderPricingEditor />
+        </View>
+      )}
 
-        </>
+      {activeTab === 'look' && (
+        loading ? (
+          <ActivityIndicator style={{ marginVertical: 40 }} color={Colors.brand} />
+        ) : (
+          <>
+            {/* ── Your own looks ── */}
+            <View style={[styles.section, { marginTop: 20 }]}>
+              <View style={styles.sectionTitleRow}>
+                <View style={styles.sectionAccent} />
+                <Text style={styles.sectionTitle}>Your looks</Text>
+              </View>
+              {myLooks.length === 0 ? (
+                <Pressable onPress={() => setCreateOpen(true)} style={styles.empty}>
+                  <View style={styles.emptySparkleLeft}><SparkleIcon size={16} color={Colors.brandAccent} /></View>
+                  <View style={styles.emptyIconWrap}><SparkleIcon size={24} color={Colors.brand} /></View>
+                  <View style={styles.emptySparkleRight}><SparkleIcon size={12} color={Colors.brandAccent} /></View>
+                  <Text style={styles.emptyText}>Build a themed, priced package clients can book directly</Text>
+                  <Text style={styles.emptyHint}>Tap "+ Create a look" to make your first one</Text>
+                </Pressable>
+              ) : (
+                // Was a horizontal ScrollView with fixed-width (150px) cards —
+                // fine for one or two looks, but a third+ card just scrolled
+                // off-screen with no visual cue there was more, and the fixed
+                // width had no relationship to the actual device width. A
+                // wrapping 2-column grid scales with the screen and shows
+                // every look at once, matching the Explore grid's pattern.
+                <View style={styles.looksGrid}>
+                  {myLooks.map(item => {
+                    const mostLoved = item.id === mostLovedLookId;
+                    return (
+                      <View key={item.id} style={styles.lookGridCard}>
+                        {mostLoved && (
+                          <View style={styles.mostLovedBadge}>
+                            <Text style={styles.mostLovedBadgeText}>♥ Most Loved</Text>
+                          </View>
+                        )}
+                        {/* fitToPhoto let each card's real photo aspect ratio
+                            drive its own height — fine for a single card, but
+                            with two or more in this row a portrait photo next
+                            to a landscape one produced visibly different card
+                            heights, so their price/action rows landed at
+                            different Y positions instead of lining up. A
+                            shared fixed height keeps every card in the row the
+                            same size, matching how every other look-card row
+                            in the app already works. */}
+                        <LookTile
+                          look={customLookToLook(item)}
+                          price={item.price}
+                          onPress={() => setEditingLook(item)}
+                          height={160}
+                          likeOverride={{ liked: false, count: item.likeCount || 0, onToggle: () => {} }}
+                          photoCount={item.media.length}
+                          coverVideo={coverVideoFor(item)}
+                          badge={item.badge}
+                        />
+                        <View style={styles.cardActionRow}>
+                          <Pressable
+                            style={styles.cardActionBtn}
+                            hitSlop={6}
+                            accessibilityLabel="Share this look"
+                            onPress={() => {
+                              const cover = item.media[0];
+                              if (!cover) { Alert.alert('Add a photo first', 'This look needs at least one photo to share.'); return; }
+                              shareLookMedia(cover.url, `${item.name} — see it on Glow ✨`, cover.type === 'video' ? 'video' : 'photo');
+                            }}
+                          >
+                            <ShareIcon size={16} color={Colors.brand} />
+                          </Pressable>
+                          <Pressable style={styles.cardActionBtn} hitSlop={6} accessibilityLabel="Edit this look" onPress={() => setEditingLook(item)}>
+                            <PencilIcon size={15} color={Colors.brand} />
+                          </Pressable>
+                          <Pressable style={[styles.cardActionBtn, styles.cardActionBtnDanger]} hitSlop={6} accessibilityLabel="Remove this look" onPress={() => deleteCustomLook(item)}>
+                            <TrashIcon size={15} color={Colors.systemRed} />
+                          </Pressable>
+                        </View>
+                      </View>
+                    );
+                  })}
+                </View>
+              )}
+            </View>
+          </>
+        )
       )}
 
       <CreateLookSheet
@@ -945,6 +973,16 @@ const styles = StyleSheet.create({
   },
   newBtnPlus: { color: Colors.brand, fontSize: 15, fontFamily: Fonts.bold, marginTop: -1 },
   newBtnText: { color: Colors.brand, fontSize: 12.5, fontFamily: Fonts.bold },
+
+  tabRow: {
+    flexDirection: 'row', gap: 8, marginHorizontal: 16, marginBottom: 4,
+    backgroundColor: '#fff', borderRadius: 14, padding: 4,
+    shadowColor: Colors.cardShadow, shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.06, shadowRadius: 8, elevation: 2,
+  },
+  tabBtn: { flex: 1, paddingVertical: 10, borderRadius: 10, alignItems: 'center' },
+  tabBtnActive: { backgroundColor: Colors.brand },
+  tabBtnText: { fontSize: 13.5, fontFamily: Fonts.semibold, color: Colors.secondaryLabel },
+  tabBtnTextActive: { color: '#fff' },
 
   section: { marginBottom: 26 },
   sectionTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, marginBottom: 6 },

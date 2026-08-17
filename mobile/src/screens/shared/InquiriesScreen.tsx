@@ -54,7 +54,15 @@ export function InquiriesScreen() {
   return (
     <View style={styles.container}>
       <View style={[styles.header, { paddingTop: insets.top + 12 }]}>
-        <Pressable onPress={() => nav.goBack()} style={styles.backBtn} hitSlop={8}>
+        <Pressable
+          onPress={() => {
+            // Shared between Customer/Provider stacks — no single fallback route.
+            if (nav.canGoBack()) nav.goBack();
+            else nav.navigate(user?.role === 'Provider' ? 'ProviderHome' : 'Home');
+          }}
+          style={styles.backBtn}
+          hitSlop={8}
+        >
           <ArrowBackIcon size={22} color={Colors.label} />
         </Pressable>
         <Text style={styles.headerTitle}>Messages</Text>

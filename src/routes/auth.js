@@ -503,6 +503,20 @@ router.post(
 // keeps User.passwordHash/email nullable/unique in the schema for any legacy rows,
 // but no route reads or writes them anymore.
 
+// This route doubles as a partial-update endpoint after onboarding (e.g.
+// apiUpdateCapableLooks sends only `{ capableLooks }` from the Looks tab), so
+// qualificationType/specialties can't be unconditionally required — only
+// require them the FIRST time a Provider submits (no ProviderProfile row
+// yet), which is the actual "blank profile got through" gap. Memoized on
+// `req` so the two custom validators below share one DB lookup.
+async function hasExistingProviderProfile(req) {
+  if (req._hasProviderProfile === undefined) {
+    const existing = await prisma.providerProfile.findUnique({ where: { userId: req.user.id }, select: { id: true } });
+    req._hasProviderProfile = !!existing;
+  }
+  return req._hasProviderProfile;
+}
+
 // ── POST /auth/provider-profile ─────────────────────────────────────────────────────
 router.post(
   '/provider-profile',
@@ -512,6 +526,14 @@ router.post(
       .optional()
       .isIn(['MAKEUP_ARTIST', 'HAIR_STYLIST', 'ESTHETICIAN', 'NAIL_TECH', 'MEHENDI_ARTIST', 'MASSAGE_THERAPIST', 'COSMETOLOGIST', 'Other'])
       .withMessage('Invalid qualification type'),
+    body('qualificationType').custom(async (value, { req }) => {
+      if (value || await hasExistingProviderProfile(req)) return true;
+      throw new Error('qualificationType is required');
+    }),
+    body('specialties').custom(async (value, { req }) => {
+      if ((Array.isArray(value) && value.length > 0) || await hasExistingProviderProfile(req)) return true;
+      throw new Error('At least one specialty is required');
+    }),
     body('experienceYears')
       .optional()
       .isInt({ min: 0, max: 50 }).withMessage('experienceYears must be 0–50'),

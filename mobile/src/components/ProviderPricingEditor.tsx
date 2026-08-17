@@ -166,6 +166,7 @@ export function ProviderPricingEditor() {
                 <View style={{ flex: 1 }}>
                   <Text style={styles.priceRowName} numberOfLines={1}>{s.name}</Text>
                   <View style={styles.durationRow}>
+                    <Text style={styles.durationEditHint}>Time</Text>
                     <TextInput
                       style={styles.durationInput}
                       value={durationValueFor(s)}
@@ -174,7 +175,7 @@ export function ProviderPricingEditor() {
                       placeholder="60"
                       placeholderTextColor={Colors.tertiaryLabel}
                     />
-                    <Text style={styles.priceRowDuration}>min</Text>
+                    <Text style={styles.priceRowDuration}>min (optional)</Text>
                   </View>
                 </View>
                 <View style={styles.priceInputWrap}>
@@ -287,7 +288,7 @@ function Modal_({
               />
             </View>
             <View style={{ flex: 1 }}>
-              <Text style={[specStyles.sub, { marginBottom: 0 }]}>Duration (min)</Text>
+              <Text style={[specStyles.sub, { marginBottom: 0 }]}>Duration (min, optional)</Text>
               <TextInput
                 style={specStyles.input}
                 value={newServiceDuration}
@@ -338,10 +339,12 @@ const styles = StyleSheet.create({
   },
   priceRowName: { fontSize: 14.5, fontFamily: Fonts.semibold, color: Colors.label },
   priceRowDuration: { fontSize: 12, color: Colors.tertiaryLabel },
-  durationRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 3, marginTop: 3 },
+  durationRow: { flexDirection: 'row', alignItems: 'center', alignSelf: 'flex-start', gap: 5, marginTop: 4 },
+  durationEditHint: { fontSize: 11, color: Colors.tertiaryLabel, fontFamily: Fonts.regular },
   durationInput: {
-    fontSize: 12, color: Colors.tertiaryLabel, fontFamily: Fonts.medium,
-    padding: 0, width: 24, textAlign: 'right', borderBottomWidth: 1, borderBottomColor: Colors.separator,
+    fontSize: 13, color: Colors.label, fontFamily: Fonts.semibold,
+    padding: 0, paddingVertical: 3, width: 34, textAlign: 'right',
+    borderBottomWidth: 1.5, borderBottomColor: Colors.brandAccent,
   },
   priceInputWrap: {
     flexDirection: 'row', alignItems: 'center', flexShrink: 0,

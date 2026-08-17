@@ -1,8 +1,8 @@
 /**
  * Explore — Two tabs: Looks (Pinterest grid) and Artists (specialty sections).
  * Looks tab: masonry of complete looks with collection filters.
- * Artists tab: horizontal-scroll rows of celebrity/seed + real artists,
- * one section per specialty, sorted by artist count (Bridal always last).
+ * Artists tab: horizontal-scroll rows of real artists, one section per
+ * specialty, sorted by artist count (Bridal always last).
  */
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -19,7 +19,6 @@ import { PostMedia } from '../../components/PostMedia';
 import { apiPublicCatalog, apiPublicProviders, PublicProviderCard, apiGetExplorePosts, Post, apiGetExploreLooks, ExploreLookItem } from '../../api/client';
 import { SearchIcon } from '../../components/TabIcons';
 import { tapLight } from '../../utils/haptics';
-import { SEED_ARTISTS } from '../../data/seedArtists';
 import { ExploreHeaderAvatar } from '../../components/ExploreHeaderAvatar';
 import { CATEGORIES } from '../../data/categories';
 
@@ -121,6 +120,7 @@ export function ExploreScreen() {
   );
 
   const filteredPosts = posts;
+  const reelPosts = useMemo(() => posts.filter(p => !!p.videoUrl), [posts]);
 
   const loadMorePosts = useCallback(() => {
     if (postsLoadingMore || !postsCursor) return;
@@ -220,20 +220,16 @@ export function ExploreScreen() {
     nav.navigate('Chat', { otherUserId: item.provider.id, otherName: item.provider.name, otherPhotoUrl: item.provider.photoUrl ?? undefined, otherRole: 'Provider' });
   }
 
-  const allArtists = useMemo(() => {
-    // Merge API artists with seed artists (dedupe by id)
-    const seedOnly = SEED_ARTISTS.filter(s => !artists.find(a => a.id === s.id));
-    return [...seedOnly, ...artists];
-  }, [artists]);
+  const allArtists = artists;
 
   // Sections: one per specialty with ≥1 artist, ranked by artist count
   // (most-common first), with Bridal always pinned last — bridal browsing
   // is a deliberate, lower-frequency search; everyday specialties (Mehendi,
   // Nails, Hair Styling) should be immediately visible without scrolling.
-  // 'Bridal Makeup' is the only specialty string real Provider data and seed
-  // data use for bridal work (see SPECIALTY_OPTIONS in ProviderOnboardingScreen.tsx
-  // and mobile/src/data/seedArtists.ts — no plain 'Bridal' specialty exists;
-  // that string is only used for the unrelated Looks-tab LookOccasion taxonomy).
+  // 'Bridal Makeup' is the only specialty string real Provider data uses for
+  // bridal work (see SPECIALTY_OPTIONS in ProviderOnboardingScreen.tsx — no
+  // plain 'Bridal' specialty exists; that string is only used for the
+  // unrelated Looks-tab LookOccasion taxonomy).
   const BRIDAL_SPECIALTIES = ['Bridal Makeup'];
 
   const artistSections = useMemo(() => {
@@ -390,12 +386,12 @@ export function ExploreScreen() {
             <View style={styles.masonry}>
               <View style={styles.column}>
                 {left.map(look => (
-                  <LookTile key={look.id} look={look} height={look.tall ? 230 : 165} price={priceOf(look)} onPress={() => setOpenLook(look)} />
+                  <LookTile key={look.id} look={look} height={look.tall ? 230 : 165} price={priceOf(look)} onPress={() => setOpenLook(look)} coverVideo={look.coverVideo} />
                 ))}
               </View>
               <View style={styles.column}>
                 {right.map(look => (
-                  <LookTile key={look.id} look={look} height={look.tall ? 230 : 165} price={priceOf(look)} onPress={() => setOpenLook(look)} />
+                  <LookTile key={look.id} look={look} height={look.tall ? 230 : 165} price={priceOf(look)} onPress={() => setOpenLook(look)} coverVideo={look.coverVideo} />
                 ))}
               </View>
             </View>
@@ -448,8 +444,8 @@ export function ExploreScreen() {
       ) : (
         /* ── Posts tab ── */
         <View style={{ flex: 1 }}>
-          <View style={styles.chipBar}>
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={{ width: '100%' }}>
+          <View style={[styles.chipBar, { flexDirection: 'row', alignItems: 'center', gap: 8 }]}>
+            <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={{ flex: 1 }}>
               {(['top', 'recent'] as PostSort[]).map(s => {
                 const active = postSort === s;
                 return (
@@ -459,6 +455,16 @@ export function ExploreScreen() {
                 );
               })}
             </ScrollView>
+            {/* Video posts, watched Reels-style (full-screen, vertical, autoplay) —
+                separate from the photo grid instead of mixed into scroll-tap browsing. */}
+            {reelPosts.length > 0 && (
+              <Pressable
+                style={styles.reelsBtn}
+                onPress={() => { tapLight(); nav.navigate('Reels', { posts: reelPosts }); }}
+              >
+                <Text style={styles.reelsBtnText}>▶ Reels</Text>
+              </Pressable>
+            )}
           </View>
           <View style={styles.chipBar}>
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow} style={{ width: '100%' }}>
@@ -499,7 +505,9 @@ export function ExploreScreen() {
                   <Pressable
                     key={post.id}
                     style={styles.postTile}
-                    onPress={() => nav.navigate('PostDetail', { post })}
+                    onPress={() => post.videoUrl
+                      ? nav.navigate('Reels', { posts: reelPosts, startIndex: reelPosts.findIndex(p => p.id === post.id) })
+                      : nav.navigate('PostDetail', { post })}
                   >
                     <PostMedia photoUrl={post.photoUrl} videoUrl={post.videoUrl} style={styles.postTileImage} showBadge />
                     <View style={styles.postTileLikeBadge}>
@@ -585,6 +593,12 @@ const styles = StyleSheet.create({
     borderRadius: 100, backgroundColor: '#fff',
     borderWidth: 1, borderColor: Colors.separator,
   },
+  reelsBtn: {
+    flexShrink: 0, marginRight: 20,
+    paddingHorizontal: 14, paddingVertical: 9, borderRadius: 100,
+    backgroundColor: Colors.label,
+  },
+  reelsBtnText: { fontSize: 12.5, fontFamily: Fonts.semibold, color: '#fff' },
 
   searchBar: {
     flexDirection: 'row', alignItems: 'center', gap: 8,

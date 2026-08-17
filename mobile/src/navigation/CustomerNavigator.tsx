@@ -21,6 +21,7 @@ import { NotificationsScreen } from '../screens/shared/NotificationsScreen';
 import { InquiriesScreen } from '../screens/shared/InquiriesScreen';
 import { ProviderPublicProfileScreen } from '../screens/customer/ProviderPublicProfileScreen';
 import { PostDetailScreen } from '../screens/customer/PostDetailScreen';
+import { ReelsScreen } from '../screens/customer/ReelsScreen';
 import { Colors } from '../utils/colors';
 import { Booking, Post } from '../api/client';
 import { joinUserRoom } from '../utils/socket';
@@ -63,6 +64,7 @@ export type CustomerStackParams = {
     | { bookingId?: undefined; otherUserId: string; otherName?: string; otherPhotoUrl?: string; otherRole?: string };
   ProviderPublicProfile: { providerId: string; providerName?: string; fromBooking?: boolean };
   PostDetail: { post: Post };
+  Reels: { posts: Post[]; startIndex?: number };
 };
 
 export type CustomerTabParams = {
@@ -331,6 +333,7 @@ export function CustomerNavigator() {
       <Stack.Screen name="Inquiries" component={InquiriesScreen} options={{ headerShown: false }} />
       <Stack.Screen name="ProviderPublicProfile" component={ProviderPublicProfileScreen} options={{ headerShown: false }} />
       <Stack.Screen name="PostDetail" component={PostDetailScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Reels" component={ReelsScreen} options={{ headerShown: false, animation: 'fade' }} />
     </Stack.Navigator>
   );
 }

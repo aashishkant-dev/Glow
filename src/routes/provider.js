@@ -369,8 +369,14 @@ router.get(
           };
         }));
 
-      // Filter out jobs this Provider has already skipped
-      const skipped = providerSkippedJobs.get(req.user.id) ?? new Set();
+      // Filter out jobs this Provider has already skipped. Persisted in the DB
+      // (not in-memory) so a skip survives process restarts/redeploys — see
+      // BookingSkip in schema.prisma.
+      const skips = await prisma.bookingSkip.findMany({
+        where:  { providerId: req.user.id, bookingId: { in: bookings.map(b => b._id) } },
+        select: { bookingId: true },
+      });
+      const skipped = new Set(skips.map(s => s.bookingId));
       const filteredBookings = bookings.filter(b => !skipped.has(b._id));
 
       res.json({ bookings: filteredBookings, approvedByAdmin: profile?.approvedByAdmin ?? false });
@@ -458,9 +464,8 @@ router.get(
 
 // ── POST /jobs/:id/skip ───────────────────────────────────────────────────────
 // Provider declines/skips a REQUESTED job. Booking stays REQUESTED (other Providers can still take it).
-// We store skipped IDs in-memory per Provider — lightweight, no DB schema change needed.
-const providerSkippedJobs = new Map(); // Map<providerId, Set<bookingId>>
-
+// Skipped IDs are persisted per Provider in BookingSkip — an earlier in-memory
+// Map was wiped on every restart/redeploy, silently un-skipping declined jobs.
 router.post(
   '/:id/skip',
   authenticate,
@@ -470,10 +475,18 @@ router.post(
       const bookingId = req.params.id;
       // Optional decline reason from the Provider (shown to the client).
       const reasonRaw = typeof req.body?.reason === 'string' ? req.body.reason.trim().slice(0, 300) : '';
-      if (!providerSkippedJobs.has(req.user.id)) {
-        providerSkippedJobs.set(req.user.id, new Set());
+      try {
+        await prisma.bookingSkip.upsert({
+          where:  { bookingId_providerId: { bookingId, providerId: req.user.id } },
+          update: {},
+          create: { bookingId, providerId: req.user.id },
+        });
+      } catch (skipErr) {
+        // P2003 = FK violation — bookingId doesn't exist. Report 404 instead
+        // of a generic 500 for this specific, expected case.
+        if (skipErr.code !== 'P2003') throw skipErr;
+        return res.status(404).json({ error: 'Booking not found' });
       }
-      providerSkippedJobs.get(req.user.id).add(bookingId);
 
       // If this Provider was the one the client requested, declining must release the
       // assignment so the client can pick someone else. NEVER touches payment.
@@ -1252,6 +1265,39 @@ router.get(
   }
 );
 
+// ── GET /jobs/customer/:id/history ──────────────────────────────────────────────
+// Client booking history for the "review details" screen — repeat vs first-time
+// client, and how many times (if any) they've booked THIS provider before.
+// Scoped to providers this client has actually requested/booked with (via the
+// `booking` existence check below) — a random provider can't look up an
+// arbitrary customer's history just by guessing an id.
+router.get(
+  '/customer/:id/history',
+  authenticate,
+  requireRole('Provider'),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+      const hasRelationship = await prisma.booking.findFirst({
+        where: { customerId: id, providerId: req.user.id },
+        select: { id: true },
+      });
+      if (!hasRelationship) return res.status(404).json({ error: 'No booking history with this client.' });
+
+      const [customer, totalCompletedBookings, bookingsWithMe] = await Promise.all([
+        prisma.user.findUnique({ where: { id }, select: { createdAt: true } }),
+        prisma.booking.count({ where: { customerId: id, status: 'COMPLETED' } }),
+        prisma.booking.count({ where: { customerId: id, providerId: req.user.id, status: 'COMPLETED' } }),
+      ]);
+      if (!customer) return res.status(404).json({ error: 'Client not found' });
+
+      res.json({ totalCompletedBookings, bookingsWithMe, memberSince: customer.createdAt });
+    } catch (e) {
+      console.error('GET /jobs/customer/:id/history error:', e);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
 
 // ── Provider service menu (price list) ────────────────────────────────────────
 // GET /services — the provider's own menu

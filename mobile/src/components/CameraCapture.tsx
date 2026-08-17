@@ -419,6 +419,9 @@ export function CameraCapture({ visible, onClose, onCapture, onPost, myLooks = [
 
               {isPostVariant && (
                 <View style={styles.composePanel}>
+                  <View style={styles.mediaTypeTag}>
+                    <Text style={styles.mediaTypeTagText}>{shot.kind === 'video' ? '▶ Reel' : '◱ Post'}</Text>
+                  </View>
                   <TextInput
                     style={styles.captionInput}
                     value={caption}
@@ -471,7 +474,9 @@ export function CameraCapture({ visible, onClose, onCapture, onPost, myLooks = [
                   )}
 
                   <Pressable style={styles.postBtn} onPress={submitPost} disabled={submitting}>
-                    {submitting ? <ActivityIndicator color="#fff" /> : <Text style={styles.postBtnText}>Post ✨</Text>}
+                    {submitting ? <ActivityIndicator color="#fff" /> : (
+                      <Text style={styles.postBtnText}>{shot.kind === 'video' ? 'Share Reel ✨' : 'Post ✨'}</Text>
+                    )}
                   </Pressable>
                 </View>
               )}
@@ -681,6 +686,11 @@ const styles = StyleSheet.create({
     marginTop: 14, marginHorizontal: 16, borderRadius: 20, padding: 14,
     backgroundColor: 'rgba(20,10,14,0.72)',
   },
+  mediaTypeTag: {
+    alignSelf: 'flex-start', marginBottom: 8, paddingHorizontal: 10, paddingVertical: 4,
+    borderRadius: 100, backgroundColor: 'rgba(255,255,255,0.14)',
+  },
+  mediaTypeTagText: { fontSize: 11, fontFamily: Fonts.semibold, color: '#fff', letterSpacing: 0.2 },
   captionInput: {
     color: '#fff', fontSize: 14, fontFamily: Fonts.regular, minHeight: 40, maxHeight: 80,
   },

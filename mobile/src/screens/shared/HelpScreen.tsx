@@ -4,6 +4,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors } from '../../utils/colors';
+import { useAuth } from '../../context/AuthContext';
 import {
   NoteIcon, ShieldCheckIcon, EarningsIcon, PinIcon,
   EmailIcon, ClockIcon, CardAccountDetailsIcon,
@@ -45,7 +46,15 @@ type SectionKey = 'register' | 'specialties' | 'documents' | 'earnings' | 'portf
 export function HelpScreen() {
   const insets = useSafeAreaInsets();
   const nav    = useNavigation<any>();
+  const { user } = useAuth();
   const [expanded, setExpanded] = useState<SectionKey | null>('register');
+
+  // Registered identically in both CustomerNavigator and ProviderNavigator —
+  // pick the fallback home by role since there's no single shared route name.
+  function goBack() {
+    if (nav.canGoBack()) nav.goBack();
+    else nav.navigate(user?.role === 'Provider' ? 'ProviderHome' : 'Home');
+  }
 
   const toggle = (key: SectionKey) => setExpanded(prev => prev === key ? null : key);
 
@@ -197,7 +206,7 @@ export function HelpScreen() {
       <View style={[styles.backBar, { paddingTop: Platform.OS === 'web' ? 12 : insets.top + 4 }]}>
         <Pressable
           style={({ pressed }) => [styles.backBtn, pressed && { opacity: 0.6 }]}
-          onPress={() => nav.goBack()}
+          onPress={goBack}
         >
           <Text style={styles.backBtnText}>← Back</Text>
         </Pressable>
