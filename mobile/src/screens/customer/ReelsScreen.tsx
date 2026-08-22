@@ -25,6 +25,7 @@ import { tapLight } from '../../utils/haptics';
 import { apiGetProviderPublicProfile, apiLikePost, apiUnlikePost, Post } from '../../api/client';
 import { CloseCircleIcon } from '../../components/TabIcons';
 import { shareLookMedia } from '../../utils/shareLook';
+import { CommentsSheetModal } from '../../components/CommentsSheetModal';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -41,6 +42,8 @@ function ReelItem({ post, isActive, muted, onToggleMute, onOpenProvider, onBook,
   const [liked, setLiked] = useState(!!post.isLikedByMe);
   const [likeCount, setLikeCount] = useState(post.likeCount);
   const [liking, setLiking] = useState(false);
+  const [commentCount, setCommentCount] = useState(post.commentCount ?? 0);
+  const [commentsOpen, setCommentsOpen] = useState(false);
 
   const player = useVideoPlayer(post.videoUrl ?? null, p => {
     if (!post.videoUrl) return;
@@ -120,6 +123,10 @@ function ReelItem({ post, isActive, muted, onToggleMute, onOpenProvider, onBook,
             <Text style={styles.likeIcon}>{liked ? '♥' : '♡'}</Text>
             <Text style={styles.likeCount}>{likeCount}</Text>
           </Pressable>
+          <Pressable style={styles.likeCol} onPress={() => { tapLight(); setCommentsOpen(true); }} hitSlop={8}>
+            <Text style={styles.likeIcon}>💬</Text>
+            <Text style={styles.likeCount}>{commentCount}</Text>
+          </Pressable>
           <Pressable
             style={styles.likeCol}
             hitSlop={8}
@@ -134,6 +141,12 @@ function ReelItem({ post, isActive, muted, onToggleMute, onOpenProvider, onBook,
           </Pressable>
         </View>
       </View>
+      <CommentsSheetModal
+        visible={commentsOpen}
+        onClose={() => setCommentsOpen(false)}
+        target={{ postId: post.id }}
+        onCountChange={(delta) => setCommentCount((c: number) => c + delta)}
+      />
     </View>
   );
 }

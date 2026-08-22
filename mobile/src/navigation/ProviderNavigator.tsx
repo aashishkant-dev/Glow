@@ -2,8 +2,7 @@ import { createBottomTabNavigator, BottomTabBarProps, BottomTabBarHeightCallback
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { addTapListener, scheduleLocal } from '../utils/notifications';
-import { Platform, Pressable, StyleSheet, Text, View } from 'react-native';
-import { BlurView } from 'expo-blur';
+import { Platform, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useAuth } from '../context/AuthContext';
@@ -33,6 +32,8 @@ import { getSocket, joinBookingRoom, joinUserRoom } from '../utils/socket';
 import { HomeIcon, CameraIcon, PersonIcon } from '../components/TabIcons';
 import { BellIcon } from '../components/CareIcons';
 import { SparkleIcon } from '../components/BeautyIcons';
+import { GlassTabBarBackground } from '../components/GlassTabBarBackground';
+import { TabButton, TabBadge } from '../components/TabButton';
 import { useNavigation } from '@react-navigation/native';
 import { DEFAULT_REGION_NAME } from '../utils/region';
 import { formatCurrency } from '../utils/format';
@@ -106,34 +107,9 @@ const tabPillStyles = StyleSheet.create({
   },
 });
 
-// Tab bar background — matches CustomerNavigator's. Floating rounded pill
-// (the curved shape), noticeably more see-through than before, but no
-// shadow at all — that's what used to render as a hard smear on real
-// Android/web, so it's dropped entirely rather than just tuned. Definition
-// against content comes from the 1px border on `bar` instead.
-function GlassTabBarBackground() {
-  if (Platform.OS === 'web') {
-    return (
-      <View
-        style={[
-          StyleSheet.absoluteFill,
-          {
-            backgroundColor: 'rgba(255,249,248,0.7)',
-            borderRadius: 100,
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)',
-          } as any,
-        ]}
-      />
-    );
-  }
-  return (
-    <>
-      <BlurView intensity={65} tint="light" style={[StyleSheet.absoluteFill, { borderRadius: 100 }]} />
-      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 100, backgroundColor: 'rgba(255,249,248,0.38)' }]} />
-    </>
-  );
-}
+// Tab bar background — matches CustomerNavigator's. See
+// components/GlassTabBarBackground.tsx (shared — the two navigators had
+// drifted into byte-for-byte-identical copies of this before now).
 
 const tabBadgeStyles = StyleSheet.create({
   badge: {
@@ -179,10 +155,7 @@ function ProviderCustomTabBar({ state, descriptors, navigation }: BottomTabBarPr
           };
 
           return (
-            <Pressable key={route.key} onPress={onPress} style={providerTabBarStyles.tab} accessibilityRole="tab" accessibilityState={{ selected: focused }}>
-              {icon}
-              <Text style={[providerTabBarStyles.label, { color }]}>{label}</Text>
-            </Pressable>
+            <TabButton key={route.key} focused={focused} color={color} icon={icon} label={label} onPress={onPress} />
           );
         })}
       </View>
@@ -201,11 +174,12 @@ const providerTabBarStyles = StyleSheet.create({
     paddingHorizontal: 8,
     borderRadius: 100,
     borderWidth: 1,
-    borderColor: Colors.separator,
+    // opaqueSeparator (not the lighter `separator`) — a more see-through
+    // fill needs a crisper edge to still read as a defined bar rather than
+    // a soft smudge against busy content underneath.
+    borderColor: Colors.opaqueSeparator,
     overflow: 'hidden',
   },
-  tab: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2 },
-  label: { fontSize: 10.5, fontFamily: 'Inter_500Medium', marginTop: 2 },
 });
 
 // ── Global new-job notifier — runs across all Provider screens ─────────────────────
@@ -451,9 +425,11 @@ function ProviderTabs() {
                       (both read reqBadge), which looked like a bug because
                       it was one. */}
                   {unreadCount > 0 && (
-                    <View style={tabBadgeStyles.badge}>
-                      <Text style={tabBadgeStyles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
-                    </View>
+                    <TabBadge>
+                      <View style={tabBadgeStyles.badge}>
+                        <Text style={tabBadgeStyles.badgeText}>{unreadCount > 9 ? '9+' : unreadCount}</Text>
+                      </View>
+                    </TabBadge>
                   )}
                 </View>
               </TabPill>
@@ -475,11 +451,13 @@ function ProviderTabs() {
                 <View>
                   <BellIcon size={22} color={color} />
                   {(reqBadge > 0 || nearbyBadge > 0 || hasActiveJob) && (
-                    <View style={tabBadgeStyles.badge}>
-                      <Text style={tabBadgeStyles.badgeText}>
-                        {reqBadge > 9 ? '9+' : (reqBadge || '•')}
-                      </Text>
-                    </View>
+                    <TabBadge>
+                      <View style={tabBadgeStyles.badge}>
+                        <Text style={tabBadgeStyles.badgeText}>
+                          {reqBadge > 9 ? '9+' : (reqBadge || '•')}
+                        </Text>
+                      </View>
+                    </TabBadge>
                   )}
                 </View>
               </TabPill>

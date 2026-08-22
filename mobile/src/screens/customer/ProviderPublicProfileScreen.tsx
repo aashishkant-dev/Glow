@@ -528,14 +528,26 @@ export function ProviderPublicProfileScreen() {
             <Text style={styles.sectionTitle}>Posts</Text>
             <View style={styles.postsGrid}>
               {p.posts.map(post => (
-                <View key={post.id} style={styles.postThumb}>
+                <Pressable
+                  key={post.id}
+                  style={styles.postThumb}
+                  onPress={() => {
+                    tapLight();
+                    const videoPosts = p.posts!.filter(v => v.videoUrl);
+                    if (post.videoUrl) {
+                      nav.navigate('Reels', { posts: videoPosts, startIndex: videoPosts.findIndex(v => v.id === post.id) });
+                    } else {
+                      nav.navigate('PostDetail', { post });
+                    }
+                  }}
+                >
                   <PostMedia photoUrl={post.photoUrl} videoUrl={post.videoUrl} style={styles.postThumbImg} showBadge />
                   {post.likeCount > 0 && (
                     <View style={styles.postLikeBadge}>
                       <Text style={styles.postLikeBadgeText}>♥ {post.likeCount}</Text>
                     </View>
                   )}
-                </View>
+                </Pressable>
               ))}
             </View>
           </View>

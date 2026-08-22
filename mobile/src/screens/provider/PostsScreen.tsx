@@ -10,6 +10,7 @@ import { CATEGORIES } from '../../data/categories';
 import { CameraCapture } from '../../components/CameraCapture';
 import { PostMedia } from '../../components/PostMedia';
 import { Toast } from '../../components/Toast';
+import { CommentsSheetModal } from '../../components/CommentsSheetModal';
 
 // A post's photo/video can also be reused inside one of the artist's Looks
 // (either picked at post-time via the camera's "post to a Look" destination,
@@ -87,13 +88,19 @@ function PostDetailModal({ post, lookName, onClose, onDelete, onSetCategory }: {
   onSetCategory: (postId: string, category: string) => void;
 }) {
   const insets = useSafeAreaInsets();
-  // Reset whenever a different post opens — otherwise the picker could stay
-  // open (or closed) carrying over from whichever post was viewed last.
+  // Reset whenever a different post opens — otherwise the picker (or the
+  // comment count/sheet) could stay open, or show a stale count, carrying
+  // over from whichever post was viewed last.
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [commentsOpen, setCommentsOpen] = useState(false);
+  const [commentCount, setCommentCount] = useState(0);
   const openPostId = useRef<string | null>(null);
   if (post && openPostId.current !== post.id) {
     openPostId.current = post.id;
     if (pickerOpen) setPickerOpen(false);
+    if (commentsOpen) setCommentsOpen(false);
+    const freshCount = post.commentCount ?? 0;
+    if (commentCount !== freshCount) setCommentCount(freshCount);
   }
   if (!post) return null;
 
@@ -139,6 +146,9 @@ function PostDetailModal({ post, lookName, onClose, onDelete, onSetCategory }: {
                 <Text style={detailStyles.chipText}>♥ {post.likeCount}</Text>
               </View>
             )}
+            <Pressable style={detailStyles.chip} onPress={() => setCommentsOpen(true)}>
+              <Text style={detailStyles.chipText}>💬 {commentCount}</Text>
+            </Pressable>
           </View>
           {pickerOpen && (
             <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={detailStyles.pickerRow}>
@@ -159,6 +169,15 @@ function PostDetailModal({ post, lookName, onClose, onDelete, onSetCategory }: {
           </Pressable>
         </View>
       </View>
+      {/* isOwner: always true — this screen only ever shows the signed-in
+          artist's own posts, so they can moderate (delete) any comment here. */}
+      <CommentsSheetModal
+        visible={commentsOpen}
+        onClose={() => setCommentsOpen(false)}
+        target={{ postId: post.id }}
+        isOwner
+        onCountChange={(delta) => setCommentCount((c) => c + delta)}
+      />
     </Modal>
   );
 }

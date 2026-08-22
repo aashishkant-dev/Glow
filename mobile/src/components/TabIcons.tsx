@@ -566,3 +566,29 @@ export function CompassIcon({ size = 24, color = '#000', filled = false }: P) {
     </Svg>
   );
 }
+
+/**
+ * ScanFaceIcon — Customer "My Space" tab (AI skin scan). Four rounded
+ * viewfinder corner brackets (the universal "scan/Face ID" frame — same
+ * on-grid r=2 corner radius as the rest of the set) around a simple face,
+ * so it reads as "scan a face" specifically rather than a plain camera.
+ * Duotone fill on the face only, matching Home/Person/Heart's active state.
+ */
+export function ScanFaceIcon({ size = 24, color = '#000', filled = false }: P) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      {filled && <Circle cx="12" cy="12" r="7" fill={color} opacity={DUO} />}
+      <G>
+        <Path d="M4 8V6a2 2 0 0 1 2-2h2" stroke={color} {...S} />
+        <Path d="M16 4h2a2 2 0 0 1 2 2v2" stroke={color} {...S} />
+        <Path d="M20 16v2a2 2 0 0 1-2 2h-2" stroke={color} {...S} />
+        <Path d="M8 20H6a2 2 0 0 1-2-2v-2" stroke={color} {...S} />
+      </G>
+      <G>
+        <Circle cx="9" cy="11" r="1" fill={color} />
+        <Circle cx="15" cy="11" r="1" fill={color} />
+        <Path d="M9 15q3 3 6 0" stroke={color} {...S} />
+      </G>
+    </Svg>
+  );
+}

@@ -9,6 +9,7 @@ import { tapLight } from '../../utils/haptics';
 import { formatCurrency } from '../../utils/format';
 import { PostMedia } from '../../components/PostMedia';
 import { shareLookMedia } from '../../utils/shareLook';
+import { CommentsSheetModal } from '../../components/CommentsSheetModal';
 
 export function PostDetailScreen() {
   const insets = useSafeAreaInsets();
@@ -19,6 +20,8 @@ export function PostDetailScreen() {
   const [liked, setLiked] = useState(!!post.isLikedByMe);
   const [likeCount, setLikeCount] = useState(post.likeCount);
   const [liking, setLiking] = useState(false);
+  const [commentCount, setCommentCount] = useState(post.commentCount ?? 0);
+  const [commentsOpen, setCommentsOpen] = useState(false);
 
   async function toggleLike() {
     if (liking) return;
@@ -101,6 +104,9 @@ export function PostDetailScreen() {
                 {liked ? '♥' : '♡'} {likeCount}
               </Text>
             </Pressable>
+            <Pressable style={styles.likeBtn} onPress={() => { tapLight(); setCommentsOpen(true); }}>
+              <Text style={styles.likeBtnText}>💬 {commentCount}</Text>
+            </Pressable>
             <Pressable
               style={styles.likeBtn}
               onPress={() => {
@@ -121,6 +127,12 @@ export function PostDetailScreen() {
           )}
         </View>
       </ScrollView>
+      <CommentsSheetModal
+        visible={commentsOpen}
+        onClose={() => setCommentsOpen(false)}
+        target={{ postId: post.id }}
+        onCountChange={(delta) => setCommentCount((c: number) => c + delta)}
+      />
     </View>
   );
 }

@@ -2,8 +2,7 @@ import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { createBottomTabNavigator, BottomTabBarProps, BottomTabBarHeightCallbackContext } from '@react-navigation/bottom-tabs';
 import React, { useEffect, useRef } from 'react';
 import { addTapListener } from '../utils/notifications';
-import { Platform, Pressable, StyleSheet, View, Text } from 'react-native';
-import { BlurView } from 'expo-blur';
+import { Platform, StyleSheet, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Image } from 'expo-image';
 import { useAuth } from '../context/AuthContext';
@@ -22,11 +21,15 @@ import { InquiriesScreen } from '../screens/shared/InquiriesScreen';
 import { ProviderPublicProfileScreen } from '../screens/customer/ProviderPublicProfileScreen';
 import { PostDetailScreen } from '../screens/customer/PostDetailScreen';
 import { ReelsScreen } from '../screens/customer/ReelsScreen';
+import { MySpaceScreen } from '../screens/customer/MySpaceScreen';
+import { SkinScanResultScreen } from '../screens/customer/SkinScanResultScreen';
 import { Colors } from '../utils/colors';
-import { Booking, Post } from '../api/client';
+import { Booking, Post, SkinScan } from '../api/client';
 import { joinUserRoom } from '../utils/socket';
-import { HomeIcon, CompassIcon, HeartIcon } from '../components/TabIcons';
+import { HomeIcon, CompassIcon, HeartIcon, ScanFaceIcon } from '../components/TabIcons';
 import { ProfileIcon } from '../components/CareIcons';
+import { GlassTabBarBackground } from '../components/GlassTabBarBackground';
+import { TabButton } from '../components/TabButton';
 
 // Profile tab shows the customer's own uploaded photo instead of a generic
 // person glyph, once they have one — same treatment as the Provider tab bar.
@@ -65,11 +68,13 @@ export type CustomerStackParams = {
   ProviderPublicProfile: { providerId: string; providerName?: string; fromBooking?: boolean };
   PostDetail: { post: Post };
   Reels: { posts: Post[]; startIndex?: number };
+  SkinScanResult: { scan: SkinScan; justScanned?: boolean };
 };
 
 export type CustomerTabParams = {
   HomeTab: undefined;
   ExploreTab: { openSearch?: boolean } | undefined;
+  MySpaceTab: undefined;
   SavedTab: { initialTab?: 'Looks' | 'Artists' | 'Posts' } | undefined;
   ProfileTab: undefined;
 };
@@ -120,30 +125,9 @@ function CustomerMessageListener() {
 // more see-through than before, but no shadow at all — that's what used to
 // render as a hard smear on real Android/web, so it's dropped entirely
 // rather than just tuned. Definition against content comes from the 1px
-// border on `bar` instead.
-function GlassTabBarBackground() {
-  if (Platform.OS === 'web') {
-    return (
-      <View
-        style={[
-          StyleSheet.absoluteFill,
-          {
-            backgroundColor: 'rgba(255,249,248,0.7)',
-            borderRadius: 100,
-            backdropFilter: 'blur(20px)',
-            WebkitBackdropFilter: 'blur(20px)',
-          } as any,
-        ]}
-      />
-    );
-  }
-  return (
-    <>
-      <BlurView intensity={65} tint="light" style={[StyleSheet.absoluteFill, { borderRadius: 100 }]} />
-      <View pointerEvents="none" style={[StyleSheet.absoluteFill, { borderRadius: 100, backgroundColor: 'rgba(255,249,248,0.38)' }]} />
-    </>
-  );
-}
+// border on `bar` instead. See components/GlassTabBarBackground.tsx (shared
+// with ProviderNavigator — the two had drifted into byte-for-byte-identical
+// copies before this, so it's now one definition tuned once).
 
 // Just a fixed-size hit/layout box around each icon — active state is now
 // carried purely by icon/label color (see ACTIVE/INACTIVE above), matching
@@ -214,11 +198,12 @@ function CustomTabBar({ state, descriptors, navigation }: BottomTabBarProps) {
             if (!focused && !event.defaultPrevented) navigation.navigate(route.name);
           };
 
+          // TabButton owns the numberOfLines={1} guard against a 5th tab's
+          // longer label ("My Space") wrapping to two lines on narrower
+          // devices — none of the previous 4 labels were ever long enough
+          // to expose that this had no cap at all.
           return (
-            <Pressable key={route.key} onPress={onPress} style={customTabBarStyles.tab} accessibilityRole="tab" accessibilityState={{ selected: focused }}>
-              {icon}
-              <Text style={[customTabBarStyles.label, { color }]}>{label}</Text>
-            </Pressable>
+            <TabButton key={route.key} focused={focused} color={color} icon={icon} label={label} onPress={onPress} />
           );
         })}
       </View>
@@ -237,11 +222,12 @@ const customTabBarStyles = StyleSheet.create({
     paddingHorizontal: 8,
     borderRadius: 100,
     borderWidth: 1,
-    borderColor: Colors.separator,
+    // opaqueSeparator (not the lighter `separator`) — a more see-through
+    // fill needs a crisper edge to still read as a defined bar rather than
+    // a soft smudge against busy content underneath.
+    borderColor: Colors.opaqueSeparator,
     overflow: 'hidden',
   },
-  tab: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 2 },
-  label: { fontSize: 10.5, fontFamily: 'Inter_500Medium', marginTop: 2 },
 });
 
 function HomeTabs() {
@@ -279,6 +265,21 @@ function HomeTabs() {
           tabBarLabel: 'Explore',
           tabBarIcon: ({ focused }) => (
             <TabPill focused={focused}><CompassIcon size={22} color={focused ? ACTIVE : INACTIVE} filled={focused} /></TabPill>
+          ),
+        }}
+      />
+      {/* "Space", not "My Space" — every other label in this bar is one
+          word (Home/Explore/Saved/Profile); a two-word label would be the
+          only one, and at 5 tabs the extra width is genuinely tight on
+          narrower devices. "My Space" is still the feature's full name
+          everywhere else (MySpaceScreen's own header, etc). */}
+      <Tab.Screen
+        name="MySpaceTab"
+        component={MySpaceScreen}
+        options={{
+          tabBarLabel: 'Space',
+          tabBarIcon: ({ focused }) => (
+            <TabPill focused={focused}><ScanFaceIcon size={22} color={focused ? ACTIVE : INACTIVE} filled={focused} /></TabPill>
           ),
         }}
       />
@@ -334,6 +335,7 @@ export function CustomerNavigator() {
       <Stack.Screen name="ProviderPublicProfile" component={ProviderPublicProfileScreen} options={{ headerShown: false }} />
       <Stack.Screen name="PostDetail" component={PostDetailScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Reels" component={ReelsScreen} options={{ headerShown: false, animation: 'fade' }} />
+      <Stack.Screen name="SkinScanResult" component={SkinScanResultScreen} options={{ headerShown: false }} />
     </Stack.Navigator>
   );
 }

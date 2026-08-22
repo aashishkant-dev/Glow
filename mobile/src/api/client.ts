@@ -193,6 +193,7 @@ export interface ProviderLookItem {
   themeTo: string | null;
   createdAt: string;
   likeCount?: number;
+  commentCount?: number;
 }
 
 export function apiGetMyLooks() {
@@ -1097,6 +1098,7 @@ export interface Post {
   caption: string | null;
   category?: string | null;
   likeCount: number;
+  commentCount?: number;
   createdAt: string;
   provider?: { id: string; name?: string; photoUrl?: string };
   service?: { id: string; name: string; price: number } | null;
@@ -1159,12 +1161,44 @@ export interface ExploreLookItem {
   themeFrom: string | null;
   themeTo: string | null;
   likeCount: number;
+  commentCount?: number;
   provider: { id: string; name: string; photoUrl?: string | null };
 }
 
 export function apiGetExploreLooks(sort: 'recent' | 'top' = 'recent', cursor?: string, limit = 20) {
   const params = new URLSearchParams({ sort, limit: String(limit), ...(cursor ? { cursor } : {}) });
   return request<{ looks: ExploreLookItem[]; nextCursor: string | null }>('GET', `/posts/explore-looks?${params.toString()}`);
+}
+
+// ─── Comments ─────────────────────────────────────────────────────────────────
+// Attach to either a Post or a ProviderLook — pass exactly one of postId /
+// providerLookId to every function below.
+
+export interface CommentItem {
+  id: string;
+  text: string;
+  postId: string | null;
+  providerLookId: string | null;
+  createdAt: string;
+  user: { id: string; name: string; photoUrl?: string | null; role: string };
+}
+
+export function apiGetComments(target: { postId?: string; providerLookId?: string }, cursor?: string, limit = 30) {
+  const params = new URLSearchParams({
+    limit: String(limit),
+    ...(target.postId ? { postId: target.postId } : {}),
+    ...(target.providerLookId ? { providerLookId: target.providerLookId } : {}),
+    ...(cursor ? { cursor } : {}),
+  });
+  return request<{ comments: CommentItem[]; nextCursor: string | null }>('GET', `/comments?${params.toString()}`);
+}
+
+export function apiAddComment(target: { postId?: string; providerLookId?: string }, text: string) {
+  return request<{ comment: CommentItem }>('POST', '/comments', { ...target, text });
+}
+
+export function apiDeleteComment(commentId: string) {
+  return request<{ success: boolean }>('DELETE', `/comments/${commentId}`);
 }
 
 // ─── Provider Reviews & Tips ───────────────────────────────────────────────────────
@@ -1316,4 +1350,55 @@ export interface ChatMessage {
   text: string;
   createdAt: string;
   read: boolean;
+}
+
+// ─── My Space — AI skin scans ──────────────────────────────────────────────
+// Analysis is computed free/on-device-style (pixel color math + a short
+// quiz — see src/utils/skinAnalysis.js on the backend), never a paid vision
+// API call. Cosmetic guidance only, not a medical diagnosis.
+
+export type SkinToneValue = 'FAIR' | 'LIGHT' | 'MEDIUM' | 'TAN' | 'DEEP' | 'RICH';
+export type SkinTypeValue = 'DRY' | 'OILY' | 'COMBINATION' | 'NORMAL' | 'SENSITIVE';
+
+export interface SkinRecommendation {
+  category: string;
+  title: string;
+  note: string;
+}
+
+export interface SkinScan {
+  id: string;
+  photoUrl: string;
+  skinTone: SkinToneValue;
+  skinType: SkinTypeValue;
+  concerns: string[];
+  recommendations: SkinRecommendation[];
+  notes: string;
+  createdAt: string;
+}
+
+// `faceRegion` is the {x,y,width,height} (0–1 fractions of the photo) the
+// on-screen alignment oval maps to — see SkinScanCamera.tsx. Optional; the
+// backend falls back to a generous center crop without it.
+export function apiScanSkin(payload: {
+  photoBase64: string;
+  mimeType?: string;
+  quizAnswers: Record<string, string>;
+  faceRegion?: { x: number; y: number; width: number; height: number };
+  notes?: string;
+}) {
+  return request<{ scan: SkinScan; bookCategory: string }>('POST', '/skin/scan', payload, true, 1, 60000);
+}
+
+export function apiGetSkinScans(cursor?: string, limit = 20) {
+  const params = new URLSearchParams({ limit: String(limit), ...(cursor ? { cursor } : {}) });
+  return request<{ scans: SkinScan[]; nextCursor: string | null }>('GET', `/skin/scans?${params.toString()}`);
+}
+
+export function apiGetLatestSkinScan() {
+  return request<{ scan: SkinScan | null }>('GET', '/skin/latest');
+}
+
+export function apiDeleteSkinScan(scanId: string) {
+  return request<{ success: boolean }>('DELETE', `/skin/scans/${scanId}`);
 }

@@ -56,6 +56,8 @@ const KEYS = {
   LANG: '@glow/lang',
   INSTALL_DISMISSED: '@glow/install_dismissed',
   LOCATION_PROMPTED: '@glow/location_prompted',
+  SKIN_REMINDER_ENABLED: '@glow/skin_reminder_enabled',
+  SKIN_REMINDER_NOTIF_ID: '@glow/skin_reminder_notif_id',
 } as const;
 
 export interface StoredDocument {
@@ -181,5 +183,27 @@ export const Storage = {
   async getLocationPrompted(): Promise<boolean> {
     const v = await AsyncStorage.getItem(KEYS.LOCATION_PROMPTED);
     return v === '1';
+  },
+
+  // My Space's daily skin-scan reminder — local-only preference (matches
+  // scheduleLocal's existing local-only precedent, see utils/notifications.ts),
+  // not synced server-side. The notif id is the OS's scheduled-notification
+  // handle, kept so a later toggle-off can actually cancel the right one.
+  async saveSkinReminderEnabled(enabled: boolean): Promise<void> {
+    await AsyncStorage.setItem(KEYS.SKIN_REMINDER_ENABLED, enabled ? '1' : '0');
+  },
+
+  async getSkinReminderEnabled(): Promise<boolean> {
+    const v = await AsyncStorage.getItem(KEYS.SKIN_REMINDER_ENABLED);
+    return v === '1';
+  },
+
+  async saveSkinReminderNotifId(id: string | null): Promise<void> {
+    if (id) await AsyncStorage.setItem(KEYS.SKIN_REMINDER_NOTIF_ID, id);
+    else await AsyncStorage.removeItem(KEYS.SKIN_REMINDER_NOTIF_ID);
+  },
+
+  async getSkinReminderNotifId(): Promise<string | null> {
+    return AsyncStorage.getItem(KEYS.SKIN_REMINDER_NOTIF_ID);
   },
 };

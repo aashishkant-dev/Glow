@@ -25,7 +25,9 @@ export const PHOTO_FILTERS: PhotoFilter[] = [
   { id: 'vivid',     name: 'Vivid' },
   { id: 'warm',      name: 'Warm',    previewOverlay: 'rgba(255,165,60,0.16)' },
   { id: 'cool',      name: 'Cool',    previewOverlay: 'rgba(70,140,255,0.14)' },
+  { id: 'gingham',   name: 'Gingham', previewOverlay: 'rgba(210,202,190,0.24)' },
   { id: 'mono',      name: 'Mono',    previewOverlay: 'rgba(120,120,120,0.55)' },
+  { id: 'noir',      name: 'Noir',    previewOverlay: 'rgba(15,15,15,0.5)' },
   { id: 'fade',      name: 'Fade',    previewOverlay: 'rgba(255,255,255,0.20)' },
   { id: 'vintage',   name: 'Vintage', previewOverlay: 'rgba(196,140,60,0.22)' },
 ];

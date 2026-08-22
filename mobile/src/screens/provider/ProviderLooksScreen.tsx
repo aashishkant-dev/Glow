@@ -48,6 +48,7 @@ import { PHOTO_FILTERS } from '../../data/photoFilters';
 import { SparkleIcon } from '../../components/BeautyIcons';
 import { ShareIcon, PencilIcon, TrashIcon } from '../../components/CareIcons';
 import { shareLookMedia } from '../../utils/shareLook';
+import { CommentsSheetModal } from '../../components/CommentsSheetModal';
 
 
 // A media item staged for a look — either a fresh shot (needs uploading) or
@@ -193,6 +194,7 @@ export function ProviderLooksScreen() {
 
   const [createOpen, setCreateOpen] = useState(false);
   const [editingLook, setEditingLook] = useState<ProviderLookItem | null>(null);
+  const [commentsLookId, setCommentsLookId] = useState<string | null>(null);
 
   // Two tabs at the top of the Portfolio: Specialty (pricing you offer — the
   // day-to-day thing an artist tweaks most) is the default; Look (the
@@ -301,6 +303,7 @@ export function ProviderLooksScreen() {
                           onPress={() => setEditingLook(item)}
                           height={160}
                           likeOverride={{ liked: false, count: item.likeCount || 0, onToggle: () => {} }}
+                          commentOverride={{ count: item.commentCount || 0, onOpenComments: () => setCommentsLookId(item.id) }}
                           photoCount={item.media.length}
                           coverVideo={coverVideoFor(item)}
                           badge={item.badge}
@@ -334,6 +337,19 @@ export function ProviderLooksScreen() {
           </>
         )
       )}
+
+      {/* isOwner: always true — this screen only ever shows the signed-in
+          artist's own looks, so they can moderate (delete) any comment here. */}
+      <CommentsSheetModal
+        visible={!!commentsLookId}
+        onClose={() => setCommentsLookId(null)}
+        target={{ providerLookId: commentsLookId ?? '' }}
+        isOwner
+        onCountChange={(delta) => {
+          if (!commentsLookId) return;
+          setMyLooks(list => list.map(l => l.id === commentsLookId ? { ...l, commentCount: (l.commentCount ?? 0) + delta } : l));
+        }}
+      />
 
       <CreateLookSheet
         visible={createOpen || !!editingLook}

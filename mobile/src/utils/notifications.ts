@@ -3,6 +3,7 @@ import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { apiSavePushToken, apiGetBooking } from '../api/client';
 import { navigationRef } from './navigationRef';
+import { Storage } from './storage';
 
 const PROJECT_ID: string =
   (Constants.expoConfig?.extra?.eas?.projectId as string) ??
@@ -178,6 +179,11 @@ export function addTapListener(
       return;
     }
 
+    if (role === 'CUSTOMER' && data.type === 'skin-reminder') {
+      (navigationRef as any).navigate('Home', { screen: 'MySpaceTab' });
+      return;
+    }
+
     if (role === 'CUSTOMER' && data.bookingId) {
       try {
         const { booking } = await apiGetBooking(data.bookingId);
@@ -198,4 +204,40 @@ export function addTapListener(
       }
     }
   });
+}
+
+/**
+ * My Space's daily skin-scan reminder — the one place in this codebase that
+ * uses a REPEATING calendar trigger (`{hour, minute, repeats: true}`)
+ * instead of scheduleLocal's immediate `trigger: null`. No-op on web (expo-
+ * notifications' scheduled/repeating triggers are native-only). Cancels any
+ * previously-scheduled reminder first so toggling the time never leaves two
+ * running at once — callers don't have to know or check that themselves.
+ */
+export async function scheduleDailyReminder(hour: number, minute: number): Promise<string | null> {
+  if (Platform.OS === 'web') return null;
+  await cancelDailyReminder();
+  try {
+    const id = await Notifications.scheduleNotificationAsync({
+      content: {
+        title: 'Time for your skin check-in ✨',
+        body: 'Scan today to keep your progress up to date on My Space.',
+        data: { type: 'skin-reminder' },
+        sound: 'default',
+      },
+      trigger: { hour, minute, repeats: true } as any,
+    });
+    await Storage.saveSkinReminderNotifId(id);
+    return id;
+  } catch (e) {
+    console.warn('[notifications] failed to schedule skin reminder:', e);
+    return null;
+  }
+}
+
+export async function cancelDailyReminder(): Promise<void> {
+  const id = await Storage.getSkinReminderNotifId();
+  if (!id) return;
+  try { await Notifications.cancelScheduledNotificationAsync(id); } catch {}
+  await Storage.saveSkinReminderNotifId(null);
 }

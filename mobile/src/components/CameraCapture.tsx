@@ -40,6 +40,7 @@ import * as ImagePicker from 'expo-image-picker';
 // comment in api/client.ts, which hit this same break first.
 import * as FileSystem from 'expo-file-system/legacy';
 import { useVideoPlayer, VideoView } from 'expo-video';
+import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Fonts } from '../utils/colors';
 import { FilterPreview } from './FilterPreview';
 import { PHOTO_FILTERS } from '../data/photoFilters';
@@ -47,6 +48,34 @@ import { CATEGORIES } from '../data/categories';
 import { ProviderLookItem } from '../api/client';
 import { GlowMark } from './GlowLogo';
 import { ImageCropper } from './ImageCropper';
+import { tapWarning } from '../utils/haptics';
+
+// Turns one filter's flat rgba() preview color into a two-stop diagonal
+// gradient (full strength in one corner, faded toward the other) instead of
+// a single uniform wash — the cheap RN-only lever for "reads like a real
+// grade" without pulling in GL/Skia. Purely a preview approximation; the
+// real per-channel grade is baked server-side via sharp (see
+// src/utils/photoFilters.js) and only has to be roughly evocative here, not
+// pixel-identical.
+function fadeAlpha(rgba: string, factor: number): string {
+  const m = rgba.match(/^rgba\((\d+),\s*(\d+),\s*(\d+),\s*([\d.]+)\)$/);
+  if (!m) return rgba;
+  const [, r, g, b, a] = m;
+  return `rgba(${r},${g},${b},${Math.max(0, parseFloat(a) * factor)})`;
+}
+
+function FilterTint({ color }: { color?: string }) {
+  if (!color) return null;
+  return (
+    <LinearGradient
+      pointerEvents="none"
+      colors={[color, fadeAlpha(color, 0.3)]}
+      start={{ x: 0, y: 0 }}
+      end={{ x: 1, y: 1 }}
+      style={StyleSheet.absoluteFill}
+    />
+  );
+}
 
 export interface CapturedAsset { type: 'photo' | 'video'; uri: string; base64: string; mimeType: string; }
 
@@ -282,6 +311,17 @@ export function CameraCapture({ visible, onClose, onCapture, onPost, myLooks = [
   }
 
   function handleShutterPress() {
+    // Previously this was a no-op via `disabled={!cameraReady}` on the
+    // Pressable — a tap during the (usually sub-second, but not always)
+    // window before the camera reports ready just silently did nothing,
+    // which is what read as "the shutter isn't working." Surfacing it
+    // instead — a warning haptic, same hint text already shown above the
+    // shutter switching to "Camera warming up…" — means every tap now
+    // visibly does *something*, even the ones that are just too early.
+    if (!cameraReady) {
+      tapWarning();
+      return;
+    }
     if (captureMode === 'video') {
       if (recording) stopRecording();
       else startRecording();
@@ -372,12 +412,7 @@ export function CameraCapture({ visible, onClose, onCapture, onPost, myLooks = [
               ) : (
                 <VideoPreview uri={shot.uri} />
               )}
-              {(() => {
-                const active = PHOTO_FILTERS.find(f => f.id === filter);
-                return active?.previewOverlay ? (
-                  <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: active.previewOverlay }]} />
-                ) : null;
-              })()}
+              <FilterTint color={PHOTO_FILTERS.find(f => f.id === filter)?.previewOverlay} />
             </View>
 
             <View style={[styles.topBar, { top: insets.top + 10 }]}>
@@ -495,12 +530,7 @@ export function CameraCapture({ visible, onClose, onCapture, onPost, myLooks = [
                 onCameraReady={() => setCameraReady(true)}
               />
             </View>
-            {(() => {
-              const active = PHOTO_FILTERS.find(f => f.id === filter);
-              return active?.previewOverlay ? (
-                <View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: active.previewOverlay }]} />
-              ) : null;
-            })()}
+            <FilterTint color={PHOTO_FILTERS.find(f => f.id === filter)?.previewOverlay} />
             {/* Shutter flash — a quick white flicker on capture, the visual
                 cue a real camera gives that a photo was actually taken. */}
             <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#fff', opacity: flashAnim }]} />
@@ -522,60 +552,83 @@ export function CameraCapture({ visible, onClose, onCapture, onPost, myLooks = [
               </View>
             )}
 
-            {/* Live filter carousel — the same set, applied to the feed in
-                real time, not just picked after the fact. */}
-            <View style={[styles.liveFilterBar, { bottom: 168 }]}>
-              <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingHorizontal: 16 }}>
-                {PHOTO_FILTERS.map(f => {
-                  const active = filter === f.id;
-                  return (
-                    <Pressable key={f.id} onPress={() => setFilter(f.id)} style={[styles.liveFilterChip, active && styles.liveFilterChipActive]}>
-                      <Text style={[styles.liveFilterChipText, active && styles.liveFilterChipTextActive]}>{f.name}</Text>
-                    </Pressable>
-                  );
-                })}
-              </ScrollView>
-            </View>
+            {/* Bottom control cluster — mode switch, filter carousel, hint,
+                and the shutter row all stack in ONE flex column now instead
+                of each being independently `position:absolute`-anchored
+                with a hand-picked pixel offset (168, 168+54, insets.bottom+
+                132…). Those four numbers only stayed non-overlapping by
+                coincidence for one assumed insets.bottom value — a flex
+                column with `gap` can't overlap by construction, on any
+                device, which is what actually fixes "the shutter collides
+                with the filter bar" rather than just re-tuning the magic
+                numbers again. */}
+            <View style={[styles.bottomCluster, { paddingBottom: insets.bottom + 20 }]}>
+              {/* Photo/Video mode switch — a plain tap on the shutter shoots
+                  a photo or starts/stops up to 6s of video, whichever mode
+                  is selected here. Replaces the old hold-to-record gesture,
+                  which also never worked on web at all (recordAsync is
+                  native-only). */}
+              {!recording && (
+                <View style={styles.modeSwitchRow}>
+                  <Pressable onPress={() => setCaptureMode('photo')} style={[styles.modePill, captureMode === 'photo' && styles.modePillActive]}>
+                    <Text style={[styles.modePillText, captureMode === 'photo' && styles.modePillTextActive]}>Photo</Text>
+                  </Pressable>
+                  <Pressable onPress={() => setCaptureMode('video')} style={[styles.modePill, captureMode === 'video' && styles.modePillActive]}>
+                    <Text style={[styles.modePillText, captureMode === 'video' && styles.modePillTextActive]}>Video · 6s</Text>
+                  </Pressable>
+                </View>
+              )}
 
-            {/* Photo/Video mode switch — a plain tap on the shutter shoots a
-                photo or starts/stops up to 6s of video, whichever mode is
-                selected here. Replaces the old hold-to-record gesture, which
-                also never worked on web at all (recordAsync is native-only). */}
-            {!recording && (
-              <View style={[styles.modeSwitchRow, { bottom: 168 + 54 }]}>
-                <Pressable onPress={() => setCaptureMode('photo')} style={[styles.modePill, captureMode === 'photo' && styles.modePillActive]}>
-                  <Text style={[styles.modePillText, captureMode === 'photo' && styles.modePillTextActive]}>Photo</Text>
+              {/* Live filter carousel — the same set, applied to the feed in
+                  real time, not just picked after the fact. */}
+              <View style={styles.liveFilterBar}>
+                <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingHorizontal: 16 }}>
+                  {PHOTO_FILTERS.map(f => {
+                    const active = filter === f.id;
+                    return (
+                      <Pressable key={f.id} onPress={() => setFilter(f.id)} style={[styles.liveFilterChip, active && styles.liveFilterChipActive]}>
+                        <Text style={[styles.liveFilterChipText, active && styles.liveFilterChipTextActive]}>{f.name}</Text>
+                      </Pressable>
+                    );
+                  })}
+                </ScrollView>
+              </View>
+
+              <Text style={styles.holdHint}>
+                {recording ? 'Tap the shutter again to stop early' : !cameraReady ? 'Camera warming up…' : captureMode === 'video' ? 'Tap to record up to 6s' : 'Tap to shoot'}
+              </Text>
+
+              <View style={styles.shootBar}>
+                <Pressable style={styles.sideBtn} onPress={pickFromLibrary} disabled={recording}>
+                  <View style={styles.libraryIcon} />
+                  <Text style={styles.sideBtnText}>Library</Text>
                 </Pressable>
-                <Pressable onPress={() => setCaptureMode('video')} style={[styles.modePill, captureMode === 'video' && styles.modePillActive]}>
-                  <Text style={[styles.modePillText, captureMode === 'video' && styles.modePillTextActive]}>Video · 6s</Text>
+
+                {/* No longer `disabled={!cameraReady}` — a tap before the
+                    camera reports ready used to be silently swallowed with
+                    zero feedback, which is what read as "the shutter isn't
+                    working." handleShutterPress now always responds: a
+                    warning haptic + the hint text above when too early,
+                    the real shutter action once ready. Still disabled
+                    mid-capture (`capturing`) — that's sub-second and
+                    self-resolving, nothing useful to tell the user there. */}
+                <Pressable
+                  style={[styles.shutterOuter, recording && styles.shutterOuterRecording]}
+                  onPress={handleShutterPress}
+                  disabled={capturing}
+                  hitSlop={12}
+                >
+                  <View style={[styles.shutterInner, recording && styles.shutterInnerRecording, captureMode === 'video' && !recording && styles.shutterInnerVideoReady]}>
+                    {capturing && <ActivityIndicator color="#fff" />}
+                  </View>
+                </Pressable>
+
+                <Pressable style={styles.sideBtn} onPress={() => setFacing(prev => prev === 'back' ? 'front' : 'back')} disabled={recording}>
+                  <Text style={styles.flipGlyph}>⟲</Text>
+                  <Text style={styles.sideBtnText}>Flip</Text>
                 </Pressable>
               </View>
-            )}
-
-            <View style={[styles.shootBar, { paddingBottom: insets.bottom + 24 }]}>
-              <Pressable style={styles.sideBtn} onPress={pickFromLibrary} disabled={recording}>
-                <View style={styles.libraryIcon} />
-                <Text style={styles.sideBtnText}>Library</Text>
-              </Pressable>
-
-              <Pressable
-                style={[styles.shutterOuter, recording && styles.shutterOuterRecording]}
-                onPress={handleShutterPress}
-                disabled={!cameraReady || capturing}
-              >
-                <View style={[styles.shutterInner, recording && styles.shutterInnerRecording, captureMode === 'video' && !recording && styles.shutterInnerVideoReady]}>
-                  {capturing && <ActivityIndicator color="#fff" />}
-                </View>
-              </Pressable>
-
-              <Pressable style={styles.sideBtn} onPress={() => setFacing(prev => prev === 'back' ? 'front' : 'back')} disabled={recording}>
-                <Text style={styles.flipGlyph}>⟲</Text>
-                <Text style={styles.sideBtnText}>Flip</Text>
-              </Pressable>
             </View>
-            <Text style={[styles.holdHint, { bottom: insets.bottom + 132 }]}>
-              {recording ? 'Tap the shutter again to stop early' : captureMode === 'video' ? 'Tap to record up to 6s' : 'Tap to shoot'}
-            </Text>
           </>
         ) : (
           // ── Permission gate ─────────────────────────────────────────────
@@ -633,7 +686,16 @@ const styles = StyleSheet.create({
   recordDot: { width: 8, height: 8, borderRadius: 4, backgroundColor: '#FF3B30' },
   recordText: { color: '#fff', fontSize: 12, fontFamily: Fonts.semibold },
 
-  liveFilterBar: { position: 'absolute', left: 0, right: 0 },
+  // One flex column, anchored bottom:0 — every child below (mode switch,
+  // filter bar, hint, shutter row) is now a normal flow child spaced by
+  // `gap` instead of its own `position:absolute` + hand-picked offset, so
+  // they structurally can't overlap regardless of insets.bottom on any
+  // device. See the JSX comment where this is used for the full "why."
+  bottomCluster: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    gap: 14,
+  },
+  liveFilterBar: {},
   liveFilterChip: {
     paddingHorizontal: 12, paddingVertical: 6, borderRadius: 14,
     backgroundColor: 'rgba(0,0,0,0.4)', borderWidth: 1, borderColor: 'transparent',
@@ -642,10 +704,10 @@ const styles = StyleSheet.create({
   liveFilterChipText: { color: 'rgba(255,255,255,0.85)', fontSize: 12, fontFamily: Fonts.medium },
   liveFilterChipTextActive: { color: '#fff', fontFamily: Fonts.semibold },
 
-  holdHint: { position: 'absolute', alignSelf: 'center', color: 'rgba(255,255,255,0.65)', fontSize: 11.5, fontFamily: Fonts.medium },
+  holdHint: { alignSelf: 'center', color: 'rgba(255,255,255,0.65)', fontSize: 11.5, fontFamily: Fonts.medium },
 
   modeSwitchRow: {
-    position: 'absolute', alignSelf: 'center', flexDirection: 'row', gap: 8,
+    alignSelf: 'center', flexDirection: 'row', gap: 8,
     backgroundColor: 'rgba(0,0,0,0.35)', borderRadius: 20, padding: 4,
   },
   modePill: { paddingHorizontal: 16, paddingVertical: 8, borderRadius: 16 },
@@ -654,9 +716,8 @@ const styles = StyleSheet.create({
   modePillTextActive: { color: '#fff' },
 
   shootBar: {
-    position: 'absolute', left: 0, right: 0, bottom: 0,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 36, paddingTop: 20,
+    paddingHorizontal: 36,
   },
   sideBtn: { alignItems: 'center', gap: 4, width: 56 },
   sideBtnText: { color: '#fff', fontSize: 11, fontFamily: Fonts.medium },

@@ -27,6 +27,11 @@ interface LookTileProps {
   // public profiles, where a like belongs to (this artist, this look), not
   // the generic catalog entry. See LookLike's schema comment.
   likeOverride?: { liked: boolean; count?: number; onToggle: () => void };
+  // Parallel to likeOverride but always optional/additive — only a
+  // provider-created ProviderLook has real comments (the curated catalog
+  // template has no DB row to attach them to), so this is omitted entirely
+  // wherever likeOverride also isn't a server-backed look.
+  commentOverride?: { count: number; onOpenComments: () => void };
   /** >1 shows a "1/N" pill — a gallery look, not a single shot. */
   photoCount?: number;
   /** A video clip as the cover instead of look.photo — plays muted, looped. */
@@ -40,7 +45,7 @@ function CoverVideo({ uri }: { uri: string }) {
   return <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" nativeControls={false} />;
 }
 
-export function LookTile({ look, onPress, height = 170, price, likeOverride, photoCount, coverVideo, badge }: LookTileProps) {
+export function LookTile({ look, onPress, height = 170, price, likeOverride, commentOverride, photoCount, coverVideo, badge }: LookTileProps) {
   const savedIds = useSavedLooks();
   const saved = likeOverride ? likeOverride.liked : savedIds.includes(look.id);
   const canvasSize = { height };
@@ -122,6 +127,9 @@ export function LookTile({ look, onPress, height = 170, price, likeOverride, pho
       <Text style={[styles.meta, !look.vibe && { marginTop: 8 }]} numberOfLines={1} ellipsizeMode="tail">
         {price != null ? `From ${formatCurrency(price, { decimals: 0 })}` : 'Price varies by artist'}
         {!!likeOverride?.count && `  ·  ♥ ${likeOverride.count}`}
+        {!!commentOverride && (
+          <Text onPress={commentOverride.onOpenComments} suppressHighlighting>{'  ·  💬 '}{commentOverride.count}</Text>
+        )}
       </Text>
     </Pressable>
   );
