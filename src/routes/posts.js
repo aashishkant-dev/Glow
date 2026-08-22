@@ -275,6 +275,7 @@ router.get(
         caption: l.post.caption,
         category: l.post.category,
         likeCount: l.post.likeCount,
+        commentCount: l.post.commentCount,
         createdAt: l.post.createdAt,
         provider: { id: l.post.profile.id, name: l.post.profile.user.name, photoUrl: l.post.profile.photoUrl },
         service: l.post.service ? { id: l.post.service.id, name: l.post.service.name, price: toNum(l.post.service.price) } : null,
@@ -337,6 +338,7 @@ router.get(
         caption: p.caption,
         category: p.category,
         likeCount: p.likeCount,
+        commentCount: p.commentCount,
         createdAt: p.createdAt,
         provider: { id: p.profile.id, name: p.profile.user.name, photoUrl: p.profile.photoUrl },
         service: p.service ? { id: p.service.id, name: p.service.name, price: toNum(p.service.price) } : null,
@@ -399,6 +401,15 @@ router.get(
         likeCounts.map(c => [`${c.profileId}:${c.lookKey.replace('custom:', '')}`, c._count.lookKey])
       );
 
+      const commentCounts = page.length
+        ? await prisma.comment.groupBy({
+            by: ['providerLookId'],
+            where: { providerLookId: { in: page.map(l => l.id) } },
+            _count: { providerLookId: true },
+          })
+        : [];
+      const commentCountByLookId = Object.fromEntries(commentCounts.map(c => [c.providerLookId, c._count.providerLookId]));
+
       let ordered = page.map(l => ({
         id: l.id,
         name: l.name,
@@ -412,6 +423,7 @@ router.get(
         themeFrom: l.themeFrom,
         themeTo: l.themeTo,
         likeCount: countByLookId[`${l.profileId}:${l.id}`] || 0,
+        commentCount: commentCountByLookId[l.id] || 0,
         provider: { id: l.profile.user.id, name: l.profile.user.name, photoUrl: l.profile.photoUrl },
       }));
       if (sort === 'top') ordered = [...ordered].sort((a, b) => b.likeCount - a.likeCount);

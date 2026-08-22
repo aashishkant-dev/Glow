@@ -196,6 +196,8 @@ model User {
   postLikes          PostLike[]
   lookLikes          LookLike[]
   bookingSkips       BookingSkip[]
+  comments           Comment[]
+  skinScans          SkinScan[]
 
   @@index([role, isVerified])
   @@index([role, createdAt(sort: Desc)])
@@ -735,9 +737,14 @@ model Post {
   service     ProviderService? @relation(fields: [serviceId], references: [id], onDelete: SetNull)
   category    String?
   likeCount   Int       @default(0)
+  // Denormalized the same way likeCount is — incremented/decremented
+  // transactionally alongside Comment create/delete (see routes/comments.js)
+  // rather than counted live, since this is read on every feed/grid card.
+  commentCount Int      @default(0)
   active      Boolean   @default(true)
   createdAt   DateTime  @default(now())
   likes       PostLike[]
+  comments    Comment[]
 
   @@index([profileId])
   @@index([likeCount])
@@ -798,6 +805,7 @@ model ProviderLook {
   createdAt   DateTime @default(now())
 
   bookings    Booking[]
+  comments    Comment[]
 
   @@index([profileId])
 }
@@ -820,4 +828,54 @@ model LookLike {
 
   @@unique([profileId, lookKey, userId])
   @@index([profileId, lookKey])
+}
+
+// A comment on either a Post or a ProviderLook — exactly one of postId /
+// providerLookId is set, enforced in routes/comments.js the same way Post's
+// photoUrl/videoUrl "exactly one" is enforced in app code rather than a DB
+// constraint (Prisma has no native XOR check). Deletable by its own author
+// OR by whoever owns the target Post/Look (the artist moderating their own
+// content) — see the ownership check in routes/comments.js's DELETE route.
+model Comment {
+  id             String        @id @default(cuid())
+  postId         String?
+  post           Post?         @relation(fields: [postId], references: [id], onDelete: Cascade)
+  providerLookId String?
+  providerLook   ProviderLook? @relation(fields: [providerLookId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  text           String        @db.VarChar(500)
+  createdAt      DateTime      @default(now())
+
+  @@index([postId, createdAt])
+  @@index([providerLookId, createdAt])
+  @@index([userId])
+}
+
+// One skin check-in from the "My Space" AI skin-scan feature. Analysis is
+// computed on-device/server from plain pixel + quiz signals (see
+// utils/skinAnalysis.js) — no paid vision API — so every field here is
+// cheap to (re)compute and safe to store per scan, letting a user look back
+// over a real progress timeline instead of only ever seeing their latest
+// result. photoUrl is kept (not just the derived fields) so the timeline can
+// show the actual photo alongside the reading, not just numbers.
+model SkinScan {
+  id              String   @id @default(cuid())
+  userId          String
+  user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  photoUrl        String
+  skinTone        SkinTone
+  skinType        SkinType
+  concerns        String[] @default([])
+  // [{ category, title, note }] — small enough, and shaped differently
+  // enough per-concern, that a Json array is a better fit than a side table.
+  recommendations Json     @default("[]")
+  // Raw quiz answers that fed the skinType heuristic (see skinAnalysis.js) —
+  // kept so a future, better heuristic can re-score historical scans instead
+  // of only ever improving new ones.
+  quizAnswers     Json     @default("{}")
+  notes           String   @default("")
+  createdAt       DateTime @default(now())
+
+  @@index([userId, createdAt(sort: Desc)])
 }

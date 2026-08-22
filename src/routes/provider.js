@@ -1424,7 +1424,7 @@ router.put(
 const MAX_LOOK_MEDIA = 5;
 const MAX_LOOK_VIDEO_BASE64 = 12_000_000; // ~9MB raw — same 6s-clip budget as posts.js
 
-function serializeLook(l, likeCount = 0) {
+function serializeLook(l, likeCount = 0, commentCount = 0) {
   return {
     id: l.id,
     name: l.name,
@@ -1440,6 +1440,7 @@ function serializeLook(l, likeCount = 0) {
     themeTo: l.themeTo,
     createdAt: l.createdAt,
     likeCount,
+    commentCount,
   };
 }
 
@@ -1514,7 +1515,22 @@ router.get(
         _count: { lookKey: true },
       });
       const countByKey = Object.fromEntries(likeCounts.map(l => [l.lookKey, l._count.lookKey]));
-      res.json({ looks: looks.map(l => serializeLook(l, countByKey[`custom:${l.id}`] || 0)) });
+
+      // Same live-count approach as likes (no denormalized column on
+      // ProviderLook) — one batched groupBy for every look on this page
+      // rather than N queries.
+      const commentCounts = looks.length
+        ? await prisma.comment.groupBy({
+            by: ['providerLookId'],
+            where: { providerLookId: { in: looks.map(l => l.id) } },
+            _count: { providerLookId: true },
+          })
+        : [];
+      const commentCountByLookId = Object.fromEntries(commentCounts.map(c => [c.providerLookId, c._count.providerLookId]));
+
+      res.json({
+        looks: looks.map(l => serializeLook(l, countByKey[`custom:${l.id}`] || 0, commentCountByLookId[l.id] || 0)),
+      });
     } catch (err) {
       console.error('GET /provider/looks error:', err);
       res.status(500).json({ error: 'Server error' });
