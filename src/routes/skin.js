@@ -7,8 +7,13 @@ const prisma  = require('../lib/prisma');
 const { uploadFile } = require('../utils/storage');
 const { authenticate } = require('../middleware/auth');
 const { analyzeSkin } = require('../utils/skinAnalysis');
+const { analyzeWithGemini } = require('../utils/geminiSkinAnalysis');
 
 const router = express.Router();
+
+// Booking-category hand-off is always the same regardless of which analysis
+// path produced the result — it doesn't need AI to decide.
+const BOOK_CATEGORY = 'Facials & Skin';
 
 function serializeScan(s) {
   return {
@@ -17,11 +22,24 @@ function serializeScan(s) {
     skinTone: s.skinTone,
     skinType: s.skinType,
     concerns: s.concerns,
+    summary: s.summary || '',
+    progressNote: s.progressNote ?? null,
+    hydrationLevel: s.hydrationLevel || '',
+    zoneNotes: s.zoneNotes || {},
     recommendations: s.recommendations,
     notes: s.notes,
     createdAt: s.createdAt,
   };
 }
+
+// Maps the one remaining quiz question's choice id to a plain sentence
+// Gemini's prompt can drop straight in — everything else the old
+// 4-question quiz asked, Gemini now reads directly from the photo instead.
+const SENSITIVITY_HINTS = {
+  often: 'reacts often to new products (redness, itching, stinging)',
+  sometimes: 'sometimes reacts to new products',
+  rarely: 'rarely or never reacts to new products',
+};
 
 // Resolves the pixel-space crop rect to analyze. `faceRegion` (optional) is
 // {x,y,width,height} as 0–1 fractions of the photo, computed client-side from
@@ -94,7 +112,64 @@ router.post(
         .jpeg({ quality: 82 })
         .toBuffer();
 
-      const result = analyzeSkin({ buffer: rawPixels, channels: rawInfo.channels, quizAnswers });
+      // Fetched up front (before analysis) so Gemini can compare THIS photo
+      // against it directly — the progress commentary is only meaningful
+      // when it's the model actually looking at both, not a second pass
+      // stitched together after the fact.
+      const previousScanRow = await prisma.skinScan.findFirst({
+        where: { userId: req.user.id },
+        orderBy: { createdAt: 'desc' },
+      });
+      const previousScan = previousScanRow
+        ? {
+            skinTone: previousScanRow.skinTone,
+            skinType: previousScanRow.skinType,
+            concerns: previousScanRow.concerns,
+            daysAgo: Math.max(0, Math.round((Date.now() - previousScanRow.createdAt.getTime()) / 86_400_000)),
+          }
+        : undefined;
+      const sensitivityHint = SENSITIVITY_HINTS[quizAnswers?.sensitivity];
+
+      // Real vision-model analysis when GEMINI_API_KEY is configured, with
+      // the free pixel-math + quiz heuristic (skinAnalysis.js) as a fallback
+      // — both on any Gemini error (bad key, network, rate limit) and when
+      // the key simply isn't set, so this route works either way. A face
+      // Gemini can't find is the one case that should NOT silently fall
+      // back to the heuristic (which has no way to know a face is even
+      // present) — that's real, actionable feedback for the user to retake
+      // the photo, so it becomes a 400 instead.
+      let result;
+      let analysisSource = 'heuristic';
+      try {
+        const gemini = await analyzeWithGemini(storedBuf.toString('base64'), { sensitivityHint, previousScan });
+        if (gemini) {
+          if (!gemini.faceDetected) {
+            console.log(`[skin] Gemini rejected scan from user ${req.user.id}: no face detected`);
+            return res.status(400).json({ error: 'We couldn\'t clearly see a face in that photo. Try again with good lighting, centered in the oval.' });
+          }
+          analysisSource = 'gemini';
+          result = {
+            skinTone: gemini.skinTone,
+            skinType: gemini.skinType,
+            concerns: gemini.concerns,
+            summary: gemini.summary,
+            progressNote: gemini.progressNote ?? null,
+            hydrationLevel: gemini.hydrationLevel || '',
+            zoneNotes: {
+              tZone: gemini.tZoneNote || '',
+              cheeks: gemini.cheeksNote || '',
+              underEye: gemini.underEyeNote || '',
+            },
+            recommendations: gemini.recommendations,
+            bookCategory: BOOK_CATEGORY,
+          };
+        }
+      } catch (err) {
+        console.error('Gemini skin analysis failed, falling back to free heuristic:', err.message);
+      }
+      if (!result) {
+        result = analyzeSkin({ buffer: rawPixels, channels: rawInfo.channels, quizAnswers });
+      }
 
       const uploaded = await uploadFile(`skin-scans/${req.user.id}-${Date.now()}.jpg`, storedBuf, 'image/jpeg');
       if (!uploaded?.url) return res.status(500).json({ error: 'Photo upload failed. Please try again.' });
@@ -107,6 +182,10 @@ router.post(
             skinTone: result.skinTone,
             skinType: result.skinType,
             concerns: result.concerns,
+            summary: result.summary || '',
+            progressNote: result.progressNote ?? null,
+            hydrationLevel: result.hydrationLevel || '',
+            zoneNotes: result.zoneNotes || {},
             recommendations: result.recommendations,
             quizAnswers: quizAnswers || {},
             notes: notes || '',
@@ -122,6 +201,7 @@ router.post(
         }),
       ]);
 
+      console.log(`[skin] scan ${scan.id} for user ${req.user.id} served by: ${analysisSource}`);
       res.status(201).json({
         scan: serializeScan(scan),
         bookCategory: result.bookCategory,

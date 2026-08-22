@@ -867,6 +867,22 @@ model SkinScan {
   skinTone        SkinTone
   skinType        SkinType
   concerns        String[] @default([])
+  // A warm, specific one-liner — Gemini's own observation about this photo
+  // when the vision path is active, or a plain templated line from the free
+  // heuristic fallback (see skinAnalysis.js) so this field is never blank
+  // regardless of which analysis path produced the scan.
+  summary         String   @default("") @db.VarChar(300)
+  // Set only when a previous scan existed to compare against (Gemini path
+  // only — the free heuristic has no basis to compare two photos). Null on
+  // a user's first-ever scan, or whenever the free heuristic was used.
+  progressNote    String?  @db.VarChar(300)
+  // "" from the free heuristic (no per-zone reading ability) — only ever
+  // populated on the Gemini path.
+  hydrationLevel  String   @default("")
+  // { tZone, cheeks, underEye } — each an empty string when nothing was
+  // notable there, per the model's own instruction not to invent detail.
+  // Same "" default as hydrationLevel on the free heuristic path.
+  zoneNotes       Json     @default("{}")
   // [{ category, title, note }] — small enough, and shaped differently
   // enough per-concern, that a Json array is a better fit than a side table.
   recommendations Json     @default("[]")

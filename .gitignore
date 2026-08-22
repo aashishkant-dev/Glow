@@ -34,7 +34,11 @@ landing.txt
 # Misc junk
 YES
 YES.pub
+# "screenshot/" (singular) never matched the actual folders below — they're
+# "screenshots" and "screenshots new", so neither was ever actually ignored.
 screenshot/
+screenshots/
+screenshots new/
 
 # Build output (deployed via Vercel)
 mobile/dist/

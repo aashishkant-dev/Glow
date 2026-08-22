@@ -251,6 +251,18 @@ function buildRecommendations(skinType, skinTone) {
   return [...base, toneAdvisory(skinTone)];
 }
 
+const TYPE_SUMMARY = {
+  DRY: 'Your skin is reading dry today — a bit of extra hydration will go a long way.',
+  OILY: "You've got that oily-skin shine — nothing wrong with it, just means a lighter routine works better than a heavy one.",
+  COMBINATION: "Combination skin — a bit of both, so today's picks balance rather than pick one extreme.",
+  NORMAL: "Your skin looks balanced and healthy right now — today's about keeping it that way.",
+  SENSITIVE: "Your skin's telling us it's a little reactive — today's picks lean gentle on purpose.",
+};
+
+function buildSummary(skinType) {
+  return TYPE_SUMMARY[skinType] || TYPE_SUMMARY.NORMAL;
+}
+
 // ── Public entry point ──────────────────────────────────────────────────
 // buffer/channels: raw pixel data for the cropped, downsampled face region.
 // quizAnswers: { [questionId]: choiceId }.
@@ -263,6 +275,10 @@ function analyzeSkin({ buffer, channels, quizAnswers }) {
     skinTone,
     skinType,
     concerns: concernsFor(skinType, scores, shineRatio, quizAnswers),
+    // Free heuristic has no basis to compare two photos, unlike the Gemini
+    // path — always null here, never fabricated.
+    summary: buildSummary(skinType),
+    progressNote: null,
     recommendations: buildRecommendations(skinType, skinTone),
     avgRgb,
     shineRatio,
