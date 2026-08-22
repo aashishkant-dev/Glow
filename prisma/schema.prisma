@@ -198,6 +198,7 @@ model User {
   bookingSkips       BookingSkip[]
   comments           Comment[]
   skinScans          SkinScan[]
+  skinProfiles       SkinProfile[]
 
   @@index([role, isVerified])
   @@index([role, createdAt(sort: Desc)])
@@ -859,10 +860,37 @@ model Comment {
 // over a real progress timeline instead of only ever seeing their latest
 // result. photoUrl is kept (not just the derived fields) so the timeline can
 // show the actual photo alongside the reading, not just numbers.
+// A distinct physical person scanning on this account/device — most accounts
+// only ever have one ("shared device" is the exception, not the rule), but a
+// family sharing one phone means a second face showing up in My Space
+// shouldn't get folded into the first person's tone/type history or progress
+// commentary. Created automatically (see routes/skin.js's face-match step,
+// matchFaceProfile in geminiSkinAnalysis.js) the first time a scan's face
+// doesn't match any existing profile's most recent scan on this account —
+// never by explicit user action, though the label can be renamed afterward.
+model SkinProfile {
+  id        String     @id @default(cuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Auto-numbered ("Profile 1", "Profile 2"...) when created, or "You" for
+  // the first profile on an account (see the backfill migration). Editable
+  // by the user afterward.
+  label     String     @default("Profile")
+  createdAt DateTime   @default(now())
+  scans     SkinScan[]
+
+  @@index([userId, createdAt])
+}
+
 model SkinScan {
   id              String   @id @default(cuid())
   userId          String
   user            User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  // Which physical person this scan belongs to — see SkinProfile. Required:
+  // every scan (including pre-profile historical rows, backfilled to a
+  // single "You" profile per user) has exactly one.
+  profileId       String
+  profile         SkinProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
   photoUrl        String
   skinTone        SkinTone
   skinType        SkinType
@@ -894,4 +922,5 @@ model SkinScan {
   createdAt       DateTime @default(now())
 
   @@index([userId, createdAt(sort: Desc)])
+  @@index([profileId, createdAt(sort: Desc)])
 }

@@ -135,4 +135,81 @@ async function analyzeWithGemini(base64Jpeg, context = {}) {
   return parsed;
 }
 
-module.exports = { analyzeWithGemini };
+const MATCH_RESPONSE_SCHEMA = {
+  type: 'OBJECT',
+  properties: {
+    // 1-based index into the reference photos supplied, in the order given —
+    // null when the new photo doesn't clearly match any of them. Never guess
+    // when unsure: a wrongly-merged match mixes one person's skin history
+    // into another's, which is worse than over-splitting into an extra profile.
+    matchedIndex: { type: 'INTEGER', nullable: true },
+    confidence: { type: 'STRING', enum: ['HIGH', 'MEDIUM', 'LOW'] },
+  },
+  required: ['matchedIndex', 'confidence'],
+};
+
+function buildMatchPrompt(count) {
+  return `This is a shared-device skincare app — more than one family member may use the same account. Image 1 is a selfie just taken. Images 2 through ${count + 1} are reference photos of ${count} different previously-known people on this account, in order.
+
+Compare Image 1 against each reference image and decide whether it shows the SAME PERSON as one of them. Judge by facial structure — bone structure, eye/nose/mouth shape and spacing, jawline — NOT by lighting, filters, makeup, or skin tone/texture, which can genuinely differ between two photos of the same person and must not be mistaken for a different person.
+
+Return matchedIndex as the 1-based position of the matching reference image, or null if Image 1 doesn't clearly match any of them (a new person). Set confidence to HIGH only when you're genuinely certain — when in doubt, prefer LOW confidence or null over a wrong guess.`;
+}
+
+/**
+ * Compares a new scan photo against up to a handful of reference photos (one
+ * per existing SkinProfile on the account) to decide which person this scan
+ * belongs to — the thing that keeps two family members sharing one phone
+ * from having their skin histories folded together. Returns null (never
+ * throws for "not configured") when GEMINI_API_KEY isn't set; a real API
+ * failure throws, same convention as analyzeWithGemini.
+ *
+ * @param {string} newPhotoBase64
+ * @param {{id:string, photoBase64:string}[]} referencePhotos - in order; the
+ *   returned matchedIndex is 1-based into this array.
+ * @returns {Promise<{matchedIndex:number|null, confidence:'HIGH'|'MEDIUM'|'LOW'}|null>}
+ */
+async function matchFaceProfile(newPhotoBase64, referencePhotos) {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey || referencePhotos.length === 0) return null;
+
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
+  const body = {
+    contents: [{
+      parts: [
+        { text: buildMatchPrompt(referencePhotos.length) },
+        { inline_data: { mime_type: 'image/jpeg', data: newPhotoBase64 } },
+        ...referencePhotos.map(p => ({ inline_data: { mime_type: 'image/jpeg', data: p.photoBase64 } })),
+      ],
+    }],
+    generationConfig: {
+      responseMimeType: 'application/json',
+      responseSchema: MATCH_RESPONSE_SCHEMA,
+      temperature: 0.1,
+    },
+  };
+
+  const res = await fetch(url, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+
+  if (!res.ok) {
+    const errText = await res.text().catch(() => '');
+    throw new Error(`Gemini face-match API error ${res.status}: ${errText.slice(0, 300)}`);
+  }
+
+  const json = await res.json();
+  const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
+  if (!text) throw new Error('Gemini face-match returned no usable content');
+
+  const parsed = JSON.parse(text);
+  const idx = parsed.matchedIndex;
+  if (idx != null && (typeof idx !== 'number' || idx < 1 || idx > referencePhotos.length)) {
+    return { matchedIndex: null, confidence: 'LOW' };
+  }
+  return { matchedIndex: idx ?? null, confidence: parsed.confidence || 'LOW' };
+}
+
+module.exports = { analyzeWithGemini, matchFaceProfile };

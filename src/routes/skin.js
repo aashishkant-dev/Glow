@@ -7,7 +7,7 @@ const prisma  = require('../lib/prisma');
 const { uploadFile } = require('../utils/storage');
 const { authenticate } = require('../middleware/auth');
 const { analyzeSkin } = require('../utils/skinAnalysis');
-const { analyzeWithGemini } = require('../utils/geminiSkinAnalysis');
+const { analyzeWithGemini, matchFaceProfile } = require('../utils/geminiSkinAnalysis');
 
 const router = express.Router();
 
@@ -18,6 +18,7 @@ const BOOK_CATEGORY = 'Facials & Skin';
 function serializeScan(s) {
   return {
     id: s.id,
+    profileId: s.profileId,
     photoUrl: s.photoUrl,
     skinTone: s.skinTone,
     skinType: s.skinType,
@@ -30,6 +31,94 @@ function serializeScan(s) {
     notes: s.notes,
     createdAt: s.createdAt,
   };
+}
+
+function toPreviousScanContext(scan) {
+  if (!scan) return undefined;
+  return {
+    skinTone: scan.skinTone,
+    skinType: scan.skinType,
+    concerns: scan.concerns,
+    daysAgo: Math.max(0, Math.round((Date.now() - scan.createdAt.getTime()) / 86_400_000)),
+  };
+}
+
+async function fetchImageBase64(url) {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
+  const buf = Buffer.from(await res.arrayBuffer());
+  return buf.toString('base64');
+}
+
+// Decides which SkinProfile (see schema.prisma) this new scan belongs to —
+// the thing that keeps two people sharing one account/device from having
+// their skin histories folded together. Side-effect-free: never creates a
+// profile itself (a rejected scan — no face, upload failure — shouldn't
+// leave an empty orphaned profile behind); the caller creates one, using
+// the returned `label`, only once it knows the scan is actually going to be
+// saved. Returns `profileId: null` in that case.
+async function resolveProfile(userId, newPhotoBase64) {
+  const profiles = await prisma.skinProfile.findMany({
+    where: { userId },
+    orderBy: { createdAt: 'asc' },
+    include: { scans: { orderBy: { createdAt: 'desc' }, take: 1 } },
+  });
+
+  if (profiles.length === 0) {
+    return { profileId: null, label: 'You', previousScan: undefined, isNewProfile: false };
+  }
+
+  // Compare against the handful of most recently active profiles — bounds
+  // Gemini cost/latency on an account with a long tail of old profiles.
+  const candidates = profiles
+    .filter(p => p.scans.length > 0)
+    .sort((a, b) => b.scans[0].createdAt.getTime() - a.scans[0].createdAt.getTime())
+    .slice(0, 5);
+
+  let matched = null;
+  let consultedGemini = false;
+  if (candidates.length > 0) {
+    try {
+      const referencePhotos = [];
+      for (const p of candidates) {
+        try {
+          referencePhotos.push({ profile: p, photoBase64: await fetchImageBase64(p.scans[0].photoUrl) });
+        } catch (err) {
+          console.error(`[skin] could not fetch reference photo for profile ${p.id}:`, err.message);
+        }
+      }
+      if (referencePhotos.length > 0) {
+        const result = await matchFaceProfile(newPhotoBase64, referencePhotos);
+        if (result) {
+          consultedGemini = true;
+          if (result.matchedIndex != null && result.confidence !== 'LOW') {
+            matched = referencePhotos[result.matchedIndex - 1].profile;
+          }
+        }
+      }
+    } catch (err) {
+      console.error('[skin] face-match failed:', err.message);
+    }
+  }
+
+  // Gemini not configured, unreachable, errored, or had nothing yet to
+  // compare against — can't tell people apart right now, so default to the
+  // account's original profile rather than fragmenting history into a new
+  // profile on every single scan.
+  if (!matched && !consultedGemini) matched = profiles[0];
+
+  if (matched) {
+    return {
+      profileId: matched.id,
+      label: null,
+      previousScan: toPreviousScanContext(matched.scans[0]),
+      isNewProfile: false,
+    };
+  }
+
+  // Gemini was actually consulted and confidently found no match — a
+  // different person just used this account for the first time.
+  return { profileId: null, label: `Profile ${profiles.length + 1}`, previousScan: undefined, isNewProfile: true };
 }
 
 // Maps the one remaining quiz question's choice id to a plain sentence
@@ -111,23 +200,14 @@ router.post(
         .resize(1080, 1350, { fit: 'inside', withoutEnlargement: true })
         .jpeg({ quality: 82 })
         .toBuffer();
+      const storedB64 = storedBuf.toString('base64');
 
-      // Fetched up front (before analysis) so Gemini can compare THIS photo
-      // against it directly — the progress commentary is only meaningful
-      // when it's the model actually looking at both, not a second pass
-      // stitched together after the fact.
-      const previousScanRow = await prisma.skinScan.findFirst({
-        where: { userId: req.user.id },
-        orderBy: { createdAt: 'desc' },
-      });
-      const previousScan = previousScanRow
-        ? {
-            skinTone: previousScanRow.skinTone,
-            skinType: previousScanRow.skinType,
-            concerns: previousScanRow.concerns,
-            daysAgo: Math.max(0, Math.round((Date.now() - previousScanRow.createdAt.getTime()) / 86_400_000)),
-          }
-        : undefined;
+      // Figures out WHICH person this scan is (face-match against this
+      // account's other profiles — see resolveProfile) before analysis runs,
+      // so the previous-scan comparison Gemini gets is the right person's
+      // history, not just "whoever scanned on this account most recently."
+      const resolved = await resolveProfile(req.user.id, storedB64);
+      const previousScan = resolved.previousScan;
       const sensitivityHint = SENSITIVITY_HINTS[quizAnswers?.sensitivity];
 
       // Real vision-model analysis when GEMINI_API_KEY is configured, with
@@ -141,7 +221,7 @@ router.post(
       let result;
       let analysisSource = 'heuristic';
       try {
-        const gemini = await analyzeWithGemini(storedBuf.toString('base64'), { sensitivityHint, previousScan });
+        const gemini = await analyzeWithGemini(storedB64, { sensitivityHint, previousScan });
         if (gemini) {
           if (!gemini.faceDetected) {
             console.log(`[skin] Gemini rejected scan from user ${req.user.id}: no face detected`);
@@ -174,10 +254,20 @@ router.post(
       const uploaded = await uploadFile(`skin-scans/${req.user.id}-${Date.now()}.jpg`, storedBuf, 'image/jpeg');
       if (!uploaded?.url) return res.status(500).json({ error: 'Photo upload failed. Please try again.' });
 
-      const [scan] = await prisma.$transaction([
-        prisma.skinScan.create({
+      const scan = await prisma.$transaction(async (tx) => {
+        // A new profile is only ever actually created here — once a scan is
+        // definitely being saved under it — never speculatively during
+        // face-match (see resolveProfile's comment).
+        let profileId = resolved.profileId;
+        if (!profileId) {
+          const profile = await tx.skinProfile.create({ data: { userId: req.user.id, label: resolved.label } });
+          profileId = profile.id;
+        }
+
+        const created = await tx.skinScan.create({
           data: {
             userId: req.user.id,
+            profileId,
             photoUrl: uploaded.url,
             skinTone: result.skinTone,
             skinType: result.skinType,
@@ -190,21 +280,29 @@ router.post(
             quizAnswers: quizAnswers || {},
             notes: notes || '',
           },
-        }),
+        });
+
         // Keep the user's "current known" tone/type in sync with their most
         // recent scan, so anything elsewhere in the app that already reads
         // User.skinTone/skinType (profile display, future matching) reflects
         // it automatically without those call sites needing to change.
-        prisma.user.update({
+        // Deliberately always the LAST scanner's reading, on whichever
+        // profile — a genuinely shaky spot on a shared account, but no
+        // worse than before this feature existed (there was only ever one
+        // tone/type on the User row regardless of who scanned).
+        await tx.user.update({
           where: { id: req.user.id },
           data: { skinTone: result.skinTone, skinType: result.skinType },
-        }),
-      ]);
+        });
 
-      console.log(`[skin] scan ${scan.id} for user ${req.user.id} served by: ${analysisSource}`);
+        return created;
+      });
+
+      console.log(`[skin] scan ${scan.id} for user ${req.user.id} (profile ${scan.profileId}${resolved.isNewProfile ? ', new' : ''}) served by: ${analysisSource}`);
       res.status(201).json({
         scan: serializeScan(scan),
         bookCategory: result.bookCategory,
+        isNewProfile: resolved.isNewProfile,
       });
     } catch (err) {
       console.error('POST /skin/scan error:', err);
@@ -220,9 +318,13 @@ router.get(
     try {
       const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
       const cursor = req.query.cursor;
+      // Optional — scoping to one profile is how My Space shows "this
+      // person's" timeline on a shared-device account instead of everyone's
+      // scans interleaved together.
+      const profileId = req.query.profileId;
 
       const scans = await prisma.skinScan.findMany({
-        where: { userId: req.user.id },
+        where: { userId: req.user.id, ...(profileId ? { profileId } : {}) },
         orderBy: { createdAt: 'desc' },
         take: limit + 1,
         ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
@@ -243,13 +345,75 @@ router.get(
   authenticate,
   async (req, res) => {
     try {
+      const profileId = req.query.profileId;
       const scan = await prisma.skinScan.findFirst({
-        where: { userId: req.user.id },
+        where: { userId: req.user.id, ...(profileId ? { profileId } : {}) },
         orderBy: { createdAt: 'desc' },
       });
       res.json({ scan: scan ? serializeScan(scan) : null });
     } catch (err) {
       console.error('GET /skin/latest error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+// Profiles — the different physical people who've scanned on this account
+// (see schema.prisma's SkinProfile). Almost every account has exactly one;
+// this is what lets a shared-device household keep separate histories.
+router.get(
+  '/profiles',
+  authenticate,
+  async (req, res) => {
+    try {
+      const profiles = await prisma.skinProfile.findMany({
+        where: { userId: req.user.id },
+        orderBy: { createdAt: 'asc' },
+        include: {
+          scans: { orderBy: { createdAt: 'desc' }, take: 1 },
+          _count: { select: { scans: true } },
+        },
+      });
+      res.json({
+        profiles: profiles
+          // A profile with zero scans is a leftover from a request that
+          // failed after resolveProfile ran but before the scan committed
+          // — shouldn't normally happen (they're created inside the same
+          // transaction as the scan) but isn't worth showing if it did.
+          .filter(p => p._count.scans > 0)
+          .map(p => ({
+            id: p.id,
+            label: p.label,
+            scanCount: p._count.scans,
+            latestPhotoUrl: p.scans[0]?.photoUrl || null,
+            latestScanAt: p.scans[0]?.createdAt || null,
+            createdAt: p.createdAt,
+          }))
+          .sort((a, b) => new Date(b.latestScanAt).getTime() - new Date(a.latestScanAt).getTime()),
+      });
+    } catch (err) {
+      console.error('GET /skin/profiles error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+router.patch(
+  '/profiles/:id',
+  authenticate,
+  async (req, res) => {
+    try {
+      const { label } = req.body;
+      if (!label || typeof label !== 'string' || !label.trim()) return res.status(400).json({ error: 'Label required' });
+      if (label.trim().length > 30) return res.status(400).json({ error: 'Label must be 30 characters or fewer' });
+
+      const profile = await prisma.skinProfile.findUnique({ where: { id: req.params.id } });
+      if (!profile || profile.userId !== req.user.id) return res.status(404).json({ error: 'Profile not found' });
+
+      const updated = await prisma.skinProfile.update({ where: { id: profile.id }, data: { label: label.trim() } });
+      res.json({ profile: { id: updated.id, label: updated.label } });
+    } catch (err) {
+      console.error('PATCH /skin/profiles/:id error:', err);
       res.status(500).json({ error: 'Server error' });
     }
   }
