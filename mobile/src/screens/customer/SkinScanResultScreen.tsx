@@ -1,21 +1,44 @@
 /**
  * Full detail view for one skin scan — reached right after a new scan
  * completes (`justScanned`) or by tapping a past entry in My Space's
- * progress timeline. Same result data either way, just different framing
- * copy at the top.
+ * progress timeline. Redesigned around what actually makes this feel like a
+ * real AI reading, not a static report: the model's own written summary
+ * leads (Fraunces italic — this app's existing treatment for warm,
+ * editorial moments, e.g. HomeScreen's hero line), and a distinct callout
+ * surfaces progressNote when Gemini had a previous scan to compare against.
  */
 import React, { useState } from 'react';
 import { Alert, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Colors, Fonts } from '../../utils/colors';
 import { apiDeleteSkinScan, SkinScan } from '../../api/client';
 import { tapLight, confirmAction } from '../../utils/haptics';
+import { NearbyArtistRow } from '../../components/NearbyArtistRow';
+import { shareLookMedia } from '../../utils/shareLook';
+import { SparkleIcon } from '../../components/BeautyIcons';
 
 const TONE_LABELS: Record<string, string> = { FAIR: 'Fair', LIGHT: 'Light', MEDIUM: 'Medium', TAN: 'Tan', DEEP: 'Deep', RICH: 'Rich' };
 const TONE_SWATCH: Record<string, string> = { FAIR: '#F5D5C0', LIGHT: '#E8B894', MEDIUM: '#C68863', TAN: '#A9673F', DEEP: '#7A4B32', RICH: '#4A2C20' };
 const TYPE_LABELS: Record<string, string> = { DRY: 'Dry', OILY: 'Oily', COMBINATION: 'Combination', NORMAL: 'Normal', SENSITIVE: 'Sensitive' };
+const HYDRATION_LABELS: Record<string, string> = { LOW: 'Low', MODERATE: 'Moderate', HIGH: 'High' };
+
+function ZoneRow({ label, note }: { label: string; note: string }) {
+  return (
+    <View style={zoneRowStyles.row}>
+      <Text style={zoneRowStyles.label}>{label}</Text>
+      <Text style={zoneRowStyles.note}>{note}</Text>
+    </View>
+  );
+}
+
+const zoneRowStyles = StyleSheet.create({
+  row: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.separatorSoft },
+  label: { fontSize: 11, fontFamily: Fonts.bold, color: Colors.brandDark, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 2 },
+  note: { fontSize: 13.5, fontFamily: Fonts.regular, color: Colors.label, lineHeight: 19 },
+});
 
 export function SkinScanResultScreen() {
   const insets = useSafeAreaInsets();
@@ -31,9 +54,10 @@ export function SkinScanResultScreen() {
     else nav.navigate('Home');
   }
 
-  function bookAnArtist() {
+  function shareProgress() {
     tapLight();
-    nav.navigate('NewBooking', { serviceType: 'Facial', bookingMode: 'scheduled', _t: Date.now() });
+    const caption = `My Glow skin check-in: ${TONE_LABELS[scan.skinTone]} tone · ${TYPE_LABELS[scan.skinType]} skin ✨`;
+    shareLookMedia(scan.photoUrl, caption, 'photo');
   }
 
   function deleteScan() {
@@ -60,24 +84,66 @@ export function SkinScanResultScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}>
         <View>
           <Image source={{ uri: scan.photoUrl }} style={styles.photo} contentFit="cover" />
+          <LinearGradient colors={['rgba(0,0,0,0.35)', 'transparent']} style={styles.photoTopGradient} pointerEvents="none" />
           <Pressable style={[styles.floatBack, { top: insets.top + 8 }]} onPress={goBack} hitSlop={12}>
             <Text style={styles.floatBackText}>‹</Text>
+          </Pressable>
+          <Pressable style={[styles.floatShare, { top: insets.top + 8 }]} onPress={shareProgress} hitSlop={12}>
+            <Text style={styles.floatShareText}>↗</Text>
           </Pressable>
         </View>
 
         <View style={styles.body}>
-          <Text style={styles.eyebrow}>{justScanned ? 'HERE’S WHAT WE FOUND' : 'SCAN DETAILS'}</Text>
+          <View style={styles.eyebrowRow}>
+            <SparkleIcon size={13} color={Colors.brand} />
+            <Text style={styles.eyebrow}>{justScanned ? 'AI READING' : 'SCAN DETAILS'}</Text>
+          </View>
+
+          {/* The model's own written line — this is what makes it read as a
+              real AI looking at THIS photo, not a templated report. */}
+          {!!scan.summary && <Text style={styles.summary}>{scan.summary}</Text>}
 
           <View style={styles.resultRow}>
             <View style={[styles.toneSwatch, { backgroundColor: TONE_SWATCH[scan.skinTone] }]} />
             <Text style={styles.resultText}>{TONE_LABELS[scan.skinTone]} tone · {TYPE_LABELS[scan.skinType]} skin</Text>
+            {!!scan.hydrationLevel && (
+              <View style={styles.hydrationPill}>
+                <Text style={styles.hydrationPillText}>{HYDRATION_LABELS[scan.hydrationLevel]} hydration</Text>
+              </View>
+            )}
           </View>
+
+          {/* Zone-by-zone read — the thing an in-person consultation does
+              that one blanket "your skin is X" verdict doesn't. Gemini-only
+              (empty strings from the free heuristic); only rendered when at
+              least one zone actually has something worth showing. */}
+          {(!!scan.zoneNotes?.tZone || !!scan.zoneNotes?.cheeks || !!scan.zoneNotes?.underEye) && (
+            <View style={styles.zoneSection}>
+              {!!scan.zoneNotes?.tZone && <ZoneRow label="T-zone" note={scan.zoneNotes.tZone} />}
+              {!!scan.zoneNotes?.cheeks && <ZoneRow label="Cheeks" note={scan.zoneNotes.cheeks} />}
+              {!!scan.zoneNotes?.underEye && <ZoneRow label="Under-eye" note={scan.zoneNotes.underEye} />}
+            </View>
+          )}
 
           {scan.concerns.length > 0 && (
             <View style={styles.chipRow}>
               {scan.concerns.map(c => (
                 <View key={c} style={styles.concernChip}><Text style={styles.concernChipText}>{c}</Text></View>
               ))}
+            </View>
+          )}
+
+          {/* Progress callout — only when Gemini actually had a previous
+              scan to compare against. Visually distinct (not just another
+              text block) so it reads as the AI actively tracking them over
+              time, the thing that makes repeat scanning worth doing. */}
+          {!!scan.progressNote && (
+            <View style={styles.progressCard}>
+              <View style={styles.progressHeader}>
+                <SparkleIcon size={14} color="#fff" />
+                <Text style={styles.progressLabel}>YOUR PROGRESS</Text>
+              </View>
+              <Text style={styles.progressText}>{scan.progressNote}</Text>
             </View>
           )}
 
@@ -90,9 +156,8 @@ export function SkinScanResultScreen() {
             </View>
           ))}
 
-          <Pressable style={styles.bookBtn} onPress={bookAnArtist}>
-            <Text style={styles.bookBtnText}>Book a facial with a Glow artist →</Text>
-          </Pressable>
+          <Text style={styles.sectionTitle}>Want a professional take?</Text>
+          <NearbyArtistRow category="Facials & Skin" serviceType="Facial" />
 
           <Pressable style={styles.deleteBtn} onPress={deleteScan} disabled={deleting}>
             <Text style={styles.deleteBtnText}>{deleting ? 'Deleting…' : 'Delete this scan'}</Text>
@@ -110,34 +175,60 @@ export function SkinScanResultScreen() {
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.systemBackground },
   photo: { width: '100%', aspectRatio: 1, backgroundColor: Colors.brandLight },
+  photoTopGradient: { position: 'absolute', left: 0, right: 0, top: 0, height: 90 },
   floatBack: {
     position: 'absolute', left: 16,
     width: 36, height: 36, borderRadius: 18,
     backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center',
   },
   floatBackText: { color: '#fff', fontSize: 22, fontFamily: Fonts.semibold, marginTop: -2 },
+  floatShare: {
+    position: 'absolute', right: 16,
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center',
+  },
+  floatShareText: { color: '#fff', fontSize: 16, fontFamily: Fonts.semibold },
 
   body: { padding: 20, gap: 4 },
-  eyebrow: { fontSize: 11, fontFamily: Fonts.semibold, color: Colors.brandDark, letterSpacing: 1.4, marginBottom: 8 },
-  resultRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  toneSwatch: { width: 22, height: 22, borderRadius: 11, borderWidth: 1.5, borderColor: Colors.separator },
-  resultText: { fontSize: 20, fontFamily: Fonts.display, color: Colors.label },
+  eyebrowRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
+  eyebrow: { fontSize: 11, fontFamily: Fonts.semibold, color: Colors.brandDark, letterSpacing: 1.4 },
+
+  summary: {
+    fontSize: 21, fontFamily: Fonts.displayItalic, color: Colors.label,
+    lineHeight: 28, marginBottom: 16,
+  },
+
+  resultRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 10 },
+  toneSwatch: { width: 20, height: 20, borderRadius: 10, borderWidth: 1.5, borderColor: Colors.separator },
+  resultText: { fontSize: 15, fontFamily: Fonts.semibold, color: Colors.secondaryLabel },
+  hydrationPill: { backgroundColor: Colors.surfaceCream, borderRadius: 100, paddingHorizontal: 10, paddingVertical: 4 },
+  hydrationPillText: { fontSize: 11.5, fontFamily: Fonts.semibold, color: Colors.secondaryLabel },
+
+  zoneSection: {
+    marginTop: 18, backgroundColor: Colors.surfaceCream, borderRadius: 16,
+    paddingHorizontal: 14,
+  },
 
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
   concernChip: { backgroundColor: Colors.surfaceBlush, borderRadius: 100, paddingHorizontal: 13, paddingVertical: 7, borderWidth: 1, borderColor: Colors.brandAccent },
   concernChipText: { fontSize: 12, fontFamily: Fonts.medium, color: Colors.brandDark },
 
-  sectionTitle: { fontSize: 15.5, fontFamily: Fonts.display, color: Colors.label, marginTop: 22, marginBottom: 10 },
+  progressCard: {
+    marginTop: 20, borderRadius: 20, padding: 16,
+    backgroundColor: Colors.brandDeep,
+  },
+  progressHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  progressLabel: { fontSize: 10.5, fontFamily: Fonts.bold, color: 'rgba(255,255,255,0.85)', letterSpacing: 1 },
+  progressText: { fontSize: 14, fontFamily: Fonts.medium, color: '#fff', lineHeight: 20 },
+
+  sectionTitle: { fontSize: 15.5, fontFamily: Fonts.display, color: Colors.label, marginTop: 24, marginBottom: 10 },
   recCard: { backgroundColor: Colors.surfaceCream, borderRadius: 18, padding: 14, marginBottom: 10 },
   recCategoryPill: { alignSelf: 'flex-start', backgroundColor: '#fff', borderRadius: 100, paddingHorizontal: 10, paddingVertical: 3, marginBottom: 6 },
   recCategoryText: { fontSize: 10.5, fontFamily: Fonts.bold, color: Colors.brandDark, letterSpacing: 0.3, textTransform: 'uppercase' },
   recTitle: { fontSize: 14.5, fontFamily: Fonts.semibold, color: Colors.label },
   recNote: { fontSize: 12.5, fontFamily: Fonts.regular, color: Colors.secondaryLabel, marginTop: 3, lineHeight: 18 },
 
-  bookBtn: { backgroundColor: Colors.brand, borderRadius: 16, paddingVertical: 15, alignItems: 'center', marginTop: 10 },
-  bookBtnText: { color: '#fff', fontSize: 14.5, fontFamily: Fonts.semibold },
-
-  deleteBtn: { alignSelf: 'center', paddingVertical: 14 },
+  deleteBtn: { alignSelf: 'center', paddingVertical: 20 },
   deleteBtnText: { color: Colors.systemRed, fontSize: 13, fontFamily: Fonts.semibold },
 
   disclaimer: { fontSize: 11, fontFamily: Fonts.regular, color: Colors.tertiaryLabel, textAlign: 'center', lineHeight: 16, marginTop: 4 },

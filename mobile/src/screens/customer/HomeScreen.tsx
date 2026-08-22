@@ -686,7 +686,15 @@ export function HomeScreen() {
             {Platform.OS === 'web' ? (
               <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.matchCtaGlass]} />
             ) : (
-              <BlurView intensity={60} tint="light" style={[StyleSheet.absoluteFill, { borderRadius: 100, overflow: 'hidden' }]} />
+              // Blur alone (tint="light") has no brand color at all — on iOS
+              // this rendered as a plain white/frosted pill with white text
+              // on top, i.e. invisible text on a "totally white" button. The
+              // web path already layers a rose-tinted glass fill over the
+              // blur; native needs the same second layer, not just the blur.
+              <>
+                <BlurView intensity={60} tint="light" style={[StyleSheet.absoluteFill, { borderRadius: 100, overflow: 'hidden' }]} />
+                <View pointerEvents="none" style={[StyleSheet.absoluteFill, styles.matchCtaTint]} />
+              </>
             )}
             <Text style={styles.matchCtaText}>✨ Find My Glow</Text>
           </View>
@@ -926,5 +934,13 @@ const styles = StyleSheet.create({
     backdropFilter: 'blur(16px)',
     WebkitBackdropFilter: 'blur(16px)',
   } as any,
+  // Same rose tint as matchCtaGlass, layered over the native BlurView
+  // instead of CSS backdrop-filter (borderRadius own copy since this sits
+  // on top of, not instead of, the blur — StyleSheet.absoluteFill alone
+  // doesn't carry radius).
+  matchCtaTint: {
+    borderRadius: 100,
+    backgroundColor: 'rgba(217,122,145,0.82)',
+  },
   matchCtaText: { color: '#fff', fontSize: 15.5, fontFamily: Fonts.semibold, letterSpacing: 0.2 },
 });

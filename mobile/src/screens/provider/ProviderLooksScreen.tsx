@@ -49,6 +49,7 @@ import { SparkleIcon } from '../../components/BeautyIcons';
 import { ShareIcon, PencilIcon, TrashIcon } from '../../components/CareIcons';
 import { shareLookMedia } from '../../utils/shareLook';
 import { CommentsSheetModal } from '../../components/CommentsSheetModal';
+import { getCurrencySymbol } from '../../utils/format';
 
 
 // A media item staged for a look — either a fresh shot (needs uploading) or
@@ -862,7 +863,22 @@ function CreateLookSheet({
                     fields with no way to tell which is which. */}
                 <View style={{ flex: 1 }}>
                   <Text style={styles.fieldLabel}>Price</Text>
-                  <TextInput style={styles.input} value={price} onChangeText={setPrice} placeholder="0" placeholderTextColor={Colors.tertiaryLabel} keyboardType="decimal-pad" />
+                  {/* A bare numeric box with no currency symbol looked like it
+                      could be any currency — matches the same
+                      symbol-prefix treatment ProviderPricingEditor.tsx
+                      already uses for per-service pricing, so both price
+                      entry points in the app read consistently. */}
+                  <View style={styles.priceInputWrap}>
+                    <Text style={styles.priceInputSymbol}>{getCurrencySymbol()}</Text>
+                    <TextInput
+                      style={styles.priceInputField}
+                      value={price}
+                      onChangeText={v => setPrice(v.replace(/[^0-9.]/g, ''))}
+                      placeholder="0"
+                      placeholderTextColor={Colors.tertiaryLabel}
+                      keyboardType="decimal-pad"
+                    />
+                  </View>
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.fieldLabel}>Duration (min)</Text>
@@ -1144,6 +1160,20 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 11, marginTop: 12,
   },
   fieldLabel: { fontSize: 12.5, fontWeight: '700', color: Colors.secondaryLabel, marginTop: 16, marginBottom: 8 },
+  // Same symbol-prefix treatment as ProviderPricingEditor's price fields —
+  // matches this screen's own input box look (systemGray6 fill,
+  // brandAccent border) rather than copying that component's cream/plain
+  // separator styling verbatim.
+  priceInputWrap: {
+    flexDirection: 'row', alignItems: 'center', marginTop: 12,
+    backgroundColor: Colors.systemGray6, borderRadius: 14, borderWidth: 1, borderColor: Colors.brandAccent,
+    paddingLeft: 14,
+  },
+  priceInputSymbol: { fontSize: 14, fontFamily: Fonts.semibold, color: Colors.secondaryLabel },
+  priceInputField: {
+    flex: 1, fontSize: 14, color: Colors.label,
+    paddingVertical: 11, paddingHorizontal: 8, minHeight: 44,
+  },
 
   sheetBtnRow: { flexDirection: 'row', gap: 10, marginTop: 20 },
   cancelBtn: { flex: 1, paddingVertical: 13, borderRadius: 14, alignItems: 'center', backgroundColor: Colors.systemGray6 },

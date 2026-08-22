@@ -1372,6 +1372,18 @@ export interface SkinScan {
   skinTone: SkinToneValue;
   skinType: SkinTypeValue;
   concerns: string[];
+  // A warm, specific one-liner about this photo (real AI observation when
+  // the Gemini vision path produced this scan; a plain templated line from
+  // the free heuristic otherwise — never blank either way).
+  summary: string;
+  // Set only when a previous scan existed to compare against at analysis
+  // time. Null on a first-ever scan, or when the free heuristic (no
+  // cross-photo comparison ability) produced this one.
+  progressNote: string | null;
+  // '' from the free heuristic (no per-zone reading ability) — populated on
+  // the Gemini path only.
+  hydrationLevel: '' | 'LOW' | 'MODERATE' | 'HIGH';
+  zoneNotes: { tZone?: string; cheeks?: string; underEye?: string };
   recommendations: SkinRecommendation[];
   notes: string;
   createdAt: string;

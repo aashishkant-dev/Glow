@@ -263,14 +263,34 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
   // Refine the currency/country guess from real GPS whenever coords resolve
   // or meaningfully move — the most precise signal available short of an
   // explicit phone number or CountryPicker choice (see region.ts PRIORITY).
-  // Native-only: Location.reverseGeocodeAsync isn't implemented on web.
+  // expo-location's reverseGeocodeAsync always returns [] on web (the
+  // Geocoding API was removed from the web shim in Expo SDK 49) — this
+  // effect used to just bail out on web entirely, silently leaving GPS-based
+  // currency detection permanently broken there ("use current location isn't
+  // working"). Use OpenStreetMap's free Nominatim API on web instead, same
+  // fallback HomeScreen.tsx/CreateBookingScreen.tsx already use for the
+  // identical reason (this app's own city-name pill).
   const lastGeocodedRef = useRef<Coords | null>(null);
   useEffect(() => {
-    if (!coords || Platform.OS === 'web') return;
+    if (!coords) return;
     if (coords.lat === 0 && coords.lng === 0) return;
     const prev = lastGeocodedRef.current;
     if (prev && Math.abs(prev.lat - coords.lat) < 0.0005 && Math.abs(prev.lng - coords.lng) < 0.0005) return;
     lastGeocodedRef.current = coords;
+
+    if (Platform.OS === 'web') {
+      fetch(`https://nominatim.openstreetmap.org/reverse?lat=${coords.lat}&lon=${coords.lng}&format=json`, {
+        headers: { 'Accept-Language': 'en' },
+      })
+        .then(res => res.json())
+        .then(data => {
+          const countryCode = data?.address?.country_code;
+          if (countryCode) setCurrencyCodeForGpsCountry(countryCode);
+        })
+        .catch(() => {});
+      return;
+    }
+
     Location.reverseGeocodeAsync({ latitude: coords.lat, longitude: coords.lng })
       .then(results => {
         const isoCountryCode = results?.[0]?.isoCountryCode;

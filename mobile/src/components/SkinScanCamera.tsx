@@ -12,7 +12,7 @@
  * Analysis is free/on-device-style pixel math + this quiz (see
  * src/utils/skinAnalysis.js on the backend) — never a paid vision API call.
  */
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Image } from 'expo-image';
 import {
   ActivityIndicator,
@@ -47,6 +47,31 @@ interface Props {
 }
 
 type Step = 'camera' | 'quiz' | 'analyzing';
+
+function AnalyzingStepRow({ label, done, active }: { label: string; done: boolean; active?: boolean }) {
+  return (
+    <View style={analyzingStepStyles.row}>
+      <View style={[analyzingStepStyles.dot, done && analyzingStepStyles.dotDone, active && !done && analyzingStepStyles.dotActive]}>
+        {done && <Text style={analyzingStepStyles.check}>✓</Text>}
+      </View>
+      <Text style={[analyzingStepStyles.label, done && analyzingStepStyles.labelDone]}>{label}</Text>
+    </View>
+  );
+}
+
+const analyzingStepStyles = StyleSheet.create({
+  row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  dot: {
+    width: 20, height: 20, borderRadius: 10,
+    borderWidth: 1.5, borderColor: Colors.separator,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  dotActive: { borderColor: Colors.brand },
+  dotDone: { backgroundColor: Colors.brand, borderColor: Colors.brand },
+  check: { color: '#fff', fontSize: 11, fontFamily: Fonts.bold },
+  label: { fontSize: 13, fontFamily: Fonts.medium, color: Colors.tertiaryLabel },
+  labelDone: { color: Colors.label, fontFamily: Fonts.semibold },
+});
 
 export function SkinScanCamera({ visible, onClose, onComplete }: Props) {
   const insets = useSafeAreaInsets();
@@ -101,6 +126,22 @@ export function SkinScanCamera({ visible, onClose, onComplete }: Props) {
   }
 
   const allAnswered = SKIN_QUIZ_QUESTIONS.every(q => !!answers[q.id]);
+
+  // The real analysis is one request/response — Gemini doesn't hand back
+  // incremental progress — but showing it as a flat single spinner made the
+  // "actually scan a face" step invisible, like a black box. Staged reveals
+  // on a timer (a standard pattern for AI operations without real granular
+  // progress) mirror what's genuinely happening in order: the photo really
+  // is analyzed for a face before tone/type ever get read from it, that
+  // sequencing is real, it's just the on-screen pacing that's simulated
+  // rather than tied to actual milestones from the API.
+  const [analyzingStage, setAnalyzingStage] = useState(0);
+  useEffect(() => {
+    if (step !== 'analyzing') { setAnalyzingStage(0); return; }
+    const t1 = setTimeout(() => setAnalyzingStage(1), 1100);
+    const t2 = setTimeout(() => setAnalyzingStage(2), 2600);
+    return () => { clearTimeout(t1); clearTimeout(t2); };
+  }, [step]);
 
   async function submit() {
     if (!shot || !allAnswered) return;
@@ -183,8 +224,8 @@ export function SkinScanCamera({ visible, onClose, onComplete }: Props) {
               <View style={styles.quizPhotoRow}>
                 <Image source={{ uri: shot.uri }} style={styles.quizPhotoThumb} contentFit="cover" />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.quizTitle}>A few quick questions</Text>
-                  <Text style={styles.quizSubtitle}>This helps us read your skin type accurately.</Text>
+                  <Text style={styles.quizTitle}>One quick question</Text>
+                  <Text style={styles.quizSubtitle}>Our AI reads the rest straight from your photo.</Text>
                 </View>
               </View>
 
@@ -234,8 +275,14 @@ export function SkinScanCamera({ visible, onClose, onComplete }: Props) {
           <View style={styles.analyzingRoot}>
             <SparkleIcon size={40} color={Colors.brand} />
             <ActivityIndicator size="large" color={Colors.brand} style={{ marginTop: 20 }} />
-            <Text style={styles.analyzingText}>Analyzing your skin…</Text>
-            <Text style={styles.analyzingSub}>Reading tone, type, and a few key signals</Text>
+            <Text style={styles.analyzingText}>
+              {analyzingStage === 0 ? 'Reading your photo…' : analyzingStage === 1 ? 'Analyzing your skin…' : 'Writing your results…'}
+            </Text>
+            <View style={styles.analyzingSteps}>
+              <AnalyzingStepRow label="Face detected" done={analyzingStage >= 1} />
+              <AnalyzingStepRow label="Tone, type & texture read" done={analyzingStage >= 2} />
+              <AnalyzingStepRow label="Personalized recommendations" done={false} active={analyzingStage >= 2} />
+            </View>
           </View>
         )}
       </View>
@@ -318,5 +365,5 @@ const styles = StyleSheet.create({
 
   analyzingRoot: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.systemBackground, gap: 4 },
   analyzingText: { fontSize: 17, fontFamily: Fonts.semibold, color: Colors.label, marginTop: 16 },
-  analyzingSub: { fontSize: 13, fontFamily: Fonts.regular, color: Colors.secondaryLabel, marginTop: 4 },
+  analyzingSteps: { marginTop: 26, gap: 14, alignItems: 'flex-start' },
 });

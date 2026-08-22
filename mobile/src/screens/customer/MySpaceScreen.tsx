@@ -14,6 +14,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Fonts } from '../../utils/colors';
 import { ScanFaceIcon } from '../../components/TabIcons';
 import { SkinScanCamera } from '../../components/SkinScanCamera';
+import { NearbyArtistRow } from '../../components/NearbyArtistRow';
 import { apiGetLatestSkinScan, apiGetSkinScans, SkinScan } from '../../api/client';
 import { Storage } from '../../utils/storage';
 import { scheduleDailyReminder, cancelDailyReminder } from '../../utils/notifications';
@@ -65,11 +66,6 @@ export function MySpaceScreen() {
     nav.navigate('SkinScanResult', { scan, justScanned: true });
   }
 
-  function bookAnArtist() {
-    tapLight();
-    nav.navigate('NewBooking', { serviceType: 'Facial', bookingMode: 'scheduled', _t: Date.now() });
-  }
-
   return (
     <View style={{ flex: 1, backgroundColor: Colors.systemGroupedBackground }}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingTop: insets.top + 18, paddingBottom: 130 }}>
@@ -109,10 +105,24 @@ export function MySpaceScreen() {
                   </View>
                 </View>
               </View>
+              {/* The AI's own written line — same reason SkinScanResultScreen
+                  leads with it: this is what reads as a real reading of THIS
+                  photo, not a static template. */}
+              {!!latest.summary && <Text style={styles.heroSummary}>“{latest.summary}”</Text>}
               <Pressable style={styles.rescanBtn} onPress={() => { tapLight(); setCameraOpen(true); }}>
                 <Text style={styles.rescanBtnText}>Rescan</Text>
               </Pressable>
             </LinearGradient>
+
+            {!!latest.progressNote && (
+              <View style={styles.progressCard}>
+                <View style={styles.progressHeader}>
+                  <ScanFaceIcon size={14} color="#fff" />
+                  <Text style={styles.progressLabel}>YOUR PROGRESS</Text>
+                </View>
+                <Text style={styles.progressText}>{latest.progressNote}</Text>
+              </View>
+            )}
 
             {latest.concerns.length > 0 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
@@ -133,13 +143,10 @@ export function MySpaceScreen() {
               ))}
             </View>
 
-            <Pressable style={styles.bookCard} onPress={bookAnArtist}>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.bookCardTitle}>Want a professional take?</Text>
-                <Text style={styles.bookCardSub}>Book a facial with a Glow artist</Text>
-              </View>
-              <Text style={styles.bookCardArrow}>→</Text>
-            </Pressable>
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Want a professional take?</Text>
+              <NearbyArtistRow category="Facials & Skin" serviceType="Facial" />
+            </View>
 
             {history.length > 0 && (
               <View style={styles.section}>
@@ -213,12 +220,24 @@ const styles = StyleSheet.create({
   heroResultRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 5 },
   toneSwatch: { width: 16, height: 16, borderRadius: 8, borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.7)' },
   heroResult: { fontSize: 15.5, color: '#fff', fontFamily: Fonts.display },
+  heroSummary: {
+    fontSize: 15, fontFamily: Fonts.displayItalic, color: 'rgba(255,255,255,0.92)',
+    lineHeight: 21, marginTop: 14,
+  },
   rescanBtn: {
     alignSelf: 'flex-start', marginTop: 14,
     backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 100,
     paddingHorizontal: 16, paddingVertical: 9, borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)',
   },
   rescanBtnText: { color: '#fff', fontSize: 12.5, fontFamily: Fonts.semibold },
+
+  progressCard: {
+    marginHorizontal: 20, marginBottom: 14, borderRadius: 20, padding: 16,
+    backgroundColor: Colors.brandDeep,
+  },
+  progressHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
+  progressLabel: { fontSize: 10.5, fontFamily: Fonts.bold, color: 'rgba(255,255,255,0.85)', letterSpacing: 1 },
+  progressText: { fontSize: 13.5, fontFamily: Fonts.medium, color: '#fff', lineHeight: 19 },
 
   chipRow: { gap: 8, paddingHorizontal: 20, marginBottom: 8 },
   concernChip: { backgroundColor: Colors.surfaceBlush, borderRadius: 100, paddingHorizontal: 13, paddingVertical: 7, borderWidth: 1, borderColor: Colors.brandAccent },
@@ -234,15 +253,6 @@ const styles = StyleSheet.create({
   recCategoryText: { fontSize: 10.5, fontFamily: Fonts.bold, color: Colors.brandDark, letterSpacing: 0.3, textTransform: 'uppercase' },
   recTitle: { fontSize: 14.5, fontFamily: Fonts.semibold, color: Colors.label },
   recNote: { fontSize: 12.5, fontFamily: Fonts.regular, color: Colors.secondaryLabel, marginTop: 3, lineHeight: 18 },
-
-  bookCard: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    marginHorizontal: 20, marginTop: 18, padding: 16, borderRadius: 20,
-    backgroundColor: Colors.brandLight, borderWidth: 1, borderColor: Colors.brandAccent,
-  },
-  bookCardTitle: { fontSize: 14.5, fontFamily: Fonts.semibold, color: Colors.label },
-  bookCardSub: { fontSize: 12.5, fontFamily: Fonts.regular, color: Colors.secondaryLabel, marginTop: 2 },
-  bookCardArrow: { fontSize: 20, fontFamily: Fonts.semibold, color: Colors.brandDark },
 
   historyTile: { width: 90, gap: 6 },
   historyTileImg: { width: 90, height: 110, borderRadius: 16, backgroundColor: Colors.brandLight },

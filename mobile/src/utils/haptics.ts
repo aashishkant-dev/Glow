@@ -58,7 +58,20 @@ export function confirmAction(opts: {
     );
     return;
   }
-  // Android + web: standard two-button dialog.
+  // Alert.alert with a multi-button array is a silent no-op on RN-Web — the
+  // dialog never appears and onConfirm never fires, so every caller of this
+  // function (delete a comment, delete a scan, …) looked like a dead button
+  // on web specifically. PostsScreen.tsx already worked around this locally
+  // for its own delete-post flow; fixing it here once covers every caller
+  // instead of every call site needing its own Platform.OS check.
+  if (Platform.OS === 'web') {
+    const text = [opts.title, opts.message].filter(Boolean).join('\n\n');
+    if (typeof window !== 'undefined' && window.confirm(text || opts.confirmLabel)) {
+      opts.onConfirm();
+    }
+    return;
+  }
+  // Android: standard two-button dialog.
   Alert.alert(
     opts.title ?? opts.confirmLabel,
     opts.message,
