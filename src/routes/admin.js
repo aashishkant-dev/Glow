@@ -5,7 +5,7 @@ const express  = require('express');
 const prisma   = require('../lib/prisma');
 const { authenticate, requireRole } = require('../middleware/auth');
 const { authenticateAdmin, authenticateAdminOrUser, requireAdminRole, logAudit } = require('../middleware/adminAuth');
-const { pushTo } = require('../utils/push');
+const { notify } = require('../utils/notify');
 const { cacheGet, cacheSet, cacheDel } = require('../utils/cache');
 
 const router = express.Router();
@@ -137,12 +137,18 @@ router.post(
       const io = req.app.get('io');
       if (io) io.to(`user-${id}`).emit('provider-approved', { userId: id });
 
-      pushTo(
-        user.expoPushToken,
-        "You've been approved!",
-        'Your Glow application has been approved. You can now go online and accept jobs.',
-        { type: 'approved' },
-      ).catch(() => {});
+      // notify() persists a Notification row (so this survives into the
+      // Provider's bell/Notifications history if they aren't in the app at
+      // the moment they're approved — a real event, not something that
+      // should only exist as a live push they might miss) as well as
+      // sending the push.
+      notify({
+        userId:    id,
+        type:      'approved',
+        title:     "You've been approved!",
+        body:      'Your Glow application has been approved. You can now go online and accept jobs.',
+        pushToken: user.expoPushToken, // reuse — already fetched above, no extra DB call
+      }).catch(() => {});
 
       res.json({ message: 'Provider approved successfully', profile });
     } catch (err) {

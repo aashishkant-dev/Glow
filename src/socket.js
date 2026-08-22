@@ -5,6 +5,7 @@ const { Server } = require('socket.io');
 const jwt    = require('jsonwebtoken');
 const prisma = require('./lib/prisma');
 const { pushTo } = require('./utils/push');
+const { notify } = require('./utils/notify');
 const { JWT_SECRET, JWT_ALGORITHMS } = require('./lib/jwt');
 
 const SOCKET_ALLOWED_ORIGINS = (process.env.CORS_ORIGIN || '')
@@ -131,19 +132,23 @@ function initSocket(httpServer) {
         const recipientId = socket.userId === booking.customerId ? booking.providerId : booking.customerId;
         if (recipientId) io.to(`user-${recipientId}`).emit('message-notification', payload);
         if (recipientId) {
-          const recipient = await prisma.user.findUnique({
-            where:  { id: recipientId },
-            select: { expoPushToken: true },
-          });
-          if (recipient?.expoPushToken) {
-            pushTo(
-              recipient.expoPushToken,
-              `💬 ${msg.senderName}`,
-              msg.text.slice(0, 100),
-              { bookingId, type: 'message', senderName: msg.senderName, senderRole: msg.senderRole },
-              'chat',
-            ).catch(() => {});
-          }
+          // Persists a Notification row (so it survives into the bell/
+          // Notifications screen history and counts toward the server's
+          // unreadCount — the real cause behind the Provider-side unread
+          // badge going stale/wrong: messages used to ONLY fire a live push,
+          // never a durable row, so unreadCount from GET /notifications
+          // never reflected an unread message once the app was reopened)
+          // AND sends the push, in one call — notify() resolves the
+          // recipient's expoPushToken itself, same as every other
+          // notification type already goes through this path.
+          notify({
+            userId:    recipientId,
+            type:      'message',
+            title:     `💬 ${msg.senderName}`,
+            body:      msg.text.slice(0, 100),
+            bookingId,
+            channelId: 'chat',
+          }).catch(() => {});
         }
       } catch {}
     });
@@ -215,6 +220,25 @@ function initSocket(httpServer) {
         const recipientId = socket.userId === pair.customerId ? pair.providerId : pair.customerId;
         if (recipientId) {
           io.to(`user-${recipientId}`).emit('inquiry-message-notification', { ...payload, otherUserId: socket.userId });
+          // Persist-only (push:false) — a durable Notification row so a
+          // "message request" (a client's first message before ever
+          // booking, a genuinely revenue-relevant event for an artist) shows
+          // up in bell history and counts toward unreadCount, same fix as
+          // send-message above. Notification has no field to carry
+          // otherUserId for a precise deep-link back to this exact inquiry
+          // thread (it only has bookingId, and an inquiry has none) — the
+          // client falls back to opening the Inquiries list for a persisted
+          // row instead of the exact thread; that gap doesn't affect the
+          // live in-app banner (which reads otherUserId straight off this
+          // socket payload) or the push tap-through below (which keeps its
+          // own otherUserId-carrying data, unchanged).
+          notify({
+            userId: recipientId,
+            type:   'message',
+            title:  `💬 ${msg.senderName}`,
+            body:   msg.text.slice(0, 100),
+            push:   false,
+          }).catch(() => {});
           const recipient = await prisma.user.findUnique({ where: { id: recipientId }, select: { expoPushToken: true } });
           if (recipient?.expoPushToken) {
             pushTo(

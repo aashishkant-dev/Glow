@@ -1376,8 +1376,8 @@ router.put(
         const name = String(s?.name || '').trim().slice(0, 80);
         const price = Number(s?.price);
         const durationMin = Number(s?.durationMin) || 60;
-        if (!name || Number.isNaN(price) || price < 0 || price > 100000) {
-          return res.status(400).json({ error: 'Each service needs a name and a valid price' });
+        if (!name || Number.isNaN(price) || price <= 0 || price > 100000) {
+          return res.status(400).json({ error: 'Each service needs a name and a price greater than $0' });
         }
         if (seen.has(name.toLowerCase())) continue;
         seen.add(name.toLowerCase());
@@ -1567,8 +1567,8 @@ router.post(
         : [];
       if (!cleanName) return res.status(400).json({ error: 'name is required' });
       if (!cleanServiceType) return res.status(400).json({ error: 'serviceType is required' });
-      if (Number.isNaN(cleanPrice) || cleanPrice < 0 || cleanPrice > 100000) {
-        return res.status(400).json({ error: 'A valid price is required' });
+      if (Number.isNaN(cleanPrice) || cleanPrice <= 0 || cleanPrice > 100000) {
+        return res.status(400).json({ error: 'Set a price greater than $0 for this look' });
       }
       if (mediaList.length > MAX_LOOK_MEDIA) {
         return res.status(400).json({ error: `You can add up to ${MAX_LOOK_MEDIA} photos/videos per look.` });
@@ -1805,8 +1805,8 @@ router.patch(
       }
       if (price !== undefined) {
         const cleanPrice = Number(price);
-        if (Number.isNaN(cleanPrice) || cleanPrice < 0 || cleanPrice > 100000) {
-          return res.status(400).json({ error: 'A valid price is required' });
+        if (Number.isNaN(cleanPrice) || cleanPrice <= 0 || cleanPrice > 100000) {
+          return res.status(400).json({ error: 'Set a price greater than $0 for this look' });
         }
         data.price = cleanPrice;
       }
