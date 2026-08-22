@@ -48,8 +48,9 @@ import { PHOTO_FILTERS } from '../../data/photoFilters';
 import { SparkleIcon } from '../../components/BeautyIcons';
 import { ShareIcon, PencilIcon, TrashIcon } from '../../components/CareIcons';
 import { shareLookMedia } from '../../utils/shareLook';
+import { ShareCardModal, ShareCardSpec } from '../../components/ShareCardModal';
 import { CommentsSheetModal } from '../../components/CommentsSheetModal';
-import { getCurrencySymbol } from '../../utils/format';
+import { getCurrencySymbol, formatCurrency } from '../../utils/format';
 
 
 // A media item staged for a look — either a fresh shot (needs uploading) or
@@ -130,6 +131,7 @@ export function ProviderLooksScreen() {
   // The artist's own post library — a look can reuse any of these instead of
   // shooting fresh, and the same photo can back several looks at once.
   const [myPosts, setMyPosts] = useState<Post[]>([]);
+  const [shareCard, setShareCard] = useState<ShareCardSpec | null>(null);
 
   async function loadAll() {
     try {
@@ -317,7 +319,21 @@ export function ProviderLooksScreen() {
                             onPress={() => {
                               const cover = item.media[0];
                               if (!cover) { Alert.alert('Add a photo first', 'This look needs at least one photo to share.'); return; }
-                              shareLookMedia(cover.url, `${item.name} — see it on Glow ✨`, cover.type === 'video' ? 'video' : 'photo');
+                              // A video cover can't become a still share card —
+                              // falls back to the old raw-file share for that case.
+                              if (cover.type === 'video') {
+                                shareLookMedia(cover.url, `${item.name} — see it on Glow ✨`, 'video');
+                                return;
+                              }
+                              setShareCard({
+                                photoUrl: cover.url,
+                                kicker: 'GLOW LOOK',
+                                title: item.name,
+                                subtitle: item.vibe || undefined,
+                                meta: `${formatCurrency(item.price, { decimals: 0 })}${item.durationMin ? ` · ${item.durationMin}m` : ''}`,
+                                chips: item.includes,
+                                shareCaption: `${item.name} — see it on Glow ✨`,
+                              });
                             }}
                           >
                             <ShareIcon size={16} color={Colors.brand} />
@@ -362,6 +378,8 @@ export function ProviderLooksScreen() {
         onCreated={(look) => { setMyLooks(prev => [look, ...prev]); setCreateOpen(false); }}
         onUpdated={(look) => { setMyLooks(prev => prev.map(l => l.id === look.id ? look : l)); setEditingLook(null); }}
       />
+
+      <ShareCardModal visible={!!shareCard} card={shareCard} onClose={() => setShareCard(null)} />
     </ScrollView>
   );
 }
@@ -508,7 +526,7 @@ function CreateLookSheet({
     const cleanPrice = Number(price);
     if (!cleanName) { Alert.alert('Name your look', 'Give this package a name clients will recognize.'); return; }
     if (!selectedService) { Alert.alert('Pick a service', 'Choose which of your priced services this look is built on.'); return; }
-    if (Number.isNaN(cleanPrice) || cleanPrice < 0) { Alert.alert('Invalid price', 'Enter a valid price for this look.'); return; }
+    if (Number.isNaN(cleanPrice) || cleanPrice <= 0) { Alert.alert('Invalid price', 'Enter a price greater than $0 for this look.'); return; }
 
     setSubmitting(true);
     try {

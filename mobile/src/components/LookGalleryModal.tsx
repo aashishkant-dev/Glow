@@ -27,6 +27,7 @@ import { formatCurrency } from '../utils/format';
 import { CloseCircleIcon, ChevronForwardIcon } from './TabIcons';
 import { LookMediaItem } from '../api/client';
 import { shareLookMedia } from '../utils/shareLook';
+import { ShareCardModal, ShareCardSpec } from './ShareCardModal';
 
 const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
@@ -71,6 +72,7 @@ function GalleryVideo({ uri }: { uri: string }) {
 export function LookGalleryModal({ visible, media, name, vibe, price, durationMin, includes, providerName, onViewProvider, onMessageArtist, onClose, onBook }: Props) {
   const insets = useSafeAreaInsets();
   const [active, setActive] = useState(0);
+  const [shareCard, setShareCard] = useState<ShareCardSpec | null>(null);
   const duration = formatDuration(durationMin);
 
   function onScroll(e: NativeSyntheticEvent<NativeScrollEvent>) {
@@ -78,6 +80,7 @@ export function LookGalleryModal({ visible, media, name, vibe, price, durationMi
   }
 
   return (
+    <>
     <Modal visible={visible} animationType="fade" onRequestClose={onClose}>
       <View style={styles.root}>
         <FlatList
@@ -112,7 +115,20 @@ export function LookGalleryModal({ visible, media, name, vibe, price, durationMi
           style={[styles.shareBtn, { top: insets.top + 12 }]}
           onPress={() => {
             const item = media[active];
-            if (item) shareLookMedia(item.url, `${name} — see it on Glow ✨`, item.type === 'video' ? 'video' : 'photo');
+            if (!item) return;
+            if (item.type === 'video') {
+              shareLookMedia(item.url, `${name} — see it on Glow ✨`, 'video');
+              return;
+            }
+            setShareCard({
+              photoUrl: item.url,
+              kicker: providerName ? `GLOW LOOK · BY ${providerName.toUpperCase()}` : 'GLOW LOOK',
+              title: name,
+              subtitle: vibe,
+              meta: price != null ? `${formatCurrency(price, { decimals: 0 })}${duration ? ` · ${duration}` : ''}` : duration || undefined,
+              chips: includes,
+              shareCaption: `${name} — see it on Glow ✨`,
+            });
           }}
           hitSlop={10}
         >
@@ -167,6 +183,8 @@ export function LookGalleryModal({ visible, media, name, vibe, price, durationMi
         </View>
       </View>
     </Modal>
+    <ShareCardModal visible={!!shareCard} card={shareCard} onClose={() => setShareCard(null)} />
+    </>
   );
 }
 
