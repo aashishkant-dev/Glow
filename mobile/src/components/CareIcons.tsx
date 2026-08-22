@@ -240,6 +240,16 @@ export function ShareIcon({ size = 24, color = Colors.brand }: IconProps) {
   );
 }
 
+export function DownloadIcon({ size = 24, color = Colors.brand }: IconProps) {
+  return (
+    <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">
+      <Path d="M12 3v13" stroke={color} {...S} />
+      <Path d="M7 11l5 5 5-5" stroke={color} {...S} />
+      <Path d="M5 19h14" stroke={color} {...S} />
+    </Svg>
+  );
+}
+
 export function PencilIcon({ size = 24, color = Colors.brand }: IconProps) {
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24" fill="none">

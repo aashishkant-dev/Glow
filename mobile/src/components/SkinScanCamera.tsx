@@ -12,7 +12,7 @@
  * Analysis is free/on-device-style pixel math + this quiz (see
  * src/utils/skinAnalysis.js on the backend) — never a paid vision API call.
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Image } from 'expo-image';
 import {
   ActivityIndicator,
@@ -43,7 +43,42 @@ function stripDataUrlPrefix(value: string): string {
 interface Props {
   visible: boolean;
   onClose: () => void;
-  onComplete: (scan: SkinScan, bookCategory: string) => void;
+  // isNewProfile: true when the backend's face-match decided this photo is
+  // someone not previously seen on this account and started a fresh profile.
+  onComplete: (scan: SkinScan, bookCategory: string, isNewProfile?: boolean) => void;
+  // The active profile's most recent scan, if any — lets the camera screen
+  // show a tip grounded in what was actually noted last time ("last scan
+  // flagged X, make sure that area is lit"), not just generic photography
+  // advice. Omit/null on a first-ever scan.
+  previousScan?: SkinScan | null;
+}
+
+const GENERIC_TIPS = [
+  'Face a window or light source — even, natural light reads skin tone truest.',
+  'Remove glasses so the AI can read the skin around your eyes clearly.',
+  'Pull hair back from your forehead and cheeks for the clearest read.',
+  'A neutral, relaxed expression works best — no smiling or squinting.',
+  'Hold the phone at eye level, arm-length away, centered in the oval.',
+  'Bare skin (no fresh makeup) gives the most accurate reading.',
+];
+
+function buildTips(previousScan?: SkinScan | null): string[] {
+  const tips = [...GENERIC_TIPS];
+  if (previousScan) {
+    // Prefer whichever zone had something notable last time — the most
+    // concrete, specific tip beats a generic one.
+    const zone = previousScan.zoneNotes || {};
+    const zoneHit = zone.tZone ? { label: 'T-zone (forehead & nose)', note: zone.tZone }
+      : zone.cheeks ? { label: 'cheeks', note: zone.cheeks }
+      : zone.underEye ? { label: 'under-eye area', note: zone.underEye }
+      : null;
+    if (zoneHit) {
+      tips.unshift(`Last scan noted your ${zoneHit.label}: "${zoneHit.note}" — make sure it's clearly lit this time so we can track the change.`);
+    } else if (previousScan.concerns?.[0]) {
+      tips.unshift(`Last time we flagged "${previousScan.concerns[0]}" — center your face well so we can see if it's changed.`);
+    }
+  }
+  return tips;
 }
 
 type Step = 'camera' | 'quiz' | 'analyzing';
@@ -73,7 +108,7 @@ const analyzingStepStyles = StyleSheet.create({
   labelDone: { color: Colors.label, fontFamily: Fonts.semibold },
 });
 
-export function SkinScanCamera({ visible, onClose, onComplete }: Props) {
+export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: Props) {
   const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const cameraRef = useRef<CameraView>(null);
@@ -84,6 +119,23 @@ export function SkinScanCamera({ visible, onClose, onComplete }: Props) {
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   const flashAnim = useRef(new Animated.Value(0)).current;
+
+  // Live, rotating tips on the camera step itself — real-time coaching
+  // instead of a single static hint, and personalized off the last scan's
+  // own findings when there is one (see buildTips).
+  const tips = useMemo(() => buildTips(previousScan), [previousScan]);
+  const [tipIndex, setTipIndex] = useState(0);
+  const tipFade = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    if (step !== 'camera' || tips.length <= 1) return;
+    const id = setInterval(() => {
+      Animated.timing(tipFade, { toValue: 0, duration: 220, useNativeDriver: true }).start(() => {
+        setTipIndex(i => (i + 1) % tips.length);
+        Animated.timing(tipFade, { toValue: 1, duration: 220, useNativeDriver: true }).start();
+      });
+    }, 4200);
+    return () => clearInterval(id);
+  }, [step, tips, tipFade]);
 
   function reset() {
     setStep('camera');
@@ -148,13 +200,13 @@ export function SkinScanCamera({ visible, onClose, onComplete }: Props) {
     setStep('analyzing');
     setError(null);
     try {
-      const { scan, bookCategory } = await apiScanSkin({
+      const { scan, bookCategory, isNewProfile } = await apiScanSkin({
         photoBase64: shot.base64,
         mimeType: shot.mimeType,
         quizAnswers: answers,
       });
       reset();
-      onComplete(scan, bookCategory);
+      onComplete(scan, bookCategory, isNewProfile);
     } catch (err: any) {
       console.error('[SkinScanCamera] scan failed', err);
       setError(err?.message || 'Could not analyze your photo. Please try again.');
@@ -190,6 +242,13 @@ export function SkinScanCamera({ visible, onClose, onComplete }: Props) {
               <GlowMark size={22} petal="#fff" petalInner="rgba(255,255,255,0.55)" core={Colors.gold} />
               <View style={{ width: 42 }} />
             </View>
+
+            {cameraReady && !!tips[tipIndex] && (
+              <Animated.View style={[styles.tipCard, { top: insets.top + 60, opacity: tipFade }]} pointerEvents="none">
+                <SparkleIcon size={12} color="#fff" />
+                <Text style={styles.tipCardText}>{tips[tipIndex]}</Text>
+              </Animated.View>
+            )}
 
             <View style={[styles.bottomCluster, { paddingBottom: insets.bottom + 20 }]}>
               <Text style={styles.hint}>
@@ -305,6 +364,14 @@ const styles = StyleSheet.create({
     position: 'absolute', left: 16, right: 16, zIndex: 2,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
   },
+  tipCard: {
+    position: 'absolute', left: 24, right: 24, zIndex: 2,
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    backgroundColor: 'rgba(0,0,0,0.5)', borderRadius: 16,
+    paddingHorizontal: 14, paddingVertical: 10,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)',
+  },
+  tipCardText: { flex: 1, color: '#fff', fontSize: 12.5, fontFamily: Fonts.medium, lineHeight: 17 },
   roundBtn: {
     width: 42, height: 42, borderRadius: 21,
     backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center',

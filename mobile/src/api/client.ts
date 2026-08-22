@@ -1058,10 +1058,6 @@ export function apiGetInquiryMessages(otherUserId: string) {
   return request<{ messages: ChatMessage[] }>('GET', `/messages/inquiry/${otherUserId}`);
 }
 
-export function apiSendInquiryMessage(otherUserId: string, text: string) {
-  return request<{ message: ChatMessage }>('POST', '/messages/inquiry', { otherUserId, text });
-}
-
 export interface InquiryThread {
   otherUserId: string;
   otherName: string;
@@ -1368,6 +1364,9 @@ export interface SkinRecommendation {
 
 export interface SkinScan {
   id: string;
+  // Which physical person this scan belongs to — see SkinProfile below. A
+  // shared-device account (family sharing one phone) can have more than one.
+  profileId: string;
   photoUrl: string;
   skinTone: SkinToneValue;
   skinType: SkinTypeValue;
@@ -1399,18 +1398,45 @@ export function apiScanSkin(payload: {
   faceRegion?: { x: number; y: number; width: number; height: number };
   notes?: string;
 }) {
-  return request<{ scan: SkinScan; bookCategory: string }>('POST', '/skin/scan', payload, true, 1, 60000);
+  // isNewProfile: true when the backend's face-match decided this photo
+  // doesn't match anyone previously scanned on this account and started a
+  // fresh SkinProfile for them — see SkinScanCamera's onComplete handler.
+  return request<{ scan: SkinScan; bookCategory: string; isNewProfile: boolean }>('POST', '/skin/scan', payload, true, 1, 60000);
 }
 
-export function apiGetSkinScans(cursor?: string, limit = 20) {
-  const params = new URLSearchParams({ limit: String(limit), ...(cursor ? { cursor } : {}) });
+export function apiGetSkinScans(profileId?: string, cursor?: string, limit = 20) {
+  const params = new URLSearchParams({ limit: String(limit), ...(cursor ? { cursor } : {}), ...(profileId ? { profileId } : {}) });
   return request<{ scans: SkinScan[]; nextCursor: string | null }>('GET', `/skin/scans?${params.toString()}`);
 }
 
-export function apiGetLatestSkinScan() {
-  return request<{ scan: SkinScan | null }>('GET', '/skin/latest');
+export function apiGetLatestSkinScan(profileId?: string) {
+  const params = profileId ? `?${new URLSearchParams({ profileId }).toString()}` : '';
+  return request<{ scan: SkinScan | null }>('GET', `/skin/latest${params}`);
 }
 
 export function apiDeleteSkinScan(scanId: string) {
   return request<{ success: boolean }>('DELETE', `/skin/scans/${scanId}`);
+}
+
+// ─── My Space — skin profiles ───────────────────────────────────────────────
+// A "profile" is one physical person scanning on this account — almost every
+// account only ever has one, but a shared device (family sharing a phone)
+// can have more. Created automatically server-side when a scan's face
+// doesn't match anyone already known on the account; never created directly.
+
+export interface SkinProfile {
+  id: string;
+  label: string;
+  scanCount: number;
+  latestPhotoUrl: string | null;
+  latestScanAt: string | null;
+  createdAt: string;
+}
+
+export function apiGetSkinProfiles() {
+  return request<{ profiles: SkinProfile[] }>('GET', '/skin/profiles');
+}
+
+export function apiRenameSkinProfile(profileId: string, label: string) {
+  return request<{ profile: { id: string; label: string } }>('PATCH', `/skin/profiles/${profileId}`, { label });
 }

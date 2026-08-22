@@ -5,21 +5,23 @@
  * + a short quiz — see src/utils/skinAnalysis.js on the backend), never a
  * paid vision API call — see SkinScanCamera.tsx for the capture flow itself.
  */
-import React, { useCallback, useEffect, useState } from 'react';
-import { ActivityIndicator, Pressable, ScrollView, StyleSheet, Switch, Text, View } from 'react-native';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Modal, Pressable, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import { Image } from 'expo-image';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Fonts } from '../../utils/colors';
 import { ScanFaceIcon } from '../../components/TabIcons';
+import { PencilIcon, DownloadIcon } from '../../components/CareIcons';
 import { SkinScanCamera } from '../../components/SkinScanCamera';
 import { NearbyArtistRow } from '../../components/NearbyArtistRow';
-import { apiGetLatestSkinScan, apiGetSkinScans, SkinScan } from '../../api/client';
+import { apiGetLatestSkinScan, apiGetSkinScans, apiGetSkinProfiles, apiRenameSkinProfile, SkinScan, SkinProfile } from '../../api/client';
 import { Storage } from '../../utils/storage';
 import { scheduleDailyReminder, cancelDailyReminder } from '../../utils/notifications';
 import { formatRelativeTime } from '../../utils/dateTime';
 import { tapLight } from '../../utils/haptics';
+import { exportSkinHistory } from '../../utils/exportSkinHistory';
 
 const TONE_LABELS: Record<string, string> = { FAIR: 'Fair', LIGHT: 'Light', MEDIUM: 'Medium', TAN: 'Tan', DEEP: 'Deep', RICH: 'Rich' };
 const TONE_SWATCH: Record<string, string> = { FAIR: '#F5D5C0', LIGHT: '#E8B894', MEDIUM: '#C68863', TAN: '#A9673F', DEEP: '#7A4B32', RICH: '#4A2C20' };
@@ -37,19 +39,83 @@ export function MySpaceScreen() {
   const [cameraOpen, setCameraOpen] = useState(false);
   const [reminderOn, setReminderOn] = useState(false);
 
-  const load = useCallback(async () => {
+  // Almost every account has exactly one profile (one person); a shared
+  // device (family sharing a phone) can have more — see SkinProfile on the
+  // backend. Defaults to whoever scanned most recently.
+  const [profiles, setProfiles] = useState<SkinProfile[]>([]);
+  const [activeProfileId, setActiveProfileId] = useState<string | null>(null);
+  const [newProfileBanner, setNewProfileBanner] = useState(false);
+  const [renaming, setRenaming] = useState<SkinProfile | null>(null);
+  const [renameDraft, setRenameDraft] = useState('');
+  const [renameSaving, setRenameSaving] = useState(false);
+
+  const loadScansFor = useCallback(async (profileId: string | null) => {
     try {
-      const [{ scan }, { scans }] = await Promise.all([apiGetLatestSkinScan(), apiGetSkinScans()]);
+      const [{ scan }, { scans }] = await Promise.all([
+        apiGetLatestSkinScan(profileId || undefined),
+        apiGetSkinScans(profileId || undefined),
+      ]);
       setLatest(scan);
       setHistory(scans);
+    } catch (err) {
+      console.error('Failed to load My Space scans', err);
+    }
+  }, []);
+
+  const load = useCallback(async () => {
+    try {
+      const { profiles: fetched } = await apiGetSkinProfiles();
+      setProfiles(fetched);
+      // apiGetSkinProfiles already sorts most-recently-scanned first.
+      const first = fetched[0]?.id ?? null;
+      setActiveProfileId(first);
+      await loadScansFor(first);
     } catch (err) {
       console.error('Failed to load My Space', err);
     }
     setLoading(false);
-  }, []);
+  }, [loadScansFor]);
 
   useEffect(() => { load(); }, [load]);
   useEffect(() => { Storage.getSkinReminderEnabled().then(setReminderOn); }, []);
+
+  // My Space opens straight into the camera — it's a scan-first screen, not
+  // a dashboard you scan from. Skipped exactly once right after a scan
+  // completes: without that, backing out of the result screen you just got
+  // would throw you straight back into another camera, which reads as
+  // broken rather than "camera-first."
+  const skipNextAutoOpen = useRef(false);
+  useFocusEffect(useCallback(() => {
+    if (skipNextAutoOpen.current) { skipNextAutoOpen.current = false; return; }
+    setCameraOpen(true);
+  }, []));
+
+  function selectProfile(id: string) {
+    if (id === activeProfileId) return;
+    tapLight();
+    setActiveProfileId(id);
+    setLoading(true);
+    loadScansFor(id).then(() => setLoading(false));
+  }
+
+  function openRename(p: SkinProfile) {
+    tapLight();
+    setRenaming(p);
+    setRenameDraft(p.label);
+  }
+
+  async function saveRename() {
+    if (!renaming || !renameDraft.trim()) return;
+    setRenameSaving(true);
+    try {
+      await apiRenameSkinProfile(renaming.id, renameDraft.trim());
+      setProfiles(prev => prev.map(p => (p.id === renaming.id ? { ...p, label: renameDraft.trim() } : p)));
+      setRenaming(null);
+    } catch (err: any) {
+      console.error('Failed to rename profile', err);
+    }
+    setRenameSaving(false);
+  }
 
   async function toggleReminder(next: boolean) {
     tapLight();
@@ -59,10 +125,25 @@ export function MySpaceScreen() {
     else await cancelDailyReminder();
   }
 
-  function onScanComplete(scan: SkinScan) {
-    setLatest(scan);
-    setHistory(prev => [scan, ...prev]);
+  async function onScanComplete(scan: SkinScan, _bookCategory: string, isNewProfile?: boolean) {
     setCameraOpen(false);
+    if (isNewProfile) {
+      // The face-match on the backend decided this photo doesn't match
+      // anyone previously scanned on this account — a family member's first
+      // time, most likely — and started a fresh profile for them.
+      setNewProfileBanner(true);
+      setTimeout(() => setNewProfileBanner(false), 6000);
+      try {
+        const { profiles: fresh } = await apiGetSkinProfiles();
+        setProfiles(fresh);
+      } catch (err) {
+        console.error('Failed to refresh profiles', err);
+      }
+    }
+    setActiveProfileId(scan.profileId);
+    setLatest(scan);
+    setHistory(prev => (scan.profileId === activeProfileId ? [scan, ...prev] : [scan]));
+    skipNextAutoOpen.current = true;
     nav.navigate('SkinScanResult', { scan, justScanned: true });
   }
 
@@ -73,6 +154,40 @@ export function MySpaceScreen() {
           <Text style={styles.eyebrow}>MY SPACE</Text>
           <Text style={styles.title}>Your skin, over time</Text>
         </View>
+
+        {/* Only shows once a second person has actually scanned on this
+            account — the overwhelming majority of accounts never see this
+            at all. */}
+        {profiles.length > 1 && (
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.profileRow}>
+            {profiles.map(p => {
+              const active = p.id === activeProfileId;
+              return (
+                <Pressable
+                  key={p.id}
+                  style={[styles.profileChip, active && styles.profileChipActive]}
+                  onPress={() => selectProfile(p.id)}
+                  onLongPress={() => openRename(p)}
+                >
+                  {!!p.latestPhotoUrl && <Image source={{ uri: p.latestPhotoUrl }} style={styles.profileChipAvatar} contentFit="cover" />}
+                  <Text style={[styles.profileChipText, active && styles.profileChipTextActive]} numberOfLines={1}>{p.label}</Text>
+                  {active && (
+                    <Pressable onPress={() => openRename(p)} hitSlop={8}>
+                      <PencilIcon size={11} color="#fff" />
+                    </Pressable>
+                  )}
+                </Pressable>
+              );
+            })}
+          </ScrollView>
+        )}
+
+        {newProfileBanner && (
+          <View style={styles.newProfileBanner}>
+            <ScanFaceIcon size={15} color={Colors.brand} />
+            <Text style={styles.newProfileBannerText}>Didn't recognize that face — started a fresh profile so their history stays separate from yours.</Text>
+          </View>
+        )}
 
         {loading ? (
           <ActivityIndicator style={{ marginTop: 60 }} color={Colors.brand} />
@@ -153,7 +268,7 @@ export function MySpaceScreen() {
                 <Text style={styles.sectionTitle}>Your progress</Text>
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingHorizontal: 20 }}>
                   {history.map(scan => (
-                    <Pressable key={scan.id} style={styles.historyTile} onPress={() => { tapLight(); nav.navigate('SkinScanResult', { scan }); }}>
+                    <Pressable key={scan.id} style={styles.historyTile} onPress={() => { tapLight(); skipNextAutoOpen.current = true; nav.navigate('SkinScanResult', { scan }); }}>
                       <Image source={{ uri: scan.photoUrl }} style={styles.historyTileImg} contentFit="cover" />
                       <Text style={styles.historyTileDate}>{formatRelativeTime(scan.createdAt)}</Text>
                     </Pressable>
@@ -174,6 +289,18 @@ export function MySpaceScreen() {
                 thumbColor={reminderOn ? Colors.brand : '#F4F4F5'}
               />
             </View>
+
+            <Pressable
+              style={styles.exportRow}
+              onPress={() => {
+                tapLight();
+                const label = profiles.find(p => p.id === activeProfileId)?.label || 'You';
+                exportSkinHistory(label, history);
+              }}
+            >
+              <DownloadIcon size={16} color={Colors.brand} />
+              <Text style={styles.exportRowText}>Export my scan history (JSON)</Text>
+            </Pressable>
           </>
         )}
 
@@ -182,7 +309,32 @@ export function MySpaceScreen() {
         </Text>
       </ScrollView>
 
-      <SkinScanCamera visible={cameraOpen} onClose={() => setCameraOpen(false)} onComplete={onScanComplete} />
+      <SkinScanCamera visible={cameraOpen} onClose={() => setCameraOpen(false)} onComplete={onScanComplete} previousScan={latest} />
+
+      <Modal visible={!!renaming} transparent animationType="fade" onRequestClose={() => setRenaming(null)}>
+        <View style={styles.renameBackdrop}>
+          <View style={styles.renameCard}>
+            <Text style={styles.renameTitle}>Rename profile</Text>
+            <TextInput
+              style={styles.renameInput}
+              value={renameDraft}
+              onChangeText={setRenameDraft}
+              placeholder="e.g. Mom, Priya…"
+              placeholderTextColor={Colors.tertiaryLabel}
+              maxLength={30}
+              autoFocus
+            />
+            <View style={styles.renameActions}>
+              <Pressable style={styles.renameCancelBtn} onPress={() => setRenaming(null)}>
+                <Text style={styles.renameCancelText}>Cancel</Text>
+              </Pressable>
+              <Pressable style={styles.renameSaveBtn} onPress={saveRename} disabled={renameSaving || !renameDraft.trim()}>
+                {renameSaving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.renameSaveText}>Save</Text>}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -191,6 +343,37 @@ const styles = StyleSheet.create({
   header: { paddingHorizontal: 24, paddingBottom: 16 },
   eyebrow: { fontSize: 11, fontFamily: Fonts.semibold, color: Colors.brandDark, letterSpacing: 1.6 },
   title: { fontSize: 28, fontFamily: Fonts.bold, color: Colors.label, letterSpacing: -0.7, marginTop: 6 },
+
+  profileRow: { gap: 8, paddingHorizontal: 20, paddingBottom: 14 },
+  profileChip: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: '#fff', borderRadius: 100, paddingHorizontal: 10, paddingVertical: 6,
+    borderWidth: 1, borderColor: Colors.separator,
+  },
+  profileChipActive: { backgroundColor: Colors.brand, borderColor: Colors.brand },
+  profileChipAvatar: { width: 22, height: 22, borderRadius: 11, backgroundColor: Colors.brandLight },
+  profileChipText: { fontSize: 12.5, fontFamily: Fonts.semibold, color: Colors.label, maxWidth: 90 },
+  profileChipTextActive: { color: '#fff' },
+
+  newProfileBanner: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    marginHorizontal: 20, marginBottom: 14, padding: 13, borderRadius: 16,
+    backgroundColor: Colors.brandLight, borderWidth: 1, borderColor: Colors.brandAccent,
+  },
+  newProfileBannerText: { flex: 1, fontSize: 12, fontFamily: Fonts.medium, color: Colors.brandDark, lineHeight: 17 },
+
+  renameBackdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 30 },
+  renameCard: { width: '100%', backgroundColor: '#fff', borderRadius: 22, padding: 20 },
+  renameTitle: { fontSize: 16, fontFamily: Fonts.semibold, color: Colors.label, marginBottom: 12 },
+  renameInput: {
+    borderWidth: 1, borderColor: Colors.separator, borderRadius: 14,
+    paddingHorizontal: 14, paddingVertical: 12, fontSize: 15, fontFamily: Fonts.regular, color: Colors.label,
+  },
+  renameActions: { flexDirection: 'row', gap: 10, marginTop: 16 },
+  renameCancelBtn: { flex: 1, alignItems: 'center', paddingVertical: 13, borderRadius: 14, backgroundColor: Colors.surfaceCream },
+  renameCancelText: { fontSize: 14, fontFamily: Fonts.semibold, color: Colors.secondaryLabel },
+  renameSaveBtn: { flex: 1, alignItems: 'center', paddingVertical: 13, borderRadius: 14, backgroundColor: Colors.brand },
+  renameSaveText: { fontSize: 14, fontFamily: Fonts.semibold, color: '#fff' },
 
   empty: {
     alignItems: 'center', paddingVertical: 44, paddingHorizontal: 30, gap: 8,
@@ -265,6 +448,12 @@ const styles = StyleSheet.create({
   },
   reminderTitle: { fontSize: 14, fontFamily: Fonts.semibold, color: Colors.label },
   reminderSub: { fontSize: 12, fontFamily: Fonts.regular, color: Colors.secondaryLabel, marginTop: 2 },
+
+  exportRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    marginHorizontal: 20, marginTop: 12, paddingVertical: 14,
+  },
+  exportRowText: { fontSize: 13, fontFamily: Fonts.semibold, color: Colors.brand },
 
   disclaimer: {
     fontSize: 11, fontFamily: Fonts.regular, color: Colors.tertiaryLabel,

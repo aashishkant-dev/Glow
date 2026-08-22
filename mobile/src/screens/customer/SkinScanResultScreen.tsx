@@ -17,7 +17,8 @@ import { Colors, Fonts } from '../../utils/colors';
 import { apiDeleteSkinScan, SkinScan } from '../../api/client';
 import { tapLight, confirmAction } from '../../utils/haptics';
 import { NearbyArtistRow } from '../../components/NearbyArtistRow';
-import { shareLookMedia } from '../../utils/shareLook';
+import { SkinZoneOverlay } from '../../components/SkinZoneOverlay';
+import { ShareCardModal, ShareCardSpec } from '../../components/ShareCardModal';
 import { SparkleIcon } from '../../components/BeautyIcons';
 
 const TONE_LABELS: Record<string, string> = { FAIR: 'Fair', LIGHT: 'Light', MEDIUM: 'Medium', TAN: 'Tan', DEEP: 'Deep', RICH: 'Rich' };
@@ -47,6 +48,7 @@ export function SkinScanResultScreen() {
   const scan: SkinScan = route.params.scan;
   const justScanned: boolean = !!route.params.justScanned;
   const [deleting, setDeleting] = useState(false);
+  const [shareCard, setShareCard] = useState<ShareCardSpec | null>(null);
 
   function goBack() {
     if (justScanned) nav.navigate('Home', { screen: 'MySpaceTab' });
@@ -56,8 +58,18 @@ export function SkinScanResultScreen() {
 
   function shareProgress() {
     tapLight();
-    const caption = `My Glow skin check-in: ${TONE_LABELS[scan.skinTone]} tone · ${TYPE_LABELS[scan.skinType]} skin ✨`;
-    shareLookMedia(scan.photoUrl, caption, 'photo');
+    // The old share just sent the bare photo — this bakes the actual reading
+    // (tone/type/hydration, the AI's own summary, the concerns) into a
+    // designed card, so what lands in a DM/Story actually says something.
+    setShareCard({
+      photoUrl: scan.photoUrl,
+      kicker: 'MY SPACE · AI SKIN READING',
+      title: `${TONE_LABELS[scan.skinTone]} tone · ${TYPE_LABELS[scan.skinType]} skin`,
+      subtitle: scan.summary || undefined,
+      meta: scan.hydrationLevel ? `${HYDRATION_LABELS[scan.hydrationLevel]} hydration` : undefined,
+      chips: scan.concerns,
+      shareCaption: `My Glow skin check-in: ${TONE_LABELS[scan.skinTone]} tone · ${TYPE_LABELS[scan.skinType]} skin ✨`,
+    });
   }
 
   function deleteScan() {
@@ -84,6 +96,7 @@ export function SkinScanResultScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}>
         <View>
           <Image source={{ uri: scan.photoUrl }} style={styles.photo} contentFit="cover" />
+          <SkinZoneOverlay zoneNotes={scan.zoneNotes} />
           <LinearGradient colors={['rgba(0,0,0,0.35)', 'transparent']} style={styles.photoTopGradient} pointerEvents="none" />
           <Pressable style={[styles.floatBack, { top: insets.top + 8 }]} onPress={goBack} hitSlop={12}>
             <Text style={styles.floatBackText}>‹</Text>
@@ -119,6 +132,7 @@ export function SkinScanResultScreen() {
               least one zone actually has something worth showing. */}
           {(!!scan.zoneNotes?.tZone || !!scan.zoneNotes?.cheeks || !!scan.zoneNotes?.underEye) && (
             <View style={styles.zoneSection}>
+              <Text style={styles.zoneHint}>Tap a marker on the photo above to see it pointed out</Text>
               {!!scan.zoneNotes?.tZone && <ZoneRow label="T-zone" note={scan.zoneNotes.tZone} />}
               {!!scan.zoneNotes?.cheeks && <ZoneRow label="Cheeks" note={scan.zoneNotes.cheeks} />}
               {!!scan.zoneNotes?.underEye && <ZoneRow label="Under-eye" note={scan.zoneNotes.underEye} />}
@@ -168,6 +182,8 @@ export function SkinScanResultScreen() {
           </Text>
         </View>
       </ScrollView>
+
+      <ShareCardModal visible={!!shareCard} card={shareCard} onClose={() => setShareCard(null)} />
     </View>
   );
 }
@@ -207,6 +223,10 @@ const styles = StyleSheet.create({
   zoneSection: {
     marginTop: 18, backgroundColor: Colors.surfaceCream, borderRadius: 16,
     paddingHorizontal: 14,
+  },
+  zoneHint: {
+    fontSize: 10.5, fontFamily: Fonts.medium, color: Colors.tertiaryLabel,
+    paddingTop: 12, paddingBottom: 2,
   },
 
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
