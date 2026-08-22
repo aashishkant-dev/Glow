@@ -1709,7 +1709,17 @@ router.delete(
       }
 
       // Anonymize the user. Phone is freed (suffixed) so the real number can sign up
-      // fresh; deletedAt blocks this row from ever authenticating again.
+      // fresh; email/googleId/appleId are freed outright (nulled — Postgres allows
+      // multiple NULLs under a unique constraint) for the same reason: a login route
+      // that finds an existing row by ANY of these MUST NOT find this dead one, or
+      // it stops there (isNewUser stays false, no fresh account gets created) and
+      // the very next check — `if (user.deletedAt) return 403` — permanently locks
+      // that identity out. Google/Apple sign-in used to hit exactly that: this row
+      // kept its old googleId/appleId forever, so re-signing in with the same
+      // Google/Apple account after deleting always found the dead row first and
+      // could never create a new one. deletedAt itself is what blocks this row from
+      // ever authenticating again — freeing these fields doesn't undo that, it only
+      // stops the row from shadowing a fresh signup.
       const stamp = Date.now();
       await prisma.user.update({
         where: { id: userId },
@@ -1718,6 +1728,8 @@ router.delete(
           name:                  'Deleted User',
           phone:                 `deleted_${stamp}_${user.phone}`.slice(0, 40),
           email:                 null,
+          googleId:              null,
+          appleId:               null,
           photoUrl:              '',
           expoPushToken:         '',
           address:               null,
