@@ -166,6 +166,23 @@ export function addTapListener(
       return;
     }
 
+    // A pre-booking "message request" — no bookingId yet, threaded by the
+    // other party's user id instead (see Message.bookingId's schema
+    // comment). The real push for this always carries type 'inquiry' (see
+    // socket.js's send-inquiry-message / messages.js) — 'message' is also
+    // accepted here since ChatUnreadContext's local foreground echo of the
+    // same event uses that type instead. Before this, tapping either kind
+    // of notification for an inquiry silently did nothing — fell through
+    // every branch below, since none of them recognized otherUserId.
+    if ((data.type === 'message' || data.type === 'inquiry') && data.otherUserId) {
+      (navigationRef as any).navigate('Chat', {
+        otherUserId: data.otherUserId,
+        otherName: data.senderName || (role === 'Provider' ? 'Client' : 'Your Artist'),
+        otherRole: data.senderRole,
+      });
+      return;
+    }
+
     if (role === 'Provider') {
       if (data.type === 'approved') {
         (navigationRef as any).navigate('ProviderHome');

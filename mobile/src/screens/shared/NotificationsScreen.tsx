@@ -67,8 +67,18 @@ export function NotificationsScreen() {
   }, [refreshNotifications, markAllRead]));
 
   const handleItemPress = useCallback(async (item: any) => {
-    if (!item.bookingId) return;
     if (item.type === 'message') {
+      if (!item.bookingId) {
+        // A pre-booking "message request" restored from server history has
+        // no bookingId (inquiries aren't threaded by one) AND the
+        // Notification row has nowhere to carry the otherUserId needed to
+        // deep-link the exact thread (only a LIVE banner/push has that, off
+        // the socket/push payload directly) — this used to just silently do
+        // nothing when tapped. Opening the Inquiries list is a real,
+        // working destination instead of a dead tap.
+        nav.navigate('Inquiries');
+        return;
+      }
       const otherRole = isProvider ? 'CUSTOMER' : 'Provider';
       const otherName = item.senderName || (isProvider ? 'Customer' : 'Your Provider');
       // otherPhotoUrl was always undefined here — the notification payload
@@ -89,6 +99,15 @@ export function NotificationsScreen() {
       });
       return;
     }
+    // These carry no bookingId — used to fall through the bookingId-only
+    // gate below and dead-end on tap, same class of bug as the message case
+    // above. Mirrors the live banner's own routing (ChatUnreadContext's
+    // handlePress) so a notification behaves the same whether it's tapped
+    // live or later from history.
+    if (item.type === 'approved') { nav.navigate(isProvider ? 'ProviderHome' : 'Home'); return; }
+    if (item.type === 'request') { nav.navigate('Requests'); return; }
+    if (item.type === 'job') { nav.navigate('MyJobs'); return; }
+    if (!item.bookingId) return;
     try {
       const { booking } = await apiGetBooking(item.bookingId);
       const activeStatuses = ['REQUESTED', 'ACCEPTED', 'ON_MY_WAY', 'STARTED'];

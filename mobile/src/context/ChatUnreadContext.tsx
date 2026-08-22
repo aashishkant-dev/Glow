@@ -19,6 +19,13 @@ interface StoredNotification {
     | 'accepted' | 'enroute' | 'started' | 'cancelled' | 'tip';
   bookingId?: string;
   senderName?: string; // for message rows — used by NotificationsScreen to open chat
+  // Set only for a LIVE pre-booking inquiry message (the socket payload
+  // carries it) — lets a fresh banner deep-link to the exact thread. A
+  // notification restored from server history has no such field (the
+  // Notification row has no place to store it — see the fix note where
+  // this is populated in the socket listener below), so those fall back to
+  // opening the Inquiries list instead of the precise thread.
+  otherUserId?: string;
   read: boolean;
   createdAt: string; // ISO string
 }
@@ -32,18 +39,21 @@ interface BannerMsg {
   type?: 'message' | 'booking' | 'approved' | 'rating' | 'job' | 'request'
     | 'accepted' | 'enroute' | 'started' | 'cancelled' | 'tip';
   bookingId?: string;
+  otherUserId?: string;
   senderName?: string;
   senderPhotoUrl?: string;
 }
+
+type NotifyOptions = { type?: BannerMsg['type']; bookingId?: string; otherUserId?: string; senderName?: string; senderPhotoUrl?: string };
 
 interface ChatUnreadContextValue {
   count: number;
   increment: () => void;
   clear: () => void;
-  showBanner: (title: string, body: string, options?: { type?: BannerMsg['type']; bookingId?: string; senderName?: string }) => void;
+  showBanner: (title: string, body: string, options?: NotifyOptions) => void;
   notifications: StoredNotification[];
   markAllRead: () => void;
-  addNotification: (title: string, body: string, options?: { type?: BannerMsg['type']; bookingId?: string; senderName?: string }) => void;
+  addNotification: (title: string, body: string, options?: NotifyOptions) => void;
   refreshNotifications: () => Promise<void>;
 }
 
@@ -174,7 +184,7 @@ export function ChatUnreadProvider({ children }: { children: React.ReactNode }) 
     })();
   }, [user, refreshNotifications]);
 
-  const addNotification = useCallback((title: string, body: string, options?: { type?: BannerMsg['type']; bookingId?: string; senderName?: string }) => {
+  const addNotification = useCallback((title: string, body: string, options?: NotifyOptions) => {
     setNotifications(prev => {
       const cutoff = Date.now() - 30_000;
       // Dedup: same type+bookingId within 30s = skip. EXCEPT messages — every chat
@@ -205,6 +215,7 @@ export function ChatUnreadProvider({ children }: { children: React.ReactNode }) 
         body,
         type: options?.type,
         bookingId: options?.bookingId,
+        otherUserId: options?.otherUserId,
         senderName: options?.senderName,
         read: false,
         createdAt: new Date().toISOString(),
@@ -226,8 +237,8 @@ export function ChatUnreadProvider({ children }: { children: React.ReactNode }) 
     apiMarkNotificationsRead().catch(() => {});
   }, []);
 
-  const showBanner = useCallback((title: string, body: string, options?: { type?: BannerMsg['type']; bookingId?: string; senderName?: string; senderPhotoUrl?: string }) => {
-    setBanner({ title, body, type: options?.type, bookingId: options?.bookingId, senderName: options?.senderName, senderPhotoUrl: options?.senderPhotoUrl });
+  const showBanner = useCallback((title: string, body: string, options?: NotifyOptions) => {
+    setBanner({ title, body, type: options?.type, bookingId: options?.bookingId, otherUserId: options?.otherUserId, senderName: options?.senderName, senderPhotoUrl: options?.senderPhotoUrl });
     addNotification(title, body, options);
   }, [addNotification]);
 
@@ -297,6 +308,24 @@ export function ChatUnreadProvider({ children }: { children: React.ReactNode }) 
         Notification.requestPermission().catch(() => {});
       }
     };
+    // Pre-booking "message request" — a client's first message to an artist
+    // before ever booking. Backend already emitted this event (socket.js's
+    // send-inquiry-message handler); nothing on the client was listening for
+    // it globally (ChatScreen only sees it while that exact thread is open),
+    // so an artist could receive a message request and get zero in-app
+    // signal — no banner, no bell bump — unless they happened to already be
+    // on that screen. Mirrors onMessageNotification, keyed by otherUserId
+    // instead of bookingId since an inquiry has no booking yet.
+    const onInquiryMessageNotification = (d: any) => {
+      if (d?.senderId && myIdRef.current && String(d.senderId) === String(myIdRef.current)) return;
+      const senderName = d?.senderName || 'New message';
+      const body = d?.text || 'You have a new message.';
+      showBanner(senderName, body, { type: 'message', otherUserId: d?.otherUserId, senderName, senderPhotoUrl: d?.senderPhotoUrl });
+      scheduleLocal(senderName, body, { type: 'message', otherUserId: d?.otherUserId ?? '' });
+      if (Platform.OS === 'web' && typeof window !== 'undefined' && 'Notification' in window && Notification.permission === 'default') {
+        Notification.requestPermission().catch(() => {});
+      }
+    };
     const onApproved = () =>
       showBanner("You're approved!", 'Your account is verified — you can accept jobs now.', { type: 'approved' });
     const onNewJob = (d: any) =>
@@ -314,6 +343,7 @@ export function ChatUnreadProvider({ children }: { children: React.ReactNode }) 
     socket.on('booking-created', onBookingCreated);
     socket.on('booking-cancelled', onBookingCancelled);
     socket.on('message-notification', onMessageNotification);
+    socket.on('inquiry-message-notification', onInquiryMessageNotification);
     socket.on('provider-approved', onApproved);
     socket.on('new-job-assigned', onNewJob);
     socket.on('provider-rated', onRated);
@@ -324,6 +354,7 @@ export function ChatUnreadProvider({ children }: { children: React.ReactNode }) 
       socket.off('booking-created', onBookingCreated);
       socket.off('booking-cancelled', onBookingCancelled);
       socket.off('message-notification', onMessageNotification);
+      socket.off('inquiry-message-notification', onInquiryMessageNotification);
       socket.off('provider-approved', onApproved);
       socket.off('new-job-assigned', onNewJob);
       socket.off('provider-rated', onRated);
@@ -376,6 +407,10 @@ export function ChatUnreadProvider({ children }: { children: React.ReactNode }) 
       // fetch of its own for either, it just renders whatever route params
       // it's handed.
       nav.navigate('Chat', { bookingId: banner.bookingId, otherName: banner.title, otherPhotoUrl: banner.senderPhotoUrl });
+    } else if (banner.type === 'message' && banner.otherUserId) {
+      // Pre-booking message request — threaded by the other party's id, no
+      // booking exists yet.
+      nav.navigate('Chat', { otherUserId: banner.otherUserId, otherName: banner.title, otherPhotoUrl: banner.senderPhotoUrl });
     } else if ((banner.type === 'booking' || banner.type === 'rating') && banner.bookingId) {
       // Completed→rating + general booking updates open the booking detail
       // (which auto-scrolls to the rating section when COMPLETED).
