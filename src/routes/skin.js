@@ -398,6 +398,9 @@ router.get(
             latestPhotoUrl: p.scans[0]?.photoUrl || null,
             latestScanAt: p.scans[0]?.createdAt || null,
             createdAt: p.createdAt,
+            goalText: p.goalText || null,
+            goalSetAt: p.goalSetAt || null,
+            goalCheckInAt: p.goalCheckInAt || null,
           }))
           .sort((a, b) => new Date(b.latestScanAt).getTime() - new Date(a.latestScanAt).getTime()),
       });
@@ -424,6 +427,53 @@ router.patch(
       res.json({ profile: { id: updated.id, label: updated.label } });
     } catch (err) {
       console.error('PATCH /skin/profiles/:id error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+// A self-set focus with a target check-in date — what makes progress
+// tracking feel like an actual plan ("reduce redness, check back in a
+// week") instead of a passive timeline. Body: { goalText, checkInDays } to
+// set, or { goalText: null } to clear.
+router.patch(
+  '/profiles/:id/goal',
+  authenticate,
+  async (req, res) => {
+    try {
+      const profile = await prisma.skinProfile.findUnique({ where: { id: req.params.id } });
+      if (!profile || profile.userId !== req.user.id) return res.status(404).json({ error: 'Profile not found' });
+
+      const { goalText, checkInDays } = req.body;
+
+      if (goalText === null) {
+        const updated = await prisma.skinProfile.update({
+          where: { id: profile.id },
+          data: { goalText: null, goalSetAt: null, goalCheckInAt: null },
+        });
+        return res.json({ profile: { id: updated.id, goalText: null, goalSetAt: null, goalCheckInAt: null } });
+      }
+
+      const cleanGoal = typeof goalText === 'string' ? goalText.trim() : '';
+      if (!cleanGoal) return res.status(400).json({ error: 'goalText is required' });
+      if (cleanGoal.length > 120) return res.status(400).json({ error: 'Goal must be 120 characters or fewer' });
+
+      const days = Number(checkInDays);
+      if (!Number.isFinite(days) || days < 1 || days > 90) {
+        return res.status(400).json({ error: 'checkInDays must be between 1 and 90' });
+      }
+
+      const now = new Date();
+      const checkInAt = new Date(now.getTime() + days * 86_400_000);
+      const updated = await prisma.skinProfile.update({
+        where: { id: profile.id },
+        data: { goalText: cleanGoal, goalSetAt: now, goalCheckInAt: checkInAt },
+      });
+      res.json({
+        profile: { id: updated.id, goalText: updated.goalText, goalSetAt: updated.goalSetAt, goalCheckInAt: updated.goalCheckInAt },
+      });
+    } catch (err) {
+      console.error('PATCH /skin/profiles/:id/goal error:', err);
       res.status(500).json({ error: 'Server error' });
     }
   }
