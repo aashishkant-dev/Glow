@@ -40,16 +40,22 @@ export const ZONE_META: { key: ZoneKey; label: string; align: 'left' | 'right' |
   { key: 'jawline', label: 'Jawline', align: 'center' },
 ];
 
-// Fractions OF the face box (not the full photo).
+// Fractions OF the face box (not the full photo). Deliberately checked
+// pairwise for actual rectangle overlap, not just eyeballed — the previous
+// values had two real intersections (underEyeL/R clipped into nose's
+// corners, and chin sat almost entirely inside jawline's box), which is
+// what made a scan with several zones active read as visually cluttered
+// rather than 8 distinct, separated markers. Every pair below has a real
+// gap or at most a touching edge, never an overlapping area.
 export const ZONE_RECTS: Record<ZoneKey, FaceBox> = {
-  forehead:   { x: 0.20, y: 0.02, width: 0.60, height: 0.20 },
-  nose:       { x: 0.38, y: 0.24, width: 0.24, height: 0.30 },
-  chin:       { x: 0.34, y: 0.68, width: 0.32, height: 0.18 },
-  cheekL:     { x: 0.04, y: 0.40, width: 0.28, height: 0.28 },
-  cheekR:     { x: 0.68, y: 0.40, width: 0.28, height: 0.28 },
-  underEyeL:  { x: 0.16, y: 0.28, width: 0.26, height: 0.10 },
-  underEyeR:  { x: 0.58, y: 0.28, width: 0.26, height: 0.10 },
-  jawline:    { x: 0.10, y: 0.78, width: 0.80, height: 0.14 },
+  forehead:   { x: 0.22, y: 0.02, width: 0.56, height: 0.20 },
+  underEyeL:  { x: 0.14, y: 0.26, width: 0.22, height: 0.09 },
+  underEyeR:  { x: 0.64, y: 0.26, width: 0.22, height: 0.09 },
+  nose:       { x: 0.42, y: 0.32, width: 0.16, height: 0.24 },
+  cheekL:     { x: 0.02, y: 0.40, width: 0.26, height: 0.26 },
+  cheekR:     { x: 0.72, y: 0.40, width: 0.26, height: 0.26 },
+  chin:       { x: 0.36, y: 0.67, width: 0.28, height: 0.13 },
+  jawline:    { x: 0.06, y: 0.82, width: 0.88, height: 0.12 },
 };
 
 // Coarser 3-zone geometry from before the granular breakdown above — kept
