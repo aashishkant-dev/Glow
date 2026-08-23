@@ -388,6 +388,23 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
     return () => clearTimeout(t);
   }, [visible, step, hasPermission, device, cameraReady]);
 
+  // Diagnostic only — logs once whether THIS device's front camera actually
+  // supports the two brightness levers above at all. Low-light boost and
+  // exposure-bias support both vary by device/camera; if a report of "still
+  // dark" comes in after this, checking these values first tells us whether
+  // the levers are engaging with nothing left to give on this specific
+  // hardware, versus something else being wrong — instead of guessing at
+  // iPhone model capabilities from a hardware string in a crash log.
+  useEffect(() => {
+    if (!device) return;
+    console.log('[SkinScanCamera] front camera brightness capabilities', {
+      supportsLowLightBoost: device.supportsLowLightBoost,
+      supportsExposureBias: device.supportsExposureBias,
+      minExposureBias: device.minExposureBias,
+      maxExposureBias: device.maxExposureBias,
+    });
+  }, [device]);
+
   function reset() {
     setStep('camera');
     setShot(null);
@@ -551,6 +568,14 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
             // adaptive — iOS only engages it when the scene is actually
             // dark — so normal, well-lit framing is unaffected.
             enableLowLightBoost={device.supportsLowLightBoost}
+            // Unlike enableLowLightBoost (adaptive — iOS only engages it in
+            // an actually-dark scene), exposure bias is a FIXED offset
+            // applied regardless of current light, so it's deliberately
+            // capped well under this device's actual maximum rather than
+            // maxed out — a modest, permanent brighten that helps a dark
+            // room without blowing out a normally-lit one. 0 (neutral) on
+            // any device that doesn't support exposure bias at all.
+            exposure={device.supportsExposureBias ? Math.min(device.maxExposureBias, 1.5) : 0}
             // autoMode + window size: hands rotation/scaling to the
             // plugin's native side so `face.bounds` come back already in
             // screen/preview coordinates — see the comment above liveBox.
