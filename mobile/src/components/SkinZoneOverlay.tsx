@@ -17,6 +17,7 @@ import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Colors, Fonts } from '../utils/colors';
 import { resolveFaceBox, zoneRectToPhotoFrac } from '../utils/skinZones';
+import { ScanBracket } from './ScanBracket';
 
 interface Marker {
   key: string;
@@ -55,27 +56,30 @@ export function SkinZoneOverlay({ zoneNotes, faceBox: rawFaceBox }: Props) {
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
       {markers.map(m => {
         const isActive = active === m.key;
+        const posStyle = {
+          left: `${m.rect.x * 100}%`,
+          top: `${m.rect.y * 100}%`,
+          width: `${m.rect.width * 100}%`,
+          height: `${m.rect.height * 100}%`,
+        } as const;
         return (
           <React.Fragment key={m.key}>
+            <ScanBracket
+              style={posStyle}
+              color={isActive ? Colors.brand : 'rgba(255,255,255,0.75)'}
+              size={isActive ? 18 : 14}
+              thickness={isActive ? 2.5 : 1.5}
+            >
+              <View pointerEvents="none" style={[styles.dot, isActive && styles.dotActive]} />
+            </ScanBracket>
             <Pressable
               onPress={() => setActive(isActive ? null : m.key)}
-              // The box itself is already a real tap target, not just the
-              // small dot — hitSlop pads it further so a marker over a
-              // narrow zone (under-eye) isn't fiddly to hit.
+              // A real tap target across the whole zone, not just the small
+              // dot — hitSlop pads it further so a marker over a narrow zone
+              // (under-eye) isn't fiddly to hit.
               hitSlop={12}
-              style={[
-                styles.box,
-                {
-                  left: `${m.rect.x * 100}%`,
-                  top: `${m.rect.y * 100}%`,
-                  width: `${m.rect.width * 100}%`,
-                  height: `${m.rect.height * 100}%`,
-                },
-                isActive && styles.boxActive,
-              ]}
-            >
-              <View style={[styles.dot, isActive && styles.dotActive]} />
-            </Pressable>
+              style={[styles.tapTarget, posStyle]}
+            />
             {isActive && (
               <View
                 style={[
@@ -99,17 +103,7 @@ export function SkinZoneOverlay({ zoneNotes, faceBox: rawFaceBox }: Props) {
 }
 
 const styles = StyleSheet.create({
-  box: {
-    position: 'absolute',
-    borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.7)',
-    backgroundColor: 'rgba(255,255,255,0.06)',
-    borderRadius: 14,
-    alignItems: 'flex-end',
-    justifyContent: 'flex-start',
-    padding: 4,
-  },
-  boxActive: { borderColor: Colors.brand, borderWidth: 2, backgroundColor: 'rgba(217,122,145,0.14)' },
+  tapTarget: { position: 'absolute' },
   dot: {
     width: 9, height: 9, borderRadius: 4.5,
     backgroundColor: 'rgba(255,255,255,0.85)',

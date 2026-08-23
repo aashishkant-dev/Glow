@@ -60,6 +60,7 @@ import { SKIN_QUIZ_QUESTIONS } from '../data/skinQuiz';
 import { apiScanSkin, SkinScan } from '../api/client';
 import { tapLight, tapWarning } from '../utils/haptics';
 import { zoneRectToPhotoFrac } from '../utils/skinZones';
+import { ScanBracket } from './ScanBracket';
 
 function stripDataUrlPrefix(value: string): string {
   const commaIndex = value.indexOf(',');
@@ -408,19 +409,22 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
 
         {step === 'camera' && hasPermission && device != null && (
           <>
-            {/* Real-time tracking box from the live face detector — replaces
-                the old fixed oval guide with the actual detected face for
-                THIS frame. A dimmed surround still frames the scene when no
+            {/* Real-time corner-bracket tracking — the ID-scan/dermatology-
+                app visual language (four L-marks, not a full outline box) —
+                replaces the old fixed oval guide with the actual detected
+                face for THIS frame. Pulses gently to read as "actively
+                scanning." A dimmed surround still frames the scene when no
                 face is found yet, same reassurance the oval gave, just
                 honest about not knowing where the face actually is until
                 one's detected. */}
             {liveBox ? (
               <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                <View
-                  style={[
-                    styles.liveFaceBox,
-                    { left: liveBox.x, top: liveBox.y, width: liveBox.width, height: liveBox.height },
-                  ]}
+                <ScanBracket
+                  style={{ left: liveBox.x, top: liveBox.y, width: liveBox.width, height: liveBox.height }}
+                  color={Colors.brand}
+                  size={22}
+                  thickness={3}
+                  pulse
                 />
                 {/* Same T-zone/cheeks/under-eye proportions the result
                     screen's tappable markers use (see skinZones.ts) — real-
@@ -432,9 +436,12 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
                 {(['tZone', 'cheekL', 'cheekR', 'underEye'] as const).map(zone => {
                   const r = zoneRectToPhotoFrac(zone, liveBox);
                   return (
-                    <View
+                    <ScanBracket
                       key={zone}
-                      style={[styles.liveZoneLine, { left: r.x, top: r.y, width: r.width, height: r.height }]}
+                      style={{ left: r.x, top: r.y, width: r.width, height: r.height }}
+                      color="rgba(255,255,255,0.85)"
+                      size={10}
+                      thickness={1.5}
                     />
                   );
                 })}
@@ -595,15 +602,6 @@ const styles = StyleSheet.create({
     width: OVAL_W, height: OVAL_H, borderRadius: OVAL_W,
     borderWidth: 2.5, borderColor: 'rgba(255,255,255,0.85)',
   },
-  liveFaceBox: {
-    position: 'absolute', borderRadius: 24,
-    borderWidth: 2.5, borderColor: Colors.brand,
-  },
-  liveZoneLine: {
-    position: 'absolute', borderRadius: 10,
-    borderWidth: 1, borderColor: 'rgba(255,255,255,0.75)',
-  },
-
   topBar: {
     position: 'absolute', left: 16, right: 16, zIndex: 2,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
