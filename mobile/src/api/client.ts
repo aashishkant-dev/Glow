@@ -1383,6 +1383,11 @@ export interface SkinScan {
   // the Gemini path only.
   hydrationLevel: '' | 'LOW' | 'MODERATE' | 'HIGH';
   zoneNotes: { tZone?: string; cheeks?: string; underEye?: string };
+  // The face region actually used for analysis, as 0–1 fractions of the
+  // photo — from on-device face detection when available, or the fixed
+  // guide-oval fallback otherwise. {} on scans from before this field
+  // existed (SkinZoneOverlay falls back to the same fixed constant then).
+  faceBox: { x?: number; y?: number; width?: number; height?: number };
   recommendations: SkinRecommendation[];
   notes: string;
   createdAt: string;

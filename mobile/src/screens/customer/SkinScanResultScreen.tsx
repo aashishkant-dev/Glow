@@ -96,7 +96,7 @@ export function SkinScanResultScreen() {
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}>
         <View>
           <Image source={{ uri: scan.photoUrl }} style={styles.photo} contentFit="cover" />
-          <SkinZoneOverlay zoneNotes={scan.zoneNotes} />
+          <SkinZoneOverlay zoneNotes={scan.zoneNotes} faceBox={scan.faceBox} />
           <LinearGradient colors={['rgba(0,0,0,0.35)', 'transparent']} style={styles.photoTopGradient} pointerEvents="none" />
           <Pressable style={[styles.floatBack, { top: insets.top + 8 }]} onPress={goBack} hitSlop={12}>
             <Text style={styles.floatBackText}>‹</Text>

@@ -5,21 +5,21 @@
  * underneath it. Only a zone Gemini actually wrote a note for gets a marker;
  * an empty zoneNote means nothing notable was seen there, so nothing is drawn.
  *
- * There's no real face-detection bounding box from the server — the capture
- * flow's alignment oval sits at a FIXED position (SkinScanCamera's guideOval,
- * matching DEFAULT_REGION in src/routes/skin.js exactly), so every photo
- * that made it through capture has the face in the same place. These rects
- * are standard portrait-proportion estimates within that known face box, not
- * a per-photo detection — good enough to visually "point at" the right area,
- * not a precision medical measurement.
+ * The face box itself comes from `scan.faceBox` — real on-device ML Kit face
+ * detection when the capture ran on a native build (see SkinScanCamera.tsx),
+ * or the fixed guide-oval fallback (mirrors DEFAULT_REGION in
+ * src/routes/skin.js) on web/older scans where no detection ran. Either way,
+ * the sub-rects below are standard portrait-proportion estimates WITHIN that
+ * box, not per-feature detection — good enough to visually "point at" the
+ * right area, not a precision medical measurement.
  */
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Colors, Fonts } from '../utils/colors';
 
-// Mirrors DEFAULT_REGION in src/routes/skin.js — the face box within the
-// full photo, as 0–1 fractions.
-const FACE_BOX = { x: 0.22, y: 0.16, width: 0.56, height: 0.6 };
+// Mirrors DEFAULT_REGION in src/routes/skin.js — used whenever scan.faceBox
+// is empty (pre-faceBox scans, or a detection miss that fell back server-side).
+const DEFAULT_FACE_BOX = { x: 0.22, y: 0.16, width: 0.56, height: 0.6 };
 
 // Sub-rects as 0–1 fractions OF the face box (not the full photo) — standard
 // portrait proportions for where these areas sit on a centered, front-facing
@@ -31,12 +31,12 @@ const ZONE_RECTS = {
   underEye:{ x: 0.20, y: 0.30, width: 0.60, height: 0.11 },
 };
 
-function toPhotoFrac(r: { x: number; y: number; width: number; height: number }) {
+function toPhotoFrac(r: { x: number; y: number; width: number; height: number }, faceBox: { x: number; y: number; width: number; height: number }) {
   return {
-    left: FACE_BOX.x + r.x * FACE_BOX.width,
-    top: FACE_BOX.y + r.y * FACE_BOX.height,
-    width: r.width * FACE_BOX.width,
-    height: r.height * FACE_BOX.height,
+    left: faceBox.x + r.x * faceBox.width,
+    top: faceBox.y + r.y * faceBox.height,
+    width: r.width * faceBox.width,
+    height: r.height * faceBox.height,
   };
 }
 
@@ -52,21 +52,26 @@ interface Marker {
 
 interface Props {
   zoneNotes: { tZone?: string; cheeks?: string; underEye?: string };
+  faceBox?: { x?: number; y?: number; width?: number; height?: number };
 }
 
-export function SkinZoneOverlay({ zoneNotes }: Props) {
+export function SkinZoneOverlay({ zoneNotes, faceBox: rawFaceBox }: Props) {
   const [active, setActive] = useState<string | null>(null);
+
+  const faceBox = rawFaceBox?.width && rawFaceBox?.height
+    ? { x: rawFaceBox.x ?? DEFAULT_FACE_BOX.x, y: rawFaceBox.y ?? DEFAULT_FACE_BOX.y, width: rawFaceBox.width, height: rawFaceBox.height }
+    : DEFAULT_FACE_BOX;
 
   const markers: Marker[] = [];
   if (zoneNotes?.tZone) {
-    markers.push({ key: 'tZone', label: 'T-zone', note: zoneNotes.tZone, rect: toPhotoFrac(ZONE_RECTS.tZone), align: 'center' });
+    markers.push({ key: 'tZone', label: 'T-zone', note: zoneNotes.tZone, rect: toPhotoFrac(ZONE_RECTS.tZone, faceBox), align: 'center' });
   }
   if (zoneNotes?.cheeks) {
-    markers.push({ key: 'cheekL', label: 'Cheeks', note: zoneNotes.cheeks, rect: toPhotoFrac(ZONE_RECTS.cheekL), align: 'left' });
-    markers.push({ key: 'cheekR', label: 'Cheeks', note: zoneNotes.cheeks, rect: toPhotoFrac(ZONE_RECTS.cheekR), align: 'right' });
+    markers.push({ key: 'cheekL', label: 'Cheeks', note: zoneNotes.cheeks, rect: toPhotoFrac(ZONE_RECTS.cheekL, faceBox), align: 'left' });
+    markers.push({ key: 'cheekR', label: 'Cheeks', note: zoneNotes.cheeks, rect: toPhotoFrac(ZONE_RECTS.cheekR, faceBox), align: 'right' });
   }
   if (zoneNotes?.underEye) {
-    markers.push({ key: 'underEye', label: 'Under-eye', note: zoneNotes.underEye, rect: toPhotoFrac(ZONE_RECTS.underEye), align: 'center' });
+    markers.push({ key: 'underEye', label: 'Under-eye', note: zoneNotes.underEye, rect: toPhotoFrac(ZONE_RECTS.underEye, faceBox), align: 'center' });
   }
 
   if (markers.length === 0) return null;

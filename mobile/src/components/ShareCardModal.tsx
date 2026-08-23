@@ -37,6 +37,12 @@ interface Props {
 async function shareLocalFile(uri: string, dialogTitle: string) {
   if (Platform.OS === 'web') {
     const nav = typeof navigator !== 'undefined' ? (navigator as any) : null;
+    // Web Share API for files only exists on a subset of mobile browsers —
+    // most desktop browsers (and several mobile ones) have no nav.share at
+    // all, or have it without file support. That used to just dead-end in
+    // an alert with no way to actually get the card; downloading the PNG
+    // directly always works everywhere, so it's the real fallback, not the
+    // last resort.
     try {
       const res = await fetch(uri);
       const blob = await res.blob();
@@ -45,10 +51,18 @@ async function shareLocalFile(uri: string, dialogTitle: string) {
         await nav.share({ title: dialogTitle, files: [file] });
         return;
       }
-    } catch {
-      // fall through
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = 'glow-card.png';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(blobUrl);
+    } catch (err) {
+      console.error('[ShareCardModal] web share/download failed', err);
+      Alert.alert('Could not share', 'Please try again.');
     }
-    Alert.alert('Could not share', 'Sharing images directly is not supported in this browser.');
     return;
   }
   const available = await Sharing.isAvailableAsync();
