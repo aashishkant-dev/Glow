@@ -221,7 +221,15 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
   const { width: winW, height: winH } = useWindowDimensions();
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice('front');
-  const photoOutput = usePhotoOutput();
+  // containerFormat explicitly 'jpeg' — the default ('native') captures
+  // HEIC on modern iPhones, which the server's sharp install can't decode
+  // (confirmed live in production: "heif: Error while loading plugin:
+  // Support for this compression format has not been built in" — sharp's
+  // HEIF support needs libheif built in at the OS/container level, which
+  // this backend's deploy doesn't have). expo-camera's old capture path
+  // always produced JPEG, which is why this regressed only after switching
+  // to vision-camera. JPEG decodes everywhere with no extra plugins.
+  const photoOutput = usePhotoOutput({ containerFormat: 'jpeg' });
   // Static-image detector for the captured photo (detectFaceRegion) — a
   // separate instance from the live camera's own detection, tuned for
   // accuracy over speed since it only ever runs once per scan.
