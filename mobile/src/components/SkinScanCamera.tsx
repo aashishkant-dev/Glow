@@ -781,12 +781,9 @@ const styles = StyleSheet.create({
   permissionLink: { color: 'rgba(255,255,255,0.8)', fontSize: 13.5, fontFamily: Fonts.medium },
 
   quizRoot: { flex: 1, backgroundColor: Colors.systemBackground },
-  // Without an explicit flex:1 here, the ScrollView sizes itself to its own
-  // (now quite short, since the quiz is down to one question) content
-  // instead of filling quizRoot — the fixed-position footer below still
-  // pins to the true bottom of the screen either way, so the visible
-  // result was a large dead gap between the question and the footer,
-  // reading as a broken/blank screen rather than a short one.
+  // flex:1 here is required for the ScrollView's own contentContainerStyle
+  // (justifyContent: 'center', set where it's used) to have a bounded
+  // height to center within — see the comment there.
   quizScroll: { flex: 1 },
   quizPhotoRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 22 },
   quizPhotoThumb: { width: 56, height: 56, borderRadius: 16, backgroundColor: Colors.brandLight },
