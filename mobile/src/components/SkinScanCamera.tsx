@@ -28,6 +28,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { Platform } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import FaceDetection from '@react-native-ml-kit/face-detection';
 import { Colors, Fonts } from '../utils/colors';
 import { GlowMark } from './GlowLogo';
 import { SparkleIcon } from './BeautyIcons';
@@ -38,6 +39,64 @@ import { tapLight, tapWarning } from '../utils/haptics';
 function stripDataUrlPrefix(value: string): string {
   const commaIndex = value.indexOf(',');
   return value.startsWith('data:') && commaIndex !== -1 ? value.slice(commaIndex + 1) : value;
+}
+
+type FaceRegion = { x: number; y: number; width: number; height: number };
+
+// Runs real on-device face detection (ML Kit — free, no API call, no rate
+// limit) on the JUST-CAPTURED photo, replacing the old fixed-oval guess with
+// the actual detected face for THIS photo. Native-only: on web, or a native
+// build that hasn't been rebuilt with this module yet, ML Kit isn't
+// available at all — caught and treated as "unavailable," never surfaced as
+// a false "no face" warning, since that would blame the user for something
+// that isn't about their photo. A genuine zero-faces result IS surfaced
+// (noFaceDetected), since that's real, useful signal to retake before ever
+// spending an upload + Gemini call on an unusable photo.
+//
+// performanceMode: 'accurate' (not 'fast') — deliberately the opposite
+// tradeoff from the live camera overlay. This runs ONCE on a still photo
+// during the already-visible "Checking your photo…" step, not per-frame on
+// a live stream, so the ~100–300ms extra cost is invisible while the more
+// precise bounding box directly improves the crop Gemini actually analyzes.
+async function detectFaceRegion(uri: string, imgWidth: number, imgHeight: number): Promise<{ faceRegion: FaceRegion | null; noFaceDetected: boolean }> {
+  if (Platform.OS === 'web' || !imgWidth || !imgHeight) return { faceRegion: null, noFaceDetected: false };
+  try {
+    const faces = await FaceDetection.detect(uri, { performanceMode: 'accurate' });
+    if (!faces || faces.length === 0) return { faceRegion: null, noFaceDetected: true };
+
+    // Largest face wins — guards against a photo/poster in the background
+    // being picked over the real subject.
+    const face = faces.reduce((biggest, f) => (f.frame.width * f.frame.height > biggest.frame.width * biggest.frame.height ? f : biggest), faces[0]);
+    const { left, top, width, height } = face.frame;
+
+    // ML Kit's box is tight — roughly eyebrows-to-chin — so it's expanded
+    // into a fuller "beauty crop" that actually includes the forehead, full
+    // jaw, and a little ear/temple margin on each side, matching what the
+    // zone markers (SkinZoneOverlay) and DEFAULT_REGION fallback assume.
+    const expLeft = left - width * 0.25;
+    const expTop = top - height * 0.5;
+    const expRight = left + width * 1.25;
+    const expBottom = top + height * 1.25;
+
+    const clampedLeft = Math.max(0, expLeft);
+    const clampedTop = Math.max(0, expTop);
+    const clampedRight = Math.min(imgWidth, expRight);
+    const clampedBottom = Math.min(imgHeight, expBottom);
+
+    return {
+      faceRegion: {
+        x: clampedLeft / imgWidth,
+        y: clampedTop / imgHeight,
+        width: (clampedRight - clampedLeft) / imgWidth,
+        height: (clampedBottom - clampedTop) / imgHeight,
+      },
+      noFaceDetected: false,
+    };
+  } catch (err) {
+    // Not linked (web build, or a native build from before this module was
+    // added) — not an error worth logging noisily, just "can't detect here."
+    return { faceRegion: null, noFaceDetected: false };
+  }
 }
 
 interface Props {
@@ -115,9 +174,14 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
   const [cameraReady, setCameraReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
   const [step, setStep] = useState<Step>('camera');
-  const [shot, setShot] = useState<{ uri: string; base64: string; mimeType: string } | null>(null);
+  const [shot, setShot] = useState<{ uri: string; base64: string; mimeType: string; faceRegion: FaceRegion | null } | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  // Real on-device detection found zero faces in the captured photo — not
+  // fatal (Gemini still gets the final say server-side), just a heads-up
+  // before spending an upload + API call on a photo likely to get rejected.
+  const [noFaceWarning, setNoFaceWarning] = useState(false);
+  const [detectingFace, setDetectingFace] = useState(false);
   const flashAnim = useRef(new Animated.Value(0)).current;
 
   // Live, rotating tips on the camera step itself — real-time coaching
@@ -143,6 +207,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
     setAnswers({});
     setCameraReady(false);
     setError(null);
+    setNoFaceWarning(false);
   }
 
   function handleClose() {
@@ -163,8 +228,13 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
     try {
       const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.85 });
       if (photo?.base64) {
-        setShot({ uri: photo.uri, base64: stripDataUrlPrefix(photo.base64), mimeType: 'image/jpeg' });
         setStep('quiz');
+        setDetectingFace(true);
+        setNoFaceWarning(false);
+        const { faceRegion, noFaceDetected } = await detectFaceRegion(photo.uri, photo.width, photo.height);
+        setShot({ uri: photo.uri, base64: stripDataUrlPrefix(photo.base64), mimeType: 'image/jpeg', faceRegion });
+        setNoFaceWarning(noFaceDetected);
+        setDetectingFace(false);
       }
     } catch (err) {
       console.error('[SkinScanCamera] shoot failed', err);
@@ -204,6 +274,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
         photoBase64: shot.base64,
         mimeType: shot.mimeType,
         quizAnswers: answers,
+        faceRegion: shot.faceRegion || undefined,
       });
       reset();
       onComplete(scan, bookCategory, isNewProfile);
@@ -284,13 +355,27 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
                 <Image source={{ uri: shot.uri }} style={styles.quizPhotoThumb} contentFit="cover" />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.quizTitle}>One quick question</Text>
-                  <Text style={styles.quizSubtitle}>Our AI reads the rest straight from your photo.</Text>
+                  <Text style={styles.quizSubtitle}>
+                    {detectingFace ? 'Checking your photo…' : 'Our AI reads the rest straight from your photo.'}
+                  </Text>
                 </View>
               </View>
 
               {!!error && (
                 <View style={styles.errorBanner}>
                   <Text style={styles.errorBannerText}>{error}</Text>
+                </View>
+              )}
+
+              {/* Real on-device face detection (not Gemini — free, instant,
+                  no rate limit) came back empty for this photo. Not a hard
+                  block: Gemini still gets the final say server-side, and a
+                  detection miss in tricky lighting doesn't always mean
+                  Gemini will miss it too — but worth flagging before
+                  spending an upload + API call on it. */}
+              {noFaceWarning && (
+                <View style={styles.faceWarningBanner}>
+                  <Text style={styles.faceWarningBannerText}>We couldn't clearly detect a face in this photo. You can retake it below, or continue anyway.</Text>
                 </View>
               )}
 
@@ -403,6 +488,8 @@ const styles = StyleSheet.create({
 
   errorBanner: { backgroundColor: '#FDECEC', borderRadius: 14, padding: 12, marginBottom: 16 },
   errorBannerText: { color: Colors.systemRed, fontSize: 12.5, fontFamily: Fonts.medium },
+  faceWarningBanner: { backgroundColor: Colors.brandLight, borderRadius: 14, padding: 12, marginBottom: 16 },
+  faceWarningBannerText: { color: Colors.brandDark, fontSize: 12.5, fontFamily: Fonts.medium, lineHeight: 17 },
 
   questionCard: { marginBottom: 20 },
   questionText: { fontSize: 14.5, fontFamily: Fonts.semibold, color: Colors.label, marginBottom: 10 },
