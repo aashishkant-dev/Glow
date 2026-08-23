@@ -164,7 +164,23 @@ router.post(
       const meta = await base.metadata();
       if (!meta.width || !meta.height) return res.status(400).json({ error: 'Could not read image' });
 
-      const { pixelBox, faceBox } = resolveCropBox(faceRegion, meta.width, meta.height);
+      // meta.width/height are the STORED pixel dimensions — sharp's
+      // .metadata() reads them straight off the file, before the .rotate()
+      // queued above actually runs. For EXIF orientation 5-8 (a 90°/270°
+      // rotation — common on phone selfies depending how the phone was
+      // held), the pipeline's REAL output ends up with width and height
+      // swapped from what metadata() just reported. Confirmed directly:
+      // extracting a box sized against the un-swapped dimensions against
+      // that rotated pipeline throws libvips' "extract_area: bad extract
+      // area" — exactly the error hit in production. expo-camera's old
+      // capture path apparently never produced this orientation tag;
+      // vision-camera's does, which is why this only surfaced after that
+      // migration.
+      const swapsDimensions = meta.orientation >= 5 && meta.orientation <= 8;
+      const imgWidth = swapsDimensions ? meta.height : meta.width;
+      const imgHeight = swapsDimensions ? meta.width : meta.height;
+
+      const { pixelBox, faceBox } = resolveCropBox(faceRegion, imgWidth, imgHeight);
 
       // Two forks of the same decoded pipeline: a small raw-pixel crop for
       // analysis, and a normal-sized JPEG for storage/history display —
