@@ -51,6 +51,7 @@ import { SparkleIcon } from './BeautyIcons';
 import { SKIN_QUIZ_QUESTIONS } from '../data/skinQuiz';
 import { apiScanSkin, SkinScan } from '../api/client';
 import { tapLight, tapWarning } from '../utils/haptics';
+import { zoneRectToPhotoFrac } from '../utils/skinZones';
 
 function stripDataUrlPrefix(value: string): string {
   const commaIndex = value.indexOf(',');
@@ -382,13 +383,30 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
                 honest about not knowing where the face actually is until
                 one's detected. */}
             {liveBox ? (
-              <View
-                pointerEvents="none"
-                style={[
-                  styles.liveFaceBox,
-                  { left: liveBox.x, top: liveBox.y, width: liveBox.width, height: liveBox.height },
-                ]}
-              />
+              <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                <View
+                  style={[
+                    styles.liveFaceBox,
+                    { left: liveBox.x, top: liveBox.y, width: liveBox.width, height: liveBox.height },
+                  ]}
+                />
+                {/* Same T-zone/cheeks/under-eye proportions the result
+                    screen's tappable markers use (see skinZones.ts) — real-
+                    time preview of exactly what a finished scan will call
+                    out, not just a generic face outline. zoneRectToPhotoFrac
+                    is unit-agnostic (pure ratio math), so passing liveBox's
+                    screen-pixel coordinates as the "face box" works exactly
+                    like passing 0–1 fractions elsewhere. */}
+                {(['tZone', 'cheekL', 'cheekR', 'underEye'] as const).map(zone => {
+                  const r = zoneRectToPhotoFrac(zone, liveBox);
+                  return (
+                    <View
+                      key={zone}
+                      style={[styles.liveZoneLine, { left: r.x, top: r.y, width: r.width, height: r.height }]}
+                    />
+                  );
+                })}
+              </View>
             ) : (
               <View style={styles.guideSurround} pointerEvents="none">
                 <View style={styles.guideOval} />
@@ -548,6 +566,10 @@ const styles = StyleSheet.create({
   liveFaceBox: {
     position: 'absolute', borderRadius: 24,
     borderWidth: 2.5, borderColor: Colors.brand,
+  },
+  liveZoneLine: {
+    position: 'absolute', borderRadius: 10,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.75)',
   },
 
   topBar: {

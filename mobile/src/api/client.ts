@@ -1436,6 +1436,11 @@ export interface SkinProfile {
   latestPhotoUrl: string | null;
   latestScanAt: string | null;
   createdAt: string;
+  // A self-set focus with a target check-in date — null when no goal is
+  // active. See apiSetSkinGoal / apiClearSkinGoal.
+  goalText: string | null;
+  goalSetAt: string | null;
+  goalCheckInAt: string | null;
 }
 
 export function apiGetSkinProfiles() {
@@ -1444,4 +1449,14 @@ export function apiGetSkinProfiles() {
 
 export function apiRenameSkinProfile(profileId: string, label: string) {
   return request<{ profile: { id: string; label: string } }>('PATCH', `/skin/profiles/${profileId}`, { label });
+}
+
+export function apiSetSkinGoal(profileId: string, goalText: string, checkInDays: number) {
+  return request<{ profile: { id: string; goalText: string; goalSetAt: string; goalCheckInAt: string } }>(
+    'PATCH', `/skin/profiles/${profileId}/goal`, { goalText, checkInDays },
+  );
+}
+
+export function apiClearSkinGoal(profileId: string) {
+  return request<{ profile: { id: string; goalText: null } }>('PATCH', `/skin/profiles/${profileId}/goal`, { goalText: null });
 }
