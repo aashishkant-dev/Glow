@@ -15,10 +15,25 @@
 // happens: swap it without a code change if this one retires too.
 const MODEL = process.env.GEMINI_MODEL || 'gemini-3.6-flash';
 
+// Face-matching (which of an account's existing SkinProfiles this photo
+// belongs to) used to be a SEPARATE Gemini call from the main analysis —
+// two requests per scan instead of one. On the free tier that doubled how
+// often a scan hit the per-minute quota, and every 429 meant a silent
+// fallback to the zero-detail free heuristic (no zone notes, no
+// progressNote) — which is exactly why the result screen's zone markers
+// were intermittently just... missing. Both tasks now happen in ONE
+// request: the reference photos (if any) go in as extra inline images, and
+// the response schema carries both the match decision AND the analysis.
 const RESPONSE_SCHEMA = {
   type: 'OBJECT',
   properties: {
     faceDetected: { type: 'BOOLEAN' },
+    // 1-based index into the reference photos supplied (in prompt order),
+    // or null when nothing matches / no reference photos were given. Never
+    // a guess: a wrongly-merged match mixes one person's skin history into
+    // another's, worse than over-splitting into an extra profile.
+    matchedProfileIndex: { type: 'INTEGER', nullable: true },
+    matchConfidence: { type: 'STRING', enum: ['HIGH', 'MEDIUM', 'LOW', 'NONE'] },
     skinTone: { type: 'STRING', enum: ['FAIR', 'LIGHT', 'MEDIUM', 'TAN', 'DEEP', 'RICH'] },
     skinType: { type: 'STRING', enum: ['DRY', 'OILY', 'COMBINATION', 'NORMAL', 'SENSITIVE'] },
     // Genuinely observable from a photo, unlike a medical hydration
@@ -26,8 +41,9 @@ const RESPONSE_SCHEMA = {
     hydrationLevel: { type: 'STRING', enum: ['LOW', 'MODERATE', 'HIGH'] },
     // Zone-specific notes — the thing a real in-person consultation does
     // that a single "your skin is X" verdict doesn't: different areas of
-    // the face often read differently (oily T-zone, drier cheeks, etc.).
-    // Empty string for a zone with nothing notable, never invented detail.
+    // the face often read differently (oily T-zone, drier cheeks, visible
+    // pore size, texture). Empty string for a zone with nothing notable,
+    // never invented detail to fill the field.
     tZoneNote: { type: 'STRING' },
     cheeksNote: { type: 'STRING' },
     underEyeNote: { type: 'STRING' },
@@ -36,8 +52,9 @@ const RESPONSE_SCHEMA = {
     // want to read — the app's own headline for the result, not a clinical
     // readout. Written by the model per-photo, not a template.
     summary: { type: 'STRING' },
-    // Only meaningful when a previous scan was provided in the prompt — null
-    // otherwise. Compares THIS scan to that one in plain, specific terms.
+    // Only meaningful when a matched reference profile carried prior data —
+    // null otherwise (first scan, or no match). Compares THIS photo to that
+    // profile's last reading in plain, specific terms.
     progressNote: { type: 'STRING', nullable: true },
     recommendations: {
       type: 'ARRAY',
@@ -53,59 +70,74 @@ const RESPONSE_SCHEMA = {
     },
   },
   required: [
-    'faceDetected', 'skinTone', 'skinType', 'hydrationLevel',
+    'faceDetected', 'matchConfidence', 'skinTone', 'skinType', 'hydrationLevel',
     'tZoneNote', 'cheeksNote', 'underEyeNote', 'concerns', 'summary', 'recommendations',
   ],
 };
 
-function buildPrompt({ sensitivityHint, previousScan }) {
+function buildPrompt({ sensitivityHint, referenceProfiles = [] }) {
   const sensitivityLine = sensitivityHint
     ? `\nThe user self-reports how their skin reacts to new products: "${sensitivityHint}". A single photo can't reliably show sensitivity — weigh this alongside what you actually see.`
     : '';
 
-  const progressLine = previousScan
-    ? `\nThe user's previous scan (${previousScan.daysAgo} day${previousScan.daysAgo === 1 ? '' : 's'} ago) found: ${previousScan.skinTone.toLowerCase()} tone, ${previousScan.skinType.toLowerCase()} skin, concerns: ${previousScan.concerns.join(', ') || 'none noted'}. Compare THIS photo to that description and fill progressNote with one specific, honest, encouraging sentence about what's changed (better, worse, or steady) — never invent a change you can't actually see. If nothing meaningfully changed, say so plainly rather than manufacturing praise.`
-    : '\nThis is the user\'s first scan — set progressNote to null, there is nothing to compare yet.';
+  const formatTrend = (trend = []) => trend
+    .map((t, i) => `    ${i === 0 ? 'Most recent' : `${i + 1} scans ago`} (${t.daysAgo} day${t.daysAgo === 1 ? '' : 's'} ago): ${t.skinTone.toLowerCase()} tone, ${t.skinType.toLowerCase()} skin, concerns: ${t.concerns.join(', ') || 'none noted'}${t.summary ? ` — "${t.summary}"` : ''}`)
+    .join('\n');
+
+  const matchSection = referenceProfiles.length > 0
+    ? `\nThis is a shared-device skincare app — more than one family member may use the same account. Image 1 (below, first) is today's new selfie. Images 2 through ${referenceProfiles.length + 1} are reference photos of ${referenceProfiles.length} previously-known people on this account, in order, each with their recent scan history (most recent first):
+${referenceProfiles.map((p, i) => `  Reference ${i + 1}:\n${formatTrend(p.trend?.length ? p.trend : [p])}`).join('\n')}
+
+First, decide whether Image 1 shows the SAME PERSON as one of the reference images — judge by facial structure (bone structure, eye/nose/mouth shape and spacing, jawline) only, NOT by lighting, filters, makeup, or skin tone/texture, which can genuinely differ between two photos of the same person. Set matchedProfileIndex to the 1-based reference number if so, or null if Image 1 is someone not among them. Set matchConfidence to HIGH only when genuinely certain — prefer LOW or NONE over a wrong guess, since a wrong merge is worse than starting a new profile.
+
+If matchedProfileIndex is set with HIGH or MEDIUM confidence, compare Image 1 to that reference's scan history (given above) and fill progressNote with one specific, honest, encouraging sentence about what's changed. When that reference has more than one prior scan, look for a genuine TREND across them ("your redness has eased over your last 3 scans"), not just a single step back — a real multi-scan pattern is more useful and more convincing than a one-off comparison. Never invent a change you can't actually see; if nothing meaningfully changed, say so plainly rather than manufacturing praise. Otherwise (no match, or low/no confidence) set progressNote to null.`
+    : '\nThis is the account\'s first-ever scan (no reference photos to compare against) — set matchedProfileIndex to null, matchConfidence to NONE, and progressNote to null.';
 
   return `You are a warm, knowledgeable skin-analysis assistant inside a beauty app, giving the kind of thorough, zone-by-zone read a good in-person consultation would — but you are NOT a medical professional and must never diagnose a medical skin condition, only general cosmetic guidance.
+${matchSection}
 
-Look closely at this selfie — really examine it, don't default to generic answers — and:
+Now look closely at Image 1 (the new selfie) — really examine it at full detail, texture and pores included, don't default to generic answers — and:
 1. Set faceDetected to true only if a human face is clearly visible and well-lit enough to actually assess.
-2. Classify the apparent skin tone as exactly one of: FAIR, LIGHT, MEDIUM, TAN, DEEP, RICH (lightest to darkest).
-3. Classify the apparent skin type as exactly one of: DRY, OILY, COMBINATION, NORMAL, SENSITIVE, based on visible cues — shine/texture, visible pores, flaking, redness.${sensitivityLine}
+2. Classify the apparent skin tone as exactly one of: FAIR, LIGHT, MEDIUM, TAN, DEEP, RICH (lightest to darkest). Base this on the actual pixel color of bare, evenly-lit skin — the forehead and cheeks away from shadow, flush, or redness — not a general impression of the photo. Mentally correct for the photo's own white balance/lighting warmth first (a warm indoor light or a cool flash can shift how tone reads, but the underlying skin color is what matters); don't default to a "safe middle" tone like MEDIUM when the visible skin is clearly lighter or darker than that — commit to what you actually see across the full FAIR–RICH range.
+3. Classify the apparent skin type as exactly one of: DRY, OILY, COMBINATION, NORMAL, SENSITIVE, based on visible cues — shine/texture, pore size and visibility, flaking, redness.${sensitivityLine}
 4. Rate apparent hydration as LOW, MODERATE, or HIGH — dull, tight, or flaking skin reads LOW; a healthy dewy/plump look reads HIGH.
-5. Look at three zones separately, the way an in-person consultation actually would, and write one short plain-language note per zone — texture, oiliness, tone, anything specifically visible there. Leave a zone's note as an empty string if there's genuinely nothing notable — never invent detail to fill the field:
-   - tZoneNote: forehead, nose, chin
-   - cheeksNote: cheeks
-   - underEyeNote: under-eye area
+5. Look at three zones separately, the way an in-person consultation actually would, and write one short, specific, plain-language note per zone — texture, oiliness, tone, pore size/visibility, any fine lines or unevenness — anything genuinely visible there at close inspection. Leave a zone's note as an empty string if there's truly nothing notable — never invent detail to fill the field:
+   - tZoneNote: forehead, nose, chin (pore size/oiliness here especially)
+   - cheeksNote: cheeks (texture, tone evenness, pore visibility)
+   - underEyeNote: under-eye area (fine lines, puffiness, darkness, skin thinness)
 6. List 2-5 specific visible cosmetic concerns, as concrete as what you actually see (e.g. "Enlarged pores on nose", "Mild hyperpigmentation on cheeks", "Fine dryness around mouth" — not vague catch-alls like "some concerns").
-7. Write a warm, specific, one-sentence summary of what you see — genuinely observational (mention something real about the photo), encouraging in tone, never generic filler like "Great skin!". This is the first thing the user reads.${progressLine}
-8. Give 3-5 general cosmetic product-category recommendations, each with a category, a short title, and a one-sentence note — generic categories only (e.g. "gentle cleanser"), never a specific brand, and never a medical claim or treatment instruction.
+7. Write a warm, specific, one-sentence summary of what you see — genuinely observational (mention something real about the photo), encouraging in tone, never generic filler like "Great skin!". This is the first thing the user reads.
+8. Give 3-5 general cosmetic product-category recommendations, each with a category, a short title, and a one-sentence note. Each one should visibly connect to something you actually observed — a specific zone note or concern from above, not a generic catch-all list disconnected from this particular photo (e.g. if tZoneNote flagged oiliness, one recommendation should plainly address that; if underEyeNote flagged darkness, another should). Generic product categories only (e.g. "gentle cleanser"), never a specific brand, and never a medical claim or treatment instruction.
 
 If no face is clearly visible, set faceDetected to false and fill the other fields with reasonable placeholder defaults (they will be ignored).`;
 }
 
 /**
- * @param {string} base64Jpeg - the photo, base64-encoded, no data: prefix.
+ * @param {string} base64Jpeg - the new selfie, base64-encoded, no data: prefix.
  * @param {object} [context]
  * @param {string} [context.sensitivityHint] - plain-language answer to the
  *   app's one remaining quiz question ("often"/"sometimes"/"rarely" reworded
  *   to a sentence by the caller) — everything else the old 4-question quiz
  *   asked, Gemini now reads directly from the photo instead.
- * @param {{skinTone:string, skinType:string, concerns:string[], daysAgo:number}} [context.previousScan]
- * @returns {Promise<{faceDetected:boolean, skinTone:string, skinType:string, concerns:string[], summary:string, progressNote:string|null, recommendations:{category:string,title:string,note:string}[]}|null>}
+ * @param {{photoBase64:string, daysAgo:number, skinTone:string, skinType:string, concerns:string[]}[]} [context.referenceProfiles]
+ *   One entry per existing SkinProfile candidate on the account, in order —
+ *   the returned matchedProfileIndex is 1-based into this array. Omit/empty
+ *   on the account's first-ever scan.
+ * @returns {Promise<{faceDetected:boolean, matchedProfileIndex:number|null, matchConfidence:'HIGH'|'MEDIUM'|'LOW'|'NONE', skinTone:string, skinType:string, hydrationLevel:string, tZoneNote:string, cheeksNote:string, underEyeNote:string, concerns:string[], summary:string, progressNote:string|null, recommendations:{category:string,title:string,note:string}[]}|null>}
  *   null when GEMINI_API_KEY isn't configured. Throws on a real API failure.
  */
 async function analyzeWithGemini(base64Jpeg, context = {}) {
   const apiKey = process.env.GEMINI_API_KEY;
   if (!apiKey) return null;
 
+  const referenceProfiles = context.referenceProfiles || [];
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
   const body = {
     contents: [{
       parts: [
-        { text: buildPrompt(context) },
+        { text: buildPrompt({ sensitivityHint: context.sensitivityHint, referenceProfiles }) },
         { inline_data: { mime_type: 'image/jpeg', data: base64Jpeg } },
+        ...referenceProfiles.map(p => ({ inline_data: { mime_type: 'image/jpeg', data: p.photoBase64 } })),
       ],
     }],
     generationConfig: {
@@ -132,84 +164,10 @@ async function analyzeWithGemini(base64Jpeg, context = {}) {
 
   const parsed = JSON.parse(text);
   if (typeof parsed.faceDetected !== 'boolean') throw new Error('Gemini response missing faceDetected');
-  return parsed;
+
+  const idx = parsed.matchedProfileIndex;
+  const validIdx = typeof idx === 'number' && idx >= 1 && idx <= referenceProfiles.length ? idx : null;
+  return { ...parsed, matchedProfileIndex: validIdx };
 }
 
-const MATCH_RESPONSE_SCHEMA = {
-  type: 'OBJECT',
-  properties: {
-    // 1-based index into the reference photos supplied, in the order given —
-    // null when the new photo doesn't clearly match any of them. Never guess
-    // when unsure: a wrongly-merged match mixes one person's skin history
-    // into another's, which is worse than over-splitting into an extra profile.
-    matchedIndex: { type: 'INTEGER', nullable: true },
-    confidence: { type: 'STRING', enum: ['HIGH', 'MEDIUM', 'LOW'] },
-  },
-  required: ['matchedIndex', 'confidence'],
-};
-
-function buildMatchPrompt(count) {
-  return `This is a shared-device skincare app — more than one family member may use the same account. Image 1 is a selfie just taken. Images 2 through ${count + 1} are reference photos of ${count} different previously-known people on this account, in order.
-
-Compare Image 1 against each reference image and decide whether it shows the SAME PERSON as one of them. Judge by facial structure — bone structure, eye/nose/mouth shape and spacing, jawline — NOT by lighting, filters, makeup, or skin tone/texture, which can genuinely differ between two photos of the same person and must not be mistaken for a different person.
-
-Return matchedIndex as the 1-based position of the matching reference image, or null if Image 1 doesn't clearly match any of them (a new person). Set confidence to HIGH only when you're genuinely certain — when in doubt, prefer LOW confidence or null over a wrong guess.`;
-}
-
-/**
- * Compares a new scan photo against up to a handful of reference photos (one
- * per existing SkinProfile on the account) to decide which person this scan
- * belongs to — the thing that keeps two family members sharing one phone
- * from having their skin histories folded together. Returns null (never
- * throws for "not configured") when GEMINI_API_KEY isn't set; a real API
- * failure throws, same convention as analyzeWithGemini.
- *
- * @param {string} newPhotoBase64
- * @param {{id:string, photoBase64:string}[]} referencePhotos - in order; the
- *   returned matchedIndex is 1-based into this array.
- * @returns {Promise<{matchedIndex:number|null, confidence:'HIGH'|'MEDIUM'|'LOW'}|null>}
- */
-async function matchFaceProfile(newPhotoBase64, referencePhotos) {
-  const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey || referencePhotos.length === 0) return null;
-
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${MODEL}:generateContent?key=${apiKey}`;
-  const body = {
-    contents: [{
-      parts: [
-        { text: buildMatchPrompt(referencePhotos.length) },
-        { inline_data: { mime_type: 'image/jpeg', data: newPhotoBase64 } },
-        ...referencePhotos.map(p => ({ inline_data: { mime_type: 'image/jpeg', data: p.photoBase64 } })),
-      ],
-    }],
-    generationConfig: {
-      responseMimeType: 'application/json',
-      responseSchema: MATCH_RESPONSE_SCHEMA,
-      temperature: 0.1,
-    },
-  };
-
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`Gemini face-match API error ${res.status}: ${errText.slice(0, 300)}`);
-  }
-
-  const json = await res.json();
-  const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
-  if (!text) throw new Error('Gemini face-match returned no usable content');
-
-  const parsed = JSON.parse(text);
-  const idx = parsed.matchedIndex;
-  if (idx != null && (typeof idx !== 'number' || idx < 1 || idx > referencePhotos.length)) {
-    return { matchedIndex: null, confidence: 'LOW' };
-  }
-  return { matchedIndex: idx ?? null, confidence: parsed.confidence || 'LOW' };
-}
-
-module.exports = { analyzeWithGemini, matchFaceProfile };
+module.exports = { analyzeWithGemini };
