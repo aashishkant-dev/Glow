@@ -76,20 +76,26 @@ async function gatherProfileCandidates(userId) {
     .sort((a, b) => b.scans[0].createdAt.getTime() - a.scans[0].createdAt.getTime())
     .slice(0, 5);
 
-  const referenceProfiles = [];
-  for (const p of candidates) {
+  // Concurrent, not sequential — up to 5 full network fetches one at a time
+  // was real, easy-to-avoid latency on any account with more than one
+  // profile (every scan after the first always fetches at least the
+  // account's own prior photo). Order doesn't matter here, only which
+  // ones succeed, so Promise.all is a straight win with no behavior change.
+  const fetched = await Promise.all(candidates.map(async (p) => {
     try {
       const photoBase64 = await fetchImageBase64(p.scans[0].photoUrl);
-      referenceProfiles.push({
+      return {
         profile: p,
         photoBase64,
         ...toPreviousScanContext(p.scans[0]),
         trend: p.scans.map(toPreviousScanContext),
-      });
+      };
     } catch (err) {
       console.error(`[skin] could not fetch reference photo for profile ${p.id}:`, err.message);
+      return null;
     }
-  }
+  }));
+  const referenceProfiles = fetched.filter(Boolean);
 
   return { profiles, referenceProfiles };
 }
@@ -185,21 +191,23 @@ router.post(
       // Two forks of the same decoded pipeline: a small raw-pixel crop for
       // analysis, and a normal-sized JPEG for storage/history display —
       // sharp's .clone() lets both draw from the one decode instead of
-      // re-parsing the buffer twice.
-      const { data: rawPixels, info: rawInfo } = await base
-        .clone()
-        .extract(pixelBox)
-        .resize(40, 40, { fit: 'fill' })
-        .removeAlpha()
-        .raw()
-        .toBuffer({ resolveWithObject: true });
-
-      const storedBuf = await base
-        .clone()
-        .resize(1080, 1350, { fit: 'inside', withoutEnlargement: true })
-        .jpeg({ quality: 82 })
-        .toBuffer();
+      // re-parsing the buffer twice. Independent clones, so run them
+      // concurrently rather than one after the other.
+      const [{ data: rawPixels, info: rawInfo }, storedBuf] = await Promise.all([
+        base.clone().extract(pixelBox).resize(40, 40, { fit: 'fill' }).removeAlpha().raw().toBuffer({ resolveWithObject: true }),
+        base.clone().resize(1080, 1350, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer(),
+      ]);
       const storedB64 = storedBuf.toString('base64');
+
+      // Fired off here, not awaited until it's actually needed below (right
+      // before the scan is saved) — the upload has zero dependency on the
+      // face-match/Gemini work that follows, so there's no reason to pay
+      // its network time SEQUENTIALLY on top of the several-second Gemini
+      // call. Starting it now lets it run concurrently, hidden behind that
+      // larger wait, instead of adding on top of it. Awaiting it later, at
+      // the exact point its result is used, keeps every existing error-
+      // handling behavior identical to before — only the START time moved.
+      const uploadPromise = uploadFile(`skin-scans/${req.user.id}-${Date.now()}.jpg`, storedBuf, 'image/jpeg');
 
       // Gathers this account's other profiles' reference photos up front —
       // pure data fetching, no API call yet (see gatherProfileCandidates).
@@ -287,7 +295,7 @@ router.post(
         if (profiles.length > 0) profileId = profiles[0].id;
       }
 
-      const uploaded = await uploadFile(`skin-scans/${req.user.id}-${Date.now()}.jpg`, storedBuf, 'image/jpeg');
+      const uploaded = await uploadPromise;
       if (!uploaded?.url) return res.status(500).json({ error: 'Photo upload failed. Please try again.' });
 
       const scan = await prisma.$transaction(async (tx) => {
