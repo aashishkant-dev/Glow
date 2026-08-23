@@ -39,6 +39,7 @@ import { Image } from 'expo-image';
 import {
   ActivityIndicator,
   Animated,
+  Linking,
   Modal,
   Pressable,
   ScrollView,
@@ -219,7 +220,19 @@ const analyzingStepStyles = StyleSheet.create({
 export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: Props) {
   const insets = useSafeAreaInsets();
   const { width: winW, height: winH } = useWindowDimensions();
-  const { hasPermission, requestPermission } = useCameraPermission();
+  // canRequestPermission is true only while status is 'not-determined' (the
+  // OS will still show its dialog). Once it's false but hasPermission is
+  // also false, the user already answered "Don't Allow" (or it's
+  // 'restricted') — iOS will NEVER show that dialog again, so calling
+  // requestPermission() a second time just silently resolves to the same
+  // denied status with no visible dialog at all. Confirmed against this
+  // package's own usePermission.ts: requestPermission() only wraps the
+  // native request call, it doesn't know or care whether the OS will
+  // actually prompt. Treating "denied" the same as "haven't asked yet" is
+  // exactly what made the old single "Allow Camera" button a dead tap for
+  // anyone in that state — indistinguishable from the screen just being
+  // broken, since nothing on screen changes when you press it.
+  const { hasPermission, canRequestPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice('front');
   // containerFormat explicitly 'jpeg' — the default ('native') captures
   // HEIC on modern iPhones, which the server's sharp install can't decode
@@ -269,6 +282,34 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
     }, 4200);
     return () => clearInterval(id);
   }, [step, tips, tipFade]);
+
+  // Ask for camera permission the moment this sheet actually opens, instead
+  // of waiting on a tap — this package's own docs recommend exactly this
+  // pattern (useCameraPermission's JSDoc example does the same request-on-
+  // mount). canRequestPermission guards it to only fire while the OS dialog
+  // is actually available (status 'not-determined'); once denied, this
+  // effect goes quiet and the permission-gate UI below takes over with an
+  // Open Settings action instead.
+  useEffect(() => {
+    if (visible && !hasPermission && canRequestPermission) {
+      requestPermission();
+    }
+  }, [visible, hasPermission, canRequestPermission, requestPermission]);
+
+  // Diagnostic only — permission granted and a device resolved, but the
+  // native preview never fired onPreviewStarted. Every report of "camera is
+  // blank" so far has turned out to be something upstream of this (denied
+  // permission, HEIC server error) rather than the preview itself hanging,
+  // but there's been no actual signal to confirm that on a report without a
+  // screenshot — this at least leaves a breadcrumb in device logs instead of
+  // another guess.
+  useEffect(() => {
+    if (!visible || step !== 'camera' || !hasPermission || device == null || cameraReady) return;
+    const t = setTimeout(() => {
+      console.warn('[SkinScanCamera] preview has not started 6s after mount', { deviceId: device.id, hasPermission });
+    }, 6000);
+    return () => clearTimeout(t);
+  }, [visible, step, hasPermission, device, cameraReady]);
 
   function reset() {
     setStep('camera');
@@ -493,9 +534,16 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
           <View style={styles.permissionGate}>
             <GlowMark size={40} />
             <Text style={styles.permissionTitle}>Camera access needed</Text>
-            <Text style={styles.permissionBody}>Allow camera access to scan your skin — nothing leaves your control, and photos are only used for your own results.</Text>
-            <Pressable style={styles.permissionBtn} onPress={() => requestPermission()}>
-              <Text style={styles.permissionBtnText}>Allow Camera</Text>
+            <Text style={styles.permissionBody}>
+              {canRequestPermission
+                ? 'Allow camera access to scan your skin — nothing leaves your control, and photos are only used for your own results.'
+                : "Camera access is off for Glow. iOS won't show that prompt again in-app — open Settings and turn it on to scan your skin."}
+            </Text>
+            <Pressable
+              style={styles.permissionBtn}
+              onPress={() => (canRequestPermission ? requestPermission() : Linking.openSettings())}
+            >
+              <Text style={styles.permissionBtnText}>{canRequestPermission ? 'Allow Camera' : 'Open Settings'}</Text>
             </Pressable>
             <Pressable onPress={handleClose} style={{ marginTop: 18 }}>
               <Text style={styles.permissionLink}>Cancel</Text>
