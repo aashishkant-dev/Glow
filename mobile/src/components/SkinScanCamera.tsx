@@ -370,25 +370,44 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={handleClose} statusBarTranslucent>
       <View style={styles.root}>
+        {/* The Camera itself is deliberately NOT gated on step === 'camera'
+            — it stays mounted (paused via isActive) for as long as this
+            sheet exists at all, only truly unmounting when hasPermission/
+            device change (rare) or SkinScanCamera itself unmounts. Mounting
+            it fresh on every step change (i.e. every single photo capture)
+            crashed on-device in production: React would unmount it after
+            each shot, and Hermes's GC finalized the underlying native
+            camera session LATER, on its own background thread — vision-
+            camera's Swift teardown (AVCaptureSession dealloc →
+            detachFromFigCaptureSession) isn't safe to run there, so
+            AVFoundation asserted and the whole process aborted. isActive
+            (tied to the Modal's own `visible`, not just `step`, so it goes
+            false the instant the sheet starts closing too) is vision-
+            camera's actual supported start/stop path — synchronous,
+            main-thread-coordinated — instead of relying on unmount +
+            eventual GC to tear down a native capture session. */}
+        {hasPermission && device != null && (
+          <FaceDetectCamera
+            ref={cameraRef}
+            style={StyleSheet.absoluteFill}
+            device={device}
+            isActive={visible && step === 'camera'}
+            outputs={[photoOutput]}
+            onFacesDetected={onFacesDetected}
+            onError={(err: Error) => console.error('[SkinScanCamera] camera error', err)}
+            performanceMode="fast"
+            // autoMode + window size: hands rotation/scaling to the
+            // plugin's native side so `face.bounds` come back already in
+            // screen/preview coordinates — see the comment above liveBox.
+            autoMode
+            windowWidth={winW}
+            windowHeight={winH}
+            onPreviewStarted={() => setCameraReady(true)}
+          />
+        )}
+
         {step === 'camera' && hasPermission && device != null && (
           <>
-            <FaceDetectCamera
-              ref={cameraRef}
-              style={StyleSheet.absoluteFill}
-              device={device}
-              isActive={step === 'camera'}
-              outputs={[photoOutput]}
-              onFacesDetected={onFacesDetected}
-              onError={(err: Error) => console.error('[SkinScanCamera] camera error', err)}
-              performanceMode="fast"
-              // autoMode + window size: hands rotation/scaling to the
-              // plugin's native side so `face.bounds` come back already in
-              // screen/preview coordinates — see the comment above liveBox.
-              autoMode
-              windowWidth={winW}
-              windowHeight={winH}
-              onPreviewStarted={() => setCameraReady(true)}
-            />
             {/* Real-time tracking box from the live face detector — replaces
                 the old fixed oval guide with the actual detected face for
                 THIS frame. A dimmed surround still frames the scene when no
