@@ -41,12 +41,20 @@ const RESPONSE_SCHEMA = {
     hydrationLevel: { type: 'STRING', enum: ['LOW', 'MODERATE', 'HIGH'] },
     // Zone-specific notes — the thing a real in-person consultation does
     // that a single "your skin is X" verdict doesn't: different areas of
-    // the face often read differently (oily T-zone, drier cheeks, visible
-    // pore size, texture). Empty string for a zone with nothing notable,
-    // never invented detail to fill the field.
-    tZoneNote: { type: 'STRING' },
-    cheeksNote: { type: 'STRING' },
-    underEyeNote: { type: 'STRING' },
+    // the face often read differently (oily forehead, drier cheeks, visible
+    // pore size, texture). Eight zones (not a coarse tZone/cheeks/underEye
+    // three-way split) so how MANY notes come back tracks how much a given
+    // photo actually shows — a clear-skinned photo might only fill 2-3 of
+    // these, a more textured one most of them. Empty string for a zone with
+    // nothing notable, never invented detail to fill the field.
+    foreheadNote: { type: 'STRING' },
+    noseNote: { type: 'STRING' },
+    chinNote: { type: 'STRING' },
+    cheekLNote: { type: 'STRING' },
+    cheekRNote: { type: 'STRING' },
+    underEyeLNote: { type: 'STRING' },
+    underEyeRNote: { type: 'STRING' },
+    jawlineNote: { type: 'STRING' },
     concerns: { type: 'ARRAY', items: { type: 'STRING' } },
     // A warm, specific, encouraging one-liner a real person would actually
     // want to read — the app's own headline for the result, not a clinical
@@ -71,7 +79,8 @@ const RESPONSE_SCHEMA = {
   },
   required: [
     'faceDetected', 'matchConfidence', 'skinTone', 'skinType', 'hydrationLevel',
-    'tZoneNote', 'cheeksNote', 'underEyeNote', 'concerns', 'summary', 'recommendations',
+    'foreheadNote', 'noseNote', 'chinNote', 'cheekLNote', 'cheekRNote', 'underEyeLNote', 'underEyeRNote', 'jawlineNote',
+    'concerns', 'summary', 'recommendations',
   ],
 };
 
@@ -108,13 +117,18 @@ Now look closely at Image 1 (the new selfie) — really examine it at full detai
    Sample at LEAST three separate points before deciding — forehead, one cheek, and the jawline — each away from shadow, flush, redness, or specular shine, then judge the tone those points actually converge on, not a single glance at whichever looked easiest. Mentally correct for the photo's own white balance/lighting warmth first (a warm indoor light or a cool flash can shift how tone reads, but the underlying skin color is what matters). MEDIUM is a real category, not a safe fallback — if you're mentally reaching for it because you're unsure, that's a signal to look again at your three sample points rather than default to it; commit to whichever of the six the evidence actually points to across the full FAIR–RICH range.
 3. Classify the apparent skin type as exactly one of: DRY, OILY, COMBINATION, NORMAL, SENSITIVE, based on visible cues — shine/texture, pore size and visibility, flaking, redness.${sensitivityLine}
 4. Rate apparent hydration as LOW, MODERATE, or HIGH — dull, tight, or flaking skin reads LOW; a healthy dewy/plump look reads HIGH.
-5. Look at three zones separately, the way an in-person consultation actually would — close, clinical-grade inspection, not a glance. Write 1-2 specific, plain-language sentences per zone (not one clipped fragment) covering whichever of these are actually visible: texture, pore size/density, oiliness or shine, tone evenness, any fine lines, redness, or areas of hyperpigmentation. A thin one-liner like "Looks fine" or "Some oiliness" is not acceptable when the photo has more to see — describe it the way you'd actually describe it to the person's face. Note left/right asymmetry between the two sides of the face if there genuinely is any (e.g. more visible on one cheek than the other) — real dermatological observations are rarely perfectly symmetric, and calling that out reads as a more genuine, closer look, not a templated one. Leave a zone's note as an empty string only if there's truly nothing to observe there at all — never invent detail to fill the field, but never settle for a thinner note than the photo actually supports either:
-   - tZoneNote: forehead, nose, chin (pore size/density and oiliness here especially — this is usually where it's most visible)
-   - cheeksNote: cheeks (texture uniformity, pore visibility, any asymmetry between left/right, sun-exposure signs like fine pigmentation)
-   - underEyeNote: under-eye area (fine lines, puffiness, darkness/discoloration, skin thinness)
+5. Look at eight zones SEPARATELY, the way an in-person consultation actually would — close, clinical-grade inspection of each one in turn, not one glance at the whole face. For each zone below that genuinely shows something, write 1-2 specific, plain-language sentences covering whichever of these are actually visible there: texture, pore size/density, oiliness or shine, tone evenness, fine lines, redness, or hyperpigmentation. A thin one-liner like "Looks fine" or "Some oiliness" is not acceptable when the zone has more to see — describe it the way you'd actually describe it to the person's face. Left and right sides are SEPARATE zones now specifically so real asymmetry shows up as different notes on each side, not a single merged comment — real dermatological observations are rarely perfectly symmetric. Leave a zone's note as an empty string when there's truly nothing to observe there — never invent detail to fill it — but don't leave a zone empty just because you're being economical: how many of these 8 end up with real notes should genuinely track how much this specific photo shows, from just 2-3 on a very clear, even-toned face up to most of them on one with more visible texture or variation:
+   - foreheadNote: forehead (pore size/density, oiliness/shine, fine lines)
+   - noseNote: nose (pore size/density, oiliness, blackhead-prone texture)
+   - chinNote: chin (texture, oiliness, breakout-prone signs)
+   - cheekLNote: LEFT cheek only (texture uniformity, pore visibility, sun-exposure signs like fine pigmentation)
+   - cheekRNote: RIGHT cheek only (same, independent of the left — note it plainly if one side differs from the other)
+   - underEyeLNote: LEFT under-eye (fine lines, puffiness, darkness/discoloration, skin thinness)
+   - underEyeRNote: RIGHT under-eye (same, independent of the left)
+   - jawlineNote: jawline and along the chin's edge (texture, breakout-prone signs, any redness)
 6. List 2-6 specific visible cosmetic concerns, as concrete as what you actually see (e.g. "Enlarged pores on nose", "Mild hyperpigmentation on left cheek", "Fine dryness around mouth", "Slight asymmetry in tone between cheeks" — not vague catch-alls like "some concerns"). More than 4 only when the photo genuinely shows that much — don't pad the list to hit a number.
 7. Write a warm, specific, one-sentence summary of what you see — genuinely observational (mention something real about the photo), encouraging in tone, never generic filler like "Great skin!". This is the first thing the user reads.
-8. Give 3-5 general cosmetic product-category recommendations, each with a category, a short title, and a one-sentence note. Each one should visibly connect to something you actually observed — a specific zone note or concern from above, not a generic catch-all list disconnected from this particular photo (e.g. if tZoneNote flagged oiliness, one recommendation should plainly address that; if underEyeNote flagged darkness, another should). Generic product categories only (e.g. "gentle cleanser"), never a specific brand, and never a medical claim or treatment instruction.
+8. Give 3-5 general cosmetic product-category recommendations, each with a category, a short title, and a one-sentence note. Each one should visibly connect to something you actually observed — a specific zone note or concern from above, not a generic catch-all list disconnected from this particular photo (e.g. if the nose or forehead note flagged oiliness, one recommendation should plainly address that; if an under-eye note flagged darkness, another should). Generic product categories only (e.g. "gentle cleanser"), never a specific brand, and never a medical claim or treatment instruction.
 
 If no face is clearly visible, set faceDetected to false and fill the other fields with reasonable placeholder defaults (they will be ignored).`;
 }
@@ -130,7 +144,7 @@ If no face is clearly visible, set faceDetected to false and fill the other fiel
  *   One entry per existing SkinProfile candidate on the account, in order —
  *   the returned matchedProfileIndex is 1-based into this array. Omit/empty
  *   on the account's first-ever scan.
- * @returns {Promise<{faceDetected:boolean, matchedProfileIndex:number|null, matchConfidence:'HIGH'|'MEDIUM'|'LOW'|'NONE', skinTone:string, skinType:string, hydrationLevel:string, tZoneNote:string, cheeksNote:string, underEyeNote:string, concerns:string[], summary:string, progressNote:string|null, recommendations:{category:string,title:string,note:string}[]}|null>}
+ * @returns {Promise<{faceDetected:boolean, matchedProfileIndex:number|null, matchConfidence:'HIGH'|'MEDIUM'|'LOW'|'NONE', skinTone:string, skinType:string, hydrationLevel:string, foreheadNote:string, noseNote:string, chinNote:string, cheekLNote:string, cheekRNote:string, underEyeLNote:string, underEyeRNote:string, jawlineNote:string, concerns:string[], summary:string, progressNote:string|null, recommendations:{category:string,title:string,note:string}[]}|null>}
  *   null when GEMINI_API_KEY isn't configured. Throws on a real API failure.
  */
 async function analyzeWithGemini(base64Jpeg, context = {}) {

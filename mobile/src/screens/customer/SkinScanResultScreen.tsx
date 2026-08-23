@@ -20,6 +20,7 @@ import { NearbyArtistRow } from '../../components/NearbyArtistRow';
 import { SkinZoneOverlay } from '../../components/SkinZoneOverlay';
 import { ShareCardModal, ShareCardSpec } from '../../components/ShareCardModal';
 import { SparkleIcon } from '../../components/BeautyIcons';
+import { ZONE_META } from '../../utils/skinZones';
 
 const TONE_LABELS: Record<string, string> = { FAIR: 'Fair', LIGHT: 'Light', MEDIUM: 'Medium', TAN: 'Tan', DEEP: 'Deep', RICH: 'Rich' };
 const TONE_SWATCH: Record<string, string> = { FAIR: '#F5D5C0', LIGHT: '#E8B894', MEDIUM: '#C68863', TAN: '#A9673F', DEEP: '#7A4B32', RICH: '#4A2C20' };
@@ -129,15 +130,37 @@ export function SkinScanResultScreen() {
           {/* Zone-by-zone read — the thing an in-person consultation does
               that one blanket "your skin is X" verdict doesn't. Gemini-only
               (empty strings from the free heuristic); only rendered when at
-              least one zone actually has something worth showing. */}
-          {(!!scan.zoneNotes?.tZone || !!scan.zoneNotes?.cheeks || !!scan.zoneNotes?.underEye) && (
-            <View style={styles.zoneSection}>
-              <Text style={styles.zoneHint}>Tap a marker on the photo above to see it pointed out</Text>
-              {!!scan.zoneNotes?.tZone && <ZoneRow label="T-zone" note={scan.zoneNotes.tZone} />}
-              {!!scan.zoneNotes?.cheeks && <ZoneRow label="Cheeks" note={scan.zoneNotes.cheeks} />}
-              {!!scan.zoneNotes?.underEye && <ZoneRow label="Under-eye" note={scan.zoneNotes.underEye} />}
-            </View>
-          )}
+              least one zone actually has something worth showing. Up to 8
+              rows now (forehead/nose/chin/both cheeks/both under-eyes/
+              jawline) — however many ZONE_META entries this particular
+              photo actually got a note for, not a fixed count. Legacy scans
+              (saved before that 8-zone breakdown) only ever have the old
+              tZone/cheeks/underEye trio, so those still render as their own
+              3 rows via the fallback below. */}
+          {(() => {
+            const granularRows = ZONE_META
+              .map(z => ({ ...z, note: scan.zoneNotes?.[z.key] }))
+              .filter(z => !!z.note);
+            if (granularRows.length > 0) {
+              return (
+                <View style={styles.zoneSection}>
+                  <Text style={styles.zoneHint}>Tap a marker on the photo above to see it pointed out</Text>
+                  {granularRows.map(z => <ZoneRow key={z.key} label={z.label} note={z.note!} />)}
+                </View>
+              );
+            }
+            if (scan.zoneNotes?.tZone || scan.zoneNotes?.cheeks || scan.zoneNotes?.underEye) {
+              return (
+                <View style={styles.zoneSection}>
+                  <Text style={styles.zoneHint}>Tap a marker on the photo above to see it pointed out</Text>
+                  {!!scan.zoneNotes?.tZone && <ZoneRow label="T-zone" note={scan.zoneNotes.tZone} />}
+                  {!!scan.zoneNotes?.cheeks && <ZoneRow label="Cheeks" note={scan.zoneNotes.cheeks} />}
+                  {!!scan.zoneNotes?.underEye && <ZoneRow label="Under-eye" note={scan.zoneNotes.underEye} />}
+                </View>
+              );
+            }
+            return null;
+          })()}
 
           {scan.concerns.length > 0 && (
             <View style={styles.chipRow}>

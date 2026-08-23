@@ -60,8 +60,13 @@ import { SparkleIcon } from './BeautyIcons';
 import { SKIN_QUIZ_QUESTIONS } from '../data/skinQuiz';
 import { apiScanSkin, SkinScan } from '../api/client';
 import { tapLight, tapWarning } from '../utils/haptics';
-import { zoneRectToPhotoFrac } from '../utils/skinZones';
+import { zoneRectToPhotoFrac, ZONE_META } from '../utils/skinZones';
 import { ScanBracket } from './ScanBracket';
+
+// All 8 zones, geometry-only — this drives the live preview's sub-brackets,
+// shown before any actual analysis has run (see the comment where it's
+// used, below).
+const LIVE_ZONE_KEYS = ZONE_META.map(z => z.key);
 
 function stripDataUrlPrefix(value: string): string {
   const commaIndex = value.indexOf(',');
@@ -175,9 +180,19 @@ function buildTips(previousScan?: SkinScan | null): string[] {
   const tips = [...GENERIC_TIPS];
   if (previousScan) {
     // Prefer whichever zone had something notable last time — the most
-    // concrete, specific tip beats a generic one.
+    // concrete, specific tip beats a generic one. Granular zones first
+    // (current scans), falling back to the old 3-zone shape for scans
+    // saved before that breakdown.
     const zone = previousScan.zoneNotes || {};
-    const zoneHit = zone.tZone ? { label: 'T-zone (forehead & nose)', note: zone.tZone }
+    const zoneHit = zone.forehead ? { label: 'forehead', note: zone.forehead }
+      : zone.nose ? { label: 'nose', note: zone.nose }
+      : zone.chin ? { label: 'chin', note: zone.chin }
+      : zone.cheekL ? { label: 'left cheek', note: zone.cheekL }
+      : zone.cheekR ? { label: 'right cheek', note: zone.cheekR }
+      : zone.underEyeL ? { label: 'left under-eye area', note: zone.underEyeL }
+      : zone.underEyeR ? { label: 'right under-eye area', note: zone.underEyeR }
+      : zone.jawline ? { label: 'jawline', note: zone.jawline }
+      : zone.tZone ? { label: 'T-zone (forehead & nose)', note: zone.tZone }
       : zone.cheeks ? { label: 'cheeks', note: zone.cheeks }
       : zone.underEye ? { label: 'under-eye area', note: zone.underEye }
       : null;
@@ -475,14 +490,18 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
                   thickness={3}
                   pulse
                 />
-                {/* Same T-zone/cheeks/under-eye proportions the result
-                    screen's tappable markers use (see skinZones.ts) — real-
-                    time preview of exactly what a finished scan will call
-                    out, not just a generic face outline. zoneRectToPhotoFrac
-                    is unit-agnostic (pure ratio math), so passing liveBox's
-                    screen-pixel coordinates as the "face box" works exactly
-                    like passing 0–1 fractions elsewhere. */}
-                {(['tZone', 'cheekL', 'cheekR', 'underEye'] as const).map(zone => {
+                {/* Same 8-zone proportions the result screen's tappable
+                    markers use (see skinZones.ts) — real-time preview of
+                    exactly what a finished scan will call out, not just a
+                    generic face outline. This live preview always draws all
+                    8 (it's a geometric guide, shown before any actual
+                    analysis has run); the result screen only ever shows the
+                    subset Gemini actually had something to say about for
+                    THIS photo. zoneRectToPhotoFrac is unit-agnostic (pure
+                    ratio math), so passing liveBox's screen-pixel
+                    coordinates as the "face box" works exactly like passing
+                    0–1 fractions elsewhere. */}
+                {LIVE_ZONE_KEYS.map(zone => {
                   const r = zoneRectToPhotoFrac(zone, liveBox);
                   return (
                     <ScanBracket

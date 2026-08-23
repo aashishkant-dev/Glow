@@ -16,7 +16,7 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Colors, Fonts } from '../utils/colors';
-import { resolveFaceBox, zoneRectToPhotoFrac } from '../utils/skinZones';
+import { resolveFaceBox, zoneRectToPhotoFrac, legacyZoneRectToPhotoFrac, ZONE_META } from '../utils/skinZones';
 import { ScanBracket } from './ScanBracket';
 
 interface Marker {
@@ -25,12 +25,20 @@ interface Marker {
   note: string;
   rect: { x: number; y: number; width: number; height: number };
   // Label callout anchors left or right of center so two side-by-side
-  // markers (the cheeks) don't collide with each other.
+  // markers don't collide with each other.
   align: 'left' | 'right' | 'center';
 }
 
 interface Props {
-  zoneNotes: { tZone?: string; cheeks?: string; underEye?: string };
+  zoneNotes: {
+    forehead?: string; nose?: string; chin?: string;
+    cheekL?: string; cheekR?: string;
+    underEyeL?: string; underEyeR?: string;
+    jawline?: string;
+    // Legacy shape — scans saved before the granular 8-zone breakdown only
+    // ever have these three.
+    tZone?: string; cheeks?: string; underEye?: string;
+  };
   faceBox?: { x?: number; y?: number; width?: number; height?: number };
 }
 
@@ -38,16 +46,28 @@ export function SkinZoneOverlay({ zoneNotes, faceBox: rawFaceBox }: Props) {
   const [active, setActive] = useState<string | null>(null);
   const faceBox = resolveFaceBox(rawFaceBox);
 
+  // A scan's zoneNotes is entirely one shape or the other (set once, server
+  // -side, at scan time) — never a mix — so checking for any one granular
+  // key is enough to tell which this is.
+  const isGranular = ZONE_META.some(z => !!zoneNotes?.[z.key]);
+
   const markers: Marker[] = [];
-  if (zoneNotes?.tZone) {
-    markers.push({ key: 'tZone', label: 'T-zone', note: zoneNotes.tZone, rect: zoneRectToPhotoFrac('tZone', faceBox), align: 'center' });
-  }
-  if (zoneNotes?.cheeks) {
-    markers.push({ key: 'cheekL', label: 'Cheeks', note: zoneNotes.cheeks, rect: zoneRectToPhotoFrac('cheekL', faceBox), align: 'left' });
-    markers.push({ key: 'cheekR', label: 'Cheeks', note: zoneNotes.cheeks, rect: zoneRectToPhotoFrac('cheekR', faceBox), align: 'right' });
-  }
-  if (zoneNotes?.underEye) {
-    markers.push({ key: 'underEye', label: 'Under-eye', note: zoneNotes.underEye, rect: zoneRectToPhotoFrac('underEye', faceBox), align: 'center' });
+  if (isGranular) {
+    for (const z of ZONE_META) {
+      const note = zoneNotes?.[z.key];
+      if (note) markers.push({ key: z.key, label: z.label, note, rect: zoneRectToPhotoFrac(z.key, faceBox), align: z.align });
+    }
+  } else {
+    if (zoneNotes?.tZone) {
+      markers.push({ key: 'tZone', label: 'T-zone', note: zoneNotes.tZone, rect: legacyZoneRectToPhotoFrac('tZone', faceBox), align: 'center' });
+    }
+    if (zoneNotes?.cheeks) {
+      markers.push({ key: 'cheekL', label: 'Cheeks', note: zoneNotes.cheeks, rect: legacyZoneRectToPhotoFrac('cheekL', faceBox), align: 'left' });
+      markers.push({ key: 'cheekR', label: 'Cheeks', note: zoneNotes.cheeks, rect: legacyZoneRectToPhotoFrac('cheekR', faceBox), align: 'right' });
+    }
+    if (zoneNotes?.underEye) {
+      markers.push({ key: 'underEye', label: 'Under-eye', note: zoneNotes.underEye, rect: legacyZoneRectToPhotoFrac('underEye', faceBox), align: 'center' });
+    }
   }
 
   if (markers.length === 0) return null;

@@ -1382,7 +1382,18 @@ export interface SkinScan {
   // '' from the free heuristic (no per-zone reading ability) — populated on
   // the Gemini path only.
   hydrationLevel: '' | 'LOW' | 'MODERATE' | 'HIGH';
-  zoneNotes: { tZone?: string; cheeks?: string; underEye?: string };
+  // 8-zone breakdown (forehead/nose/chin/cheekL/cheekR/underEyeL/underEyeR/
+  // jawline) as of the granular zone rework — a given scan only ever
+  // populates whichever zones the photo actually showed something in,
+  // never all 8. tZone/cheeks/underEye are the old 3-zone shape, only ever
+  // present on scans saved before that rework (see skinZones.ts).
+  zoneNotes: {
+    forehead?: string; nose?: string; chin?: string;
+    cheekL?: string; cheekR?: string;
+    underEyeL?: string; underEyeR?: string;
+    jawline?: string;
+    tZone?: string; cheeks?: string; underEye?: string;
+  };
   // The face region actually used for analysis, as 0–1 fractions of the
   // photo — from on-device face detection when available, or the fixed
   // guide-oval fallback otherwise. {} on scans from before this field
