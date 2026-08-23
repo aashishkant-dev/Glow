@@ -11,8 +11,21 @@
  *
  * Analysis is free/on-device-style pixel math + this quiz (see
  * src/utils/skinAnalysis.js on the backend) — never a paid vision API call.
+ *
+ * Camera: react-native-vision-camera (not expo-camera) specifically so the
+ * live preview can run a real-time ML Kit face detector via
+ * react-native-vision-camera-face-detector and draw a genuine tracking box
+ * while framing the shot, not just a fixed oval guide. A SEPARATE
+ * detection pass still runs on the captured photo itself (detectFaceRegion,
+ * via @react-native-ml-kit/face-detection below) for the actual faceRegion
+ * sent to the backend — deliberately not reusing the live stream's last
+ * detection, since the live stream runs on lower-res preview frames and
+ * coupling the analyzed region to "whatever frame happened to be live right
+ * as the shutter fired" is a lot more fragile than a fresh detection on the
+ * exact photo bytes being analyzed. The live box is real-time UI feedback
+ * only.
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image } from 'expo-image';
 import {
   ActivityIndicator,
@@ -22,12 +35,16 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { Platform } from 'react-native';
-import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useCameraDevice, useCameraPermission, usePhotoOutput, type CameraRef } from 'react-native-vision-camera';
+import { Camera as FaceDetectCamera, type Face as LiveFace } from 'react-native-vision-camera-face-detector';
+import * as FileSystem from 'expo-file-system/legacy';
+import FaceDetection from '@react-native-ml-kit/face-detection';
 import { Colors, Fonts } from '../utils/colors';
 import { GlowMark } from './GlowLogo';
 import { SparkleIcon } from './BeautyIcons';
@@ -38,6 +55,87 @@ import { tapLight, tapWarning } from '../utils/haptics';
 function stripDataUrlPrefix(value: string): string {
   const commaIndex = value.indexOf(',');
   return value.startsWith('data:') && commaIndex !== -1 ? value.slice(commaIndex + 1) : value;
+}
+
+type FaceRegion = { x: number; y: number; width: number; height: number };
+
+// Runs real on-device face detection (ML Kit — free, no API call, no rate
+// limit) on the JUST-CAPTURED photo, replacing the old fixed-oval guess with
+// the actual detected face for THIS photo. Native-only: on web, or a native
+// build that hasn't been rebuilt with this module yet, ML Kit isn't
+// available at all — caught and treated as "unavailable," never surfaced as
+// a false "no face" warning, since that would blame the user for something
+// that isn't about their photo. A genuine zero-faces result IS surfaced
+// (noFaceDetected), since that's real, useful signal to retake before ever
+// spending an upload + Gemini call on an unusable photo.
+async function detectFaceRegion(uri: string, imgWidth: number, imgHeight: number): Promise<{ faceRegion: FaceRegion | null; noFaceDetected: boolean }> {
+  if (Platform.OS === 'web' || !imgWidth || !imgHeight) return { faceRegion: null, noFaceDetected: false };
+  try {
+    const faces = await FaceDetection.detect(uri, { performanceMode: 'fast' });
+    if (!faces || faces.length === 0) return { faceRegion: null, noFaceDetected: true };
+
+    // Largest face wins — guards against a photo/poster in the background
+    // being picked over the real subject.
+    const face = faces.reduce((biggest, f) => (f.frame.width * f.frame.height > biggest.frame.width * biggest.frame.height ? f : biggest), faces[0]);
+    const { left, top, width, height } = face.frame;
+
+    // ML Kit's box is tight — roughly eyebrows-to-chin — so it's expanded
+    // into a fuller "beauty crop" that actually includes the forehead, full
+    // jaw, and a little ear/temple margin on each side, matching what the
+    // zone markers (SkinZoneOverlay) and DEFAULT_REGION fallback assume.
+    const expLeft = left - width * 0.25;
+    const expTop = top - height * 0.5;
+    const expRight = left + width * 1.25;
+    const expBottom = top + height * 1.25;
+
+    const clampedLeft = Math.max(0, expLeft);
+    const clampedTop = Math.max(0, expTop);
+    const clampedRight = Math.min(imgWidth, expRight);
+    const clampedBottom = Math.min(imgHeight, expBottom);
+
+    return {
+      faceRegion: {
+        x: clampedLeft / imgWidth,
+        y: clampedTop / imgHeight,
+        width: (clampedRight - clampedLeft) / imgWidth,
+        height: (clampedBottom - clampedTop) / imgHeight,
+      },
+      noFaceDetected: false,
+    };
+  } catch (err) {
+    // Not linked (web build, or a native build from before this module was
+    // added) — not an error worth logging noisily, just "can't detect here."
+    return { faceRegion: null, noFaceDetected: false };
+  }
+}
+
+// Maps a live-detected face's bounds (in the DETECTION FRAME's own pixel
+// space, e.g. 480×640) onto screen coordinates for the tracking box overlay.
+// The preview fills the screen with resizeMode="cover" (crop-to-fill, this
+// component's default), so the frame is scaled up until one axis matches the
+// screen exactly and the other overflows/gets cropped — standard "aspect
+// fill" math. The front camera preview is mirrored (mirrorMode: 'auto'
+// mirrors selfie cameras) so the box's X is flipped to match what's actually
+// on screen, since detection runs against the raw (unmirrored) sensor frame.
+function mapFaceBoundsToScreen(
+  bounds: { x: number; y: number; width: number; height: number },
+  frameWidth: number,
+  frameHeight: number,
+  screenWidth: number,
+  screenHeight: number,
+) {
+  const frameAspect = frameWidth / frameHeight;
+  const screenAspect = screenWidth / screenHeight;
+  const scale = frameAspect > screenAspect ? screenHeight / frameHeight : screenWidth / frameWidth;
+  const offsetX = (frameWidth * scale - screenWidth) / 2;
+  const offsetY = (frameHeight * scale - screenHeight) / 2;
+
+  const left = bounds.x * scale - offsetX;
+  const top = bounds.y * scale - offsetY;
+  const width = bounds.width * scale;
+  const height = bounds.height * scale;
+
+  return { left: screenWidth - left - width, top, width, height }; // mirrored
 }
 
 interface Props {
@@ -110,14 +208,27 @@ const analyzingStepStyles = StyleSheet.create({
 
 export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: Props) {
   const insets = useSafeAreaInsets();
-  const [permission, requestPermission] = useCameraPermissions();
-  const cameraRef = useRef<CameraView>(null);
+  const { width: winW, height: winH } = useWindowDimensions();
+  const { hasPermission, requestPermission } = useCameraPermission();
+  const device = useCameraDevice('front');
+  const photoOutput = usePhotoOutput();
+  const cameraRef = useRef<CameraRef>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
+  // Real-time face box from the live preview — pure UI feedback (see the
+  // file header comment for why the actual analyzed faceRegion is computed
+  // separately, from the captured photo, not from this stream).
+  const [liveFaces, setLiveFaces] = useState<LiveFace[]>([]);
+  const onFacesDetected = useCallback((faces: LiveFace[]) => setLiveFaces(faces), []);
   const [step, setStep] = useState<Step>('camera');
-  const [shot, setShot] = useState<{ uri: string; base64: string; mimeType: string } | null>(null);
+  const [shot, setShot] = useState<{ uri: string; base64: string; mimeType: string; faceRegion: FaceRegion | null } | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  // Real on-device detection found zero faces in the captured photo — not
+  // fatal (Gemini still gets the final say server-side), just a heads-up
+  // before spending an upload + API call on a photo likely to get rejected.
+  const [noFaceWarning, setNoFaceWarning] = useState(false);
+  const [detectingFace, setDetectingFace] = useState(false);
   const flashAnim = useRef(new Animated.Value(0)).current;
 
   // Live, rotating tips on the camera step itself — real-time coaching
@@ -143,6 +254,8 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
     setAnswers({});
     setCameraReady(false);
     setError(null);
+    setNoFaceWarning(false);
+    setLiveFaces([]);
   }
 
   function handleClose() {
@@ -151,7 +264,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
   }
 
   async function shoot() {
-    if (!cameraRef.current || capturing) return;
+    if (capturing) return;
     if (!cameraReady) {
       tapWarning();
       return;
@@ -161,11 +274,24 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
     flashAnim.setValue(1);
     Animated.timing(flashAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start();
     try {
-      const photo = await cameraRef.current.takePictureAsync({ base64: true, quality: 0.85 });
-      if (photo?.base64) {
-        setShot({ uri: photo.uri, base64: stripDataUrlPrefix(photo.base64), mimeType: 'image/jpeg' });
-        setStep('quiz');
-      }
+      // vision-camera v5's photo pipeline hands back an in-memory Photo, not
+      // a file — saved to a temp file, then read back as base64 the same way
+      // shareLook.ts/exportSkinHistory.ts already do elsewhere in this app,
+      // rather than hand-rolling an ArrayBuffer→base64 encoder.
+      const photo = await photoOutput.capturePhoto({ flashMode: 'off' }, {});
+      const tempPath = await photo.saveToTemporaryFileAsync();
+      const uri = tempPath.startsWith('file://') ? tempPath : `file://${tempPath}`;
+      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
+      const { width, height } = photo;
+      photo.dispose();
+
+      setStep('quiz');
+      setDetectingFace(true);
+      setNoFaceWarning(false);
+      const { faceRegion, noFaceDetected } = await detectFaceRegion(uri, width, height);
+      setShot({ uri, base64: stripDataUrlPrefix(base64), mimeType: 'image/jpeg', faceRegion });
+      setNoFaceWarning(noFaceDetected);
+      setDetectingFace(false);
     } catch (err) {
       console.error('[SkinScanCamera] shoot failed', err);
     }
@@ -204,6 +330,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
         photoBase64: shot.base64,
         mimeType: shot.mimeType,
         quizAnswers: answers,
+        faceRegion: shot.faceRegion || undefined,
       });
       reset();
       onComplete(scan, bookCategory, isNewProfile);
@@ -214,25 +341,50 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
     }
   }
 
+  // Biggest live-detected face, mapped to on-screen coordinates for the
+  // real-time tracking box — undefined when nothing's currently detected.
+  const primaryLiveFace = liveFaces.length
+    ? liveFaces.reduce((biggest, f) => (f.bounds.width * f.bounds.height > biggest.bounds.width * biggest.bounds.height ? f : biggest), liveFaces[0])
+    : null;
+  const liveBox = primaryLiveFace
+    ? mapFaceBoundsToScreen(primaryLiveFace.bounds, primaryLiveFace.frameWidth, primaryLiveFace.frameHeight, winW, winH)
+    : null;
+
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={handleClose} statusBarTranslucent>
       <View style={styles.root}>
-        {step === 'camera' && permission?.granted && (
+        {step === 'camera' && hasPermission && device != null && (
           <>
-            <CameraView
+            <FaceDetectCamera
               ref={cameraRef}
               style={StyleSheet.absoluteFill}
-              facing="front"
-              onCameraReady={() => setCameraReady(true)}
+              device={device}
+              isActive={step === 'camera'}
+              outputs={[photoOutput]}
+              onFacesDetected={onFacesDetected}
+              onError={(err: Error) => console.error('[SkinScanCamera] camera error', err)}
+              performanceMode="fast"
+              onPreviewStarted={() => setCameraReady(true)}
             />
-            {/* A darkened surround with an oval cutout — nothing measured or
-                dynamic, this oval sits at a fixed position/size that matches
-                the backend's DEFAULT_REGION crop exactly (see
-                resolveCropBox in src/routes/skin.js), so no faceRegion
-                coordinates need computing or sending client-side at all. */}
-            <View style={styles.guideSurround} pointerEvents="none">
-              <View style={styles.guideOval} />
-            </View>
+            {/* Real-time tracking box from the live face detector — replaces
+                the old fixed oval guide with the actual detected face for
+                THIS frame. A dimmed surround still frames the scene when no
+                face is found yet, same reassurance the oval gave, just
+                honest about not knowing where the face actually is until
+                one's detected. */}
+            {liveBox ? (
+              <View
+                pointerEvents="none"
+                style={[
+                  styles.liveFaceBox,
+                  { left: liveBox.left, top: liveBox.top, width: liveBox.width, height: liveBox.height },
+                ]}
+              />
+            ) : (
+              <View style={styles.guideSurround} pointerEvents="none">
+                <View style={styles.guideOval} />
+              </View>
+            )}
             <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#fff', opacity: flashAnim }]} />
 
             <View style={[styles.topBar, { top: insets.top + 10 }]}>
@@ -252,7 +404,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
 
             <View style={[styles.bottomCluster, { paddingBottom: insets.bottom + 20 }]}>
               <Text style={styles.hint}>
-                {!cameraReady ? 'Camera warming up…' : 'Center your face in the oval, then tap to scan'}
+                {!cameraReady ? 'Camera warming up…' : liveBox ? 'Face detected — tap to scan' : 'Center your face in frame, then tap to scan'}
               </Text>
               <View style={styles.shootRow}>
                 <Pressable style={styles.shutterOuter} onPress={shoot} disabled={capturing} hitSlop={12}>
@@ -263,7 +415,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
           </>
         )}
 
-        {step === 'camera' && !permission?.granted && (
+        {step === 'camera' && !hasPermission && (
           <View style={styles.permissionGate}>
             <GlowMark size={40} />
             <Text style={styles.permissionTitle}>Camera access needed</Text>
@@ -277,6 +429,17 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
           </View>
         )}
 
+        {step === 'camera' && hasPermission && device == null && (
+          <View style={styles.permissionGate}>
+            <GlowMark size={40} />
+            <Text style={styles.permissionTitle}>No front camera found</Text>
+            <Text style={styles.permissionBody}>This device doesn't have a usable front camera for scanning.</Text>
+            <Pressable onPress={handleClose} style={{ marginTop: 18 }}>
+              <Text style={styles.permissionLink}>Close</Text>
+            </Pressable>
+          </View>
+        )}
+
         {step === 'quiz' && shot && (
           <View style={styles.quizRoot}>
             <ScrollView contentContainerStyle={{ paddingTop: insets.top + 20, paddingBottom: insets.bottom + 110, paddingHorizontal: 20 }}>
@@ -284,13 +447,27 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
                 <Image source={{ uri: shot.uri }} style={styles.quizPhotoThumb} contentFit="cover" />
                 <View style={{ flex: 1 }}>
                   <Text style={styles.quizTitle}>One quick question</Text>
-                  <Text style={styles.quizSubtitle}>Our AI reads the rest straight from your photo.</Text>
+                  <Text style={styles.quizSubtitle}>
+                    {detectingFace ? 'Checking your photo…' : 'Our AI reads the rest straight from your photo.'}
+                  </Text>
                 </View>
               </View>
 
               {!!error && (
                 <View style={styles.errorBanner}>
                   <Text style={styles.errorBannerText}>{error}</Text>
+                </View>
+              )}
+
+              {/* Real on-device face detection (not Gemini — free, instant,
+                  no rate limit) came back empty for this photo. Not a hard
+                  block: Gemini still gets the final say server-side, and a
+                  detection miss in tricky lighting doesn't always mean
+                  Gemini will miss it too — but worth flagging before
+                  spending an upload + API call on it. */}
+              {noFaceWarning && (
+                <View style={styles.faceWarningBanner}>
+                  <Text style={styles.faceWarningBannerText}>We couldn't clearly detect a face in this photo. You can retake it below, or continue anyway.</Text>
                 </View>
               )}
 
@@ -359,6 +536,10 @@ const styles = StyleSheet.create({
     width: OVAL_W, height: OVAL_H, borderRadius: OVAL_W,
     borderWidth: 2.5, borderColor: 'rgba(255,255,255,0.85)',
   },
+  liveFaceBox: {
+    position: 'absolute', borderRadius: 24,
+    borderWidth: 2.5, borderColor: Colors.brand,
+  },
 
   topBar: {
     position: 'absolute', left: 16, right: 16, zIndex: 2,
@@ -403,6 +584,8 @@ const styles = StyleSheet.create({
 
   errorBanner: { backgroundColor: '#FDECEC', borderRadius: 14, padding: 12, marginBottom: 16 },
   errorBannerText: { color: Colors.systemRed, fontSize: 12.5, fontFamily: Fonts.medium },
+  faceWarningBanner: { backgroundColor: Colors.brandLight, borderRadius: 14, padding: 12, marginBottom: 16 },
+  faceWarningBannerText: { color: Colors.brandDark, fontSize: 12.5, fontFamily: Fonts.medium, lineHeight: 17 },
 
   questionCard: { marginBottom: 20 },
   questionText: { fontSize: 14.5, fontFamily: Fonts.semibold, color: Colors.label, marginBottom: 10 },
