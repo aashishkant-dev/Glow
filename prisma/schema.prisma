@@ -911,6 +911,15 @@ model SkinScan {
   // notable there, per the model's own instruction not to invent detail.
   // Same "" default as hydrationLevel on the free heuristic path.
   zoneNotes       Json     @default("{}")
+  // { x, y, width, height } as 0–1 fractions of the stored photo — the face
+  // region actually used for analysis, whether from on-device ML Kit face
+  // detection (real, per-photo) or the fixed-oval DEFAULT_REGION fallback
+  // (older clients, web, or a detection miss). Persisted so the result
+  // screen's zone markers (SkinZoneOverlay.tsx) can position against the
+  // real box for THIS photo instead of assuming every photo used the same
+  // fixed crop. "{}" (pre-this-column scans) falls back to that same fixed
+  // constant client-side.
+  faceBox         Json     @default("{}")
   // [{ category, title, note }] — small enough, and shaped differently
   // enough per-concern, that a Json array is a better fit than a side table.
   recommendations Json     @default("[]")

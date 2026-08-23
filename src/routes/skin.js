@@ -7,7 +7,7 @@ const prisma  = require('../lib/prisma');
 const { uploadFile } = require('../utils/storage');
 const { authenticate } = require('../middleware/auth');
 const { analyzeSkin } = require('../utils/skinAnalysis');
-const { analyzeWithGemini, matchFaceProfile } = require('../utils/geminiSkinAnalysis');
+const { analyzeWithGemini } = require('../utils/geminiSkinAnalysis');
 
 const router = express.Router();
 
@@ -27,6 +27,7 @@ function serializeScan(s) {
     progressNote: s.progressNote ?? null,
     hydrationLevel: s.hydrationLevel || '',
     zoneNotes: s.zoneNotes || {},
+    faceBox: s.faceBox || {},
     recommendations: s.recommendations,
     notes: s.notes,
     createdAt: s.createdAt,
@@ -39,6 +40,7 @@ function toPreviousScanContext(scan) {
     skinTone: scan.skinTone,
     skinType: scan.skinType,
     concerns: scan.concerns,
+    summary: scan.summary || '',
     daysAgo: Math.max(0, Math.round((Date.now() - scan.createdAt.getTime()) / 86_400_000)),
   };
 }
@@ -50,75 +52,46 @@ async function fetchImageBase64(url) {
   return buf.toString('base64');
 }
 
-// Decides which SkinProfile (see schema.prisma) this new scan belongs to —
-// the thing that keeps two people sharing one account/device from having
-// their skin histories folded together. Side-effect-free: never creates a
-// profile itself (a rejected scan — no face, upload failure — shouldn't
-// leave an empty orphaned profile behind); the caller creates one, using
-// the returned `label`, only once it knows the scan is actually going to be
-// saved. Returns `profileId: null` in that case.
-async function resolveProfile(userId, newPhotoBase64) {
+// Gathers this account's existing SkinProfiles and reference photos+context
+// for the face-match step — pure data fetching, no Gemini call. Face-
+// matching and skin analysis used to be two separate Gemini requests per
+// scan; folded into one (see analyzeWithGemini) so a scan costs exactly one
+// API call regardless of how many profiles exist on the account. Bounded to
+// the 5 most recently active profiles to keep that one request's size sane
+// on an account with a long tail of old profiles.
+async function gatherProfileCandidates(userId) {
   const profiles = await prisma.skinProfile.findMany({
     where: { userId },
     orderBy: { createdAt: 'asc' },
-    include: { scans: { orderBy: { createdAt: 'desc' }, take: 1 } },
+    // Up to 3 — enough for a genuine multi-scan TREND ("steadily improving
+    // over your last 3 scans"), not just a single before/after delta against
+    // whatever the last scan happened to say. Only the most recent photo is
+    // ever sent as an image (trend history beyond that is plain text in the
+    // prompt — cheap, doesn't add another image to the request).
+    include: { scans: { orderBy: { createdAt: 'desc' }, take: 3 } },
   });
 
-  if (profiles.length === 0) {
-    return { profileId: null, label: 'You', previousScan: undefined, isNewProfile: false };
-  }
-
-  // Compare against the handful of most recently active profiles — bounds
-  // Gemini cost/latency on an account with a long tail of old profiles.
   const candidates = profiles
     .filter(p => p.scans.length > 0)
     .sort((a, b) => b.scans[0].createdAt.getTime() - a.scans[0].createdAt.getTime())
     .slice(0, 5);
 
-  let matched = null;
-  let consultedGemini = false;
-  if (candidates.length > 0) {
+  const referenceProfiles = [];
+  for (const p of candidates) {
     try {
-      const referencePhotos = [];
-      for (const p of candidates) {
-        try {
-          referencePhotos.push({ profile: p, photoBase64: await fetchImageBase64(p.scans[0].photoUrl) });
-        } catch (err) {
-          console.error(`[skin] could not fetch reference photo for profile ${p.id}:`, err.message);
-        }
-      }
-      if (referencePhotos.length > 0) {
-        const result = await matchFaceProfile(newPhotoBase64, referencePhotos);
-        if (result) {
-          consultedGemini = true;
-          if (result.matchedIndex != null && result.confidence !== 'LOW') {
-            matched = referencePhotos[result.matchedIndex - 1].profile;
-          }
-        }
-      }
+      const photoBase64 = await fetchImageBase64(p.scans[0].photoUrl);
+      referenceProfiles.push({
+        profile: p,
+        photoBase64,
+        ...toPreviousScanContext(p.scans[0]),
+        trend: p.scans.map(toPreviousScanContext),
+      });
     } catch (err) {
-      console.error('[skin] face-match failed:', err.message);
+      console.error(`[skin] could not fetch reference photo for profile ${p.id}:`, err.message);
     }
   }
 
-  // Gemini not configured, unreachable, errored, or had nothing yet to
-  // compare against — can't tell people apart right now, so default to the
-  // account's original profile rather than fragmenting history into a new
-  // profile on every single scan.
-  if (!matched && !consultedGemini) matched = profiles[0];
-
-  if (matched) {
-    return {
-      profileId: matched.id,
-      label: null,
-      previousScan: toPreviousScanContext(matched.scans[0]),
-      isNewProfile: false,
-    };
-  }
-
-  // Gemini was actually consulted and confidently found no match — a
-  // different person just used this account for the first time.
-  return { profileId: null, label: `Profile ${profiles.length + 1}`, previousScan: undefined, isNewProfile: true };
+  return { profiles, referenceProfiles };
 }
 
 // Maps the one remaining quiz question's choice id to a plain sentence
@@ -140,6 +113,10 @@ const SENSITIVITY_HINTS = {
 // face roughly there anyway.
 const DEFAULT_REGION = { x: 0.22, y: 0.16, width: 0.56, height: 0.6 };
 
+// Returns both the pixel-space crop box (for sharp's .extract, used on the
+// ORIGINAL image dimensions) and the clamped 0–1 fractional box (for
+// persisting as SkinScan.faceBox — fractions map identically onto the
+// resized stored photo, since resize preserves relative position).
 function resolveCropBox(faceRegion, imgWidth, imgHeight) {
   const r = faceRegion && typeof faceRegion === 'object' ? faceRegion : DEFAULT_REGION;
   const clamp01 = (v) => Math.min(1, Math.max(0, typeof v === 'number' && Number.isFinite(v) ? v : 0));
@@ -160,7 +137,13 @@ function resolveCropBox(faceRegion, imgWidth, imgHeight) {
   left = Math.max(0, Math.min(left, imgWidth - width));
   top = Math.max(0, Math.min(top, imgHeight - height));
 
-  return { left, top, width, height };
+  return {
+    pixelBox: { left, top, width, height },
+    faceBox: {
+      x: left / imgWidth, y: top / imgHeight,
+      width: width / imgWidth, height: height / imgHeight,
+    },
+  };
 }
 
 router.post(
@@ -181,7 +164,7 @@ router.post(
       const meta = await base.metadata();
       if (!meta.width || !meta.height) return res.status(400).json({ error: 'Could not read image' });
 
-      const box = resolveCropBox(faceRegion, meta.width, meta.height);
+      const { pixelBox, faceBox } = resolveCropBox(faceRegion, meta.width, meta.height);
 
       // Two forks of the same decoded pipeline: a small raw-pixel crop for
       // analysis, and a normal-sized JPEG for storage/history display —
@@ -189,7 +172,7 @@ router.post(
       // re-parsing the buffer twice.
       const { data: rawPixels, info: rawInfo } = await base
         .clone()
-        .extract(box)
+        .extract(pixelBox)
         .resize(40, 40, { fit: 'fill' })
         .removeAlpha()
         .raw()
@@ -202,12 +185,9 @@ router.post(
         .toBuffer();
       const storedB64 = storedBuf.toString('base64');
 
-      // Figures out WHICH person this scan is (face-match against this
-      // account's other profiles — see resolveProfile) before analysis runs,
-      // so the previous-scan comparison Gemini gets is the right person's
-      // history, not just "whoever scanned on this account most recently."
-      const resolved = await resolveProfile(req.user.id, storedB64);
-      const previousScan = resolved.previousScan;
+      // Gathers this account's other profiles' reference photos up front —
+      // pure data fetching, no API call yet (see gatherProfileCandidates).
+      const { profiles, referenceProfiles } = await gatherProfileCandidates(req.user.id);
       const sensitivityHint = SENSITIVITY_HINTS[quizAnswers?.sensitivity];
 
       // Real vision-model analysis when GEMINI_API_KEY is configured, with
@@ -218,10 +198,24 @@ router.post(
       // back to the heuristic (which has no way to know a face is even
       // present) — that's real, actionable feedback for the user to retake
       // the photo, so it becomes a 400 instead.
+      //
+      // ONE Gemini call handles both face-matching (which profile this is)
+      // AND the skin analysis — folded together specifically because two
+      // separate calls per scan was doubling how often the free tier's
+      // per-minute quota got hit, and every 429 silently fell back to the
+      // zero-detail heuristic (no zone notes → no zone markers on the
+      // result photo, no progressNote). One call halves that exposure.
       let result;
       let analysisSource = 'heuristic';
+      let profileId = null;
+      let isNewProfile = false;
       try {
-        const gemini = await analyzeWithGemini(storedB64, { sensitivityHint, previousScan });
+        const gemini = await analyzeWithGemini(storedB64, {
+          sensitivityHint,
+          referenceProfiles: referenceProfiles.map(r => ({
+            photoBase64: r.photoBase64, daysAgo: r.daysAgo, skinTone: r.skinTone, skinType: r.skinType, concerns: r.concerns, trend: r.trend,
+          })),
+        });
         if (gemini) {
           if (!gemini.faceDetected) {
             console.log(`[skin] Gemini rejected scan from user ${req.user.id}: no face detected`);
@@ -243,12 +237,27 @@ router.post(
             recommendations: gemini.recommendations,
             bookCategory: BOOK_CATEGORY,
           };
+
+          if (gemini.matchedProfileIndex != null && (gemini.matchConfidence === 'HIGH' || gemini.matchConfidence === 'MEDIUM')) {
+            profileId = referenceProfiles[gemini.matchedProfileIndex - 1].profile.id;
+          } else if (profiles.length > 0) {
+            // Gemini was actually consulted and confidently found no match
+            // among existing profiles — a different person just used this
+            // account for the first time.
+            isNewProfile = true;
+          }
+          // else: profiles.length === 0 (account's first-ever scan) — profileId
+          // stays null, "You" gets created below. Not a "new profile" event.
         }
       } catch (err) {
         console.error('Gemini skin analysis failed, falling back to free heuristic:', err.message);
       }
       if (!result) {
         result = analyzeSkin({ buffer: rawPixels, channels: rawInfo.channels, quizAnswers });
+        // Gemini unavailable/errored — can't tell people apart right now, so
+        // default to the account's original profile rather than
+        // fragmenting history into a new profile on every single scan.
+        if (profiles.length > 0) profileId = profiles[0].id;
       }
 
       const uploaded = await uploadFile(`skin-scans/${req.user.id}-${Date.now()}.jpg`, storedBuf, 'image/jpeg');
@@ -256,11 +265,11 @@ router.post(
 
       const scan = await prisma.$transaction(async (tx) => {
         // A new profile is only ever actually created here — once a scan is
-        // definitely being saved under it — never speculatively during
-        // face-match (see resolveProfile's comment).
-        let profileId = resolved.profileId;
+        // definitely being saved under it — never speculatively during the
+        // face-match step above.
         if (!profileId) {
-          const profile = await tx.skinProfile.create({ data: { userId: req.user.id, label: resolved.label } });
+          const label = isNewProfile ? `Profile ${profiles.length + 1}` : 'You';
+          const profile = await tx.skinProfile.create({ data: { userId: req.user.id, label } });
           profileId = profile.id;
         }
 
@@ -276,6 +285,7 @@ router.post(
             progressNote: result.progressNote ?? null,
             hydrationLevel: result.hydrationLevel || '',
             zoneNotes: result.zoneNotes || {},
+            faceBox,
             recommendations: result.recommendations,
             quizAnswers: quizAnswers || {},
             notes: notes || '',
@@ -298,11 +308,11 @@ router.post(
         return created;
       });
 
-      console.log(`[skin] scan ${scan.id} for user ${req.user.id} (profile ${scan.profileId}${resolved.isNewProfile ? ', new' : ''}) served by: ${analysisSource}`);
+      console.log(`[skin] scan ${scan.id} for user ${req.user.id} (profile ${scan.profileId}${isNewProfile ? ', new' : ''}) served by: ${analysisSource}`);
       res.status(201).json({
         scan: serializeScan(scan),
         bookCategory: result.bookCategory,
-        isNewProfile: resolved.isNewProfile,
+        isNewProfile,
       });
     } catch (err) {
       console.error('POST /skin/scan error:', err);
