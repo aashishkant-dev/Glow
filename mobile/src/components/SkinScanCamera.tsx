@@ -599,7 +599,19 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
 
         {step === 'quiz' && shot && (
           <View style={styles.quizRoot}>
-            <ScrollView style={styles.quizScroll} contentContainerStyle={{ paddingTop: insets.top + 20, paddingBottom: insets.bottom + 110, paddingHorizontal: 20 }}>
+            {/* justifyContent: 'center' on the content container (which
+                needs the ScrollView's own flex:1 to have a bounded height
+                to center WITHIN) — the quiz is down to one question, so
+                stretching a scroll area to fill the whole screen and
+                pinning the buttons to the very bottom left a large dead
+                gap between them; a short screen now reads as intentionally
+                compact instead of broken. Still scrolls normally if
+                content ever grows past one screen (e.g. error banner +
+                warning banner + question all showing on a small device). */}
+            <ScrollView
+              style={styles.quizScroll}
+              contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingTop: insets.top + 20, paddingBottom: insets.bottom + 24, paddingHorizontal: 20 }}
+            >
               <View style={styles.quizPhotoRow}>
                 <Image source={{ uri: shot.uri }} style={styles.quizPhotoThumb} contentFit="cover" />
                 <View style={{ flex: 1 }}>
@@ -647,20 +659,20 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
                   </View>
                 </View>
               ))}
-            </ScrollView>
 
-            <View style={[styles.quizFooter, { paddingBottom: insets.bottom + 16 }]}>
-              <Pressable onPress={() => { setShot(null); setStep('camera'); }} style={styles.retakeBtn}>
-                <Text style={styles.retakeBtnText}>Retake</Text>
-              </Pressable>
-              <Pressable
-                style={[styles.analyzeBtn, !allAnswered && styles.analyzeBtnDisabled]}
-                onPress={submit}
-                disabled={!allAnswered}
-              >
-                <Text style={styles.analyzeBtnText}>Analyze my skin ✨</Text>
-              </Pressable>
-            </View>
+              <View style={styles.quizButtonRow}>
+                <Pressable onPress={() => { setShot(null); setStep('camera'); }} style={styles.retakeBtn}>
+                  <Text style={styles.retakeBtnText}>Retake</Text>
+                </Pressable>
+                <Pressable
+                  style={[styles.analyzeBtn, !allAnswered && styles.analyzeBtnDisabled]}
+                  onPress={submit}
+                  disabled={!allAnswered}
+                >
+                  <Text style={styles.analyzeBtnText}>Analyze my skin ✨</Text>
+                </Pressable>
+              </View>
+            </ScrollView>
           </View>
         )}
 
@@ -757,12 +769,10 @@ const styles = StyleSheet.create({
   choicePillText: { fontSize: 13, fontFamily: Fonts.medium, color: Colors.label },
   choicePillTextActive: { color: '#fff', fontFamily: Fonts.semibold },
 
-  quizFooter: {
-    flexDirection: 'row', gap: 10,
-    paddingHorizontal: 20, paddingTop: 14,
-    borderTopWidth: 1, borderTopColor: Colors.separatorSoft,
-    backgroundColor: Colors.systemBackground,
-  },
+  // Buttons now live inside the centered scroll content, right after the
+  // question, instead of pinned to the screen's bottom edge (see the
+  // ScrollView's contentContainerStyle comment above).
+  quizButtonRow: { flexDirection: 'row', gap: 10, marginTop: 28 },
   retakeBtn: {
     paddingHorizontal: 18, paddingVertical: 14, borderRadius: 16,
     backgroundColor: Colors.surfaceCream,

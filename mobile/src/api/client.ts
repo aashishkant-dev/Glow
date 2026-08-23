@@ -90,11 +90,23 @@ async function request<T>(method: Method, path: string, body?: object, auth = tr
     return sanitizeDecimals(json) as T;
   } catch (err: any) {
     clearTimeout(timeout);
-    if (retries > 0 && (err.name === 'AbortError' || err.message?.includes('Network') || err.message?.includes('Failed to fetch'))) {
+    // Case-INSENSITIVE and broadened on purpose — confirmed live that iOS's
+    // actual native error text is "The network connection was lost."
+    // (lowercase "network"), which the old exact-case, narrow substring
+    // check never matched. That meant a textbook-retryable transient drop
+    // fell straight through to the raw native exception message shown to
+    // the user ("fetch failed: UnexpectedException: The network connection
+    // was lost. (at ExpoModulesCore/Promise.swift:56)") instead of ever
+    // getting its intended retry.
+    const isNetworkError = err.name === 'AbortError' || /network|failed to fetch|connection was lost|offline/i.test(err.message || '');
+    if (retries > 0 && isNetworkError) {
       await new Promise(r => setTimeout(r, 1000));
       return request<T>(method, path, body, auth, retries - 1, timeoutMs);
     }
     if (err.name === 'AbortError') throw new Error('Connection timed out. Check your internet connection.');
+    // Retries exhausted (or none configured) — a raw native exception
+    // string is not something a user should ever see verbatim.
+    if (isNetworkError) throw new Error('Connection lost. Check your internet and try again.');
     throw err;
   }
 }
