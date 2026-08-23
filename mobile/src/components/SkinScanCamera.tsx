@@ -50,6 +50,7 @@ import {
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
+import * as Brightness from 'expo-brightness';
 import { Platform } from 'react-native';
 import { useCameraDevice, useCameraPermission, usePhotoOutput, type CameraRef } from 'react-native-vision-camera';
 import { Camera as FaceDetectCamera, useImageFaceDetector, type Face as LiveFace } from 'react-native-vision-camera-face-detector';
@@ -326,6 +327,45 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
       requestPermission();
     }
   }, [visible, hasPermission, canRequestPermission, requestPermission]);
+
+  // Boosts screen brightness to max while the front camera is actively
+  // framing — turns the screen itself into a fill light aimed straight at
+  // the user's face, the same trick Snapchat/Instagram use for front-camera
+  // shots in low light. Confirmed directly (frame-by-frame from a real
+  // screen recording) that the live preview is genuinely live and updating
+  // even in a very dark room — it's just hard to see, which this targets.
+  //
+  // setBrightnessAsync specifically (NOT setSystemBrightnessAsync) — this
+  // one is app-scoped and needs no permission on either platform: iOS
+  // reverts it automatically on lock, Android reverts it the moment this
+  // app leaves the foreground. Nothing to restore in either of those
+  // cases; only the normal in-session transitions below need to put the
+  // user's own brightness back.
+  const originalBrightnessRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (Platform.OS === 'web' || !visible || step !== 'camera') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const available = await Brightness.isAvailableAsync();
+        if (!available || cancelled) return;
+        const current = await Brightness.getBrightnessAsync();
+        if (cancelled) return;
+        originalBrightnessRef.current = current;
+        await Brightness.setBrightnessAsync(1);
+      } catch {
+        // Not available in every context (e.g. some simulators) — the
+        // preview just stays whatever brightness it already was.
+      }
+    })();
+    return () => {
+      cancelled = true;
+      if (originalBrightnessRef.current != null) {
+        Brightness.setBrightnessAsync(originalBrightnessRef.current).catch(() => {});
+        originalBrightnessRef.current = null;
+      }
+    };
+  }, [visible, step]);
 
   // Diagnostic only — permission granted and a device resolved, but the
   // native preview never fired onPreviewStarted. Every report of "camera is
