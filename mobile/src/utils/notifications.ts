@@ -231,14 +231,14 @@ export function addTapListener(
  * previously-scheduled reminder first so toggling the time never leaves two
  * running at once — callers don't have to know or check that themselves.
  */
-export async function scheduleDailyReminder(hour: number, minute: number): Promise<string | null> {
+export async function scheduleDailyReminder(hour: number, minute: number, body?: string): Promise<string | null> {
   if (Platform.OS === 'web') return null;
   await cancelDailyReminder();
   try {
     const id = await Notifications.scheduleNotificationAsync({
       content: {
         title: 'Time for your skin check-in ✨',
-        body: 'Scan today to keep your progress up to date on My Space.',
+        body: body || 'Scan today to keep your progress up to date on My Space.',
         data: { type: 'skin-reminder' },
         sound: 'default',
       },

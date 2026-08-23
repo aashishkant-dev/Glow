@@ -16,7 +16,7 @@ import { ScanFaceIcon } from '../../components/TabIcons';
 import { PencilIcon, DownloadIcon } from '../../components/CareIcons';
 import { SkinScanCamera } from '../../components/SkinScanCamera';
 import { NearbyArtistRow } from '../../components/NearbyArtistRow';
-import { apiGetLatestSkinScan, apiGetSkinScans, apiGetSkinProfiles, apiRenameSkinProfile, SkinScan, SkinProfile } from '../../api/client';
+import { apiGetLatestSkinScan, apiGetSkinScans, apiGetSkinProfiles, apiRenameSkinProfile, apiSetSkinGoal, apiClearSkinGoal, SkinScan, SkinProfile } from '../../api/client';
 import { Storage } from '../../utils/storage';
 import { scheduleDailyReminder, cancelDailyReminder } from '../../utils/notifications';
 import { formatRelativeTime } from '../../utils/dateTime';
@@ -48,6 +48,12 @@ export function MySpaceScreen() {
   const [renaming, setRenaming] = useState<SkinProfile | null>(null);
   const [renameDraft, setRenameDraft] = useState('');
   const [renameSaving, setRenameSaving] = useState(false);
+
+  const activeProfile = profiles.find(p => p.id === activeProfileId) || null;
+  const [goalModalOpen, setGoalModalOpen] = useState(false);
+  const [goalDraft, setGoalDraft] = useState('');
+  const [goalDays, setGoalDays] = useState(7);
+  const [goalSaving, setGoalSaving] = useState(false);
 
   const loadScansFor = useCallback(async (profileId: string | null) => {
     try {
@@ -117,11 +123,57 @@ export function MySpaceScreen() {
     setRenameSaving(false);
   }
 
+  function openGoalModal() {
+    tapLight();
+    setGoalDraft(activeProfile?.goalText || '');
+    setGoalDays(7);
+    setGoalModalOpen(true);
+  }
+
+  async function saveGoal() {
+    if (!activeProfileId || !goalDraft.trim()) return;
+    setGoalSaving(true);
+    try {
+      const { profile } = await apiSetSkinGoal(activeProfileId, goalDraft.trim(), goalDays);
+      setProfiles(prev => prev.map(p => (p.id === activeProfileId ? { ...p, ...profile } : p)));
+      setGoalModalOpen(false);
+      // Reminder text references the goal by name — if it's already
+      // scheduled, re-point it at the new/updated goal immediately instead
+      // of waiting for a toggle off/on to notice.
+      if (reminderOn) await scheduleDailyReminder(REMINDER_HOUR, 0, `Working on "${profile.goalText}" — scan today to track it.`);
+    } catch (err: any) {
+      console.error('Failed to set goal', err);
+    }
+    setGoalSaving(false);
+  }
+
+  async function clearGoal() {
+    if (!activeProfileId) return;
+    tapLight();
+    setGoalModalOpen(false);
+    try {
+      await apiClearSkinGoal(activeProfileId);
+      setProfiles(prev => prev.map(p => (p.id === activeProfileId ? { ...p, goalText: null, goalSetAt: null, goalCheckInAt: null } : p)));
+      if (reminderOn) await scheduleDailyReminder(REMINDER_HOUR, 0);
+    } catch (err: any) {
+      console.error('Failed to clear goal', err);
+    }
+  }
+
+  function reminderBody() {
+    // References the active goal by name when there is one, instead of a
+    // generic nudge — the reminder and the goal are the same feature from
+    // the user's side ("check back in"), so the notification should say so.
+    return activeProfile?.goalText
+      ? `Working on "${activeProfile.goalText}" — scan today to track it.`
+      : undefined;
+  }
+
   async function toggleReminder(next: boolean) {
     tapLight();
     setReminderOn(next);
     await Storage.saveSkinReminderEnabled(next);
-    if (next) await scheduleDailyReminder(REMINDER_HOUR, 0);
+    if (next) await scheduleDailyReminder(REMINDER_HOUR, 0, reminderBody());
     else await cancelDailyReminder();
   }
 
@@ -239,6 +291,37 @@ export function MySpaceScreen() {
               </View>
             )}
 
+            {/* A self-set target with a real check-in date — turns the scan
+                history from a passive timeline into an actual plan
+                ("reduce redness, check back in a week"). */}
+            {activeProfile?.goalText ? (
+              <Pressable style={styles.goalCard} onPress={openGoalModal}>
+                <View style={styles.goalHeader}>
+                  <Text style={styles.goalLabel}>YOUR GOAL</Text>
+                  <Text style={styles.goalEdit}>Edit</Text>
+                </View>
+                <Text style={styles.goalText}>{activeProfile.goalText}</Text>
+                {(() => {
+                  const daysLeft = activeProfile.goalCheckInAt
+                    ? Math.ceil((new Date(activeProfile.goalCheckInAt).getTime() - Date.now()) / 86_400_000)
+                    : null;
+                  if (daysLeft === null) return null;
+                  return (
+                    <Text style={styles.goalCountdown}>
+                      {daysLeft > 1 ? `Check back in ${daysLeft} days`
+                        : daysLeft === 1 ? 'Check back tomorrow'
+                        : "Check-in day — rescan to see how it's going"}
+                    </Text>
+                  );
+                })()}
+              </Pressable>
+            ) : (
+              <Pressable style={styles.goalPrompt} onPress={openGoalModal}>
+                <Text style={styles.goalPromptText}>Set a goal — pick a focus and we'll tell you when to check back in</Text>
+                <Text style={styles.goalPromptCta}>Set goal ›</Text>
+              </Pressable>
+            )}
+
             {latest.concerns.length > 0 && (
               <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.chipRow}>
                 {latest.concerns.map(c => (
@@ -349,6 +432,49 @@ export function MySpaceScreen() {
           </View>
         </View>
       </Modal>
+
+      <Modal visible={goalModalOpen} transparent animationType="fade" onRequestClose={() => setGoalModalOpen(false)}>
+        <View style={styles.renameBackdrop}>
+          <View style={styles.renameCard}>
+            <Text style={styles.renameTitle}>Set a goal</Text>
+            <TextInput
+              style={styles.renameInput}
+              value={goalDraft}
+              onChangeText={setGoalDraft}
+              placeholder="e.g. Reduce redness on my nose"
+              placeholderTextColor={Colors.tertiaryLabel}
+              maxLength={120}
+              autoFocus
+            />
+            <Text style={styles.goalDaysLabel}>Check back in</Text>
+            <View style={styles.goalDaysRow}>
+              {[3, 7, 14, 30].map(d => (
+                <Pressable
+                  key={d}
+                  style={[styles.goalDayChip, goalDays === d && styles.goalDayChipActive]}
+                  onPress={() => { tapLight(); setGoalDays(d); }}
+                >
+                  <Text style={[styles.goalDayChipText, goalDays === d && styles.goalDayChipTextActive]}>{d} days</Text>
+                </Pressable>
+              ))}
+            </View>
+            <View style={styles.renameActions}>
+              {activeProfile?.goalText ? (
+                <Pressable style={styles.renameCancelBtn} onPress={clearGoal}>
+                  <Text style={[styles.renameCancelText, { color: Colors.systemRed }]}>Remove</Text>
+                </Pressable>
+              ) : (
+                <Pressable style={styles.renameCancelBtn} onPress={() => setGoalModalOpen(false)}>
+                  <Text style={styles.renameCancelText}>Cancel</Text>
+                </Pressable>
+              )}
+              <Pressable style={styles.renameSaveBtn} onPress={saveGoal} disabled={goalSaving || !goalDraft.trim()}>
+                {goalSaving ? <ActivityIndicator color="#fff" size="small" /> : <Text style={styles.renameSaveText}>Save</Text>}
+              </Pressable>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -435,6 +561,34 @@ const styles = StyleSheet.create({
   progressHeader: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   progressLabel: { fontSize: 10.5, fontFamily: Fonts.bold, color: 'rgba(255,255,255,0.85)', letterSpacing: 1 },
   progressText: { fontSize: 13.5, fontFamily: Fonts.medium, color: '#fff', lineHeight: 19 },
+
+  goalCard: {
+    marginHorizontal: 20, marginBottom: 14, borderRadius: 20, padding: 16,
+    backgroundColor: '#fff', borderWidth: 1, borderColor: Colors.brandAccent,
+  },
+  goalHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 6 },
+  goalLabel: { fontSize: 10.5, fontFamily: Fonts.bold, color: Colors.brand, letterSpacing: 1 },
+  goalEdit: { fontSize: 12, fontFamily: Fonts.semibold, color: Colors.tertiaryLabel },
+  goalText: { fontSize: 15, fontFamily: Fonts.semibold, color: Colors.label, lineHeight: 20 },
+  goalCountdown: { fontSize: 12.5, fontFamily: Fonts.medium, color: Colors.secondaryLabel, marginTop: 6 },
+
+  goalPrompt: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    marginHorizontal: 20, marginBottom: 14, borderRadius: 20, padding: 16,
+    backgroundColor: Colors.surfaceCream, borderWidth: 1, borderColor: Colors.separator, gap: 10,
+  },
+  goalPromptText: { flex: 1, fontSize: 12.5, fontFamily: Fonts.medium, color: Colors.secondaryLabel, lineHeight: 17 },
+  goalPromptCta: { fontSize: 13, fontFamily: Fonts.semibold, color: Colors.brand },
+
+  goalDaysLabel: { fontSize: 12, fontFamily: Fonts.semibold, color: Colors.secondaryLabel, marginTop: 16, marginBottom: 8 },
+  goalDaysRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  goalDayChip: {
+    paddingHorizontal: 14, paddingVertical: 9, borderRadius: 100,
+    backgroundColor: Colors.surfaceCream, borderWidth: 1, borderColor: Colors.separator,
+  },
+  goalDayChipActive: { backgroundColor: Colors.brand, borderColor: Colors.brand },
+  goalDayChipText: { fontSize: 12.5, fontFamily: Fonts.medium, color: Colors.label },
+  goalDayChipTextActive: { color: '#fff', fontFamily: Fonts.semibold },
 
   chipRow: { gap: 8, paddingHorizontal: 20, marginBottom: 8 },
   concernChip: { backgroundColor: Colors.surfaceBlush, borderRadius: 100, paddingHorizontal: 13, paddingVertical: 7, borderWidth: 1, borderColor: Colors.brandAccent },

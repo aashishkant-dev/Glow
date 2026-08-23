@@ -16,35 +16,13 @@
 import React, { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { Colors, Fonts } from '../utils/colors';
-
-// Mirrors DEFAULT_REGION in src/routes/skin.js — used whenever scan.faceBox
-// is empty (pre-faceBox scans, or a detection miss that fell back server-side).
-const DEFAULT_FACE_BOX = { x: 0.22, y: 0.16, width: 0.56, height: 0.6 };
-
-// Sub-rects as 0–1 fractions OF the face box (not the full photo) — standard
-// portrait proportions for where these areas sit on a centered, front-facing
-// selfie.
-const ZONE_RECTS = {
-  tZone:   { x: 0.30, y: 0.03, width: 0.40, height: 0.58 },
-  cheekL:  { x: 0.04, y: 0.42, width: 0.30, height: 0.30 },
-  cheekR:  { x: 0.66, y: 0.42, width: 0.30, height: 0.30 },
-  underEye:{ x: 0.20, y: 0.30, width: 0.60, height: 0.11 },
-};
-
-function toPhotoFrac(r: { x: number; y: number; width: number; height: number }, faceBox: { x: number; y: number; width: number; height: number }) {
-  return {
-    left: faceBox.x + r.x * faceBox.width,
-    top: faceBox.y + r.y * faceBox.height,
-    width: r.width * faceBox.width,
-    height: r.height * faceBox.height,
-  };
-}
+import { resolveFaceBox, zoneRectToPhotoFrac } from '../utils/skinZones';
 
 interface Marker {
   key: string;
   label: string;
   note: string;
-  rect: { left: number; top: number; width: number; height: number };
+  rect: { x: number; y: number; width: number; height: number };
   // Label callout anchors left or right of center so two side-by-side
   // markers (the cheeks) don't collide with each other.
   align: 'left' | 'right' | 'center';
@@ -57,21 +35,18 @@ interface Props {
 
 export function SkinZoneOverlay({ zoneNotes, faceBox: rawFaceBox }: Props) {
   const [active, setActive] = useState<string | null>(null);
-
-  const faceBox = rawFaceBox?.width && rawFaceBox?.height
-    ? { x: rawFaceBox.x ?? DEFAULT_FACE_BOX.x, y: rawFaceBox.y ?? DEFAULT_FACE_BOX.y, width: rawFaceBox.width, height: rawFaceBox.height }
-    : DEFAULT_FACE_BOX;
+  const faceBox = resolveFaceBox(rawFaceBox);
 
   const markers: Marker[] = [];
   if (zoneNotes?.tZone) {
-    markers.push({ key: 'tZone', label: 'T-zone', note: zoneNotes.tZone, rect: toPhotoFrac(ZONE_RECTS.tZone, faceBox), align: 'center' });
+    markers.push({ key: 'tZone', label: 'T-zone', note: zoneNotes.tZone, rect: zoneRectToPhotoFrac('tZone', faceBox), align: 'center' });
   }
   if (zoneNotes?.cheeks) {
-    markers.push({ key: 'cheekL', label: 'Cheeks', note: zoneNotes.cheeks, rect: toPhotoFrac(ZONE_RECTS.cheekL, faceBox), align: 'left' });
-    markers.push({ key: 'cheekR', label: 'Cheeks', note: zoneNotes.cheeks, rect: toPhotoFrac(ZONE_RECTS.cheekR, faceBox), align: 'right' });
+    markers.push({ key: 'cheekL', label: 'Cheeks', note: zoneNotes.cheeks, rect: zoneRectToPhotoFrac('cheekL', faceBox), align: 'left' });
+    markers.push({ key: 'cheekR', label: 'Cheeks', note: zoneNotes.cheeks, rect: zoneRectToPhotoFrac('cheekR', faceBox), align: 'right' });
   }
   if (zoneNotes?.underEye) {
-    markers.push({ key: 'underEye', label: 'Under-eye', note: zoneNotes.underEye, rect: toPhotoFrac(ZONE_RECTS.underEye, faceBox), align: 'center' });
+    markers.push({ key: 'underEye', label: 'Under-eye', note: zoneNotes.underEye, rect: zoneRectToPhotoFrac('underEye', faceBox), align: 'center' });
   }
 
   if (markers.length === 0) return null;
@@ -84,11 +59,15 @@ export function SkinZoneOverlay({ zoneNotes, faceBox: rawFaceBox }: Props) {
           <React.Fragment key={m.key}>
             <Pressable
               onPress={() => setActive(isActive ? null : m.key)}
+              // The box itself is already a real tap target, not just the
+              // small dot — hitSlop pads it further so a marker over a
+              // narrow zone (under-eye) isn't fiddly to hit.
+              hitSlop={12}
               style={[
                 styles.box,
                 {
-                  left: `${m.rect.left * 100}%`,
-                  top: `${m.rect.top * 100}%`,
+                  left: `${m.rect.x * 100}%`,
+                  top: `${m.rect.y * 100}%`,
                   width: `${m.rect.width * 100}%`,
                   height: `${m.rect.height * 100}%`,
                 },
@@ -101,10 +80,10 @@ export function SkinZoneOverlay({ zoneNotes, faceBox: rawFaceBox }: Props) {
               <View
                 style={[
                   styles.callout,
-                  { top: `${(m.rect.top + m.rect.height) * 100}%` },
-                  m.align === 'left' && { left: `${m.rect.left * 100}%` },
-                  m.align === 'right' && { right: `${(1 - m.rect.left - m.rect.width) * 100}%` },
-                  m.align === 'center' && { left: `${(m.rect.left + m.rect.width / 2) * 100}%`, transform: [{ translateX: -80 }] },
+                  { top: `${(m.rect.y + m.rect.height) * 100}%` },
+                  m.align === 'left' && { left: `${m.rect.x * 100}%` },
+                  m.align === 'right' && { right: `${(1 - m.rect.x - m.rect.width) * 100}%` },
+                  m.align === 'center' && { left: `${(m.rect.x + m.rect.width / 2) * 100}%`, transform: [{ translateX: -80 }] },
                 ]}
                 pointerEvents="none"
               >
@@ -123,13 +102,14 @@ const styles = StyleSheet.create({
   box: {
     position: 'absolute',
     borderWidth: 1.5,
-    borderColor: 'rgba(255,255,255,0.55)',
+    borderColor: 'rgba(255,255,255,0.7)',
+    backgroundColor: 'rgba(255,255,255,0.06)',
     borderRadius: 14,
     alignItems: 'flex-end',
     justifyContent: 'flex-start',
     padding: 4,
   },
-  boxActive: { borderColor: '#fff', borderWidth: 2 },
+  boxActive: { borderColor: Colors.brand, borderWidth: 2, backgroundColor: 'rgba(217,122,145,0.14)' },
   dot: {
     width: 9, height: 9, borderRadius: 4.5,
     backgroundColor: 'rgba(255,255,255,0.85)',
