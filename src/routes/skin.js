@@ -229,10 +229,21 @@ router.post(
             summary: gemini.summary,
             progressNote: gemini.progressNote ?? null,
             hydrationLevel: gemini.hydrationLevel || '',
+            // 8-zone breakdown — how many of these end up non-empty tracks
+            // how much this particular photo actually showed, not a fixed
+            // count (see geminiSkinAnalysis.js's prompt). Old scans in the
+            // DB only ever have the coarser tZone/cheeks/underEye shape;
+            // the mobile client falls back to rendering that shape when the
+            // 8 keys below are all absent (see skinZones.ts).
             zoneNotes: {
-              tZone: gemini.tZoneNote || '',
-              cheeks: gemini.cheeksNote || '',
-              underEye: gemini.underEyeNote || '',
+              forehead: gemini.foreheadNote || '',
+              nose: gemini.noseNote || '',
+              chin: gemini.chinNote || '',
+              cheekL: gemini.cheekLNote || '',
+              cheekR: gemini.cheekRNote || '',
+              underEyeL: gemini.underEyeLNote || '',
+              underEyeR: gemini.underEyeRNote || '',
+              jawline: gemini.jawlineNote || '',
             },
             recommendations: gemini.recommendations,
             bookCategory: BOOK_CATEGORY,
