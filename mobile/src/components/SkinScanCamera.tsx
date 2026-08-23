@@ -68,10 +68,17 @@ type FaceRegion = { x: number; y: number; width: number; height: number };
 // that isn't about their photo. A genuine zero-faces result IS surfaced
 // (noFaceDetected), since that's real, useful signal to retake before ever
 // spending an upload + Gemini call on an unusable photo.
+//
+// performanceMode: 'accurate' (not 'fast') — deliberately the opposite
+// tradeoff from the live camera overlay below. This runs ONCE on a still
+// photo during the already-visible "Checking your photo…" step, not
+// per-frame on a live stream, so the ~100–300ms extra cost is invisible
+// while the more precise bounding box directly improves the crop Gemini
+// actually analyzes.
 async function detectFaceRegion(uri: string, imgWidth: number, imgHeight: number): Promise<{ faceRegion: FaceRegion | null; noFaceDetected: boolean }> {
   if (Platform.OS === 'web' || !imgWidth || !imgHeight) return { faceRegion: null, noFaceDetected: false };
   try {
-    const faces = await FaceDetection.detect(uri, { performanceMode: 'fast' });
+    const faces = await FaceDetection.detect(uri, { performanceMode: 'accurate' });
     if (!faces || faces.length === 0) return { faceRegion: null, noFaceDetected: true };
 
     // Largest face wins — guards against a photo/poster in the background
