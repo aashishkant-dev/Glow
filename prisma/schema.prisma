@@ -879,6 +879,15 @@ model SkinProfile {
   createdAt DateTime   @default(now())
   scans     SkinScan[]
 
+  // A self-set focus ("Reduce redness on my nose") with a target check-in
+  // date — the thing that makes progress tracking feel like an actual plan
+  // instead of just a passive timeline you happen to scroll back through.
+  // Null goalText means no active goal. Cleared (not auto-renewed) once the
+  // check-in date passes and the user acts on it — see routes/skin.js.
+  goalText       String?   @db.VarChar(120)
+  goalSetAt      DateTime?
+  goalCheckInAt  DateTime?
+
   @@index([userId, createdAt])
 }
 
