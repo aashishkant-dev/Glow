@@ -269,7 +269,23 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
   // file header comment for why the actual analyzed faceRegion is computed
   // separately, from the captured photo, not from this stream).
   const [liveFaces, setLiveFaces] = useState<LiveFace[]>([]);
-  const onFacesDetected = useCallback((faces: LiveFace[]) => setLiveFaces(faces), []);
+  // onFacesDetected has no built-in rate limit — it fires on every frame
+  // the native side processes, and the plugin doesn't expose a throttle
+  // option. Each call re-renders the main bracket plus all 8 zone
+  // brackets; doing that at full frame rate is enough JS-thread work to
+  // visibly stall the UI (the preview itself is native and keeps
+  // rendering, but everything ELSE — including how responsive the screen
+  // feels — can bog down badly enough to read as "frozen"). Capping
+  // state updates to ~10/sec is still smooth for a slowly-moving tracking
+  // box and cuts that load by roughly two-thirds to five-sixths depending
+  // on the device's actual detection rate.
+  const lastFaceUpdateRef = useRef(0);
+  const onFacesDetected = useCallback((faces: LiveFace[]) => {
+    const now = Date.now();
+    if (now - lastFaceUpdateRef.current < 100) return;
+    lastFaceUpdateRef.current = now;
+    setLiveFaces(faces);
+  }, []);
   const [step, setStep] = useState<Step>('camera');
   const [shot, setShot] = useState<{ uri: string; base64: string; mimeType: string; faceRegion: FaceRegion | null } | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
