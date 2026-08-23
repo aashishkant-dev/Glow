@@ -583,7 +583,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
 
         {step === 'quiz' && shot && (
           <View style={styles.quizRoot}>
-            <ScrollView contentContainerStyle={{ paddingTop: insets.top + 20, paddingBottom: insets.bottom + 110, paddingHorizontal: 20 }}>
+            <ScrollView style={styles.quizScroll} contentContainerStyle={{ paddingTop: insets.top + 20, paddingBottom: insets.bottom + 110, paddingHorizontal: 20 }}>
               <View style={styles.quizPhotoRow}>
                 <Image source={{ uri: shot.uri }} style={styles.quizPhotoThumb} contentFit="cover" />
                 <View style={{ flex: 1 }}>
@@ -713,6 +713,13 @@ const styles = StyleSheet.create({
   permissionLink: { color: 'rgba(255,255,255,0.8)', fontSize: 13.5, fontFamily: Fonts.medium },
 
   quizRoot: { flex: 1, backgroundColor: Colors.systemBackground },
+  // Without an explicit flex:1 here, the ScrollView sizes itself to its own
+  // (now quite short, since the quiz is down to one question) content
+  // instead of filling quizRoot — the fixed-position footer below still
+  // pins to the true bottom of the screen either way, so the visible
+  // result was a large dead gap between the question and the footer,
+  // reading as a broken/blank screen rather than a short one.
+  quizScroll: { flex: 1 },
   quizPhotoRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 22 },
   quizPhotoThumb: { width: 56, height: 56, borderRadius: 16, backgroundColor: Colors.brandLight },
   quizTitle: { fontSize: 19, fontFamily: Fonts.display, color: Colors.label },
