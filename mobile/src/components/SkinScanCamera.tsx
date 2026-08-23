@@ -149,8 +149,14 @@ function detectFaceRegion(detector: ReturnType<typeof useImageFaceDetector>, uri
 
     return { faceRegion: region, noFaceDetected: false };
   } catch (err) {
-    // Not linked (web build, or a native build from before this module was
-    // added) — not an error worth logging noisily, just "can't detect here."
+    // Web already returned early above, so reaching here means a native
+    // build — genuinely not linked (an update from before this module was
+    // added) is possible but rare; worth logging either way. This exact
+    // catch block previously hid a real, now-fixed bug (see the
+    // orientation comment above) behind total silence, which made it
+    // indistinguishable from "not linked" with nothing to go on from a bug
+    // report alone.
+    console.warn('[SkinScanCamera] detectFaces threw', err instanceof Error ? err.message : err);
     return { faceRegion: null, noFaceDetected: false };
   }
 }
@@ -416,13 +422,31 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
       const tempPath = await photo.saveToTemporaryFileAsync();
       const uri = tempPath.startsWith('file://') ? tempPath : `file://${tempPath}`;
       const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
-      const { width, height } = photo;
+      // photo.width/height are the SENSOR/BUFFER dimensions — vision-camera's
+      // own docs say orientation is "applied lazily via EXIF flags," meaning
+      // it's NOT baked into these two properties. detector.detectFaces(uri)
+      // below reads the actual saved FILE, which — like every standard image
+      // loader — respects that EXIF tag, so a 'left'/'right' (90°) capture
+      // returns face bounds in the CORRECTED, rotated space while width/
+      // height here would still be the pre-rotation, swapped pair. That
+      // mismatch is exactly what an earlier comment in detectFaceRegion
+      // flagged as a suspected cause without being able to verify it
+      // on-device; since then the identical bug was confirmed AND fixed on
+      // the server side (sharp has the same "metadata is pre-rotation"
+      // behavior — see resolveCropBox in src/routes/skin.js), and a direct
+      // production DB query showed 100% of recent scans landing on the
+      // server's generic DEFAULT_REGION fallback — consistent with this
+      // detector's plausibility check rejecting every single detection,
+      // exactly what a systematic coordinate-space mismatch would cause.
+      const swapsDimensions = photo.orientation === 'left' || photo.orientation === 'right';
+      const imgWidth = swapsDimensions ? photo.height : photo.width;
+      const imgHeight = swapsDimensions ? photo.width : photo.height;
       photo.dispose();
 
       setStep('quiz');
       setDetectingFace(true);
       setNoFaceWarning(false);
-      const { faceRegion, noFaceDetected } = detectFaceRegion(imageFaceDetector, uri, width, height);
+      const { faceRegion, noFaceDetected } = detectFaceRegion(imageFaceDetector, uri, imgWidth, imgHeight);
       setShot({ uri, base64: stripDataUrlPrefix(base64), mimeType: 'image/jpeg', faceRegion });
       setNoFaceWarning(noFaceDetected);
       setDetectingFace(false);
