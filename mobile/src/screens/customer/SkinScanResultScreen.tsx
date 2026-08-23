@@ -190,7 +190,15 @@ export function SkinScanResultScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.systemBackground },
-  photo: { width: '100%', aspectRatio: 1, backgroundColor: Colors.brandLight },
+  // Matches the actual stored photo's aspect ratio (1080×1350 — see
+  // storedBuf in src/routes/skin.js) exactly. This used to be a forced
+  // square (aspectRatio: 1) — with contentFit="cover", that center-cropped
+  // the top and bottom off a 4:5 photo to fit a 1:1 box, so the zone
+  // overlay's fractional coordinates (computed against the FULL original
+  // photo) no longer matched what was actually visible on screen. Showing
+  // the photo at its real aspect ratio means every fraction maps 1:1,
+  // no crop-compensation math needed anywhere.
+  photo: { width: '100%', aspectRatio: 1080 / 1350, backgroundColor: Colors.brandLight },
   photoTopGradient: { position: 'absolute', left: 0, right: 0, top: 0, height: 90 },
   floatBack: {
     position: 'absolute', left: 16,

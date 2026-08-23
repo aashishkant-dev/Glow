@@ -100,49 +100,41 @@ async function detectFaceRegion(uri: string, imgWidth: number, imgHeight: number
     const clampedRight = Math.min(imgWidth, expRight);
     const clampedBottom = Math.min(imgHeight, expBottom);
 
-    return {
-      faceRegion: {
-        x: clampedLeft / imgWidth,
-        y: clampedTop / imgHeight,
-        width: (clampedRight - clampedLeft) / imgWidth,
-        height: (clampedBottom - clampedTop) / imgHeight,
-      },
-      noFaceDetected: false,
+    const region: FaceRegion = {
+      x: clampedLeft / imgWidth,
+      y: clampedTop / imgHeight,
+      width: (clampedRight - clampedLeft) / imgWidth,
+      height: (clampedBottom - clampedTop) / imgHeight,
     };
+
+    // Sanity check before trusting this box at all — confirmed live on a
+    // real device that ML Kit can return a detection that's technically
+    // "a face" but geometrically nonsense once mapped through imgWidth/
+    // imgHeight (seen in production: a box 2.7x wider than tall, hugging
+    // the bottom edge — width:0.88 height:0.32 y:0.68 — almost certainly an
+    // EXIF/sensor-orientation mismatch between the coordinate space ML Kit
+    // detected in and the width/height used to normalize it, and not
+    // something fixable by guessing at a rotation correction without a
+    // device to verify it against). The expansion above produces a
+    // predictably portrait-ish box (~0.85 width/height ratio) for a normal
+    // face — anything far outside that range, or sitting in the bottom
+    // half of the photo, is far more likely a bad detection than a real
+    // face shot that low in a front-camera selfie. Falling back to no
+    // client-detected region (server's DEFAULT_REGION center-crop) is a
+    // known-reasonable result; trusting a malformed box is not.
+    const aspect = region.width / region.height;
+    const plausible = aspect > 0.45 && aspect < 1.6 && region.y < 0.45 && region.width < 0.85;
+    if (!plausible) {
+      console.warn('[SkinScanCamera] rejected implausible face detection', region);
+      return { faceRegion: null, noFaceDetected: false };
+    }
+
+    return { faceRegion: region, noFaceDetected: false };
   } catch (err) {
     // Not linked (web build, or a native build from before this module was
     // added) — not an error worth logging noisily, just "can't detect here."
     return { faceRegion: null, noFaceDetected: false };
   }
-}
-
-// Maps a live-detected face's bounds (in the DETECTION FRAME's own pixel
-// space, e.g. 480×640) onto screen coordinates for the tracking box overlay.
-// The preview fills the screen with resizeMode="cover" (crop-to-fill, this
-// component's default), so the frame is scaled up until one axis matches the
-// screen exactly and the other overflows/gets cropped — standard "aspect
-// fill" math. The front camera preview is mirrored (mirrorMode: 'auto'
-// mirrors selfie cameras) so the box's X is flipped to match what's actually
-// on screen, since detection runs against the raw (unmirrored) sensor frame.
-function mapFaceBoundsToScreen(
-  bounds: { x: number; y: number; width: number; height: number },
-  frameWidth: number,
-  frameHeight: number,
-  screenWidth: number,
-  screenHeight: number,
-) {
-  const frameAspect = frameWidth / frameHeight;
-  const screenAspect = screenWidth / screenHeight;
-  const scale = frameAspect > screenAspect ? screenHeight / frameHeight : screenWidth / frameWidth;
-  const offsetX = (frameWidth * scale - screenWidth) / 2;
-  const offsetY = (frameHeight * scale - screenHeight) / 2;
-
-  const left = bounds.x * scale - offsetX;
-  const top = bounds.y * scale - offsetY;
-  const width = bounds.width * scale;
-  const height = bounds.height * scale;
-
-  return { left: screenWidth - left - width, top, width, height }; // mirrored
 }
 
 interface Props {
@@ -348,14 +340,18 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
     }
   }
 
-  // Biggest live-detected face, mapped to on-screen coordinates for the
-  // real-time tracking box — undefined when nothing's currently detected.
+  // Biggest live-detected face — null when nothing's currently detected.
+  // autoMode (below, on the Camera itself) is what makes `bounds` already be
+  // in screen/preview coordinates instead of raw sensor-frame pixels — a
+  // first hand-rolled version of this scale+rotate math (see git history)
+  // assumed frame and screen shared an orientation, which real sensor
+  // frames often don't; that's what put the box in the wrong place
+  // on-device. autoMode hands the rotation/scaling to the plugin's native
+  // side instead of guessing at it in JS.
   const primaryLiveFace = liveFaces.length
     ? liveFaces.reduce((biggest, f) => (f.bounds.width * f.bounds.height > biggest.bounds.width * biggest.bounds.height ? f : biggest), liveFaces[0])
     : null;
-  const liveBox = primaryLiveFace
-    ? mapFaceBoundsToScreen(primaryLiveFace.bounds, primaryLiveFace.frameWidth, primaryLiveFace.frameHeight, winW, winH)
-    : null;
+  const liveBox = primaryLiveFace?.bounds ?? null;
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={handleClose} statusBarTranslucent>
@@ -371,6 +367,12 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
               onFacesDetected={onFacesDetected}
               onError={(err: Error) => console.error('[SkinScanCamera] camera error', err)}
               performanceMode="fast"
+              // autoMode + window size: hands rotation/scaling to the
+              // plugin's native side so `face.bounds` come back already in
+              // screen/preview coordinates — see the comment above liveBox.
+              autoMode
+              windowWidth={winW}
+              windowHeight={winH}
               onPreviewStarted={() => setCameraReady(true)}
             />
             {/* Real-time tracking box from the live face detector — replaces
@@ -384,7 +386,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
                 pointerEvents="none"
                 style={[
                   styles.liveFaceBox,
-                  { left: liveBox.left, top: liveBox.top, width: liveBox.width, height: liveBox.height },
+                  { left: liveBox.x, top: liveBox.y, width: liveBox.width, height: liveBox.height },
                 ]}
               />
             ) : (
