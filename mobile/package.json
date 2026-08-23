@@ -11,7 +11,8 @@
     "lint": "eslint src --ext .ts,.tsx",
     "build:web": "npx expo export -p web && node scripts/post-web-build.js",
     "deploy": "npm run build:web && npx vercel --prod",
-    "test": "jest"
+    "test": "jest",
+    "postinstall": "patch-package"
   },
   "dependencies": {
     "@expo-google-fonts/fraunces": "^0.4.1",
@@ -82,6 +83,7 @@
     "eslint-config-expo": "~56.0.4",
     "jest": "^29.7.0",
     "jest-expo": "^56.0.5",
+    "patch-package": "^8.0.1",
     "typescript": "~6.0.3"
   },
   "private": true

@@ -1,0 +1,19 @@
+diff --git a/node_modules/react-native-vision-camera/lib/hooks/internal/useCameraSession.js b/node_modules/react-native-vision-camera/lib/hooks/internal/useCameraSession.js
+index 39d5ef0..6302f04 100644
+--- a/node_modules/react-native-vision-camera/lib/hooks/internal/useCameraSession.js
++++ b/node_modules/react-native-vision-camera/lib/hooks/internal/useCameraSession.js
+@@ -31,6 +31,14 @@ export function useCameraSession({ enableMultiCamSupport, onError, }) {
+             // remove all connections
+             session?.stop();
+             session?.configure([]);
++            // Dispose synchronously here, on the main JS thread, during a
++            // normal React effect cleanup — instead of leaving the native
++            // AVCaptureSession to be released later by Hermes's background
++            // GC thread, which crashes (AVCaptureSession dealloc ->
++            // detachFromFigCaptureSession: hits an AVFoundation assertion
++            // when it doesn't run on a safe thread). Patched via
++            // patch-package (see patches/) pending a fix upstream.
++            session?.dispose();
+         };
+     }, [session]);
+     return session;
