@@ -17,13 +17,22 @@
  * react-native-vision-camera-face-detector and draw a genuine tracking box
  * while framing the shot, not just a fixed oval guide. A SEPARATE
  * detection pass still runs on the captured photo itself (detectFaceRegion,
- * via @react-native-ml-kit/face-detection below) for the actual faceRegion
- * sent to the backend — deliberately not reusing the live stream's last
- * detection, since the live stream runs on lower-res preview frames and
- * coupling the analyzed region to "whatever frame happened to be live right
- * as the shutter fired" is a lot more fragile than a fresh detection on the
- * exact photo bytes being analyzed. The live box is real-time UI feedback
- * only.
+ * via that SAME package's useImageFaceDetector — see below) for the actual
+ * faceRegion sent to the backend — deliberately not reusing the live
+ * stream's last detection, since the live stream runs on lower-res preview
+ * frames and coupling the analyzed region to "whatever frame happened to be
+ * live right as the shutter fired" is a lot more fragile than a fresh
+ * detection on the exact photo bytes being analyzed. The live box is
+ * real-time UI feedback only.
+ *
+ * Deliberately ONE face-detection library for both jobs (not
+ * @react-native-ml-kit/face-detection for the still-photo pass alongside
+ * this package for the live one) — two separate wrappers around Google's
+ * same underlying ML Kit Face Detection SDK is exactly the kind of setup
+ * that causes CocoaPods to fail resolving compatible pod versions between
+ * them (hit this for real on an EAS build). useImageFaceDetector below is
+ * this package's own static-image API, so there's only ever one native
+ * face-detection dependency in the app.
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image } from 'expo-image';
@@ -42,9 +51,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import { Platform } from 'react-native';
 import { useCameraDevice, useCameraPermission, usePhotoOutput, type CameraRef } from 'react-native-vision-camera';
-import { Camera as FaceDetectCamera, type Face as LiveFace } from 'react-native-vision-camera-face-detector';
+import { Camera as FaceDetectCamera, useImageFaceDetector, type Face as LiveFace } from 'react-native-vision-camera-face-detector';
 import * as FileSystem from 'expo-file-system/legacy';
-import FaceDetection from '@react-native-ml-kit/face-detection';
 import { Colors, Fonts } from '../utils/colors';
 import { GlowMark } from './GlowLogo';
 import { SparkleIcon } from './BeautyIcons';
@@ -70,22 +78,23 @@ type FaceRegion = { x: number; y: number; width: number; height: number };
 // (noFaceDetected), since that's real, useful signal to retake before ever
 // spending an upload + Gemini call on an unusable photo.
 //
-// performanceMode: 'accurate' (not 'fast') — deliberately the opposite
-// tradeoff from the live camera overlay below. This runs ONCE on a still
-// photo during the already-visible "Checking your photo…" step, not
-// per-frame on a live stream, so the ~100–300ms extra cost is invisible
-// while the more precise bounding box directly improves the crop Gemini
-// actually analyzes.
-async function detectFaceRegion(uri: string, imgWidth: number, imgHeight: number): Promise<{ faceRegion: FaceRegion | null; noFaceDetected: boolean }> {
+// `detector` comes from useImageFaceDetector(), a hook — must be created in
+// the component body and passed in, not created here (this isn't a
+// component). performanceMode 'accurate' (not 'fast', unlike the live
+// camera overlay below) — this runs ONCE on a still photo during the
+// already-visible "Checking your photo…" step, not per-frame on a live
+// stream, so the ~100–300ms extra cost is invisible while the more precise
+// bounding box directly improves the crop Gemini actually analyzes.
+function detectFaceRegion(detector: ReturnType<typeof useImageFaceDetector>, uri: string, imgWidth: number, imgHeight: number): { faceRegion: FaceRegion | null; noFaceDetected: boolean } {
   if (Platform.OS === 'web' || !imgWidth || !imgHeight) return { faceRegion: null, noFaceDetected: false };
   try {
-    const faces = await FaceDetection.detect(uri, { performanceMode: 'accurate' });
+    const faces = detector.detectFaces(uri);
     if (!faces || faces.length === 0) return { faceRegion: null, noFaceDetected: true };
 
     // Largest face wins — guards against a photo/poster in the background
     // being picked over the real subject.
-    const face = faces.reduce((biggest, f) => (f.frame.width * f.frame.height > biggest.frame.width * biggest.frame.height ? f : biggest), faces[0]);
-    const { left, top, width, height } = face.frame;
+    const face = faces.reduce((biggest, f) => (f.bounds.width * f.bounds.height > biggest.bounds.width * biggest.bounds.height ? f : biggest), faces[0]);
+    const { x: left, y: top, width, height } = face.bounds;
 
     // ML Kit's box is tight — roughly eyebrows-to-chin — so it's expanded
     // into a fuller "beauty crop" that actually includes the forehead, full
@@ -212,6 +221,10 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
   const { hasPermission, requestPermission } = useCameraPermission();
   const device = useCameraDevice('front');
   const photoOutput = usePhotoOutput();
+  // Static-image detector for the captured photo (detectFaceRegion) — a
+  // separate instance from the live camera's own detection, tuned for
+  // accuracy over speed since it only ever runs once per scan.
+  const imageFaceDetector = useImageFaceDetector({ performanceMode: 'accurate' });
   const cameraRef = useRef<CameraRef>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
@@ -288,7 +301,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
       setStep('quiz');
       setDetectingFace(true);
       setNoFaceWarning(false);
-      const { faceRegion, noFaceDetected } = await detectFaceRegion(uri, width, height);
+      const { faceRegion, noFaceDetected } = detectFaceRegion(imageFaceDetector, uri, width, height);
       setShot({ uri, base64: stripDataUrlPrefix(base64), mimeType: 'image/jpeg', faceRegion });
       setNoFaceWarning(noFaceDetected);
       setDetectingFace(false);
