@@ -83,15 +83,36 @@ async function detectFaceRegion(uri: string, imgWidth: number, imgHeight: number
     const clampedRight = Math.min(imgWidth, expRight);
     const clampedBottom = Math.min(imgHeight, expBottom);
 
-    return {
-      faceRegion: {
-        x: clampedLeft / imgWidth,
-        y: clampedTop / imgHeight,
-        width: (clampedRight - clampedLeft) / imgWidth,
-        height: (clampedBottom - clampedTop) / imgHeight,
-      },
-      noFaceDetected: false,
+    const region: FaceRegion = {
+      x: clampedLeft / imgWidth,
+      y: clampedTop / imgHeight,
+      width: (clampedRight - clampedLeft) / imgWidth,
+      height: (clampedBottom - clampedTop) / imgHeight,
     };
+
+    // Sanity check before trusting this box at all — confirmed live on a
+    // real device that ML Kit can return a detection that's technically
+    // "a face" but geometrically nonsense once mapped through imgWidth/
+    // imgHeight (seen in production: a box 2.7x wider than tall, hugging
+    // the bottom edge — width:0.88 height:0.32 y:0.68 — almost certainly an
+    // EXIF/sensor-orientation mismatch between the coordinate space ML Kit
+    // detected in and the width/height used to normalize it, and not
+    // something fixable by guessing at a rotation correction without a
+    // device to verify it against). The expansion above produces a
+    // predictably portrait-ish box (~0.85 width/height ratio) for a normal
+    // face — anything far outside that range, or sitting in the bottom
+    // half of the photo, is far more likely a bad detection than a real
+    // face shot that low in a front-camera selfie. Falling back to no
+    // client-detected region (server's DEFAULT_REGION center-crop) is a
+    // known-reasonable result; trusting a malformed box is not.
+    const aspect = region.width / region.height;
+    const plausible = aspect > 0.45 && aspect < 1.6 && region.y < 0.45 && region.width < 0.85;
+    if (!plausible) {
+      console.warn('[SkinScanCamera] rejected implausible face detection', region);
+      return { faceRegion: null, noFaceDetected: false };
+    }
+
+    return { faceRegion: region, noFaceDetected: false };
   } catch (err) {
     // Not linked (web build, or a native build from before this module was
     // added) — not an error worth logging noisily, just "can't detect here."

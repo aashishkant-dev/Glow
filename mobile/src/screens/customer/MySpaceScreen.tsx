@@ -277,6 +277,32 @@ export function MySpaceScreen() {
               </View>
             )}
 
+            {/* Real, exportable memory — every scan (photo, tone/type,
+                zone notes, progress) lives here, not just the latest
+                snapshot. A subtle text link at the very bottom of the
+                screen went unnoticed; a real card, placed right after the
+                history it's exporting, reads as the actual feature it is. */}
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Your memory</Text>
+              <Pressable
+                style={styles.exportCard}
+                onPress={() => {
+                  tapLight();
+                  const label = profiles.find(p => p.id === activeProfileId)?.label || 'You';
+                  exportSkinHistory(label, history);
+                }}
+              >
+                <View style={styles.exportCardIconWrap}><DownloadIcon size={18} color={Colors.brand} /></View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.exportCardTitle}>Export your history</Text>
+                  <Text style={styles.exportCardSub}>
+                    {history.length} scan{history.length === 1 ? '' : 's'} saved · download as JSON, share anywhere
+                  </Text>
+                </View>
+                <Text style={styles.exportCardChevron}>›</Text>
+              </Pressable>
+            </View>
+
             <View style={styles.reminderRow}>
               <View style={{ flex: 1 }}>
                 <Text style={styles.reminderTitle}>Daily check-in reminder</Text>
@@ -289,18 +315,6 @@ export function MySpaceScreen() {
                 thumbColor={reminderOn ? Colors.brand : '#F4F4F5'}
               />
             </View>
-
-            <Pressable
-              style={styles.exportRow}
-              onPress={() => {
-                tapLight();
-                const label = profiles.find(p => p.id === activeProfileId)?.label || 'You';
-                exportSkinHistory(label, history);
-              }}
-            >
-              <DownloadIcon size={16} color={Colors.brand} />
-              <Text style={styles.exportRowText}>Export my scan history (JSON)</Text>
-            </Pressable>
           </>
         )}
 
@@ -449,11 +463,18 @@ const styles = StyleSheet.create({
   reminderTitle: { fontSize: 14, fontFamily: Fonts.semibold, color: Colors.label },
   reminderSub: { fontSize: 12, fontFamily: Fonts.regular, color: Colors.secondaryLabel, marginTop: 2 },
 
-  exportRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    marginHorizontal: 20, marginTop: 12, paddingVertical: 14,
+  exportCard: {
+    flexDirection: 'row', alignItems: 'center', gap: 12,
+    backgroundColor: '#fff', borderRadius: 18, padding: 14,
+    borderWidth: 1, borderColor: Colors.separator,
   },
-  exportRowText: { fontSize: 13, fontFamily: Fonts.semibold, color: Colors.brand },
+  exportCardIconWrap: {
+    width: 38, height: 38, borderRadius: 12, backgroundColor: Colors.brandLight,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  exportCardTitle: { fontSize: 14.5, fontFamily: Fonts.semibold, color: Colors.label },
+  exportCardSub: { fontSize: 12, fontFamily: Fonts.regular, color: Colors.secondaryLabel, marginTop: 2 },
+  exportCardChevron: { fontSize: 20, color: Colors.tertiaryLabel, fontFamily: Fonts.regular },
 
   disclaimer: {
     fontSize: 11, fontFamily: Fonts.regular, color: Colors.tertiaryLabel,
