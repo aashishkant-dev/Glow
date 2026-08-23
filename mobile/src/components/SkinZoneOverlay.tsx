@@ -100,21 +100,33 @@ export function SkinZoneOverlay({ zoneNotes, faceBox: rawFaceBox }: Props) {
               hitSlop={12}
               style={[styles.tapTarget, posStyle]}
             />
-            {isActive && (
-              <View
-                style={[
-                  styles.callout,
-                  { top: `${(m.rect.y + m.rect.height) * 100}%` },
-                  m.align === 'left' && { left: `${m.rect.x * 100}%` },
-                  m.align === 'right' && { right: `${(1 - m.rect.x - m.rect.width) * 100}%` },
-                  m.align === 'center' && { left: `${(m.rect.x + m.rect.width / 2) * 100}%`, transform: [{ translateX: -80 }] },
-                ]}
-                pointerEvents="none"
-              >
-                <Text style={styles.calloutLabel}>{m.label.toUpperCase()}</Text>
-                <Text style={styles.calloutNote}>{m.note}</Text>
-              </View>
-            )}
+            {isActive && (() => {
+              // Callouts default to below the marker, but a zone low on the
+              // face (chin, jawline) can sit close enough to the photo's
+              // bottom edge that "below" pushes the box past it entirely —
+              // this View has no overflow:hidden, so that meant the callout
+              // visually spilling onto the text content below the photo
+              // instead of staying on it. Flip above instead whenever
+              // there's not enough room below.
+              const flipAbove = m.rect.y + m.rect.height > 0.72;
+              return (
+                <View
+                  style={[
+                    styles.callout,
+                    flipAbove
+                      ? { bottom: `${(1 - m.rect.y) * 100}%`, marginTop: 0, marginBottom: 6 }
+                      : { top: `${(m.rect.y + m.rect.height) * 100}%` },
+                    m.align === 'left' && { left: `${m.rect.x * 100}%` },
+                    m.align === 'right' && { right: `${(1 - m.rect.x - m.rect.width) * 100}%` },
+                    m.align === 'center' && { left: `${(m.rect.x + m.rect.width / 2) * 100}%`, transform: [{ translateX: -80 }] },
+                  ]}
+                  pointerEvents="none"
+                >
+                  <Text style={styles.calloutLabel}>{m.label.toUpperCase()}</Text>
+                  <Text style={styles.calloutNote}>{m.note}</Text>
+                </View>
+              );
+            })()}
           </React.Fragment>
         );
       })}

@@ -95,7 +95,7 @@ export function SkinScanResultScreen() {
   return (
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}>
-        <View>
+        <View style={styles.photoWrap}>
           <Image source={{ uri: scan.photoUrl }} style={styles.photo} contentFit="cover" />
           <SkinZoneOverlay zoneNotes={scan.zoneNotes} faceBox={scan.faceBox} />
           <LinearGradient colors={['rgba(0,0,0,0.35)', 'transparent']} style={styles.photoTopGradient} pointerEvents="none" />
@@ -213,6 +213,13 @@ export function SkinScanResultScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: Colors.systemBackground },
+  // overflow: 'hidden' — a zone marker's callout near the bottom of the
+  // face (chin, jawline) flips above the marker when there isn't room
+  // below (see SkinZoneOverlay), but this is a second, unconditional
+  // guard: nothing rendered inside this wrapper — overlay markers
+  // included — can ever visually spill onto the text content below the
+  // photo, regardless of edge case.
+  photoWrap: { overflow: 'hidden' },
   // Matches the actual stored photo's aspect ratio (1080×1350 — see
   // storedBuf in src/routes/skin.js) exactly. This used to be a forced
   // square (aspectRatio: 1) — with contentFit="cover", that center-cropped
