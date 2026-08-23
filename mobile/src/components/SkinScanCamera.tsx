@@ -541,6 +541,16 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
             onFacesDetected={onFacesDetected}
             onError={(err: Error) => console.error('[SkinScanCamera] camera error', err)}
             performanceMode="fast"
+            // Native iOS Low Light Boost — brightens the actual sensor
+            // image/preview in dark scenes, not just the screen around it
+            // (see the screen-brightness effect above, which is a
+            // complementary fill-light, not a substitute for this). Gated
+            // on the device actually supporting it, matching vision-
+            // camera's own documented usage
+            // (CameraDevice.supportsLowLightBoost's doc comment). It's
+            // adaptive — iOS only engages it when the scene is actually
+            // dark — so normal, well-lit framing is unaffected.
+            enableLowLightBoost={device.supportsLowLightBoost}
             // autoMode + window size: hands rotation/scaling to the
             // plugin's native side so `face.bounds` come back already in
             // screen/preview coordinates — see the comment above liveBox.
