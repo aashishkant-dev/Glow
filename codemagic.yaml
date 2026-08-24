@@ -19,21 +19,17 @@ workflows:
 
     environment:
       node: 22.23.2
-      # EXPO_TOKEN itself is NOT declared here on purpose — this `vars:`
-      # block is for defining literal values inline in the yaml, not for
-      # importing a secret added through Codemagic's own UI. Writing
-      # `EXPO_TOKEN: $EXPO_TOKEN` here (a previous version of this file
-      # did) was almost certainly the actual bug behind "bearer token is
-      # invalid": that line resolves at parse time against whatever's
-      # already in the shell, which is nothing yet, so it was very likely
-      # setting EXPO_TOKEN to an empty string and clobbering whatever
-      # Codemagic would otherwise have auto-injected. An ungrouped
-      # variable added in Codemagic's dashboard (Environment variables,
-      # no group selected) is exposed to every script step automatically
-      # by name — no reference needed here at all. If EXPO_TOKEN was
-      # instead added under a named group, add that here:
-      #   groups:
-      #     - your-group-name-here
+      # Codemagic requires every environment variable to belong to a named
+      # group (there's no "ungrouped" option in their UI — confirmed
+      # directly against this account's own "Group is required" field).
+      # EXPO_TOKEN was added under a group named "expo"; referencing that
+      # group here is what actually exposes it (as $EXPO_TOKEN) to every
+      # script step below. This is the real fix for "bearer token is
+      # invalid"/"EXPO_TOKEN is EMPTY" — the variable was never being
+      # imported into the build at all, group name mismatch (in this case,
+      # no group reference existing yet), not a bad token value.
+      groups:
+        - expo
 
     scripts:
       # Diagnostic only — does NOT print the token itself. "Bearer token is
