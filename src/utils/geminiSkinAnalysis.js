@@ -168,11 +168,34 @@ async function analyzeWithGemini(base64Jpeg, context = {}) {
     },
   };
 
-  const res = await fetch(url, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(body),
-  });
+  // No timeout here previously — a slow Gemini response (this request can
+  // carry up to 6 images: the new selfie plus up to 5 reference photos, on
+  // top of an intentionally long, detailed 8-zone prompt) just hung the
+  // whole /skin/scan request indefinitely. Confirmed live against
+  // production logs: real scans taking 40s and 10.7s before the CLIENT
+  // gave up and disconnected (499) — the caller (POST /skin/scan) already
+  // falls back to the free heuristic on ANY error from this function, so
+  // timing out here doesn't lose the scan, it just means a slow Gemini
+  // response degrades to "fast free result" instead of "the app hangs
+  // until the user gives up." 25s leaves real margin under the mobile
+  // client's own 60s request timeout (apiScanSkin in client.ts) while
+  // still failing fast enough to feel like a result, not a freeze.
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 25_000);
+  let res;
+  try {
+    res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err.name === 'AbortError') throw new Error('Gemini API timed out after 25s');
+    throw err;
+  } finally {
+    clearTimeout(timeout);
+  }
 
   if (!res.ok) {
     const errText = await res.text().catch(() => '');
