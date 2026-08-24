@@ -19,18 +19,21 @@ workflows:
 
     environment:
       node: 22.23.2
-      vars:
-        # Set this in Codemagic's dashboard (Environment variables → add
-        # EXPO_TOKEN, mark it "Secure"): an Expo access token from
-        # expo.dev/accounts/[account]/settings/access-tokens, NOT an Apple
-        # credential. This is what lets `eas build --local` below fetch
-        # your project's ALREADY-CONFIGURED iOS signing credentials
-        # (distribution cert + provisioning profile — "credentialsSource:
-        # remote" in eas.json, already set up and working, confirmed live
-        # against this exact project) straight from Expo's servers. That
-        # means no separate Apple certificate/provisioning-profile upload
-        # into Codemagic is needed at all.
-        EXPO_TOKEN: $EXPO_TOKEN
+      # EXPO_TOKEN itself is NOT declared here on purpose — this `vars:`
+      # block is for defining literal values inline in the yaml, not for
+      # importing a secret added through Codemagic's own UI. Writing
+      # `EXPO_TOKEN: $EXPO_TOKEN` here (a previous version of this file
+      # did) was almost certainly the actual bug behind "bearer token is
+      # invalid": that line resolves at parse time against whatever's
+      # already in the shell, which is nothing yet, so it was very likely
+      # setting EXPO_TOKEN to an empty string and clobbering whatever
+      # Codemagic would otherwise have auto-injected. An ungrouped
+      # variable added in Codemagic's dashboard (Environment variables,
+      # no group selected) is exposed to every script step automatically
+      # by name — no reference needed here at all. If EXPO_TOKEN was
+      # instead added under a named group, add that here:
+      #   groups:
+      #     - your-group-name-here
 
     scripts:
       # Diagnostic only — does NOT print the token itself. "Bearer token is
