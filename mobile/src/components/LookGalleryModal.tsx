@@ -8,7 +8,6 @@
 import React, { useState } from 'react';
 import { Image } from 'expo-image';
 import {
-  Dimensions,
   FlatList,
   Modal,
   NativeScrollEvent,
@@ -17,6 +16,7 @@ import {
   ScrollView,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
 } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -28,8 +28,6 @@ import { CloseCircleIcon, ChevronForwardIcon } from './TabIcons';
 import { LookMediaItem } from '../api/client';
 import { shareLookMedia } from '../utils/shareLook';
 import { ShareCardModal, ShareCardSpec } from './ShareCardModal';
-
-const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
 
 function formatDuration(durationMin?: number | null): string | null {
   if (!durationMin || durationMin <= 0) return null;
@@ -64,19 +62,25 @@ interface Props {
   onBook: () => void;
 }
 
-function GalleryVideo({ uri }: { uri: string }) {
+function GalleryVideo({ uri, width, height }: { uri: string; width: number; height: number }) {
   const player = useVideoPlayer(uri, p => { p.loop = true; p.play(); });
-  return <VideoView player={player} style={{ width: SCREEN_W, height: SCREEN_H }} contentFit="cover" nativeControls />;
+  return <VideoView player={player} style={{ width, height }} contentFit="cover" nativeControls />;
 }
 
 export function LookGalleryModal({ visible, media, name, vibe, price, durationMin, includes, providerName, onViewProvider, onMessageArtist, onClose, onBook }: Props) {
   const insets = useSafeAreaInsets();
+  // Reactive, not a Dimensions.get('window') constant captured once at
+  // module scope — see the matching comment in ReelsScreen.tsx (same bug:
+  // a stale width fed into the paging-offset math below made a horizontal
+  // swipe land mid-photo instead of snapping cleanly whenever the viewport
+  // changed size after this module first loaded, most visibly on web).
+  const { width: winW, height: winH } = useWindowDimensions();
   const [active, setActive] = useState(0);
   const [shareCard, setShareCard] = useState<ShareCardSpec | null>(null);
   const duration = formatDuration(durationMin);
 
   function onScroll(e: NativeSyntheticEvent<NativeScrollEvent>) {
-    setActive(Math.round(e.nativeEvent.contentOffset.x / SCREEN_W));
+    setActive(Math.round(e.nativeEvent.contentOffset.x / winW));
   }
 
   return (
@@ -94,8 +98,8 @@ export function LookGalleryModal({ visible, media, name, vibe, price, durationMi
           style={{ flex: 1 }}
           renderItem={({ item }) => (
             item.type === 'video'
-              ? <GalleryVideo uri={item.url} />
-              : <Image source={{ uri: item.url }} style={{ width: SCREEN_W, height: SCREEN_H }} contentFit="cover" cachePolicy="memory-disk" />
+              ? <GalleryVideo uri={item.url} width={winW} height={winH} />
+              : <Image source={{ uri: item.url }} style={{ width: winW, height: winH }} contentFit="cover" cachePolicy="memory-disk" />
           )}
         />
 

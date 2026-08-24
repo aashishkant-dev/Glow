@@ -39,7 +39,7 @@ const R_PILL = 999;
 // curated set offered in the "Add a service" picker.
 const ADDABLE_SERVICE_OPTIONS = [
   'Makeup', 'Bridal Makeup', 'Party Makeup',
-  'Threading', 'Hair Styling', 'Hair Coloring',
+  'Threading', 'Lashes', 'Hair Styling', 'Hair Coloring',
   'Facial', 'Waxing', 'Nails',
   'Mehendi', 'Massage', 'Saree Draping',
 ];

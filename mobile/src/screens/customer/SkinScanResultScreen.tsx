@@ -50,6 +50,19 @@ export function SkinScanResultScreen() {
   const justScanned: boolean = !!route.params.justScanned;
   const [deleting, setDeleting] = useState(false);
   const [shareCard, setShareCard] = useState<ShareCardSpec | null>(null);
+  // The photo container's aspect ratio, measured from the actual loaded
+  // image — NOT hardcoded. The backend stores at `resize(1080, 1350, {fit:
+  // 'inside'})`, which only FITS WITHIN that box while preserving the
+  // original photo's aspect ratio — it never crops, so the output is almost
+  // never exactly 1080×1350 (that only happens if the source photo already
+  // happened to be exactly 4:5). A hardcoded 1080/1350 here previously
+  // forced the wrong box, and contentFit="cover" then cropped the real
+  // image to fit it — which is exactly what desynced SkinZoneOverlay's
+  // marker fractions (correct relative to the real, uncropped stored photo)
+  // from what was actually visible on screen, reading as markers scattered
+  // off-face. 1080/1350 is kept only as the pre-load guess so layout
+  // doesn't jump from nothing to something.
+  const [photoAspect, setPhotoAspect] = useState(1080 / 1350);
 
   function goBack() {
     if (justScanned) nav.navigate('Home', { screen: 'MySpaceTab' });
@@ -96,7 +109,15 @@ export function SkinScanResultScreen() {
     <View style={styles.container}>
       <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}>
         <View style={styles.photoWrap}>
-          <Image source={{ uri: scan.photoUrl }} style={styles.photo} contentFit="cover" />
+          <Image
+            source={{ uri: scan.photoUrl }}
+            style={[styles.photo, { aspectRatio: photoAspect }]}
+            contentFit="cover"
+            onLoad={(e) => {
+              const { width, height } = e.source;
+              if (width && height) setPhotoAspect(width / height);
+            }}
+          />
           <SkinZoneOverlay zoneNotes={scan.zoneNotes} faceBox={scan.faceBox} />
           <LinearGradient colors={['rgba(0,0,0,0.35)', 'transparent']} style={styles.photoTopGradient} pointerEvents="none" />
           <Pressable style={[styles.floatBack, { top: insets.top + 8 }]} onPress={goBack} hitSlop={12}>
@@ -220,15 +241,18 @@ const styles = StyleSheet.create({
   // included — can ever visually spill onto the text content below the
   // photo, regardless of edge case.
   photoWrap: { overflow: 'hidden' },
-  // Matches the actual stored photo's aspect ratio (1080×1350 — see
-  // storedBuf in src/routes/skin.js) exactly. This used to be a forced
-  // square (aspectRatio: 1) — with contentFit="cover", that center-cropped
-  // the top and bottom off a 4:5 photo to fit a 1:1 box, so the zone
-  // overlay's fractional coordinates (computed against the FULL original
-  // photo) no longer matched what was actually visible on screen. Showing
-  // the photo at its real aspect ratio means every fraction maps 1:1,
-  // no crop-compensation math needed anywhere.
-  photo: { width: '100%', aspectRatio: 1080 / 1350, backgroundColor: Colors.brandLight },
+  // aspectRatio is overridden inline per-scan from the real loaded image
+  // (see photoAspect) — this 1080/1350 is only the pre-load placeholder.
+  // It used to be forced here unconditionally, on the assumption that the
+  // backend's resize(1080, 1350, {fit:'inside'}) always outputs exactly
+  // that box — it doesn't: `fit:'inside'` preserves the source photo's
+  // real aspect ratio and only fits it within 1080×1350, so the output is
+  // almost never exactly 4:5. With contentFit="cover" locked to the wrong
+  // assumed ratio, the real photo got cropped to fit it, desyncing
+  // SkinZoneOverlay's marker fractions (correct relative to the real,
+  // uncropped stored photo) from what was actually visible — markers
+  // reading as scattered off-face.
+  photo: { width: '100%', backgroundColor: Colors.brandLight },
   photoTopGradient: { position: 'absolute', left: 0, right: 0, top: 0, height: 90 },
   floatBack: {
     position: 'absolute', left: 16,

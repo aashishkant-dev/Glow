@@ -57,7 +57,7 @@ type QualType = typeof QUAL_TYPES[number]['key'];
 // ── Specialty options ──────────────────────────────────────────────────────────
 const SPECIALTY_OPTIONS = [
   'Makeup', 'Bridal Makeup', 'Party Makeup',
-  'Threading', 'Hair Styling', 'Hair Coloring',
+  'Threading', 'Lashes', 'Hair Styling', 'Hair Coloring',
   'Facial', 'Waxing', 'Nails',
   'Mehendi', 'Massage', 'Saree Draping',
 ];

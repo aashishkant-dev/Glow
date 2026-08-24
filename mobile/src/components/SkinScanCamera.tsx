@@ -405,6 +405,32 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
     });
   }, [device]);
 
+  // The `exposure` prop below is NOT the same unit on both platforms, even
+  // though vision-camera's JS types make it look like one shared number.
+  // iOS: CameraDevice.exposureBias wraps AVFoundation's exposureTargetBias,
+  // which IS true EV (see HybridCameraController.swift — passed straight to
+  // setExposureTargetBias(Float(exposure))) — so a flat "+1.5" is a real,
+  // meaningful +1.5 stops.
+  // Android: vision-camera's HybridCameraController.kt does
+  // `.setExposureCompensationIndex(exposure.toInt())` — CameraX's raw AE
+  // compensation INDEX, not EV (min/maxExposureBias on Android are that same
+  // raw index range, from exposureCompensationRange, confirmed in
+  // HybridCameraDevice.kt). A flat "+1.5" truncates to index 1, and most
+  // Android camera2 HALs step that index in increments as small as 1/6–1/2
+  // EV — i.e. as little as +0.17 EV, an imperceptible nudge. That mismatch
+  // is almost certainly why "brightness is minimal to none" persisted
+  // through the low-light-boost and exposure-bias attempts above: those
+  // levers were real on iOS and nearly inert on Android. Scaling by the
+  // device's own reported range (which IS already in the right unit on both
+  // platforms, since it comes from the same getter the setter's value space
+  // matches) fixes this without needing the actual EV-per-step size, which
+  // vision-camera doesn't expose to JS at all.
+  const exposureBias = useMemo(() => {
+    if (!device?.supportsExposureBias) return 0;
+    if (Platform.OS === 'android') return Math.round(device.maxExposureBias * 0.7);
+    return Math.min(device.maxExposureBias, 1.5);
+  }, [device]);
+
   function reset() {
     setStep('camera');
     setShot(null);
@@ -570,12 +596,10 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
             enableLowLightBoost={device.supportsLowLightBoost}
             // Unlike enableLowLightBoost (adaptive — iOS only engages it in
             // an actually-dark scene), exposure bias is a FIXED offset
-            // applied regardless of current light, so it's deliberately
-            // capped well under this device's actual maximum rather than
-            // maxed out — a modest, permanent brighten that helps a dark
-            // room without blowing out a normally-lit one. 0 (neutral) on
-            // any device that doesn't support exposure bias at all.
-            exposure={device.supportsExposureBias ? Math.min(device.maxExposureBias, 1.5) : 0}
+            // applied regardless of current light — computed above in
+            // exposureBias, platform-aware (see that comment for why this
+            // can't just be one flat constant across iOS/Android).
+            exposure={exposureBias}
             // autoMode + window size: hands rotation/scaling to the
             // plugin's native side so `face.bounds` come back already in
             // screen/preview coordinates — see the comment above liveBox.

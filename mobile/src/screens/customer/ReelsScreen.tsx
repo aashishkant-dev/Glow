@@ -6,11 +6,11 @@
  */
 import React, { useCallback, useRef, useState } from 'react';
 import {
-  Dimensions,
   FlatList,
   Pressable,
   StyleSheet,
   Text,
+  useWindowDimensions,
   View,
   ViewToken,
 } from 'react-native';
@@ -27,8 +27,6 @@ import { CloseCircleIcon } from '../../components/TabIcons';
 import { shareLookMedia } from '../../utils/shareLook';
 import { CommentsSheetModal } from '../../components/CommentsSheetModal';
 
-const { width: SCREEN_W, height: SCREEN_H } = Dimensions.get('window');
-
 function ReelItem({ post, isActive, muted, onToggleMute, onOpenProvider, onBook, onToggleLike }: {
   post: Post;
   isActive: boolean;
@@ -39,6 +37,14 @@ function ReelItem({ post, isActive, muted, onToggleMute, onOpenProvider, onBook,
   onToggleLike: () => void;
 }) {
   const insets = useSafeAreaInsets();
+  // Reactive, not Dimensions.get('window') captured once at module scope —
+  // on web, the browser viewport (and so the mobile Safari/Chrome address
+  // bar showing/hiding on scroll) can change height after this module first
+  // loaded, and a stale height here fed straight into getItemLayout below
+  // makes the pagingEnabled FlatList land on the wrong offset — a look/reel
+  // shows partially cut off, or a swipe lands mid-item instead of snapping
+  // cleanly, which reads as "scrolling is broken."
+  const { width: winW, height: winH } = useWindowDimensions();
   const [liked, setLiked] = useState(!!post.isLikedByMe);
   const [likeCount, setLikeCount] = useState(post.likeCount);
   const [liking, setLiking] = useState(false);
@@ -80,7 +86,7 @@ function ReelItem({ post, isActive, muted, onToggleMute, onOpenProvider, onBook,
   }
 
   return (
-    <View style={{ width: SCREEN_W, height: SCREEN_H, backgroundColor: '#000' }}>
+    <View style={{ width: winW, height: winH, backgroundColor: '#000' }}>
       {post.videoUrl ? (
         <VideoView player={player} style={StyleSheet.absoluteFill} contentFit="cover" nativeControls={false} />
       ) : null}
@@ -109,7 +115,7 @@ function ReelItem({ post, isActive, muted, onToggleMute, onOpenProvider, onBook,
           )}
           {!!post.caption && <Text style={styles.caption} numberOfLines={3}>{post.caption}</Text>}
           {!!post.service && (
-            <Pressable style={styles.serviceChip} onPress={onBook}>
+            <Pressable style={[styles.serviceChip, { maxWidth: winW - 100 }]} onPress={onBook}>
               <Text style={styles.serviceChipText} numberOfLines={1}>
                 {post.service.name} · {formatCurrency(post.service.price)}
               </Text>
@@ -153,6 +159,9 @@ function ReelItem({ post, isActive, muted, onToggleMute, onOpenProvider, onBook,
 
 export function ReelsScreen() {
   const insets = useSafeAreaInsets();
+  // Reactive window height for getItemLayout below — see the matching
+  // comment on ReelItem's own useWindowDimensions() call.
+  const { height: winH } = useWindowDimensions();
   const nav = useNavigation<any>();
   const route = useRoute<any>();
   const posts: Post[] = route.params?.posts ?? [];
@@ -211,7 +220,7 @@ export function ReelsScreen() {
         pagingEnabled
         showsVerticalScrollIndicator={false}
         initialScrollIndex={startIndex}
-        getItemLayout={(_, i) => ({ length: SCREEN_H, offset: SCREEN_H * i, index: i })}
+        getItemLayout={(_, i) => ({ length: winH, offset: winH * i, index: i })}
         onViewableItemsChanged={onViewableItemsChanged}
         viewabilityConfig={viewabilityConfig}
         renderItem={({ item, index }) => (
@@ -265,7 +274,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start',
     backgroundColor: 'rgba(255,255,255,0.16)', borderRadius: 100,
     paddingHorizontal: 12, paddingVertical: 8, borderWidth: 1, borderColor: 'rgba(255,255,255,0.25)',
-    maxWidth: SCREEN_W - 100,
   },
   serviceChipText: { color: '#fff', fontSize: 12.5, fontFamily: Fonts.semibold, flexShrink: 1 },
   serviceChipArrow: { color: '#fff', fontSize: 12.5, fontFamily: Fonts.bold },
