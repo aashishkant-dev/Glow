@@ -252,19 +252,31 @@ const analyzingStepStyles = StyleSheet.create({
 // the effect above) helps the same way but is capped by how much of the
 // screen is actually bright pixels — mostly black chrome/camera feed
 // before this. One SVG path (a full-screen rect minus an inner ellipse,
-// fillRule="evenodd") rather than four rectangles forming a frame — the
-// see-through ellipse is sized to match the guide oval exactly, so the
-// oval's own outline sits right at the boundary between the live preview
-// and the bright surround instead of floating over one side of it.
-// Always shown while framing, not just in detected-dark scenes — there's
-// no reliable way to read ambient brightness from JS without a frame
-// processor, and a bright frame around a well-lit selfie doesn't hurt.
-function FillLight({ width, height, holeW, holeH }: { width: number; height: number; holeW: number; holeH: number }) {
+// fillRule="evenodd") rather than four rectangles forming a frame.
+//
+// The see-through window tracks the REAL detected face (`face`, i.e.
+// liveBox) once one's found — same "real detection, not a generic guess"
+// principle the tracking bracket already follows, applied here too: a
+// face filling more of the frame (closer/bigger) gets a genuinely bigger
+// window, a smaller/farther face gets a smaller one, padded a fixed 35%/
+// 25% (width/height) beyond the raw detected box so the window frames
+// comfortably around it rather than clipping tight to it. Before any face
+// is detected yet, falls back to the fixed guide-oval size centered on
+// screen — same as the bracket overlay's own liveBox-or-fallback split.
+function FillLight({ width, height, face }: { width: number; height: number; face?: { x: number; y: number; width: number; height: number } | null }) {
   if (width <= 0 || height <= 0) return null;
-  const cx = width / 2;
-  const cy = height / 2;
-  const rx = holeW / 2;
-  const ry = holeH / 2;
+  let cx: number, cy: number, rx: number, ry: number;
+  if (face) {
+    cx = face.x + face.width / 2;
+    cy = face.y + face.height / 2;
+    rx = (face.width * 1.35) / 2;
+    ry = (face.height * 1.25) / 2;
+  } else {
+    cx = width / 2;
+    cy = height / 2;
+    rx = OVAL_W / 2;
+    ry = OVAL_H / 2;
+  }
   const path = `M0,0 H${width} V${height} H0 Z M${cx - rx},${cy} A${rx},${ry} 0 1,0 ${cx + rx},${cy} A${rx},${ry} 0 1,0 ${cx - rx},${cy} Z`;
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
@@ -461,10 +473,14 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
   // platforms, since it comes from the same getter the setter's value space
   // matches) fixes this without needing the actual EV-per-step size, which
   // vision-camera doesn't expose to JS at all.
+  // Maxed out, not conservatively capped — an overexposed-in-a-bright-room
+  // selfie is a minor cosmetic issue; a preview too dark to see yourself in
+  // at all is a broken feature. Between those two failure modes, this
+  // deliberately picks the one that's still usable.
   const exposureBias = useMemo(() => {
     if (!device?.supportsExposureBias) return 0;
-    if (Platform.OS === 'android') return Math.round(device.maxExposureBias * 0.7);
-    return Math.min(device.maxExposureBias, 1.5);
+    if (Platform.OS === 'android') return Math.round(device.maxExposureBias);
+    return device.maxExposureBias;
   }, [device]);
 
   function reset() {
@@ -651,7 +667,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
             {/* See FillLight's own comment — this is the actual fix for
                 "the preview is too dark to see myself," not a cosmetic
                 addition: it's a real light source, not a filter. */}
-            <FillLight width={winW} height={winH} holeW={OVAL_W} holeH={OVAL_H} />
+            <FillLight width={winW} height={winH} face={liveBox} />
 
             {/* Real-time corner-bracket tracking — the ID-scan/dermatology-
                 app visual language (four L-marks, not a full outline box) —
