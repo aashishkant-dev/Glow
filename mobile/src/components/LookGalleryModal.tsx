@@ -141,49 +141,62 @@ export function LookGalleryModal({ visible, media, name, vibe, price, durationMi
 
         <LinearGradient colors={['transparent', 'rgba(0,0,0,0.85)']} style={styles.footerGradient} pointerEvents="none" />
         <View style={[styles.footer, { paddingBottom: insets.bottom + 16 }]}>
-          {!!providerName && (
-            <Pressable
-              style={styles.providerRow}
-              onPress={onViewProvider}
-              disabled={!onViewProvider}
-              hitSlop={6}
-            >
-              <Text style={styles.providerRowText} numberOfLines={1}>by {providerName}</Text>
-              {!!onViewProvider && <ChevronForwardIcon size={13} color="rgba(255,255,255,0.75)" />}
-            </Pressable>
-          )}
-
-          {(!!duration || (includes && includes.length > 0)) && (
-            <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll} contentContainerStyle={styles.chipRow}>
-              {!!duration && (
-                <View style={[styles.chip, styles.chipDuration]}>
-                  <Text style={styles.chipDurationText}>⏱ {duration}</Text>
-                </View>
-              )}
-              {(includes ?? []).map((item, i) => (
-                <View key={i} style={styles.chip}>
-                  <Text style={styles.chipText} numberOfLines={1}>{item}</Text>
-                </View>
-              ))}
-            </ScrollView>
-          )}
-
-          <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.name} numberOfLines={2} ellipsizeMode="tail">{name}</Text>
-              {!!vibe && <Text style={styles.vibe} numberOfLines={1}>{vibe}</Text>}
-            </View>
-            {!!onMessageArtist && (
-              <Pressable style={styles.messageBtn} onPress={onMessageArtist}>
-                <Text style={styles.messageBtnText}>Message</Text>
+          {/* This whole block used to just grow upward from the bottom with
+              no ceiling — fine for the common case (name/vibe are already
+              line-capped below), but with no scroll fallback, a longer
+              provider name, more package chips, or a device with larger
+              system accessibility text (numberOfLines caps LINE COUNT, not
+              height — each line gets taller) could push the Book button
+              past the top of the screen with no way to reach it. Capping
+              this at a fraction of the window height and letting it scroll
+              is a safety net that costs nothing in the common case — at
+              normal sizes the content is shorter than the cap, so this
+              renders identically to before. */}
+          <ScrollView showsVerticalScrollIndicator={false} style={{ maxHeight: winH * 0.6 }}>
+            {!!providerName && (
+              <Pressable
+                style={styles.providerRow}
+                onPress={onViewProvider}
+                disabled={!onViewProvider}
+                hitSlop={6}
+              >
+                <Text style={styles.providerRowText} numberOfLines={1}>by {providerName}</Text>
+                {!!onViewProvider && <ChevronForwardIcon size={13} color="rgba(255,255,255,0.75)" />}
               </Pressable>
             )}
-            <Pressable style={styles.bookBtn} onPress={onBook}>
-              <Text style={styles.bookBtnText}>
-                {price != null ? `Book · ${formatCurrency(price, { decimals: 0 })}` : 'Book this look'}
-              </Text>
-            </Pressable>
-          </View>
+
+            {(!!duration || (includes && includes.length > 0)) && (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false} style={styles.chipScroll} contentContainerStyle={styles.chipRow}>
+                {!!duration && (
+                  <View style={[styles.chip, styles.chipDuration]}>
+                    <Text style={styles.chipDurationText}>⏱ {duration}</Text>
+                  </View>
+                )}
+                {(includes ?? []).map((item, i) => (
+                  <View key={i} style={styles.chip}>
+                    <Text style={styles.chipText} numberOfLines={1}>{item}</Text>
+                  </View>
+                ))}
+              </ScrollView>
+            )}
+
+            <View style={{ flexDirection: 'row', alignItems: 'flex-end', gap: 10 }}>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.name} ellipsizeMode="tail">{name}</Text>
+                {!!vibe && <Text style={styles.vibe}>{vibe}</Text>}
+              </View>
+              {!!onMessageArtist && (
+                <Pressable style={styles.messageBtn} onPress={onMessageArtist}>
+                  <Text style={styles.messageBtnText}>Message</Text>
+                </Pressable>
+              )}
+              <Pressable style={styles.bookBtn} onPress={onBook}>
+                <Text style={styles.bookBtnText}>
+                  {price != null ? `Book · ${formatCurrency(price, { decimals: 0 })}` : 'Book this look'}
+                </Text>
+              </Pressable>
+            </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>

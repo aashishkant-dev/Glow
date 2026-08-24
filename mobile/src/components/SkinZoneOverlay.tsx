@@ -12,68 +12,79 @@
  * the sub-rects below are standard portrait-proportion estimates WITHIN that
  * box, not per-feature detection — good enough to visually "point at" the
  * right area, not a precision medical measurement.
+ *
+ * `active`/`onSelect` are controlled by the parent (SkinScanResultScreen), not
+ * owned here — the zone list underneath the photo can highlight/select the
+ * same marker this draws, so tapping either the photo or the matching list
+ * row lights up both, instead of the photo and the list being two
+ * disconnected views of the same data.
  */
-import React, { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef } from 'react';
+import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Colors, Fonts } from '../utils/colors';
-import { resolveFaceBox, zoneRectToPhotoFrac, legacyZoneRectToPhotoFrac, ZONE_META } from '../utils/skinZones';
+import { resolveFaceBox, buildZoneMarkers, ZoneNotes } from '../utils/skinZones';
 import { ScanBracket } from './ScanBracket';
-
-interface Marker {
-  key: string;
-  label: string;
-  note: string;
-  rect: { x: number; y: number; width: number; height: number };
-  // Label callout anchors left or right of center so two side-by-side
-  // markers don't collide with each other.
-  align: 'left' | 'right' | 'center';
-}
+import { tapLight } from '../utils/haptics';
 
 interface Props {
-  zoneNotes: {
-    forehead?: string; nose?: string; chin?: string;
-    cheekL?: string; cheekR?: string;
-    underEyeL?: string; underEyeR?: string;
-    jawline?: string;
-    // Legacy shape — scans saved before the granular 8-zone breakdown only
-    // ever have these three.
-    tZone?: string; cheeks?: string; underEye?: string;
-  };
+  zoneNotes: ZoneNotes;
   faceBox?: { x?: number; y?: number; width?: number; height?: number };
+  active: string | null;
+  onSelect: (key: string | null) => void;
 }
 
-export function SkinZoneOverlay({ zoneNotes, faceBox: rawFaceBox }: Props) {
-  const [active, setActive] = useState<string | null>(null);
+function Callout({ label, note, flipAbove, align, rect }: { label: string; note: string; flipAbove: boolean; align: 'left' | 'right' | 'center'; rect: { x: number; y: number; width: number; height: number } }) {
+  // Scales and fades in instead of a hard cut — a marker's detail popping in
+  // with a little motion reads as "this just responded to your tap," not
+  // "the layout jumped."
+  const anim = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    anim.setValue(0);
+    Animated.spring(anim, { toValue: 1, useNativeDriver: true, speed: 22, bounciness: 6 }).start();
+  }, [label, note]);
+
+  return (
+    <Animated.View
+      style={[
+        styles.callout,
+        flipAbove
+          ? { bottom: `${(1 - rect.y) * 100}%`, marginTop: 0, marginBottom: 6 }
+          : { top: `${(rect.y + rect.height) * 100}%` },
+        align === 'left' && { left: `${rect.x * 100}%` },
+        align === 'right' && { right: `${(1 - rect.x - rect.width) * 100}%` },
+        align === 'center' && { left: `${(rect.x + rect.width / 2) * 100}%`, transform: [{ translateX: -80 }, { scale: anim }] },
+        align !== 'center' && { transform: [{ scale: anim }] },
+        { opacity: anim },
+      ]}
+      pointerEvents="none"
+    >
+      <Text style={styles.calloutLabel}>{label.toUpperCase()}</Text>
+      <Text style={styles.calloutNote}>{note}</Text>
+    </Animated.View>
+  );
+}
+
+export function SkinZoneOverlay({ zoneNotes, faceBox: rawFaceBox, active, onSelect }: Props) {
   const faceBox = resolveFaceBox(rawFaceBox);
-
-  // A scan's zoneNotes is entirely one shape or the other (set once, server
-  // -side, at scan time) — never a mix — so checking for any one granular
-  // key is enough to tell which this is.
-  const isGranular = ZONE_META.some(z => !!zoneNotes?.[z.key]);
-
-  const markers: Marker[] = [];
-  if (isGranular) {
-    for (const z of ZONE_META) {
-      const note = zoneNotes?.[z.key];
-      if (note) markers.push({ key: z.key, label: z.label, note, rect: zoneRectToPhotoFrac(z.key, faceBox), align: z.align });
-    }
-  } else {
-    if (zoneNotes?.tZone) {
-      markers.push({ key: 'tZone', label: 'T-zone', note: zoneNotes.tZone, rect: legacyZoneRectToPhotoFrac('tZone', faceBox), align: 'center' });
-    }
-    if (zoneNotes?.cheeks) {
-      markers.push({ key: 'cheekL', label: 'Cheeks', note: zoneNotes.cheeks, rect: legacyZoneRectToPhotoFrac('cheekL', faceBox), align: 'left' });
-      markers.push({ key: 'cheekR', label: 'Cheeks', note: zoneNotes.cheeks, rect: legacyZoneRectToPhotoFrac('cheekR', faceBox), align: 'right' });
-    }
-    if (zoneNotes?.underEye) {
-      markers.push({ key: 'underEye', label: 'Under-eye', note: zoneNotes.underEye, rect: legacyZoneRectToPhotoFrac('underEye', faceBox), align: 'center' });
-    }
-  }
+  const markers = buildZoneMarkers(zoneNotes, faceBox);
 
   if (markers.length === 0) return null;
 
+  function select(key: string) {
+    tapLight();
+    onSelect(active === key ? null : key);
+  }
+
   return (
     <View style={StyleSheet.absoluteFill} pointerEvents="box-none">
+      {/* Tapping anywhere on the photo that ISN'T a marker closes whatever's
+          open — previously the only way to dismiss a callout was tapping
+          the exact same marker again, which isn't discoverable. Sits behind
+          the markers (rendered first), so their own Pressables still win a
+          tap that lands on them. */}
+      {active != null && (
+        <Pressable style={StyleSheet.absoluteFill} onPress={() => onSelect(null)} />
+      )}
       {markers.map(m => {
         const isActive = active === m.key;
         const posStyle = {
@@ -89,44 +100,34 @@ export function SkinZoneOverlay({ zoneNotes, faceBox: rawFaceBox }: Props) {
               color={isActive ? Colors.brand : 'rgba(255,255,255,0.75)'}
               size={isActive ? 18 : 14}
               thickness={isActive ? 2.5 : 1.5}
+              pulse={isActive}
             >
               <View pointerEvents="none" style={[styles.dot, isActive && styles.dotActive]} />
             </ScanBracket>
             <Pressable
-              onPress={() => setActive(isActive ? null : m.key)}
+              onPress={() => select(m.key)}
               // A real tap target across the whole zone, not just the small
               // dot — hitSlop pads it further so a marker over a narrow zone
               // (under-eye) isn't fiddly to hit.
               hitSlop={12}
               style={[styles.tapTarget, posStyle]}
             />
-            {isActive && (() => {
-              // Callouts default to below the marker, but a zone low on the
-              // face (chin, jawline) can sit close enough to the photo's
-              // bottom edge that "below" pushes the box past it entirely —
-              // this View has no overflow:hidden, so that meant the callout
-              // visually spilling onto the text content below the photo
-              // instead of staying on it. Flip above instead whenever
-              // there's not enough room below.
-              const flipAbove = m.rect.y + m.rect.height > 0.72;
-              return (
-                <View
-                  style={[
-                    styles.callout,
-                    flipAbove
-                      ? { bottom: `${(1 - m.rect.y) * 100}%`, marginTop: 0, marginBottom: 6 }
-                      : { top: `${(m.rect.y + m.rect.height) * 100}%` },
-                    m.align === 'left' && { left: `${m.rect.x * 100}%` },
-                    m.align === 'right' && { right: `${(1 - m.rect.x - m.rect.width) * 100}%` },
-                    m.align === 'center' && { left: `${(m.rect.x + m.rect.width / 2) * 100}%`, transform: [{ translateX: -80 }] },
-                  ]}
-                  pointerEvents="none"
-                >
-                  <Text style={styles.calloutLabel}>{m.label.toUpperCase()}</Text>
-                  <Text style={styles.calloutNote}>{m.note}</Text>
-                </View>
-              );
-            })()}
+            {isActive && (
+              <Callout
+                label={m.label}
+                note={m.note}
+                // Callouts default to below the marker, but a zone low on
+                // the face (chin, jawline) can sit close enough to the
+                // photo's bottom edge that "below" pushes the box past it
+                // entirely — the wrapper has no overflow:hidden, so that
+                // meant the callout visually spilling onto the text content
+                // below the photo instead of staying on it. Flip above
+                // instead whenever there's not enough room below.
+                flipAbove={m.rect.y + m.rect.height > 0.72}
+                align={m.align}
+                rect={m.rect}
+              />
+            )}
           </React.Fragment>
         );
       })}

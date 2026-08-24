@@ -27,19 +27,41 @@ const TONE_SWATCH: Record<string, string> = { FAIR: '#F5D5C0', LIGHT: '#E8B894',
 const TYPE_LABELS: Record<string, string> = { DRY: 'Dry', OILY: 'Oily', COMBINATION: 'Combination', NORMAL: 'Normal', SENSITIVE: 'Sensitive' };
 const HYDRATION_LABELS: Record<string, string> = { LOW: 'Low', MODERATE: 'Moderate', HIGH: 'High' };
 
-function ZoneRow({ label, note }: { label: string; note: string }) {
-  return (
-    <View style={zoneRowStyles.row}>
-      <Text style={zoneRowStyles.label}>{label}</Text>
-      <Text style={zoneRowStyles.note}>{note}</Text>
+// flagged: Gemini wrote a real note for this zone (tappable — has a matching
+// marker on the photo above). Unflagged zones still get a row ("Clear —
+// nothing notable here") instead of just vanishing from the list, so the
+// report reads as a complete 8-point check rather than a partial one — real
+// added detail, not invented data, since "nothing flagged here" is itself
+// accurate information from the same scan.
+function ZoneRow({ label, note, flagged, active, onPress }: { label: string; note: string; flagged: boolean; active?: boolean; onPress?: () => void }) {
+  const row = (
+    <View style={[zoneRowStyles.row, active && zoneRowStyles.rowActive]}>
+      <View style={zoneRowStyles.labelRow}>
+        <View style={[zoneRowStyles.statusDot, flagged ? zoneRowStyles.statusDotFlagged : zoneRowStyles.statusDotClear]} />
+        <Text style={[zoneRowStyles.label, active && zoneRowStyles.labelActive]}>{label}</Text>
+      </View>
+      <Text style={flagged ? zoneRowStyles.note : zoneRowStyles.noteClear}>{note}</Text>
     </View>
+  );
+  if (!flagged) return row;
+  return (
+    <Pressable onPress={onPress} hitSlop={4}>
+      {row}
+    </Pressable>
   );
 }
 
 const zoneRowStyles = StyleSheet.create({
-  row: { paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.separatorSoft },
-  label: { fontSize: 11, fontFamily: Fonts.bold, color: Colors.brandDark, letterSpacing: 0.5, textTransform: 'uppercase', marginBottom: 2 },
+  row: { paddingVertical: 10, paddingHorizontal: 8, borderRadius: 10, borderBottomWidth: 1, borderBottomColor: Colors.separatorSoft },
+  rowActive: { backgroundColor: Colors.surfaceBlush, borderBottomColor: 'transparent' },
+  labelRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
+  statusDot: { width: 6, height: 6, borderRadius: 3 },
+  statusDotFlagged: { backgroundColor: Colors.brand },
+  statusDotClear: { backgroundColor: Colors.systemGray4 },
+  label: { fontSize: 11, fontFamily: Fonts.bold, color: Colors.brandDark, letterSpacing: 0.5, textTransform: 'uppercase' },
+  labelActive: { color: Colors.brand },
   note: { fontSize: 13.5, fontFamily: Fonts.regular, color: Colors.label, lineHeight: 19 },
+  noteClear: { fontSize: 13.5, fontFamily: Fonts.regular, color: Colors.tertiaryLabel, lineHeight: 19 },
 });
 
 export function SkinScanResultScreen() {
@@ -50,6 +72,11 @@ export function SkinScanResultScreen() {
   const justScanned: boolean = !!route.params.justScanned;
   const [deleting, setDeleting] = useState(false);
   const [shareCard, setShareCard] = useState<ShareCardSpec | null>(null);
+  // Lifted up (not owned inside SkinZoneOverlay) so the zone list below the
+  // photo and the tappable markers ON the photo are the same selection —
+  // tapping either one highlights both, instead of two disconnected views
+  // of the same data.
+  const [activeZone, setActiveZone] = useState<string | null>(null);
   // The photo container's aspect ratio, measured from the actual loaded
   // image — NOT hardcoded. The backend stores at `resize(1080, 1350, {fit:
   // 'inside'})`, which only FITS WITHIN that box while preserving the
@@ -118,7 +145,7 @@ export function SkinScanResultScreen() {
               if (width && height) setPhotoAspect(width / height);
             }}
           />
-          <SkinZoneOverlay zoneNotes={scan.zoneNotes} faceBox={scan.faceBox} />
+          <SkinZoneOverlay zoneNotes={scan.zoneNotes} faceBox={scan.faceBox} active={activeZone} onSelect={setActiveZone} />
           <LinearGradient colors={['rgba(0,0,0,0.35)', 'transparent']} style={styles.photoTopGradient} pointerEvents="none" />
           <Pressable style={[styles.floatBack, { top: insets.top + 8 }]} onPress={goBack} hitSlop={12}>
             <Text style={styles.floatBackText}>‹</Text>
@@ -151,22 +178,39 @@ export function SkinScanResultScreen() {
           {/* Zone-by-zone read — the thing an in-person consultation does
               that one blanket "your skin is X" verdict doesn't. Gemini-only
               (empty strings from the free heuristic); only rendered when at
-              least one zone actually has something worth showing. Up to 8
-              rows now (forehead/nose/chin/both cheeks/both under-eyes/
-              jawline) — however many ZONE_META entries this particular
-              photo actually got a note for, not a fixed count. Legacy scans
-              (saved before that 8-zone breakdown) only ever have the old
-              tZone/cheeks/underEye trio, so those still render as their own
-              3 rows via the fallback below. */}
+              least one zone actually has something worth showing. Shows ALL
+              8 zones now, not just the ones with a note — an unflagged zone
+              gets "Clear" instead of silently vanishing, so this reads as a
+              complete 8-point check rather than a partial list; that's real
+              added detail since "nothing notable here" is itself accurate
+              information from the same scan, not invented. Only flagged rows
+              are tappable (only they have a matching marker on the photo);
+              tapping one selects the same `activeZone` the photo markers
+              read from, so the row and its marker light up together. Legacy
+              scans (saved before the 8-zone breakdown) only ever have the
+              old tZone/cheeks/underEye trio, so those still render as their
+              own 3 rows via the fallback below — kept simple/non-interactive
+              since that shape is frozen and fading out. */}
           {(() => {
-            const granularRows = ZONE_META
-              .map(z => ({ ...z, note: scan.zoneNotes?.[z.key] }))
-              .filter(z => !!z.note);
-            if (granularRows.length > 0) {
+            const granularRows = ZONE_META.map(z => ({ ...z, note: scan.zoneNotes?.[z.key] }));
+            const flaggedCount = granularRows.filter(z => !!z.note).length;
+            if (flaggedCount > 0) {
               return (
                 <View style={styles.zoneSection}>
-                  <Text style={styles.zoneHint}>Tap a marker on the photo above to see it pointed out</Text>
-                  {granularRows.map(z => <ZoneRow key={z.key} label={z.label} note={z.note!} />)}
+                  <View style={styles.zoneSectionHeader}>
+                    <Text style={styles.zoneHint}>Tap a marker on the photo, or a row below, to see it pointed out</Text>
+                    <Text style={styles.zoneCount}>{flaggedCount}/{granularRows.length} flagged</Text>
+                  </View>
+                  {granularRows.map(z => (
+                    <ZoneRow
+                      key={z.key}
+                      label={z.label}
+                      note={z.note || 'Clear — nothing notable here'}
+                      flagged={!!z.note}
+                      active={activeZone === z.key}
+                      onPress={() => setActiveZone(activeZone === z.key ? null : z.key)}
+                    />
+                  ))}
                 </View>
               );
             }
@@ -174,9 +218,9 @@ export function SkinScanResultScreen() {
               return (
                 <View style={styles.zoneSection}>
                   <Text style={styles.zoneHint}>Tap a marker on the photo above to see it pointed out</Text>
-                  {!!scan.zoneNotes?.tZone && <ZoneRow label="T-zone" note={scan.zoneNotes.tZone} />}
-                  {!!scan.zoneNotes?.cheeks && <ZoneRow label="Cheeks" note={scan.zoneNotes.cheeks} />}
-                  {!!scan.zoneNotes?.underEye && <ZoneRow label="Under-eye" note={scan.zoneNotes.underEye} />}
+                  {!!scan.zoneNotes?.tZone && <ZoneRow label="T-zone" note={scan.zoneNotes.tZone} flagged />}
+                  {!!scan.zoneNotes?.cheeks && <ZoneRow label="Cheeks" note={scan.zoneNotes.cheeks} flagged />}
+                  {!!scan.zoneNotes?.underEye && <ZoneRow label="Under-eye" note={scan.zoneNotes.underEye} flagged />}
                 </View>
               );
             }
@@ -284,11 +328,18 @@ const styles = StyleSheet.create({
 
   zoneSection: {
     marginTop: 18, backgroundColor: Colors.surfaceCream, borderRadius: 16,
-    paddingHorizontal: 14,
+    paddingHorizontal: 14, paddingBottom: 4,
+  },
+  zoneSectionHeader: {
+    flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 10,
+    paddingTop: 12, paddingBottom: 2,
   },
   zoneHint: {
+    flex: 1,
     fontSize: 10.5, fontFamily: Fonts.medium, color: Colors.tertiaryLabel,
-    paddingTop: 12, paddingBottom: 2,
+  },
+  zoneCount: {
+    fontSize: 10.5, fontFamily: Fonts.bold, color: Colors.brandDark, letterSpacing: 0.2,
   },
 
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },

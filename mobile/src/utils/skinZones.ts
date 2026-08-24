@@ -90,3 +90,46 @@ export function resolveFaceBox(raw?: { x?: number; y?: number; width?: number; h
     ? { x: raw.x ?? DEFAULT_FACE_BOX.x, y: raw.y ?? DEFAULT_FACE_BOX.y, width: raw.width, height: raw.height }
     : DEFAULT_FACE_BOX;
 }
+
+export interface ZoneNotes {
+  forehead?: string; nose?: string; chin?: string;
+  cheekL?: string; cheekR?: string;
+  underEyeL?: string; underEyeR?: string;
+  jawline?: string;
+  tZone?: string; cheeks?: string; underEye?: string;
+}
+
+export interface ZoneMarker {
+  key: string;
+  label: string;
+  note: string;
+  rect: FaceBox;
+  align: 'left' | 'right' | 'center';
+}
+
+// Single source for "which zones does this scan have something to point
+// at, and where" — SkinZoneOverlay (the tappable photo markers) and
+// SkinScanResultScreen (the list underneath, which also wants the flagged/
+// clear split for ALL 8 zones, not just the flagged ones) both build off
+// this instead of each re-deriving it, so the two views can never drift
+// out of sync with each other.
+export function buildZoneMarkers(zoneNotes: ZoneNotes | undefined, faceBox: FaceBox): ZoneMarker[] {
+  const isGranular = ZONE_META.some(z => !!zoneNotes?.[z.key]);
+  if (isGranular) {
+    return ZONE_META
+      .filter(z => !!zoneNotes?.[z.key])
+      .map(z => ({ key: z.key, label: z.label, note: zoneNotes![z.key]!, rect: zoneRectToPhotoFrac(z.key, faceBox), align: z.align }));
+  }
+  const markers: ZoneMarker[] = [];
+  if (zoneNotes?.tZone) {
+    markers.push({ key: 'tZone', label: 'T-zone', note: zoneNotes.tZone, rect: legacyZoneRectToPhotoFrac('tZone', faceBox), align: 'center' });
+  }
+  if (zoneNotes?.cheeks) {
+    markers.push({ key: 'cheekL', label: 'Cheeks', note: zoneNotes.cheeks, rect: legacyZoneRectToPhotoFrac('cheekL', faceBox), align: 'left' });
+    markers.push({ key: 'cheekR', label: 'Cheeks', note: zoneNotes.cheeks, rect: legacyZoneRectToPhotoFrac('cheekR', faceBox), align: 'right' });
+  }
+  if (zoneNotes?.underEye) {
+    markers.push({ key: 'underEye', label: 'Under-eye', note: zoneNotes.underEye, rect: legacyZoneRectToPhotoFrac('underEye', faceBox), align: 'center' });
+  }
+  return markers;
+}
