@@ -33,6 +33,22 @@ workflows:
         EXPO_TOKEN: $EXPO_TOKEN
 
     scripts:
+      # Diagnostic only — does NOT print the token itself. "Bearer token is
+      # invalid" from eas-cli could mean EXPO_TOKEN never reached this
+      # shell at all (empty — usually a Codemagic-side variable/group
+      # wiring issue) OR it reached the shell but Expo itself is rejecting
+      # the value (present but still invalid — a token-generation issue).
+      # Those need different fixes; this tells us which one we're dealing
+      # with without ever exposing the secret in build logs.
+      - name: Check EXPO_TOKEN is actually set
+        script: |
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "EXPO_TOKEN is EMPTY or unset in this shell — it's not reaching the build. Check Codemagic's environment variable / group wiring for this workflow."
+            exit 1
+          else
+            echo "EXPO_TOKEN is set (length: ${#EXPO_TOKEN} characters, first 4 chars: ${EXPO_TOKEN:0:4}...)"
+          fi
+
       - name: Install dependencies
         script: |
           npm ci
