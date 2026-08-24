@@ -55,6 +55,7 @@ import { Platform } from 'react-native';
 import { useCameraDevice, useCameraPermission, usePhotoOutput, type CameraRef } from 'react-native-vision-camera';
 import { Camera as FaceDetectCamera, useImageFaceDetector, type Face as LiveFace } from 'react-native-vision-camera-face-detector';
 import * as FileSystem from 'expo-file-system/legacy';
+import Svg, { Path } from 'react-native-svg';
 import { Colors, Fonts } from '../utils/colors';
 import { GlowMark } from './GlowLogo';
 import { SparkleIcon } from './BeautyIcons';
@@ -238,6 +239,41 @@ const analyzingStepStyles = StyleSheet.create({
   label: { fontSize: 13, fontFamily: Fonts.medium, color: Colors.tertiaryLabel },
   labelDone: { color: Colors.label, fontFamily: Fonts.semibold },
 });
+
+// Bright, screen-emitted fill light for the front-camera selfie in low
+// ambient light — the same trick Snapchat/Instagram/TikTok use for
+// front-camera shots, done here as a real light SOURCE (opaque white
+// pixels genuinely emit light that bounces off the face and back into the
+// lens) rather than a translucent layer drawn on top of the preview.
+// Alpha-blending white over an already near-black feed mostly just
+// produces flat gray — there's no buried detail to reveal in a frame this
+// dark, since the sensor never captured that detail to begin with; only
+// adding real photons to the actual scene helps. Screen brightness (see
+// the effect above) helps the same way but is capped by how much of the
+// screen is actually bright pixels — mostly black chrome/camera feed
+// before this. One SVG path (a full-screen rect minus an inner ellipse,
+// fillRule="evenodd") rather than four rectangles forming a frame — the
+// see-through ellipse is sized to match the guide oval exactly, so the
+// oval's own outline sits right at the boundary between the live preview
+// and the bright surround instead of floating over one side of it.
+// Always shown while framing, not just in detected-dark scenes — there's
+// no reliable way to read ambient brightness from JS without a frame
+// processor, and a bright frame around a well-lit selfie doesn't hurt.
+function FillLight({ width, height, holeW, holeH }: { width: number; height: number; holeW: number; holeH: number }) {
+  if (width <= 0 || height <= 0) return null;
+  const cx = width / 2;
+  const cy = height / 2;
+  const rx = holeW / 2;
+  const ry = holeH / 2;
+  const path = `M0,0 H${width} V${height} H0 Z M${cx - rx},${cy} A${rx},${ry} 0 1,0 ${cx + rx},${cy} A${rx},${ry} 0 1,0 ${cx - rx},${cy} Z`;
+  return (
+    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+      <Svg width={width} height={height}>
+        <Path d={path} fill="#fff" fillRule="evenodd" />
+      </Svg>
+    </View>
+  );
+}
 
 export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: Props) {
   const insets = useSafeAreaInsets();
@@ -612,14 +648,18 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
 
         {step === 'camera' && hasPermission && device != null && (
           <>
+            {/* See FillLight's own comment — this is the actual fix for
+                "the preview is too dark to see myself," not a cosmetic
+                addition: it's a real light source, not a filter. */}
+            <FillLight width={winW} height={winH} holeW={OVAL_W} holeH={OVAL_H} />
+
             {/* Real-time corner-bracket tracking — the ID-scan/dermatology-
                 app visual language (four L-marks, not a full outline box) —
                 replaces the old fixed oval guide with the actual detected
                 face for THIS frame. Pulses gently to read as "actively
-                scanning." A dimmed surround still frames the scene when no
-                face is found yet, same reassurance the oval gave, just
-                honest about not knowing where the face actually is until
-                one's detected. */}
+                scanning." The oval fallback below (no face found yet) frames
+                the scene the same way, sized to match FillLight's see-through
+                window exactly so its outline sits right on that boundary. */}
             {liveBox ? (
               <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                 <ScanBracket
@@ -664,7 +704,12 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
               <Pressable style={styles.roundBtn} onPress={handleClose} hitSlop={10}>
                 <Text style={styles.roundBtnText}>✕</Text>
               </Pressable>
-              <GlowMark size={22} petal="#fff" petalInner="rgba(255,255,255,0.55)" core={Colors.gold} />
+              {/* Backed by the same dark chip roundBtn uses — this sits on
+                  FillLight's white surround (above the see-through window),
+                  where the mark's white petals would otherwise disappear. */}
+              <View style={styles.logoChip}>
+                <GlowMark size={22} petal="#fff" petalInner="rgba(255,255,255,0.55)" core={Colors.gold} />
+              </View>
               <View style={{ width: 42 }} />
             </View>
 
@@ -826,7 +871,11 @@ const styles = StyleSheet.create({
   guideSurround: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
   guideOval: {
     width: OVAL_W, height: OVAL_H, borderRadius: OVAL_W,
-    borderWidth: 2.5, borderColor: 'rgba(255,255,255,0.85)',
+    // brand pink, not white — this sits right on FillLight's see-through/
+    // surround boundary now, so a white border here would vanish against
+    // the white half of that boundary. Brand pink reads clearly against
+    // both the dark preview inside and the bright white surround outside.
+    borderWidth: 2.5, borderColor: Colors.brand,
   },
   topBar: {
     position: 'absolute', left: 16, right: 16, zIndex: 2,
@@ -845,14 +894,32 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center',
   },
   roundBtnText: { color: '#fff', fontSize: 15, fontFamily: Fonts.semibold },
+  logoChip: {
+    width: 36, height: 36, borderRadius: 18,
+    backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center',
+  },
 
   bottomCluster: { position: 'absolute', left: 0, right: 0, bottom: 0, gap: 14, alignItems: 'center' },
-  hint: { color: 'rgba(255,255,255,0.75)', fontSize: 12.5, fontFamily: Fonts.medium },
+  // A background pill, not bare white text — this sits below FillLight's
+  // see-through window, on the white surround, where plain white text
+  // would be invisible. The pill keeps it legible regardless of what's
+  // behind it (the same reasoning the top bar's roundBtn and tipCard
+  // already use their own background boxes for).
+  hint: {
+    color: '#fff', fontSize: 12.5, fontFamily: Fonts.medium,
+    backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 100,
+    paddingHorizontal: 12, paddingVertical: 6,
+  },
   shootRow: { flexDirection: 'row', justifyContent: 'center' },
   shutterOuter: {
     width: 78, height: 78, borderRadius: 39,
     borderWidth: 4, borderColor: Colors.brand,
     alignItems: 'center', justifyContent: 'center',
+    // Sits on FillLight's white surround now (below the see-through
+    // window) — a soft shadow keeps the button reading as a raised,
+    // distinct control instead of flattening into the white background
+    // behind it.
+    shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.18, shadowRadius: 8, elevation: 4,
   },
   shutterInner: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
 
