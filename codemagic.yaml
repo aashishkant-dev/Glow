@@ -1,0 +1,73 @@
+workflows:
+  ios-testflight:
+    name: Glow iOS — build & TestFlight
+    max_build_duration: 90
+    instance_type: mac_mini_m2
+    working_directory: mobile
+
+    # This repo is a monorepo (mobile/, landing/, admin/, the backend at the
+    # root) — only pushes that actually touch the mobile app should trigger
+    # an iOS build. Adjust branch_patterns to whichever branch you want this
+    # wired to (currently the one all of this session's fixes are on).
+    triggering:
+      events:
+        - push
+      branch_patterns:
+        - pattern: vision-camera-live-detection
+          include: true
+          source: true
+
+    environment:
+      node: 22.23.2
+      vars:
+        # Set this in Codemagic's dashboard (Environment variables → add
+        # EXPO_TOKEN, mark it "Secure"): an Expo access token from
+        # expo.dev/accounts/[account]/settings/access-tokens, NOT an Apple
+        # credential. This is what lets `eas build --local` below fetch
+        # your project's ALREADY-CONFIGURED iOS signing credentials
+        # (distribution cert + provisioning profile — "credentialsSource:
+        # remote" in eas.json, already set up and working, confirmed live
+        # against this exact project) straight from Expo's servers. That
+        # means no separate Apple certificate/provisioning-profile upload
+        # into Codemagic is needed at all.
+        EXPO_TOKEN: $EXPO_TOKEN
+
+    scripts:
+      - name: Install dependencies
+        script: |
+          npm ci
+
+      # --local is the reason this sidesteps the EAS free-tier build queue
+      # entirely: it runs the actual build (prebuild + Xcode archive) on
+      # THIS machine (Codemagic's own runner), not on EAS's cloud build
+      # infrastructure — so it doesn't touch, and isn't blocked by, the
+      # EAS account's monthly cloud-build quota. Everything else about the
+      # build (env vars, bundle identifier, signing) still comes from the
+      # existing "production" profile in eas.json — nothing duplicated
+      # here. eas-cli isn't a project dependency (removed on purpose, see
+      # that commit) — npx fetches it on demand, same as any other one-off
+      # CLI invocation.
+      - name: EAS local build (iOS)
+        script: |
+          npx eas-cli build \
+            --local \
+            --platform ios \
+            --profile production \
+            --non-interactive \
+            --output ./build.ipa
+
+    artifacts:
+      - mobile/build.ipa
+
+    publishing:
+      # Uses the SAME EXPO_TOKEN above — no separate App Store Connect API
+      # key needed here either, since `eas submit` also authenticates
+      # through Expo, which already has this project's submit config
+      # (appleTeamId) from eas.json.
+      scripts:
+        - name: Submit to TestFlight
+          script: |
+            npx eas-cli submit \
+              --platform ios \
+              --path ./build.ipa \
+              --non-interactive
