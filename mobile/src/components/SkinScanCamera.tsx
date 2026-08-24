@@ -62,13 +62,7 @@ import { SparkleIcon } from './BeautyIcons';
 import { SKIN_QUIZ_QUESTIONS } from '../data/skinQuiz';
 import { apiScanSkin, SkinScan } from '../api/client';
 import { tapLight, tapWarning } from '../utils/haptics';
-import { zoneRectToPhotoFrac, ZONE_META } from '../utils/skinZones';
 import { ScanBracket } from './ScanBracket';
-
-// All 8 zones, geometry-only — this drives the live preview's sub-brackets,
-// shown before any actual analysis has run (see the comment where it's
-// used, below).
-const LIVE_ZONE_KEYS = ZONE_META.map(z => z.key);
 
 function stripDataUrlPrefix(value: string): string {
   const commaIndex = value.indexOf(',');
@@ -326,13 +320,14 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
   const [liveFaces, setLiveFaces] = useState<LiveFace[]>([]);
   // onFacesDetected has no built-in rate limit — it fires on every frame
   // the native side processes, and the plugin doesn't expose a throttle
-  // option. Each call re-renders the main bracket plus all 8 zone
-  // brackets; doing that at full frame rate is enough JS-thread work to
-  // visibly stall the UI (the preview itself is native and keeps
-  // rendering, but everything ELSE — including how responsive the screen
-  // feels — can bog down badly enough to read as "frozen"). Capping
-  // state updates to ~10/sec is still smooth for a slowly-moving tracking
-  // box and cuts that load by roughly two-thirds to five-sixths depending
+  // option. Each call re-renders the tracking bracket AND FillLight's
+  // window (which follows it — see FillLight's own comment); doing that
+  // at full frame rate is enough JS-thread work to visibly stall the UI
+  // (the preview itself is native and keeps rendering, but everything
+  // ELSE — including how responsive the screen feels — can bog down
+  // badly enough to read as "frozen"). Capping state updates to ~10/sec
+  // is still smooth for a slowly-moving tracking box and cuts that load
+  // by roughly two-thirds to five-sixths depending
   // on the device's actual detection rate.
   const lastFaceUpdateRef = useRef(0);
   const onFacesDetected = useCallback((faces: LiveFace[]) => {
@@ -675,7 +670,18 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
                 face for THIS frame. Pulses gently to read as "actively
                 scanning." The oval fallback below (no face found yet) frames
                 the scene the same way, sized to match FillLight's see-through
-                window exactly so its outline sits right on that boundary. */}
+                window exactly so its outline sits right on that boundary.
+                Deliberately just the one bracket now, not also the 8
+                individual zone marks this used to speculatively draw — those
+                previewed WHERE a finished scan's markers would eventually
+                land, before any actual analysis has run, all 8 at once, live,
+                on a moving tracking box. That's noise, not signal, while
+                you're just framing the shot: nothing has been analyzed yet,
+                so 8 brackets don't mean "8 things detected," they're a
+                permanent fixed geometric guess. One clean, confident tracking
+                indicator says "the AI has found your face" — which is what's
+                actually true at this point — without visually overclaiming
+                more than that. */}
             {liveBox ? (
               <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                 <ScanBracket
@@ -685,29 +691,6 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
                   thickness={3}
                   pulse
                 />
-                {/* Same 8-zone proportions the result screen's tappable
-                    markers use (see skinZones.ts) — real-time preview of
-                    exactly what a finished scan will call out, not just a
-                    generic face outline. This live preview always draws all
-                    8 (it's a geometric guide, shown before any actual
-                    analysis has run); the result screen only ever shows the
-                    subset Gemini actually had something to say about for
-                    THIS photo. zoneRectToPhotoFrac is unit-agnostic (pure
-                    ratio math), so passing liveBox's screen-pixel
-                    coordinates as the "face box" works exactly like passing
-                    0–1 fractions elsewhere. */}
-                {LIVE_ZONE_KEYS.map(zone => {
-                  const r = zoneRectToPhotoFrac(zone, liveBox);
-                  return (
-                    <ScanBracket
-                      key={zone}
-                      style={{ left: r.x, top: r.y, width: r.width, height: r.height }}
-                      color="rgba(255,255,255,0.85)"
-                      size={10}
-                      thickness={1.5}
-                    />
-                  );
-                })}
               </View>
             ) : (
               <View style={styles.guideSurround} pointerEvents="none">
