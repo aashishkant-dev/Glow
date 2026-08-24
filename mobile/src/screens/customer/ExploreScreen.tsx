@@ -275,17 +275,33 @@ export function ExploreScreen() {
     return sections;
   }, [allArtists, artistSort, query]);
 
+  // Seed artists are demo data with no real backend account — booking
+  // against them would 400 at checkout. Shared by openArtist and
+  // bookArtist below so the same guard covers both entry points instead
+  // of only the one that existed before quick-book was added.
+  function isDemoArtist(artist: PublicProviderCard): boolean {
+    if (!artist.id.startsWith('seed-')) return false;
+    const msg = 'This is a demo artist — booking isn\'t available for them yet.';
+    if (Platform.OS === 'web') alert(msg);
+    else Alert.alert('Demo Artist', msg);
+    return true;
+  }
+
   function openArtist(artist: PublicProviderCard) {
-    // Seed artists are demo data with no real backend account — booking against
-    // them would 400 at checkout. Show real artists' profiles; tell users
-    // plainly when a card is a demo, instead of leading them into a dead end.
-    if (artist.id.startsWith('seed-')) {
-      const msg = 'This is a demo artist — booking isn\'t available for them yet.';
-      if (Platform.OS === 'web') alert(msg);
-      else Alert.alert('Demo Artist', msg);
-      return;
-    }
+    if (isDemoArtist(artist)) return;
     nav.navigate('ProviderPublicProfile', { providerId: artist.id, providerName: artist.name });
+  }
+
+  // Quick-book straight from an ArtistCard in one of Explore's horizontal
+  // rows — previously the only path was tap the card, wait for the full
+  // profile to load, then find the booking action there. No preselected
+  // service/look (unlike bookExploreLook below, which books a specific
+  // look) — this is "book with this artist," the same starting point
+  // ProviderPublicProfileScreen's own Book button uses.
+  function bookArtist(artist: PublicProviderCard) {
+    if (isDemoArtist(artist)) return;
+    tapLight();
+    nav.navigate('NewBooking', { bookingMode: 'scheduled', providerId: artist.id, _t: Date.now() });
   }
 
   const SORT_OPTIONS: { label: string; value: ArtistSort }[] = [
@@ -432,7 +448,7 @@ export function ExploreScreen() {
                   <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ paddingHorizontal: 24, gap: 14 }}>
                     {artists.map(artist => (
                       <View key={artist.id} style={{ width: 160 }}>
-                        <ArtistCard artist={artist} showFavorite onPress={() => openArtist(artist)} />
+                        <ArtistCard artist={artist} showFavorite onPress={() => openArtist(artist)} onBook={() => bookArtist(artist)} />
                       </View>
                     ))}
                   </ScrollView>

@@ -20,9 +20,15 @@ interface Props {
   /** Show a heart-toggle overlay on the photo (opt-in — off by default so
       existing call sites render unchanged). */
   showFavorite?: boolean;
+  // Quick-book straight from the card — previously the only way to book an
+  // artist found while browsing Explore's horizontal rows was tap the card,
+  // wait for the full profile to load, then find the booking action there.
+  // Optional/additive: omitted call sites (anywhere this card is reused
+  // without a booking flow behind it) render exactly as before.
+  onBook?: () => void;
 }
 
-export function ArtistCard({ artist, onPress, showFavorite = false }: Props) {
+export function ArtistCard({ artist, onPress, showFavorite = false, onBook }: Props) {
   const favoriteIds = useFavorites();
   const favorited = favoriteIds.includes(artist.id);
   return (
@@ -65,6 +71,19 @@ export function ArtistCard({ artist, onPress, showFavorite = false }: Props) {
             <Text style={styles.price} numberOfLines={1} ellipsizeMode="tail">From {formatCurrency(artist.startingPrice)}</Text>
           )}
         </View>
+        {!!onBook && (
+          <Pressable
+            style={({ pressed }) => [styles.bookBtn, pressed && { opacity: 0.85 }]}
+            // Nested inside the card's own Pressable — RN's gesture
+            // responder lets this inner one claim the touch on its own, so
+            // tapping it books directly instead of also opening the full
+            // profile behind it.
+            onPress={onBook}
+            hitSlop={4}
+          >
+            <Text style={styles.bookBtnText}>Book</Text>
+          </Pressable>
+        )}
       </View>
     </Pressable>
   );
@@ -128,5 +147,17 @@ const styles = StyleSheet.create({
     fontSize: 13,
     fontFamily: Fonts.bold,
     color: Colors.brand,
+  },
+  bookBtn: {
+    marginTop: 10,
+    alignItems: 'center',
+    borderRadius: 100,
+    paddingVertical: 8,
+    backgroundColor: Colors.brand,
+  },
+  bookBtnText: {
+    fontSize: 12.5,
+    fontFamily: Fonts.semibold,
+    color: '#fff',
   },
 });
