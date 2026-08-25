@@ -168,41 +168,48 @@ async function analyzeWithGemini(base64Jpeg, context = {}) {
     },
   };
 
-  // No timeout here previously — a slow Gemini response (this request can
+  // No timeout here originally — a slow Gemini response (this request can
   // carry up to 6 images: the new selfie plus up to 5 reference photos, on
   // top of an intentionally long, detailed 8-zone prompt) just hung the
-  // whole /skin/scan request indefinitely. Confirmed live against
-  // production logs: real scans taking 40s and 10.7s before the CLIENT
-  // gave up and disconnected (499) — the caller (POST /skin/scan) already
-  // falls back to the free heuristic on ANY error from this function, so
-  // timing out here doesn't lose the scan, it just means a slow Gemini
+  // whole /skin/scan request indefinitely. The caller (POST /skin/scan)
+  // already falls back to the free heuristic on ANY error from this
+  // function, so timing out here doesn't lose the scan — a slow Gemini
   // response degrades to "fast free result" instead of "the app hangs
-  // until the user gives up." 25s leaves real margin under the mobile
-  // client's own 60s request timeout (apiScanSkin in client.ts) while
-  // still failing fast enough to feel like a result, not a freeze.
+  // until the user gives up."
+  //
+  // The FIRST version of this timeout only covered the initial fetch()
+  // call — fetch()'s promise resolves as soon as response HEADERS arrive,
+  // before the body has actually been received, and that version cleared
+  // the abort timer right after that first await, leaving res.json() below
+  // completely unprotected. Confirmed live against production logs: real
+  // requests still taking 124s, 148s, and 182s even with that "25s
+  // timeout" in place — exactly consistent with a fast response header
+  // followed by a slow/stalled body stream. Now one try/catch covers both
+  // awaits, one AbortError check, and clearTimeout only runs once the body
+  // has actually been fully read.
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 25_000);
-  let res;
+  let json;
   try {
-    res = await fetch(url, {
+    const res = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body),
       signal: controller.signal,
     });
+
+    if (!res.ok) {
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Gemini API error ${res.status}: ${errText.slice(0, 300)}`);
+    }
+
+    json = await res.json();
   } catch (err) {
     if (err.name === 'AbortError') throw new Error('Gemini API timed out after 25s');
     throw err;
   } finally {
     clearTimeout(timeout);
   }
-
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`Gemini API error ${res.status}: ${errText.slice(0, 300)}`);
-  }
-
-  const json = await res.json();
   const text = json?.candidates?.[0]?.content?.parts?.[0]?.text;
   if (!text) throw new Error('Gemini returned no usable content');
 
