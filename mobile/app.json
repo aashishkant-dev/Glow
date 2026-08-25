@@ -134,6 +134,9 @@
         "projectId": "7211e7dd-0674-4a3c-9a5c-c68efd518f86"
       }
     },
-    "owner": "aashishkant69s-organization"
+    "owner": "aashishkant69s-organization",
+    "updates": {
+      "url": "https://u.expo.dev/7211e7dd-0674-4a3c-9a5c-c68efd518f86"
+    }
   }
 }
