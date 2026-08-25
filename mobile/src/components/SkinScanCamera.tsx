@@ -55,7 +55,7 @@ import { Platform } from 'react-native';
 import { useCameraDevice, useCameraPermission, usePhotoOutput, type CameraRef, type Photo } from 'react-native-vision-camera';
 import { Camera as FaceDetectCamera, useImageFaceDetector, type Face as LiveFace } from 'react-native-vision-camera-face-detector';
 import * as FileSystem from 'expo-file-system/legacy';
-import Svg, { Path } from 'react-native-svg';
+import Svg, { Defs, RadialGradient, Stop, Rect } from 'react-native-svg';
 import { Colors, Fonts } from '../utils/colors';
 import { GlowMark } from './GlowLogo';
 import { SparkleIcon } from './BeautyIcons';
@@ -264,8 +264,18 @@ const analyzingStepStyles = StyleSheet.create({
 // adding real photons to the actual scene helps. Screen brightness (see
 // the effect above) helps the same way but is capped by how much of the
 // screen is actually bright pixels — mostly black chrome/camera feed
-// before this. One SVG path (a full-screen rect minus an inner ellipse,
-// fillRule="evenodd") rather than four rectangles forming a frame.
+// before this.
+//
+// A soft radial gradient, not a hard-edged cutout — the first version drew
+// a flat white rect with a sharp-edged ellipse punched out of it
+// (fillRule="evenodd"), which is functionally the same light output but
+// reads as "the screen glitched to a wall of white with a hole in it,"
+// not an intentional design choice. This fades smoothly from fully
+// transparent at the center out to fully opaque white by the edge of the
+// same ellipse (SVG's default spreadMethod="pad" holds that same opaque
+// white for everything past it, all the way to the screen edges) — same
+// light output at the edges, same clear view of the face at the center,
+// but a genuine soft glow in between instead of a cliff edge.
 //
 // The see-through window tracks the REAL detected face (`face`, i.e.
 // liveBox) once one's found — same "real detection, not a generic guess"
@@ -290,11 +300,21 @@ function FillLight({ width, height, face }: { width: number; height: number; fac
     rx = OVAL_W / 2;
     ry = OVAL_H / 2;
   }
-  const path = `M0,0 H${width} V${height} H0 Z M${cx - rx},${cy} A${rx},${ry} 0 1,0 ${cx + rx},${cy} A${rx},${ry} 0 1,0 ${cx - rx},${cy} Z`;
+  // A fresh id per render would break the gradient reference (React Native
+  // SVG resolves url(#id) by string match) if this were ever memoized/
+  // reused across instances — fixed, not derived from anything that
+  // changes, since only one FillLight is ever mounted at a time.
   return (
     <View pointerEvents="none" style={StyleSheet.absoluteFill}>
       <Svg width={width} height={height}>
-        <Path d={path} fill="#fff" fillRule="evenodd" />
+        <Defs>
+          <RadialGradient id="glowFade" gradientUnits="userSpaceOnUse" cx={cx} cy={cy} rx={rx} ry={ry}>
+            <Stop offset="0" stopColor="#fff" stopOpacity="0" />
+            <Stop offset="0.6" stopColor="#fff" stopOpacity="0" />
+            <Stop offset="1" stopColor="#fff" stopOpacity="1" />
+          </RadialGradient>
+        </Defs>
+        <Rect x={0} y={0} width={width} height={height} fill="url(#glowFade)" />
       </Svg>
     </View>
   );
