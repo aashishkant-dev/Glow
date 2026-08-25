@@ -142,15 +142,20 @@ function detectFaceRegion(detector: ReturnType<typeof useImageFaceDetector>, uri
     // EXIF/sensor-orientation mismatch between the coordinate space ML Kit
     // detected in and the width/height used to normalize it, and not
     // something fixable by guessing at a rotation correction without a
-    // device to verify it against). The expansion above produces a
-    // predictably portrait-ish box (~0.85 width/height ratio) for a normal
-    // face — anything far outside that range, or sitting in the bottom
-    // half of the photo, is far more likely a bad detection than a real
-    // face shot that low in a front-camera selfie. Falling back to no
-    // client-detected region (server's DEFAULT_REGION center-crop) is a
-    // known-reasonable result; trusting a malformed box is not.
+    // device to verify it against). The aspect check alone already catches
+    // that exact case (0.88/0.32 = 2.75, well outside 0.45–1.6) — a `y`
+    // position check used to ALSO reject anything more than 45% down the
+    // photo, on the theory that a real face that low was unlikely. That
+    // theory doesn't hold: confirmed against real result photos where the
+    // camera is genuinely held low/tilted (face in the lower half, real
+    // headroom above), a real, valid detection was being thrown out for
+    // exactly that reason, silently falling back to DEFAULT_FACE_BOX's
+    // centered guess — which is what actually produced the visibly wrong
+    // result (zone markers landing in hair/ceiling, well above the real
+    // face). Aspect + width alone are enough to catch genuinely malformed
+    // boxes without also rejecting legitimate low-angle framing.
     const aspect = region.width / region.height;
-    const plausible = aspect > 0.45 && aspect < 1.6 && region.y < 0.45 && region.width < 0.85;
+    const plausible = aspect > 0.45 && aspect < 1.6 && region.width < 0.85;
     if (!plausible) {
       console.warn('[SkinScanCamera] rejected implausible face detection', region);
       return { faceRegion: null, noFaceDetected: false };
