@@ -52,7 +52,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import * as Brightness from 'expo-brightness';
 import { Platform } from 'react-native';
-import { useCameraDevice, useCameraPermission, usePhotoOutput, type CameraRef } from 'react-native-vision-camera';
+import { useCameraDevice, useCameraPermission, usePhotoOutput, type CameraRef, type Photo } from 'react-native-vision-camera';
 import { Camera as FaceDetectCamera, useImageFaceDetector, type Face as LiveFace } from 'react-native-vision-camera-face-detector';
 import * as FileSystem from 'expo-file-system/legacy';
 import Svg, { Path } from 'react-native-svg';
@@ -340,6 +340,12 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
   const [shot, setShot] = useState<{ uri: string; base64: string; mimeType: string; faceRegion: FaceRegion | null } | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  // A failed capture (bad temp-file write, unreadable file, etc.) used to
+  // just console.error and silently reset back to a tappable shutter —
+  // nothing on screen ever showed anything went wrong, which is exactly
+  // what "the button doesn't work" looks like from the outside. Shown
+  // in place of the usual framing hint below the shutter, briefly.
+  const [captureError, setCaptureError] = useState<string | null>(null);
   // Real on-device detection found zero faces in the captured photo — not
   // fatal (Gemini still gets the final say server-side), just a heads-up
   // before spending an upload + API call on a photo likely to get rejected.
@@ -500,15 +506,32 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
       return;
     }
     setCapturing(true);
+    setCaptureError(null);
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
     flashAnim.setValue(1);
     Animated.timing(flashAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start();
+    // Declared outside the try block, disposed in `finally` — not just at
+    // the end of the happy path. `photo` is a native Nitro object (the same
+    // GC-thread-unsafe-teardown class of object CameraSession already
+    // needed the patch in patches/ for — see useCameraSession's cleanup
+    // comment). Previously `photo.dispose()` only ran after every step
+    // below it succeeded (saving to a temp file, reading it back as
+    // base64); if ANY of those threw, the catch block below swallowed it
+    // silently and this Photo was left for Hermes's background GC to
+    // eventually finalize instead of being disposed synchronously on the
+    // JS thread — confirmed as a real TestFlight crash: that finalization
+    // triggers AVCaptureOutput/detachFromFigCaptureSession off the main
+    // thread, which asserts and aborts the whole process. This is also
+    // almost certainly why the shutter button could feel like "it doesn't
+    // work" — a thrown error here was only ever logged to the console, with
+    // capturing reset back to tappable and nothing shown to the user at all.
+    let photo: Photo | null = null;
     try {
       // vision-camera v5's photo pipeline hands back an in-memory Photo, not
       // a file — saved to a temp file, then read back as base64 the same way
       // shareLook.ts/exportSkinHistory.ts already do elsewhere in this app,
       // rather than hand-rolling an ArrayBuffer→base64 encoder.
-      const photo = await photoOutput.capturePhoto({ flashMode: 'off' }, {});
+      photo = await photoOutput.capturePhoto({ flashMode: 'off' }, {});
       const tempPath = await photo.saveToTemporaryFileAsync();
       const uri = tempPath.startsWith('file://') ? tempPath : `file://${tempPath}`;
       const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
@@ -531,7 +554,6 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
       const swapsDimensions = photo.orientation === 'left' || photo.orientation === 'right';
       const imgWidth = swapsDimensions ? photo.height : photo.width;
       const imgHeight = swapsDimensions ? photo.width : photo.height;
-      photo.dispose();
 
       setStep('quiz');
       setDetectingFace(true);
@@ -542,6 +564,10 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
       setDetectingFace(false);
     } catch (err) {
       console.error('[SkinScanCamera] shoot failed', err);
+      tapWarning();
+      setCaptureError('Could not capture that photo — try again.');
+    } finally {
+      photo?.dispose();
     }
     setCapturing(false);
   }
@@ -720,8 +746,10 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
             )}
 
             <View style={[styles.bottomCluster, { paddingBottom: insets.bottom + 20 }]}>
-              <Text style={styles.hint}>
-                {!cameraReady ? 'Camera warming up…' : liveBox ? 'Face detected — tap to scan' : 'Center your face in frame, then tap to scan'}
+              <Text style={[styles.hint, !!captureError && styles.hintError]}>
+                {captureError
+                  ? captureError
+                  : !cameraReady ? 'Camera warming up…' : liveBox ? 'Face detected — tap to scan' : 'Center your face in frame, then tap to scan'}
               </Text>
               <View style={styles.shootRow}>
                 <Pressable style={styles.shutterOuter} onPress={shoot} disabled={capturing} hitSlop={12}>
@@ -909,6 +937,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 100,
     paddingHorizontal: 12, paddingVertical: 6,
   },
+  hintError: { backgroundColor: Colors.systemRed },
   shootRow: { flexDirection: 'row', justifyContent: 'center' },
   shutterOuter: {
     width: 78, height: 78, borderRadius: 39,
