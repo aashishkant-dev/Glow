@@ -45,11 +45,33 @@ function toPreviousScanContext(scan) {
   };
 }
 
+// 10s timeout — a hung blob-storage fetch for one reference photo used to
+// have no ceiling at all, same class of unbounded-latency issue the Gemini
+// call itself needed a timeout for (see geminiSkinAnalysis.js). These run
+// concurrently (Promise.all in gatherProfileCandidates) and already fail
+// soft (caught, that one profile just gets dropped from the request), so a
+// hang here was pure wasted wall-clock time on the whole /skin/scan
+// request for zero benefit.
 async function fetchImageBase64(url) {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
-  const buf = Buffer.from(await res.arrayBuffer());
-  return buf.toString('base64');
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), 10_000);
+  try {
+    const res = await fetch(url, { signal: controller.signal });
+    if (!res.ok) throw new Error(`fetch failed: ${res.status}`);
+    const buf = Buffer.from(await res.arrayBuffer());
+    // Reference photos are refetched from blob storage at their full stored
+    // size (up to 1080x1350) on EVERY future scan, then re-sent to Gemini
+    // in full again — real, compounding latency + payload size for an
+    // image Gemini only uses for face-structure comparison, not fine
+    // texture detail (that's what Image 1, the NEW selfie, is for — see
+    // the prompt in geminiSkinAnalysis.js). Downsized here, once, right
+    // after fetching — smaller upload to Gemini and fewer image tokens for
+    // it to process, on every reference photo, every future scan.
+    const resized = await sharp(buf).resize(640, 640, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
+    return resized.toString('base64');
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 // Gathers this account's existing SkinProfiles and reference photos+context
@@ -188,16 +210,31 @@ router.post(
 
       const { pixelBox, faceBox } = resolveCropBox(faceRegion, imgWidth, imgHeight);
 
-      // Two forks of the same decoded pipeline: a small raw-pixel crop for
-      // analysis, and a normal-sized JPEG for storage/history display —
-      // sharp's .clone() lets both draw from the one decode instead of
-      // re-parsing the buffer twice. Independent clones, so run them
-      // concurrently rather than one after the other.
-      const [{ data: rawPixels, info: rawInfo }, storedBuf] = await Promise.all([
+      // Three forks of the same decoded pipeline — a small raw-pixel crop
+      // for the free heuristic, a full-size JPEG for storage/history
+      // display (users pinch-zoom this), and a smaller one specifically
+      // for the Gemini call — sharp's .clone() lets all three draw from
+      // the one decode instead of re-parsing the buffer multiple times.
+      // Independent clones, so run them concurrently rather than one after
+      // another.
+      //
+      // The Gemini-sized copy exists because the ORIGINAL code sent the
+      // exact same full 1080x1350 buffer to Gemini as gets stored for
+      // on-screen zoom — real, unnecessary payload + processing time for
+      // an API call, confirmed against production logs to be the dominant
+      // cost in a request that measured 35.9s even AFTER geminiSkinAnalysis
+      // .js's own 25s internal timeout, and 59.9s (client-canceled) on
+      // another. 900x1125 is a real reduction (roughly 40% fewer pixels
+      // than 1080x1350) while staying comfortably above what a vision
+      // model's own internal tiling actually uses per image regardless of
+      // input size — more pixels past that point cost transfer/processing
+      // time without adding analysis fidelity.
+      const [{ data: rawPixels, info: rawInfo }, storedBuf, geminiBuf] = await Promise.all([
         base.clone().extract(pixelBox).resize(40, 40, { fit: 'fill' }).removeAlpha().raw().toBuffer({ resolveWithObject: true }),
         base.clone().resize(1080, 1350, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer(),
+        base.clone().resize(900, 1125, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer(),
       ]);
-      const storedB64 = storedBuf.toString('base64');
+      const geminiB64 = geminiBuf.toString('base64');
 
       // Fired off here, not awaited until it's actually needed below (right
       // before the scan is saved) — the upload has zero dependency on the
@@ -234,7 +271,7 @@ router.post(
       let profileId = null;
       let isNewProfile = false;
       try {
-        const gemini = await analyzeWithGemini(storedB64, {
+        const gemini = await analyzeWithGemini(geminiB64, {
           sensitivityHint,
           referenceProfiles: referenceProfiles.map(r => ({
             photoBase64: r.photoBase64, daysAgo: r.daysAgo, skinTone: r.skinTone, skinType: r.skinType, concerns: r.concerns, trend: r.trend,

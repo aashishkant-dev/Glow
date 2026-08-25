@@ -1429,7 +1429,16 @@ export function apiScanSkin(payload: {
   // isNewProfile: true when the backend's face-match decided this photo
   // doesn't match anyone previously scanned on this account and started a
   // fresh SkinProfile for them — see SkinScanCamera's onComplete handler.
-  return request<{ scan: SkinScan; bookCategory: string; isNewProfile: boolean }>('POST', '/skin/scan', payload, true, 1, 60000);
+  // 70s, not 60s — confirmed against real production logs (railway logs
+  // --http --path /skin/scan) that a legitimately-completing request can
+  // take up to ~36s even with the backend's own internal timeouts (Gemini
+  // capped at 25s, reference-photo fetches at 10s each), and one request
+  // was client-canceled at exactly 59.9s — right at the old ceiling,
+  // killing a request that may well have finished a moment later. The real
+  // fix is the backend actually being faster (see skin.js's Gemini-sized
+  // image resize), but this stops the client from being the thing that
+  // kills an otherwise-successful slow-but-still-working request.
+  return request<{ scan: SkinScan; bookCategory: string; isNewProfile: boolean }>('POST', '/skin/scan', payload, true, 1, 70000);
 }
 
 export function apiGetSkinScans(profileId?: string, cursor?: string, limit = 20) {
