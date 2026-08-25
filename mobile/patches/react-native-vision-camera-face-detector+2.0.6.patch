@@ -1,0 +1,38 @@
+diff --git a/node_modules/react-native-vision-camera-face-detector/src/hooks/useFaceDetectorOutput.ts b/node_modules/react-native-vision-camera-face-detector/src/hooks/useFaceDetectorOutput.ts
+index 3ae1a88..e7ea172 100644
+--- a/node_modules/react-native-vision-camera-face-detector/src/hooks/useFaceDetectorOutput.ts
++++ b/node_modules/react-native-vision-camera-face-detector/src/hooks/useFaceDetectorOutput.ts
+@@ -73,6 +73,23 @@ export function useFaceDetectorOutput( {
+   const stableOnError = useRef( onError )
+   stableOnError.current = onError
+ 
++  // `options` is the rest-spread remainder of this hook's own parameters —
++  // JS destructuring builds a BRAND NEW object for it on every single call,
++  // regardless of whether its actual field values changed. The <Camera />
++  // wrapper (views/Camera.tsx) calls this hook with a fresh inline object
++  // literal on every one of ITS renders too, so `[options]` as the useMemo
++  // dependency was never stable — createFaceDetectorOutput(...) (a native
++  // HybridObject) was being torn down and reconstructed on every single
++  // render of the whole <Camera> tree, not just when a config value
++  // actually changed. While actively framing, that's easily 10x/second
++  // (live face-tracking state updates), with each abandoned native output
++  // object left for Hermes's background GC to eventually finalize instead
++  // of any explicit disposal — the same AVCaptureSession-teardown-off-the-
++  // main-thread crash class this package's sibling (react-native-vision-
++  // camera) needed its own patch for, just firing continuously instead of
++  // once. JSON.stringify here (same trick react-native-vision-camera's own
++  // useCameraDevice.ts already uses for its `filter` dependency) keys the
++  // memo on the options' actual VALUES, not this wrapper object's identity.
+   return useMemo(
+     () => createFaceDetectorOutput( {
+       onFacesDetected( faces ) {
+@@ -84,7 +101,8 @@ export function useFaceDetectorOutput( {
+       outputResolution: outputResolution,
+       ...options
+     } ),
+-    [ options ]
++    // eslint-disable-next-line react-hooks/exhaustive-deps
++    [ outputResolution, JSON.stringify( options ) ]
+   )
+ }
+ 

@@ -69,6 +69,20 @@ function stripDataUrlPrefix(value: string): string {
   return value.startsWith('data:') && commaIndex !== -1 ? value.slice(commaIndex + 1) : value;
 }
 
+// A stable module-level constant, not an inline object literal at the
+// useImageFaceDetector(...) call site — that hook memoizes its returned
+// detector on this options object's IDENTITY (useMemo(..., [options])), not
+// its contents. A fresh `{ performanceMode: 'accurate' }` literal passed
+// inline is a NEW reference on every single render, which — while this
+// modal is open and re-rendering constantly from live face-tracking state
+// (up to ~10x/sec) — was making that hook tear down and reconstruct a
+// brand-new native ML Kit detector object on every render, abandoning the
+// previous one with no disposal call. Same unsafe-GC-thread-teardown crash
+// class as the captured Photo needed a fix for (see shoot()'s try/finally),
+// just firing many times a second instead of once per capture, and real
+// wasted native-object-construction overhead on top of that.
+const IMAGE_FACE_DETECTOR_OPTIONS = { performanceMode: 'accurate' as const };
+
 type FaceRegion = { x: number; y: number; width: number; height: number };
 
 // Runs real on-device face detection (ML Kit — free, no API call, no rate
@@ -310,7 +324,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
   // Static-image detector for the captured photo (detectFaceRegion) — a
   // separate instance from the live camera's own detection, tuned for
   // accuracy over speed since it only ever runs once per scan.
-  const imageFaceDetector = useImageFaceDetector({ performanceMode: 'accurate' });
+  const imageFaceDetector = useImageFaceDetector(IMAGE_FACE_DETECTOR_OPTIONS);
   const cameraRef = useRef<CameraRef>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
