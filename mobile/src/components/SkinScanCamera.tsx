@@ -286,8 +286,17 @@ const analyzingStepStyles = StyleSheet.create({
 // comfortably around it rather than clipping tight to it. Before any face
 // is detected yet, falls back to the fixed guide-oval size centered on
 // screen — same as the bracket overlay's own liveBox-or-fallback split.
-function FillLight({ width, height, face }: { width: number; height: number; face?: { x: number; y: number; width: number; height: number } | null }) {
-  if (width <= 0 || height <= 0) return null;
+type FaceBoxPx = { x: number; y: number; width: number; height: number };
+
+// Shared between FillLight and the parent component's guideOval border
+// below, which traces this exact same boundary as a separate element (a
+// clean pink ring drawn over the gradient, not part of the SVG itself).
+// Splitting the geometry out into one function is what keeps them from
+// drifting apart — they did, once: the window's floor grew (see the
+// minRx/minRy comment below) without updating guideOval's own hardcoded
+// size to match, which would have shown a pink ring floating inside a
+// visibly larger white cutout, with real camera preview between them.
+function fillLightGeometry(width: number, height: number, face?: FaceBoxPx | null) {
   // Floor the window at a generous fraction of the actual screen, not just
   // the raw face box padded a fixed 35%/25% — at a normal selfie distance
   // a detected face is often well under half the screen's width/height, so
@@ -299,18 +308,25 @@ function FillLight({ width, height, face }: { width: number; height: number; fac
   // so the window never actually clips it.
   const minRx = width * 0.46;
   const minRy = height * 0.37;
-  let cx: number, cy: number, rx: number, ry: number;
   if (face) {
-    cx = face.x + face.width / 2;
-    cy = face.y + face.height / 2;
-    rx = Math.max(minRx, (face.width * 1.35) / 2);
-    ry = Math.max(minRy, (face.height * 1.25) / 2);
-  } else {
-    cx = width / 2;
-    cy = height / 2;
-    rx = Math.max(minRx, OVAL_W / 2);
-    ry = Math.max(minRy, OVAL_H / 2);
+    return {
+      cx: face.x + face.width / 2,
+      cy: face.y + face.height / 2,
+      rx: Math.max(minRx, (face.width * 1.35) / 2),
+      ry: Math.max(minRy, (face.height * 1.25) / 2),
+    };
   }
+  return {
+    cx: width / 2,
+    cy: height / 2,
+    rx: Math.max(minRx, OVAL_W / 2),
+    ry: Math.max(minRy, OVAL_H / 2),
+  };
+}
+
+function FillLight({ width, height, face }: { width: number; height: number; face?: FaceBoxPx | null }) {
+  if (width <= 0 || height <= 0) return null;
+  const { cx, cy, rx, ry } = fillLightGeometry(width, height, face);
   // A fresh id per render would break the gradient reference (React Native
   // SVG resolves url(#id) by string match) if this were ever memoized/
   // reused across instances — fixed, not derived from anything that
@@ -677,6 +693,11 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
     ? liveFaces.reduce((biggest, f) => (f.bounds.width * f.bounds.height > biggest.bounds.width * biggest.bounds.height ? f : biggest), liveFaces[0])
     : null;
   const liveBox = primaryLiveFace?.bounds ?? null;
+  // Only ever the no-face fallback (face=null) — the guide oval only
+  // renders in that branch below. Computed with the same fillLightGeometry
+  // FillLight itself uses, so its pink border always lands exactly on the
+  // edge of the see-through window instead of drifting from it.
+  const fallbackGeometry = fillLightGeometry(winW, winH, null);
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={handleClose} statusBarTranslucent>
@@ -770,7 +791,12 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
               </View>
             ) : (
               <View style={styles.guideSurround} pointerEvents="none">
-                <View style={styles.guideOval} />
+                <View
+                  style={[
+                    styles.guideOval,
+                    { width: fallbackGeometry.rx * 2, height: fallbackGeometry.ry * 2, borderRadius: fallbackGeometry.rx * 2 },
+                  ]}
+                />
               </View>
             )}
             <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#fff', opacity: flashAnim }]} />
@@ -946,8 +972,10 @@ const OVAL_H = 280;
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000' },
   guideSurround: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
+  // width/height/borderRadius come from fallbackGeometry at the call site
+  // (must match FillLight's own computed window exactly — see
+  // fillLightGeometry's comment), not fixed values here.
   guideOval: {
-    width: OVAL_W, height: OVAL_H, borderRadius: OVAL_W,
     // brand pink, not white — this sits right on FillLight's see-through/
     // surround boundary now, so a white border here would vanish against
     // the white half of that boundary. Brand pink reads clearly against
