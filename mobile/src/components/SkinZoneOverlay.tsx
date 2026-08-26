@@ -21,7 +21,7 @@
 import React, { useEffect, useRef } from 'react';
 import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Colors, Fonts } from '../utils/colors';
-import { resolveFaceBox, buildZoneMarkers, ZoneNotes, ZoneMarker, StoredZoneMarkers } from '../utils/skinZones';
+import { resolveFaceBox, buildZoneMarkers, ZoneNotes, ZoneMarker, StoredZoneMarkers, FaceBox } from '../utils/skinZones';
 import { ScanBracket } from './ScanBracket';
 import { tapLight } from '../utils/haptics';
 
@@ -68,7 +68,7 @@ function Callout({ label, note, flipAbove, align, rect }: { label: string; note:
 // animation, split from the parent so each marker gets its own Animated
 // values (a shared value would make every marker jump together instead of
 // independently fading toward/away from focus).
-function Marker({ m, index, active, onSelect }: { m: ZoneMarker; index: number; active: string | null; onSelect: (key: string) => void }) {
+function Marker({ m, index, active, onSelect }: { m: Omit<ZoneMarker, 'rect'> & { rect: FaceBox }; index: number; active: string | null; onSelect: (key: string) => void }) {
   const isActive = active === m.key;
   // Staggered pop-in (~80ms apart) instead of all 8 markers landing at once
   // — reads as the AI actually finding each zone in turn, not a static
@@ -140,7 +140,12 @@ function Marker({ m, index, active, onSelect }: { m: ZoneMarker; index: number; 
 
 export function SkinZoneOverlay({ zoneNotes, faceBox: rawFaceBox, zoneMarkers, active, onSelect }: Props) {
   const faceBox = resolveFaceBox(rawFaceBox);
-  const markers = buildZoneMarkers(zoneNotes, faceBox, zoneMarkers);
+  // A null rect means the landmark pass ran but explicitly couldn't place
+  // that zone (see ZoneMarker.rect's own comment) — its text still shows
+  // in SkinScanResultScreen's list (built independently, straight off
+  // zoneNotes, not off this array), it just never gets a photo marker.
+  // Never render a guessed position instead.
+  const markers = buildZoneMarkers(zoneNotes, faceBox, zoneMarkers).filter((m): m is typeof m & { rect: FaceBox } => m.rect != null);
 
   if (markers.length === 0) return null;
 

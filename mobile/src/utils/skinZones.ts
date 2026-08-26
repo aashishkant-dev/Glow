@@ -223,7 +223,17 @@ export interface ZoneMarker {
   key: string;
   label: string;
   note: string;
-  rect: FaceBox;
+  // null when this scan's landmark pass genuinely ran (storedMarkers is a
+  // real, non-null object) but couldn't confidently place THIS specific
+  // zone — occlusion, a missing contour, an off-face detection for just
+  // that feature. Deliberately NOT filled with the ZONE_RECTS proportion
+  // guess in that case (unlike a legacy scan with no landmark data at all,
+  // where the guess is genuinely the best information available) — a
+  // guessed position for a zone the model itself couldn't place is exactly
+  // how a marker ends up on hair/ceiling/background. The zone's text note
+  // still renders in the list either way; only the photo marker is
+  // skipped. See buildZoneMarkers below for exactly which case is which.
+  rect: FaceBox | null;
   align: 'left' | 'right' | 'center';
   // True when `rect` came from this scan's own real landmark geometry
   // (deriveZoneMarkers, persisted as SkinScan.zoneMarkers) rather than the
@@ -254,11 +264,18 @@ export function buildZoneMarkers(zoneNotes: ZoneNotes | undefined, faceBox: Face
       .filter(z => !!zoneNotes?.[z.key])
       .map(z => {
         const anchoredRect = storedMarkers?.[z.key];
+        // storedMarkers itself null/undefined: this scan's client never
+        // ran the landmark pass at all (older scan) — the ZONE_RECTS
+        // estimate is genuinely the best information available, same as
+        // always. storedMarkers a real object but missing THIS key: the
+        // pass ran and explicitly could not place this zone — no marker,
+        // not a guess (see the `rect` field's own comment above).
+        const rect = anchoredRect ?? (storedMarkers ? null : zoneRectToPhotoFrac(z.key, faceBox));
         return {
           key: z.key,
           label: z.label,
           note: zoneNotes![z.key]!,
-          rect: anchoredRect ?? zoneRectToPhotoFrac(z.key, faceBox),
+          rect,
           align: z.align,
           anchored: !!anchoredRect,
         };

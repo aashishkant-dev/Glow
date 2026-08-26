@@ -39,6 +39,7 @@ import { Image } from 'expo-image';
 import {
   ActivityIndicator,
   Animated,
+  Image as RNImage,
   Linking,
   Modal,
   Pressable,
@@ -55,7 +56,6 @@ import { Platform } from 'react-native';
 import { useCameraDevice, useCameraPermission, usePhotoOutput, type CameraRef, type Photo } from 'react-native-vision-camera';
 import { Camera as FaceDetectCamera, useImageFaceDetector, type Face as LiveFace } from 'react-native-vision-camera-face-detector';
 import * as FileSystem from 'expo-file-system/legacy';
-import Svg, { Defs, RadialGradient, Stop, Rect } from 'react-native-svg';
 import { Colors, Fonts } from '../utils/colors';
 import { GlowMark } from './GlowLogo';
 import { SparkleIcon } from './BeautyIcons';
@@ -68,6 +68,30 @@ import { deriveZoneMarkers, type RawFacialPoints, type StoredZoneMarkers } from 
 function stripDataUrlPrefix(value: string): string {
   const commaIndex = value.indexOf(',');
   return value.startsWith('data:') && commaIndex !== -1 ? value.slice(commaIndex + 1) : value;
+}
+
+// Real, file-derived dimensions — replaces a previous swapsDimensions
+// heuristic (photo.orientation === 'left'/'right' ? swap photo.width/height
+// : don't) that guessed at the relationship between vision-camera's raw
+// Photo.width/height (its own docs: "SENSOR/BUFFER dimensions... orientation
+// applied lazily via EXIF flags," i.e. NOT what's baked into these two
+// properties) and the SAVED FILE's actual dimensions. That heuristic was
+// still in place after last round's native-side coordinate-transpose fix,
+// and is the likely reason zone markers were still landing off-face in the
+// screenshot that prompted this: HybridImageFaceDetector.swift (patched
+// last round) computes its own width/height from `uiImage.size` — loaded
+// from this SAME file via UIImage(contentsOfFile:), which — like any
+// standard image loader — already resolves the file's real EXIF-corrected
+// dimensions. Normalizing that native detector's (now correctly ordered)
+// pixel-space bounding box against a DIFFERENT, guessed pair of dimensions
+// (photo.width/height + a swap guess) would silently reintroduce the exact
+// class of bug the native patch fixed, just one layer up in JS. Image.
+// getSize reads the same saved file the detector itself reads, so there's
+// no second, independent guess left to disagree with it.
+function getImageSize(uri: string): Promise<{ width: number; height: number }> {
+  return new Promise((resolve, reject) => {
+    RNImage.getSize(uri, (width, height) => resolve({ width, height }), reject);
+  });
 }
 
 // A stable module-level constant, not an inline object literal at the
@@ -188,6 +212,30 @@ function detectFaceRegion(detector: ReturnType<typeof useImageFaceDetector>, uri
     };
     const derived = deriveZoneMarkers(points, faceBoxPx, imgWidth, imgHeight, mirrored);
     const zoneMarkers = Object.keys(derived).length > 0 ? derived : null;
+
+    if (__DEV__) {
+      // ML Kit's API exposes NAMED contour/landmark points (LEFT_CHEEK,
+      // NOSE_BRIDGE, ...), not numeric indices — this is that same set,
+      // logging which ones were actually present on this detection (a
+      // missing one is exactly why a given zone below might be absent from
+      // zoneMarkers, having fallen back to the ZONE_RECTS proportion
+      // estimate instead) and the final rect each zone that DID get real
+      // geometry landed on, in both pixel and 0-1-fraction space.
+      console.log('[SkinScanCamera] deriveZoneMarkers sources', {
+        faceContourPts: points.faceContour?.length ?? 0,
+        leftEyebrowTopPts: points.leftEyebrowTop?.length ?? 0,
+        rightEyebrowTopPts: points.rightEyebrowTop?.length ?? 0,
+        noseBridgePts: points.noseBridge?.length ?? 0,
+        noseBottomPts: points.noseBottom?.length ?? 0,
+        leftEyePts: points.leftEye?.length ?? 0,
+        rightEyePts: points.rightEye?.length ?? 0,
+        leftCheek: points.leftCheek ?? null,
+        rightCheek: points.rightCheek ?? null,
+        mouthBottom: points.mouthBottom ?? null,
+        faceBoxPx,
+      });
+      console.log('[SkinScanCamera] deriveZoneMarkers result (landmark-anchored zones only; others fall back to ZONE_RECTS)', derived);
+    }
 
     return { faceRegion: region, noFaceDetected: false, zoneMarkers };
   } catch (err) {
@@ -314,71 +362,23 @@ const analyzingStepStyles = StyleSheet.create({
 // comfortably around it rather than clipping tight to it. Before any face
 // is detected yet, falls back to the fixed guide-oval size centered on
 // screen — same as the bracket overlay's own liveBox-or-fallback split.
-type FaceBoxPx = { x: number; y: number; width: number; height: number };
-
-// Shared between FillLight and the parent component's guideOval border
-// below, which traces this exact same boundary as a separate element (a
-// clean pink ring drawn over the gradient, not part of the SVG itself).
-// Splitting the geometry out into one function is what keeps them from
-// drifting apart — they did, once: the window's floor grew (see the
-// minRx/minRy comment below) without updating guideOval's own hardcoded
-// size to match, which would have shown a pink ring floating inside a
-// visibly larger white cutout, with real camera preview between them.
-function fillLightGeometry(width: number, height: number, face?: FaceBoxPx | null) {
-  // Floor the window at a generous fraction of the actual screen, not just
-  // the raw face box padded a fixed 35%/25% — at a normal selfie distance
-  // a detected face is often well under half the screen's width/height, so
-  // that padding alone left a small oval surrounded by mostly opaque white
-  // (confirmed on-device: the visible preview read as "tiny," the opposite
-  // of the goal). This keeps the real preview the dominant thing on screen
-  // — a slim bright margin for the light-bounce effect, not a peephole —
-  // while still growing past the floor for an unusually close/large face
-  // so the window never actually clips it.
-  const minRx = width * 0.46;
-  const minRy = height * 0.37;
-  if (face) {
-    return {
-      cx: face.x + face.width / 2,
-      cy: face.y + face.height / 2,
-      rx: Math.max(minRx, (face.width * 1.35) / 2),
-      ry: Math.max(minRy, (face.height * 1.25) / 2),
-    };
-  }
-  return {
-    cx: width / 2,
-    cy: height / 2,
-    rx: Math.max(minRx, OVAL_W / 2),
-    ry: Math.max(minRy, OVAL_H / 2),
-  };
-}
-
-function FillLight({ width, height, face, tight }: { width: number; height: number; face?: FaceBoxPx | null; tight?: boolean }) {
-  if (width <= 0 || height <= 0) return null;
-  const geo = fillLightGeometry(width, height, face);
-  // A small, deliberately subtle pull-in (not a return to the old cramped
-  // sizing this component's floor exists to prevent) when framing reaches
-  // 'ready' — the vignette itself reacting to state, not just the ring.
-  const { cx, cy } = geo;
-  const rx = tight ? geo.rx * 0.94 : geo.rx;
-  const ry = tight ? geo.ry * 0.94 : geo.ry;
-  // A fresh id per render would break the gradient reference (React Native
-  // SVG resolves url(#id) by string match) if this were ever memoized/
-  // reused across instances — fixed, not derived from anything that
-  // changes, since only one FillLight is ever mounted at a time.
-  return (
-    <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-      <Svg width={width} height={height}>
-        <Defs>
-          <RadialGradient id="glowFade" gradientUnits="userSpaceOnUse" cx={cx} cy={cy} rx={rx} ry={ry}>
-            <Stop offset="0" stopColor="#fff" stopOpacity="0" />
-            <Stop offset="0.6" stopColor="#fff" stopOpacity="0" />
-            <Stop offset="1" stopColor="#fff" stopOpacity="1" />
-          </RadialGradient>
-        </Defs>
-        <Rect x={0} y={0} width={width} height={height} fill="url(#glowFade)" />
-      </Svg>
-    </View>
-  );
+// The white "fill light" mask (a full-screen radial-gradient scrim with a
+// see-through window around the face) is GONE, not just retuned — this is
+// the third round of visible problems from that specific approach (a hard
+// cutout, then a too-small window, then this: real content behind the
+// gradient's semi-transparent transition band — a wall fixture in the
+// room, confirmed against the actual reported screenshot — showing through
+// as a pale, smudgy blob, reading as a rendering glitch even though it was
+// the gradient doing exactly what it was coded to do). Removed at the
+// source rather than patched again. The screen-brightness boost above and
+// exposure/low-light-boost on the <Camera> below are the real, non-visual
+// fixes for a dark preview — they don't render anything over the feed at
+// all, so they can't produce this class of artifact. What's left here is
+// just the plain ring outline: liveBox when a face is tracked, the fixed
+// guide oval otherwise, no mask/scrim in either case.
+function ringGeometry(width: number, height: number, face?: { x: number; y: number; width: number; height: number } | null) {
+  if (face) return { left: face.x, top: face.y, width: face.width, height: face.height };
+  return { left: width / 2 - OVAL_W / 2, top: height / 2 - OVAL_H / 2, width: OVAL_W, height: OVAL_H };
 }
 
 export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: Props) {
@@ -420,9 +420,9 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
   const [liveFaces, setLiveFaces] = useState<LiveFace[]>([]);
   // onFacesDetected has no built-in rate limit — it fires on every frame
   // the native side processes, and the plugin doesn't expose a throttle
-  // option. Each call re-renders the tracking bracket AND FillLight's
-  // window (which follows it — see FillLight's own comment); doing that
-  // at full frame rate is enough JS-thread work to visibly stall the UI
+  // option. Each call re-renders the tracking ring and the debug readout
+  // below; doing that at full frame rate is enough JS-thread work to
+  // visibly stall the UI
   // (the preview itself is native and keeps rendering, but everything
   // ELSE — including how responsive the screen feels — can bog down
   // badly enough to read as "frozen"). Capping state updates to ~10/sec
@@ -640,25 +640,10 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
       const tempPath = await photo.saveToTemporaryFileAsync();
       const uri = tempPath.startsWith('file://') ? tempPath : `file://${tempPath}`;
       const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
-      // photo.width/height are the SENSOR/BUFFER dimensions — vision-camera's
-      // own docs say orientation is "applied lazily via EXIF flags," meaning
-      // it's NOT baked into these two properties. detector.detectFaces(uri)
-      // below reads the actual saved FILE, which — like every standard image
-      // loader — respects that EXIF tag, so a 'left'/'right' (90°) capture
-      // returns face bounds in the CORRECTED, rotated space while width/
-      // height here would still be the pre-rotation, swapped pair. That
-      // mismatch is exactly what an earlier comment in detectFaceRegion
-      // flagged as a suspected cause without being able to verify it
-      // on-device; since then the identical bug was confirmed AND fixed on
-      // the server side (sharp has the same "metadata is pre-rotation"
-      // behavior — see resolveCropBox in src/routes/skin.js), and a direct
-      // production DB query showed 100% of recent scans landing on the
-      // server's generic DEFAULT_REGION fallback — consistent with this
-      // detector's plausibility check rejecting every single detection,
-      // exactly what a systematic coordinate-space mismatch would cause.
-      const swapsDimensions = photo.orientation === 'left' || photo.orientation === 'right';
-      const imgWidth = swapsDimensions ? photo.height : photo.width;
-      const imgHeight = swapsDimensions ? photo.width : photo.height;
+      // See getImageSize's own comment — this reads the SAME saved file the
+      // native detector reads, instead of guessing at photo.width/height's
+      // relationship to it.
+      const { width: imgWidth, height: imgHeight } = await getImageSize(uri);
 
       setStep('quiz');
       setDetectingFace(true);
@@ -668,6 +653,12 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
       // deriveZoneMarkers' own comment for why that swap can't just be
       // assumed from vision-camera's typical capture defaults.
       const { faceRegion, noFaceDetected, zoneMarkers } = detectFaceRegion(imageFaceDetector, uri, imgWidth, imgHeight, photo.isMirrored);
+      if (__DEV__) {
+        console.log('[SkinScanCamera] detectFaceRegion result', {
+          imgWidth, imgHeight, photoWidth: photo.width, photoHeight: photo.height, photoOrientation: photo.orientation,
+          faceRegion, noFaceDetected, zoneMarkerKeys: zoneMarkers ? Object.keys(zoneMarkers) : null,
+        });
+      }
       setShot({ uri, base64: stripDataUrlPrefix(base64), mimeType: 'image/jpeg', faceRegion, zoneMarkers });
       setNoFaceWarning(noFaceDetected);
       setDetectingFace(false);
@@ -737,11 +728,19 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
     ? liveFaces.reduce((biggest, f) => (f.bounds.width * f.bounds.height > biggest.bounds.width * biggest.bounds.height ? f : biggest), liveFaces[0])
     : null;
   const liveBox = primaryLiveFace?.bounds ?? null;
-  // Only ever the no-face fallback (face=null) — the guide oval only
-  // renders in that branch below. Computed with the same fillLightGeometry
-  // FillLight itself uses, so its pink border always lands exactly on the
-  // edge of the see-through window instead of drifting from it.
-  const fallbackGeometry = fillLightGeometry(winW, winH, null);
+  // The fixed, honest guide-oval size (OVAL_W×OVAL_H) — NOT the fill-
+  // light window's old inflated ~90%-of-screen sizing. That distinction
+  // matters beyond the visual: the "too small" threshold below is a
+  // fraction of THIS reference, and computed against the old inflated
+  // window it meant a normally-framed face (a modest fraction of the full
+  // SCREEN width) had to clear 62% of ~90%-of-screen-width to read as
+  // "ready" — a bar high enough that "Move a little closer" could show for
+  // a perfectly well-framed face. OVAL_W/H is sized as an actual framing
+  // guide, not a brightness-coverage window, so the same fraction against
+  // it is a real "is this face a reasonable size" check again.
+  const fallbackRing = ringGeometry(winW, winH, null);
+  const idealCx = fallbackRing.left + fallbackRing.width / 2;
+  const idealCy = fallbackRing.top + fallbackRing.height / 2;
 
   // One calm state machine driving the ring color, the copy underneath it,
   // and a one-time haptic — instead of the old binary "liveBox present or
@@ -752,11 +751,9 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
   // (that needs a frame processor + a new native dependency this pass
   // deliberately didn't add), so this never claims to detect "poor light,"
   // only "too small/far" or "not centered."
-  const idealWidth = fallbackGeometry.rx * 2;
-  const idealHeight = fallbackGeometry.ry * 2;
-  const tooSmall = !!liveBox && liveBox.width < idealWidth * 0.62;
-  const offCenterX = !!liveBox && Math.abs(liveBox.x + liveBox.width / 2 - fallbackGeometry.cx) > idealWidth * 0.22;
-  const offCenterY = !!liveBox && Math.abs(liveBox.y + liveBox.height / 2 - fallbackGeometry.cy) > idealHeight * 0.22;
+  const tooSmall = !!liveBox && liveBox.width < OVAL_W * 0.62;
+  const offCenterX = !!liveBox && Math.abs(liveBox.x + liveBox.width / 2 - idealCx) > OVAL_W * 0.22;
+  const offCenterY = !!liveBox && Math.abs(liveBox.y + liveBox.height / 2 - idealCy) > OVAL_H * 0.22;
   const captureState: 'searching' | 'poor' | 'ready' = !liveBox ? 'searching' : (tooSmall || offCenterX || offCenterY) ? 'poor' : 'ready';
   const poorReason = tooSmall ? 'Move a little closer' : 'Center your face in the frame';
   const isReady = captureState === 'ready';
@@ -769,10 +766,14 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
     wasReadyRef.current = isReady;
   }, [isReady, readyScaleAnim]);
 
-  const ringBox = liveBox
-    ? { left: liveBox.x, top: liveBox.y, width: liveBox.width, height: liveBox.height }
-    : { left: fallbackGeometry.cx - fallbackGeometry.rx, top: fallbackGeometry.cy - fallbackGeometry.ry, width: fallbackGeometry.rx * 2, height: fallbackGeometry.ry * 2 };
+  const ringBox = ringGeometry(winW, winH, liveBox);
   const ringColor = captureState === 'ready' ? Colors.brand : captureState === 'poor' ? Colors.systemOrange : 'rgba(255,255,255,0.8)';
+  // __DEV__-only live readout of exactly what the detector is seeing —
+  // requested explicitly: a way to visually confirm on-device that this is
+  // reading a real, moving face box, not a static/fake state. Off in
+  // production builds (wrapped in the same __DEV__ check used for the
+  // console logging elsewhere in this file).
+  const debugBox = __DEV__ ? liveBox : null;
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={handleClose} statusBarTranslucent>
@@ -831,31 +832,24 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
 
         {step === 'camera' && hasPermission && device != null && (
           <>
-            {/* See FillLight's own comment — this is the actual fix for
-                "the preview is too dark to see myself," not a cosmetic
-                addition: it's a real light source, not a filter. Pulls in
-                slightly once framing state reaches 'ready' — the vignette
-                itself reacting to state, not just the ring below. */}
-            <FillLight width={winW} height={winH} face={liveBox} tight={isReady} />
-
-            {/* ONE ring for every framing state — searching (no face yet),
+            {/* No mask/scrim over the live feed at all anymore — see
+                ringGeometry's own comment for why (three rounds of visible
+                artifacts from that approach, the last one a real piece of
+                the room bleeding through the gradient's soft edge). Just
+                the plain camera feed and this one ring.
+                ONE ring for every framing state — searching (no face yet),
                 poor (found, but too small/off-center), and ready all render
                 the exact same ScanBracket (this app's established scan-
                 indicator language, also used for the result photo's zone
-                markers — a plain circular ring here would be a one-off
-                shape nowhere else in the app uses), sized off the live
-                tracked face once found or the same fallback oval size
-                FillLight's own no-face window uses otherwise. Only its
-                color (searching→neutral, poor→amber, ready→brand pink),
-                pulse (stops once ready), and a one-time spring "tighten"
-                (readyScaleAnim, see the effect above) change with state —
-                one visual communicating three things, not three separate
-                elements (old brackets/vignette/banner/pill) each saying
-                their own piece. Deliberately still just the one ring, not
-                also the 8 individual zone marks this used to speculatively
-                draw before any actual analysis has run — see the removed
-                comment in git history for why that read as noise, not
-                signal, while still just framing the shot. */}
+                markers), sized off the live tracked face once found or the
+                fixed guide-oval size otherwise. Only its color (searching→
+                neutral, poor→amber, ready→brand pink), pulse (stops once
+                ready), and a one-time spring "tighten" (readyScaleAnim, see
+                the effect above) change with state. Deliberately still just
+                the one ring, not also the 8 individual zone marks this used
+                to speculatively draw before any actual analysis has run —
+                see the removed comment in git history for why that read as
+                noise, not signal, while still just framing the shot. */}
             <Animated.View pointerEvents="none" style={[styles.ringWrap, ringBox, { transform: [{ scale: readyScaleAnim }] }]}>
               <ScanBracket
                 style={StyleSheet.absoluteFill}
@@ -867,13 +861,28 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
             </Animated.View>
             <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#fff', opacity: flashAnim }]} />
 
+            {/* Dev-only: the exact numbers driving the ring/copy above, so
+                this can be visually confirmed against the real, moving
+                camera feed instead of taken on faith — move your face and
+                watch these change live. Never present in a production
+                build. */}
+            {debugBox && (
+              <View style={styles.debugBox} pointerEvents="none">
+                <Text style={styles.debugText}>
+                  state={captureState} {tooSmall ? 'tooSmall ' : ''}{offCenterX ? 'offCenterX ' : ''}{offCenterY ? 'offCenterY ' : ''}
+                  {'\n'}box: x={debugBox.x.toFixed(0)} y={debugBox.y.toFixed(0)} w={debugBox.width.toFixed(0)} h={debugBox.height.toFixed(0)}
+                </Text>
+              </View>
+            )}
+
             <View style={[styles.topBar, { top: insets.top + 10 }]}>
               <Pressable style={styles.roundBtn} onPress={handleClose} hitSlop={10}>
                 <Text style={styles.roundBtnText}>✕</Text>
               </Pressable>
-              {/* Backed by the same dark chip roundBtn uses — this sits on
-                  FillLight's white surround (above the see-through window),
-                  where the mark's white petals would otherwise disappear. */}
+              {/* Backed by the same dark chip roundBtn uses — the live
+                  camera feed behind it varies (a bright wall, a window),
+                  so this can't assume it's always dark enough for plain
+                  white petals to read clearly on their own. */}
               <View style={styles.logoChip}>
                 <GlowMark size={22} petal="#fff" petalInner="rgba(255,255,255,0.55)" core={Colors.gold} />
               </View>
@@ -1047,9 +1056,14 @@ const OVAL_H = 280;
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000' },
   // left/top/width/height come from ringBox at the call site (liveBox once
-  // tracking, otherwise the same fallbackGeometry FillLight's own no-face
-  // window uses) — position: 'absolute' is the only fixed part here.
+  // tracking, otherwise the fixed guide-oval size from ringGeometry) —
+  // position: 'absolute' is the only fixed part here.
   ringWrap: { position: 'absolute' },
+  debugBox: {
+    position: 'absolute', left: 12, right: 12, bottom: 190,
+    backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 8, padding: 8,
+  },
+  debugText: { color: '#0f0', fontSize: 10.5, fontFamily: 'Courier', lineHeight: 14 },
   topBar: {
     position: 'absolute', left: 16, right: 16, zIndex: 2,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
@@ -1073,11 +1087,10 @@ const styles = StyleSheet.create({
   },
 
   bottomCluster: { position: 'absolute', left: 0, right: 0, bottom: 0, gap: 14, alignItems: 'center' },
-  // A background pill, not bare white text — this sits below FillLight's
-  // see-through window, on the white surround, where plain white text
-  // would be invisible. The pill keeps it legible regardless of what's
-  // behind it (the same reasoning the top bar's roundBtn and tipCard
-  // already use their own background boxes for).
+  // A background pill, not bare white text — the live camera feed behind
+  // it varies (a bright wall, daylight), so plain white text can't assume
+  // it'll always be legible on its own. Same reasoning the top bar's
+  // roundBtn and tipCard already use their own background boxes for.
   hint: {
     color: '#fff', fontSize: 12.5, fontFamily: Fonts.medium,
     backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 100,
@@ -1093,10 +1106,8 @@ const styles = StyleSheet.create({
     width: 78, height: 78, borderRadius: 39,
     borderWidth: 4, borderColor: Colors.brand,
     alignItems: 'center', justifyContent: 'center',
-    // Sits on FillLight's white surround now (below the see-through
-    // window) — a soft shadow keeps the button reading as a raised,
-    // distinct control instead of flattening into the white background
-    // behind it.
+    // A soft shadow keeps the button reading as a raised, distinct
+    // control regardless of what's behind it in the live feed.
     shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.18, shadowRadius: 8, elevation: 4,
   },
   // Still always tappable regardless of framing state (never actually
