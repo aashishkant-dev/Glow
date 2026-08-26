@@ -63,6 +63,7 @@ import { SKIN_QUIZ_QUESTIONS } from '../data/skinQuiz';
 import { apiScanSkin, SkinScan } from '../api/client';
 import { tapLight, tapWarning } from '../utils/haptics';
 import { ScanBracket } from './ScanBracket';
+import { deriveZoneMarkers, type RawFacialPoints, type StoredZoneMarkers } from '../utils/skinZones';
 
 function stripDataUrlPrefix(value: string): string {
   const commaIndex = value.indexOf(',');
@@ -81,7 +82,13 @@ function stripDataUrlPrefix(value: string): string {
 // class as the captured Photo needed a fix for (see shoot()'s try/finally),
 // just firing many times a second instead of once per capture, and real
 // wasted native-object-construction overhead on top of that.
-const IMAGE_FACE_DETECTOR_OPTIONS = { performanceMode: 'accurate' as const };
+// runLandmarks/runContours: off by default in this library — switched on
+// here to get ML Kit's real per-photo geometry (10 landmarks + face-oval/
+// eyebrow/eye/nose/lip contours) for placing zone markers on the actual
+// detected features (see deriveZoneMarkers in skinZones.ts) instead of a
+// fixed proportion-of-face-box estimate. No new dependency: this is the
+// same ML Kit wrapper already installed and patched for the live preview.
+const IMAGE_FACE_DETECTOR_OPTIONS = { performanceMode: 'accurate' as const, runLandmarks: true, runContours: true };
 
 type FaceRegion = { x: number; y: number; width: number; height: number };
 
@@ -102,11 +109,11 @@ type FaceRegion = { x: number; y: number; width: number; height: number };
 // already-visible "Checking your photo…" step, not per-frame on a live
 // stream, so the ~100–300ms extra cost is invisible while the more precise
 // bounding box directly improves the crop Gemini actually analyzes.
-function detectFaceRegion(detector: ReturnType<typeof useImageFaceDetector>, uri: string, imgWidth: number, imgHeight: number): { faceRegion: FaceRegion | null; noFaceDetected: boolean } {
-  if (Platform.OS === 'web' || !imgWidth || !imgHeight) return { faceRegion: null, noFaceDetected: false };
+function detectFaceRegion(detector: ReturnType<typeof useImageFaceDetector>, uri: string, imgWidth: number, imgHeight: number, mirrored: boolean): { faceRegion: FaceRegion | null; noFaceDetected: boolean; zoneMarkers: StoredZoneMarkers | null } {
+  if (Platform.OS === 'web' || !imgWidth || !imgHeight) return { faceRegion: null, noFaceDetected: false, zoneMarkers: null };
   try {
     const faces = detector.detectFaces(uri);
-    if (!faces || faces.length === 0) return { faceRegion: null, noFaceDetected: true };
+    if (!faces || faces.length === 0) return { faceRegion: null, noFaceDetected: true, zoneMarkers: null };
 
     // Largest face wins — guards against a photo/poster in the background
     // being picked over the real subject.
@@ -158,10 +165,31 @@ function detectFaceRegion(detector: ReturnType<typeof useImageFaceDetector>, uri
     const plausible = aspect > 0.45 && aspect < 1.6 && region.width < 0.85;
     if (!plausible) {
       console.warn('[SkinScanCamera] rejected implausible face detection', region);
-      return { faceRegion: null, noFaceDetected: false };
+      return { faceRegion: null, noFaceDetected: false, zoneMarkers: null };
     }
 
-    return { faceRegion: region, noFaceDetected: false };
+    // Same expanded "beauty crop" box as `region` above, just still in
+    // pixels — deriveZoneMarkers clamps every zone into this box, so a
+    // landmark-derived rect and the ZONE_RECTS fallback estimate stay in
+    // the same reference frame (the one already persisted as
+    // SkinScan.faceBox) regardless of which one a given zone ends up using.
+    const faceBoxPx = { x: clampedLeft, y: clampedTop, width: clampedRight - clampedLeft, height: clampedBottom - clampedTop };
+    const points: RawFacialPoints = {
+      faceContour: face.contours?.FACE,
+      leftEyebrowTop: face.contours?.LEFT_EYEBROW_TOP,
+      rightEyebrowTop: face.contours?.RIGHT_EYEBROW_TOP,
+      noseBridge: face.contours?.NOSE_BRIDGE,
+      noseBottom: face.contours?.NOSE_BOTTOM,
+      leftEye: face.contours?.LEFT_EYE,
+      rightEye: face.contours?.RIGHT_EYE,
+      leftCheek: face.landmarks?.LEFT_CHEEK,
+      rightCheek: face.landmarks?.RIGHT_CHEEK,
+      mouthBottom: face.landmarks?.MOUTH_BOTTOM,
+    };
+    const derived = deriveZoneMarkers(points, faceBoxPx, imgWidth, imgHeight, mirrored);
+    const zoneMarkers = Object.keys(derived).length > 0 ? derived : null;
+
+    return { faceRegion: region, noFaceDetected: false, zoneMarkers };
   } catch (err) {
     // Web already returned early above, so reaching here means a native
     // build — genuinely not linked (an update from before this module was
@@ -171,7 +199,7 @@ function detectFaceRegion(detector: ReturnType<typeof useImageFaceDetector>, uri
     // indistinguishable from "not linked" with nothing to go on from a bug
     // report alone.
     console.warn('[SkinScanCamera] detectFaces threw', err instanceof Error ? err.message : err);
-    return { faceRegion: null, noFaceDetected: false };
+    return { faceRegion: null, noFaceDetected: false, zoneMarkers: null };
   }
 }
 
@@ -324,9 +352,15 @@ function fillLightGeometry(width: number, height: number, face?: FaceBoxPx | nul
   };
 }
 
-function FillLight({ width, height, face }: { width: number; height: number; face?: FaceBoxPx | null }) {
+function FillLight({ width, height, face, tight }: { width: number; height: number; face?: FaceBoxPx | null; tight?: boolean }) {
   if (width <= 0 || height <= 0) return null;
-  const { cx, cy, rx, ry } = fillLightGeometry(width, height, face);
+  const geo = fillLightGeometry(width, height, face);
+  // A small, deliberately subtle pull-in (not a return to the old cramped
+  // sizing this component's floor exists to prevent) when framing reaches
+  // 'ready' — the vignette itself reacting to state, not just the ring.
+  const { cx, cy } = geo;
+  const rx = tight ? geo.rx * 0.94 : geo.rx;
+  const ry = tight ? geo.ry * 0.94 : geo.ry;
   // A fresh id per render would break the gradient reference (React Native
   // SVG resolves url(#id) by string match) if this were ever memoized/
   // reused across instances — fixed, not derived from anything that
@@ -403,7 +437,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
     setLiveFaces(faces);
   }, []);
   const [step, setStep] = useState<Step>('camera');
-  const [shot, setShot] = useState<{ uri: string; base64: string; mimeType: string; faceRegion: FaceRegion | null } | null>(null);
+  const [shot, setShot] = useState<{ uri: string; base64: string; mimeType: string; faceRegion: FaceRegion | null; zoneMarkers: StoredZoneMarkers | null } | null>(null);
   const [answers, setAnswers] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   // A failed capture (bad temp-file write, unreadable file, etc.) used to
@@ -418,6 +452,11 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
   const [noFaceWarning, setNoFaceWarning] = useState(false);
   const [detectingFace, setDetectingFace] = useState(false);
   const flashAnim = useRef(new Animated.Value(0)).current;
+  // Springs 1.08→1 the moment framing state reaches 'ready' — the "tightens
+  // into focus" feedback called out below, alongside a haptic tick fired
+  // the same way (see the effect near captureState's own computation).
+  const readyScaleAnim = useRef(new Animated.Value(1)).current;
+  const wasReadyRef = useRef(false);
 
   // Live, rotating tips on the camera step itself — real-time coaching
   // instead of a single static hint, and personalized off the last scan's
@@ -624,8 +663,12 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
       setStep('quiz');
       setDetectingFace(true);
       setNoFaceWarning(false);
-      const { faceRegion, noFaceDetected } = detectFaceRegion(imageFaceDetector, uri, imgWidth, imgHeight);
-      setShot({ uri, base64: stripDataUrlPrefix(base64), mimeType: 'image/jpeg', faceRegion });
+      // isMirrored decides which side ML Kit's anatomical LEFT_CHEEK/
+      // LEFT_EYE points actually land on in THIS photo — see
+      // deriveZoneMarkers' own comment for why that swap can't just be
+      // assumed from vision-camera's typical capture defaults.
+      const { faceRegion, noFaceDetected, zoneMarkers } = detectFaceRegion(imageFaceDetector, uri, imgWidth, imgHeight, photo.isMirrored);
+      setShot({ uri, base64: stripDataUrlPrefix(base64), mimeType: 'image/jpeg', faceRegion, zoneMarkers });
       setNoFaceWarning(noFaceDetected);
       setDetectingFace(false);
     } catch (err) {
@@ -671,6 +714,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
         mimeType: shot.mimeType,
         quizAnswers: answers,
         faceRegion: shot.faceRegion || undefined,
+        zoneMarkers: shot.zoneMarkers || undefined,
       });
       reset();
       onComplete(scan, bookCategory, isNewProfile);
@@ -698,6 +742,37 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
   // FillLight itself uses, so its pink border always lands exactly on the
   // edge of the see-through window instead of drifting from it.
   const fallbackGeometry = fillLightGeometry(winW, winH, null);
+
+  // One calm state machine driving the ring color, the copy underneath it,
+  // and a one-time haptic — instead of the old binary "liveBox present or
+  // not" driving two different, slightly-out-of-sync ternaries (the ring
+  // shape and the hint text). Honestly scoped to what's cheaply knowable
+  // from the live detector's own output (size relative to the guide oval,
+  // and how far off-center it is) — no actual scene-brightness read here
+  // (that needs a frame processor + a new native dependency this pass
+  // deliberately didn't add), so this never claims to detect "poor light,"
+  // only "too small/far" or "not centered."
+  const idealWidth = fallbackGeometry.rx * 2;
+  const idealHeight = fallbackGeometry.ry * 2;
+  const tooSmall = !!liveBox && liveBox.width < idealWidth * 0.62;
+  const offCenterX = !!liveBox && Math.abs(liveBox.x + liveBox.width / 2 - fallbackGeometry.cx) > idealWidth * 0.22;
+  const offCenterY = !!liveBox && Math.abs(liveBox.y + liveBox.height / 2 - fallbackGeometry.cy) > idealHeight * 0.22;
+  const captureState: 'searching' | 'poor' | 'ready' = !liveBox ? 'searching' : (tooSmall || offCenterX || offCenterY) ? 'poor' : 'ready';
+  const poorReason = tooSmall ? 'Move a little closer' : 'Center your face in the frame';
+  const isReady = captureState === 'ready';
+  useEffect(() => {
+    if (isReady && !wasReadyRef.current) {
+      tapLight();
+      readyScaleAnim.setValue(1.08);
+      Animated.spring(readyScaleAnim, { toValue: 1, useNativeDriver: true, speed: 20, bounciness: 6 }).start();
+    }
+    wasReadyRef.current = isReady;
+  }, [isReady, readyScaleAnim]);
+
+  const ringBox = liveBox
+    ? { left: liveBox.x, top: liveBox.y, width: liveBox.width, height: liveBox.height }
+    : { left: fallbackGeometry.cx - fallbackGeometry.rx, top: fallbackGeometry.cy - fallbackGeometry.ry, width: fallbackGeometry.rx * 2, height: fallbackGeometry.ry * 2 };
+  const ringColor = captureState === 'ready' ? Colors.brand : captureState === 'poor' ? Colors.systemOrange : 'rgba(255,255,255,0.8)';
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={handleClose} statusBarTranslucent>
@@ -758,47 +833,38 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
           <>
             {/* See FillLight's own comment — this is the actual fix for
                 "the preview is too dark to see myself," not a cosmetic
-                addition: it's a real light source, not a filter. */}
-            <FillLight width={winW} height={winH} face={liveBox} />
+                addition: it's a real light source, not a filter. Pulls in
+                slightly once framing state reaches 'ready' — the vignette
+                itself reacting to state, not just the ring below. */}
+            <FillLight width={winW} height={winH} face={liveBox} tight={isReady} />
 
-            {/* Real-time corner-bracket tracking — the ID-scan/dermatology-
-                app visual language (four L-marks, not a full outline box) —
-                replaces the old fixed oval guide with the actual detected
-                face for THIS frame. Pulses gently to read as "actively
-                scanning." The oval fallback below (no face found yet) frames
-                the scene the same way, sized to match FillLight's see-through
-                window exactly so its outline sits right on that boundary.
-                Deliberately just the one bracket now, not also the 8
-                individual zone marks this used to speculatively draw — those
-                previewed WHERE a finished scan's markers would eventually
-                land, before any actual analysis has run, all 8 at once, live,
-                on a moving tracking box. That's noise, not signal, while
-                you're just framing the shot: nothing has been analyzed yet,
-                so 8 brackets don't mean "8 things detected," they're a
-                permanent fixed geometric guess. One clean, confident tracking
-                indicator says "the AI has found your face" — which is what's
-                actually true at this point — without visually overclaiming
-                more than that. */}
-            {liveBox ? (
-              <View pointerEvents="none" style={StyleSheet.absoluteFill}>
-                <ScanBracket
-                  style={{ left: liveBox.x, top: liveBox.y, width: liveBox.width, height: liveBox.height }}
-                  color={Colors.brand}
-                  size={22}
-                  thickness={3}
-                  pulse
-                />
-              </View>
-            ) : (
-              <View style={styles.guideSurround} pointerEvents="none">
-                <View
-                  style={[
-                    styles.guideOval,
-                    { width: fallbackGeometry.rx * 2, height: fallbackGeometry.ry * 2, borderRadius: fallbackGeometry.rx * 2 },
-                  ]}
-                />
-              </View>
-            )}
+            {/* ONE ring for every framing state — searching (no face yet),
+                poor (found, but too small/off-center), and ready all render
+                the exact same ScanBracket (this app's established scan-
+                indicator language, also used for the result photo's zone
+                markers — a plain circular ring here would be a one-off
+                shape nowhere else in the app uses), sized off the live
+                tracked face once found or the same fallback oval size
+                FillLight's own no-face window uses otherwise. Only its
+                color (searching→neutral, poor→amber, ready→brand pink),
+                pulse (stops once ready), and a one-time spring "tighten"
+                (readyScaleAnim, see the effect above) change with state —
+                one visual communicating three things, not three separate
+                elements (old brackets/vignette/banner/pill) each saying
+                their own piece. Deliberately still just the one ring, not
+                also the 8 individual zone marks this used to speculatively
+                draw before any actual analysis has run — see the removed
+                comment in git history for why that read as noise, not
+                signal, while still just framing the shot. */}
+            <Animated.View pointerEvents="none" style={[styles.ringWrap, ringBox, { transform: [{ scale: readyScaleAnim }] }]}>
+              <ScanBracket
+                style={StyleSheet.absoluteFill}
+                color={ringColor}
+                size={liveBox ? 22 : 18}
+                thickness={liveBox ? 3 : 2.5}
+                pulse={!isReady}
+              />
+            </Animated.View>
             <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#fff', opacity: flashAnim }]} />
 
             <View style={[styles.topBar, { top: insets.top + 10 }]}>
@@ -822,13 +888,22 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
             )}
 
             <View style={[styles.bottomCluster, { paddingBottom: insets.bottom + 20 }]}>
-              <Text style={[styles.hint, !!captureError && styles.hintError]}>
+              {/* One pill, one message at a time — this used to double up
+                  with a separate always-visible instruction banner saying
+                  something adjacent but not identical. The rotating
+                  coaching tips above are genuinely different content
+                  (personalized photography advice, not framing state), so
+                  they stay; this pill now speaks only for captureState. */}
+              <Text style={[styles.hint, !!captureError ? styles.hintError : isReady && styles.hintReady]}>
                 {captureError
                   ? captureError
-                  : !cameraReady ? 'Camera warming up…' : liveBox ? 'Face detected — tap to scan' : 'Center your face in frame, then tap to scan'}
+                  : !cameraReady ? 'Camera warming up…'
+                  : captureState === 'searching' ? 'Position your face in the frame'
+                  : captureState === 'poor' ? poorReason
+                  : 'Perfect — tap to scan'}
               </Text>
               <View style={styles.shootRow}>
-                <Pressable style={styles.shutterOuter} onPress={shoot} disabled={capturing} hitSlop={12}>
+                <Pressable style={[styles.shutterOuter, isReady && styles.shutterOuterReady]} onPress={shoot} disabled={capturing} hitSlop={12}>
                   <View style={styles.shutterInner}>{capturing && <ActivityIndicator color="#fff" />}</View>
                 </Pressable>
               </View>
@@ -971,17 +1046,10 @@ const OVAL_H = 280;
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000' },
-  guideSurround: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
-  // width/height/borderRadius come from fallbackGeometry at the call site
-  // (must match FillLight's own computed window exactly — see
-  // fillLightGeometry's comment), not fixed values here.
-  guideOval: {
-    // brand pink, not white — this sits right on FillLight's see-through/
-    // surround boundary now, so a white border here would vanish against
-    // the white half of that boundary. Brand pink reads clearly against
-    // both the dark preview inside and the bright white surround outside.
-    borderWidth: 2.5, borderColor: Colors.brand,
-  },
+  // left/top/width/height come from ringBox at the call site (liveBox once
+  // tracking, otherwise the same fallbackGeometry FillLight's own no-face
+  // window uses) — position: 'absolute' is the only fixed part here.
+  ringWrap: { position: 'absolute' },
   topBar: {
     position: 'absolute', left: 16, right: 16, zIndex: 2,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
@@ -1016,6 +1084,10 @@ const styles = StyleSheet.create({
     paddingHorizontal: 12, paddingVertical: 6,
   },
   hintError: { backgroundColor: Colors.systemRed },
+  // Brand-tinted pill instead of the usual neutral dark one, once framing
+  // reads as ready — the pill itself picking up the same accent color the
+  // ring/shutter do, not just the text changing.
+  hintReady: { backgroundColor: Colors.brand },
   shootRow: { flexDirection: 'row', justifyContent: 'center' },
   shutterOuter: {
     width: 78, height: 78, borderRadius: 39,
@@ -1027,6 +1099,13 @@ const styles = StyleSheet.create({
     // behind it.
     shadowColor: '#000', shadowOffset: { width: 0, height: 3 }, shadowOpacity: 0.18, shadowRadius: 8, elevation: 4,
   },
+  // Still always tappable regardless of framing state (never actually
+  // disabled — a detection false-negative blocking capture entirely would
+  // be a worse failure mode than letting someone take the photo on their
+  // own judgment). This is cosmetic-only: a deeper shadow reading as
+  // "solid, ready to go" once captureState reaches ready, matching the
+  // ring/pill's own color cue instead of contradicting it.
+  shutterOuterReady: { shadowOpacity: 0.32, shadowRadius: 12 },
   shutterInner: { width: 64, height: 64, borderRadius: 32, backgroundColor: '#fff', alignItems: 'center', justifyContent: 'center' },
 
   permissionGate: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 36, gap: 14 },

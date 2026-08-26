@@ -187,7 +187,7 @@ export function SkinScanResultScreen() {
               if (width && height) setPhotoAspect(width / height);
             }}
           />
-          <SkinZoneOverlay zoneNotes={scan.zoneNotes} faceBox={scan.faceBox} active={activeZone} onSelect={setActiveZone} />
+          <SkinZoneOverlay zoneNotes={scan.zoneNotes} faceBox={scan.faceBox} zoneMarkers={scan.zoneMarkers} active={activeZone} onSelect={setActiveZone} />
           <LinearGradient colors={['rgba(0,0,0,0.35)', 'transparent']} style={styles.photoTopGradient} pointerEvents="none" />
           <Pressable style={[styles.floatBack, { top: insets.top + 8 }]} onPress={goBack} hitSlop={12}>
             <Text style={styles.floatBackText}>‹</Text>

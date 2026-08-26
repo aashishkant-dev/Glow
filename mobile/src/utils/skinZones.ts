@@ -91,6 +91,126 @@ export function resolveFaceBox(raw?: { x?: number; y?: number; width?: number; h
     : DEFAULT_FACE_BOX;
 }
 
+// ---- Landmark-derived zone positions -------------------------------------
+//
+// Everything above (ZONE_RECTS) places a zone at a FIXED fraction of the
+// detected face box — a reasonable estimate for a typically-framed face, but
+// not actually anchored to where that zone is on THIS specific photo. The
+// functions below compute a real center for each zone from ML Kit's own
+// contour/landmark points (react-native-vision-camera-face-detector, already
+// installed — see SkinScanCamera.tsx's detectFaceRegion, which is the only
+// caller), reusing ZONE_RECTS' own already-tuned width/height for each zone
+// (non-overlapping, visually reasonable) so only the CENTER changes, not the
+// box shape/size.
+//
+// Deliberately still runs entirely client-side, in pixel space matching the
+// already-established faceRegion convention (0-1 fractions of the full
+// photo) — no new coordinate system, no new native dependency (ML Kit's
+// contour output was already available in the installed detector, just not
+// enabled).
+
+export type Point = { x: number; y: number };
+
+// Raw points pulled from ML Kit's Face.contours/Face.landmarks (pixel space,
+// matching the same imgWidth/imgHeight the caller already normalizes
+// faceRegion against). Any field can be missing — ML Kit doesn't guarantee
+// every contour/landmark is present for every detection (a turned head, an
+// occluded feature) — each zone below degrades independently rather than
+// requiring all of them.
+export interface RawFacialPoints {
+  faceContour?: Point[];
+  leftEyebrowTop?: Point[];
+  rightEyebrowTop?: Point[];
+  noseBridge?: Point[];
+  noseBottom?: Point[];
+  leftEye?: Point[];
+  rightEye?: Point[];
+  leftCheek?: Point;
+  rightCheek?: Point;
+  mouthBottom?: Point;
+}
+
+function centroid(points: Point[]): Point | null {
+  if (!points.length) return null;
+  let sx = 0, sy = 0;
+  for (const p of points) { sx += p.x; sy += p.y; }
+  return { x: sx / points.length, y: sy / points.length };
+}
+
+// Average of the bottom `fraction` of points by y (largest y = lowest on the
+// photo) — a stable "how low does this contour reach, roughly centered"
+// read, not just the single lowest (possibly noisy) point.
+function bottomCentroid(points: Point[], fraction: number): Point | null {
+  if (!points.length) return null;
+  const sorted = [...points].sort((a, b) => b.y - a.y);
+  const take = Math.max(1, Math.round(sorted.length * fraction));
+  return centroid(sorted.slice(0, take));
+}
+
+// ZONE_RECTS' own width/height (already tuned to not overlap), centered on a
+// real point instead of a fixed fraction. Hard-clamped inside the detected
+// face's own pixel bounding box — a single noisy input point putting a
+// marker outside the actual face is exactly the bug this feature exists to
+// fix, so this is a floor/ceiling, not a nicety.
+function centeredZoneRect(zone: ZoneKey, center: Point | null, faceBoxPx: FaceBox, imgWidth: number, imgHeight: number): FaceBox | null {
+  if (!center || imgWidth <= 0 || imgHeight <= 0) return null;
+  const template = ZONE_RECTS[zone];
+  const widthPx = template.width * faceBoxPx.width;
+  const heightPx = template.height * faceBoxPx.height;
+  const maxLeft = Math.max(faceBoxPx.x, faceBoxPx.x + faceBoxPx.width - widthPx);
+  const maxTop = Math.max(faceBoxPx.y, faceBoxPx.y + faceBoxPx.height - heightPx);
+  const left = Math.min(Math.max(center.x - widthPx / 2, faceBoxPx.x), maxLeft);
+  const top = Math.min(Math.max(center.y - heightPx / 2, faceBoxPx.y), maxTop);
+  return { x: left / imgWidth, y: top / imgHeight, width: widthPx / imgWidth, height: heightPx / imgHeight };
+}
+
+// Derives real, per-photo zone positions from ML Kit's contour/landmark
+// points. Returns only the zones it could actually place — any zone ML Kit
+// didn't return usable points for is simply absent, letting the caller
+// (buildZoneMarkers) fall back to the ZONE_RECTS estimate for just that one
+// zone rather than an all-or-nothing result.
+export function deriveZoneMarkers(points: RawFacialPoints, faceBoxPx: FaceBox, imgWidth: number, imgHeight: number, mirrored: boolean): Partial<Record<ZoneKey, FaceBox>> {
+  const out: Partial<Record<ZoneKey, FaceBox>> = {};
+  const set = (zone: ZoneKey, center: Point | null) => {
+    const rect = centeredZoneRect(zone, center, faceBoxPx, imgWidth, imgHeight);
+    if (rect) out[zone] = rect;
+  };
+
+  const browCentroid = centroid([...(points.leftEyebrowTop || []), ...(points.rightEyebrowTop || [])]);
+  if (browCentroid) set('forehead', { x: browCentroid.x, y: browCentroid.y - faceBoxPx.height * 0.16 });
+
+  const noseCentroid = centroid([...(points.noseBridge || []), ...(points.noseBottom || [])]);
+  set('nose', noseCentroid);
+
+  const chinCentroid = bottomCentroid(points.faceContour || [], 0.12)
+    ?? (points.mouthBottom ? { x: points.mouthBottom.x, y: points.mouthBottom.y + faceBoxPx.height * 0.14 } : null);
+  set('chin', chinCentroid);
+
+  set('jawline', bottomCentroid(points.faceContour || [], 0.28));
+
+  // ML Kit's LEFT_*/RIGHT_* points are the SUBJECT's own anatomical
+  // left/right, not viewer-left/right — a photo of someone shows their own
+  // left cheek on the VIEWER's right unless the image is actually mirrored.
+  // This app's existing convention (ZONE_RECTS' own fixed x positions —
+  // cheekL sits near the left edge of the DISPLAYED photo) is viewer-
+  // relative, so ML Kit's labels need a swap whenever the captured photo is
+  // NOT mirrored (the common case for a still photo, even though the live
+  // preview shown while framing typically is). `mirrored` comes from the
+  // captured Photo's own isMirrored flag (see SkinScanCamera.tsx), not an
+  // assumption about capture defaults, so this self-corrects either way.
+  const swapLR = !mirrored;
+  set('cheekL', (swapLR ? points.rightCheek : points.leftCheek) ?? null);
+  set('cheekR', (swapLR ? points.leftCheek : points.rightCheek) ?? null);
+
+  const underEyeOffset = faceBoxPx.height * 0.09;
+  const leftEyeC = centroid((swapLR ? points.rightEye : points.leftEye) || []);
+  if (leftEyeC) set('underEyeL', { x: leftEyeC.x, y: leftEyeC.y + underEyeOffset });
+  const rightEyeC = centroid((swapLR ? points.leftEye : points.rightEye) || []);
+  if (rightEyeC) set('underEyeR', { x: rightEyeC.x, y: rightEyeC.y + underEyeOffset });
+
+  return out;
+}
+
 export interface ZoneNotes {
   forehead?: string; nose?: string; chin?: string;
   cheekL?: string; cheekR?: string;
@@ -105,7 +225,21 @@ export interface ZoneMarker {
   note: string;
   rect: FaceBox;
   align: 'left' | 'right' | 'center';
+  // True when `rect` came from this scan's own real landmark geometry
+  // (deriveZoneMarkers, persisted as SkinScan.zoneMarkers) rather than the
+  // ZONE_RECTS proportion estimate — not currently shown in the UI, but a
+  // cheap, honest signal to have on hand rather than needing to re-derive
+  // it later (e.g. for a future "estimated position" affordance).
+  anchored: boolean;
 }
+
+// Already-persisted, landmark-derived rects for THIS scan (SkinScan.
+// zoneMarkers — 0-1 fractions of the full photo, same space as faceBox
+// itself) — null/undefined for a scan captured before this existed, or
+// where the client's contour pass didn't yield usable geometry, in which
+// case every zone falls back to the ZONE_RECTS estimate below exactly as
+// it always has.
+export type StoredZoneMarkers = Partial<Record<ZoneKey, FaceBox>>;
 
 // Single source for "which zones does this scan have something to point
 // at, and where" — SkinZoneOverlay (the tappable photo markers) and
@@ -113,23 +247,33 @@ export interface ZoneMarker {
 // clear split for ALL 8 zones, not just the flagged ones) both build off
 // this instead of each re-deriving it, so the two views can never drift
 // out of sync with each other.
-export function buildZoneMarkers(zoneNotes: ZoneNotes | undefined, faceBox: FaceBox): ZoneMarker[] {
+export function buildZoneMarkers(zoneNotes: ZoneNotes | undefined, faceBox: FaceBox, storedMarkers?: StoredZoneMarkers | null): ZoneMarker[] {
   const isGranular = ZONE_META.some(z => !!zoneNotes?.[z.key]);
   if (isGranular) {
     return ZONE_META
       .filter(z => !!zoneNotes?.[z.key])
-      .map(z => ({ key: z.key, label: z.label, note: zoneNotes![z.key]!, rect: zoneRectToPhotoFrac(z.key, faceBox), align: z.align }));
+      .map(z => {
+        const anchoredRect = storedMarkers?.[z.key];
+        return {
+          key: z.key,
+          label: z.label,
+          note: zoneNotes![z.key]!,
+          rect: anchoredRect ?? zoneRectToPhotoFrac(z.key, faceBox),
+          align: z.align,
+          anchored: !!anchoredRect,
+        };
+      });
   }
   const markers: ZoneMarker[] = [];
   if (zoneNotes?.tZone) {
-    markers.push({ key: 'tZone', label: 'T-zone', note: zoneNotes.tZone, rect: legacyZoneRectToPhotoFrac('tZone', faceBox), align: 'center' });
+    markers.push({ key: 'tZone', label: 'T-zone', note: zoneNotes.tZone, rect: legacyZoneRectToPhotoFrac('tZone', faceBox), align: 'center', anchored: false });
   }
   if (zoneNotes?.cheeks) {
-    markers.push({ key: 'cheekL', label: 'Cheeks', note: zoneNotes.cheeks, rect: legacyZoneRectToPhotoFrac('cheekL', faceBox), align: 'left' });
-    markers.push({ key: 'cheekR', label: 'Cheeks', note: zoneNotes.cheeks, rect: legacyZoneRectToPhotoFrac('cheekR', faceBox), align: 'right' });
+    markers.push({ key: 'cheekL', label: 'Cheeks', note: zoneNotes.cheeks, rect: legacyZoneRectToPhotoFrac('cheekL', faceBox), align: 'left', anchored: false });
+    markers.push({ key: 'cheekR', label: 'Cheeks', note: zoneNotes.cheeks, rect: legacyZoneRectToPhotoFrac('cheekR', faceBox), align: 'right', anchored: false });
   }
   if (zoneNotes?.underEye) {
-    markers.push({ key: 'underEye', label: 'Under-eye', note: zoneNotes.underEye, rect: legacyZoneRectToPhotoFrac('underEye', faceBox), align: 'center' });
+    markers.push({ key: 'underEye', label: 'Under-eye', note: zoneNotes.underEye, rect: legacyZoneRectToPhotoFrac('underEye', faceBox), align: 'center', anchored: false });
   }
   return markers;
 }

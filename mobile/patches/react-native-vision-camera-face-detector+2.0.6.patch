@@ -1,5 +1,5 @@
 diff --git a/node_modules/react-native-vision-camera-face-detector/ios/HybridFace.swift b/node_modules/react-native-vision-camera-face-detector/ios/HybridFace.swift
-index f1d44fe..050e633 100644
+index f1d44fe..fdfef67 100644
 --- a/node_modules/react-native-vision-camera-face-detector/ios/HybridFace.swift
 +++ b/node_modules/react-native-vision-camera-face-detector/ios/HybridFace.swift
 @@ -61,9 +61,32 @@ final class HybridFace: HybridFaceSpec {
@@ -36,6 +36,52 @@ index f1d44fe..050e633 100644
        case .landscapeLeft, .landscapeRight:
          width = boundingBox.height * scaleY
          height = boundingBox.width * scaleX
+@@ -85,6 +108,11 @@ final class HybridFace: HybridFaceSpec {
+   ) -> Landmarks {
+     let scaleX = config.scaleX
+     let scaleY = config.scaleY
++    // Same static-image-vs-live-frame distinction as processBoundingBox
++    // above: the x/y transpose only applies to the live camera-frame
++    // pipeline (config.orientation set); a static image's points are
++    // already in the image's own upright x=horizontal/y=vertical space.
++    let isLiveFrame = config.orientation != nil
+ 
+     func getPoint(
+       _ type: FaceLandmarkType
+@@ -94,6 +122,12 @@ final class HybridFace: HybridFaceSpec {
+       }
+ 
+       let position = landmark.position
++      if !isLiveFrame {
++        return Point(
++          x: Double(position.x) * scaleX,
++          y: Double(position.y) * scaleY
++        )
++      }
+       return Point(
+         x: Double(position.y) * scaleX,
+         y: Double(position.x) * scaleY
+@@ -119,6 +153,7 @@ final class HybridFace: HybridFaceSpec {
+   ) -> Contours {
+     let scaleX = config.scaleX
+     let scaleY = config.scaleY
++    let isLiveFrame = config.orientation != nil
+ 
+     func getContour(
+         _ type: FaceContourType
+@@ -128,6 +163,12 @@ final class HybridFace: HybridFaceSpec {
+       }
+ 
+       return contour.points.map { point in
++        if !isLiveFrame {
++          return Point(
++            x: Double(point.x) * scaleX,
++            y: Double(point.y) * scaleY
++          )
++        }
+         return Point(
+           x: Double(point.y) * scaleX,
+           y: Double(point.x) * scaleY
 diff --git a/node_modules/react-native-vision-camera-face-detector/ios/HybridImageFaceDetector.swift b/node_modules/react-native-vision-camera-face-detector/ios/HybridImageFaceDetector.swift
 index 608050c..d5966a1 100644
 --- a/node_modules/react-native-vision-camera-face-detector/ios/HybridImageFaceDetector.swift

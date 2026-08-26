@@ -5,13 +5,12 @@
  * underneath it. Only a zone Gemini actually wrote a note for gets a marker;
  * an empty zoneNote means nothing notable was seen there, so nothing is drawn.
  *
- * The face box itself comes from `scan.faceBox` — real on-device ML Kit face
- * detection when the capture ran on a native build (see SkinScanCamera.tsx),
- * or the fixed guide-oval fallback (mirrors DEFAULT_REGION in
- * src/routes/skin.js) on web/older scans where no detection ran. Either way,
- * the sub-rects below are standard portrait-proportion estimates WITHIN that
- * box, not per-feature detection — good enough to visually "point at" the
- * right area, not a precision medical measurement.
+ * A marker's position comes from `scan.zoneMarkers` when present — real ML
+ * Kit landmark/contour geometry for THIS photo (see deriveZoneMarkers in
+ * skinZones.ts and SkinScanCamera.tsx's detectFaceRegion) — falling back
+ * per-zone to a standard portrait-proportion estimate within `scan.faceBox`
+ * for any zone that didn't have usable geometry, or for a scan captured
+ * before this existed.
  *
  * `active`/`onSelect` are controlled by the parent (SkinScanResultScreen), not
  * owned here — the zone list underneath the photo can highlight/select the
@@ -20,15 +19,16 @@
  * disconnected views of the same data.
  */
 import React, { useEffect, useRef } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Animated, Easing, Pressable, StyleSheet, Text, View } from 'react-native';
 import { Colors, Fonts } from '../utils/colors';
-import { resolveFaceBox, buildZoneMarkers, ZoneNotes } from '../utils/skinZones';
+import { resolveFaceBox, buildZoneMarkers, ZoneNotes, ZoneMarker, StoredZoneMarkers } from '../utils/skinZones';
 import { ScanBracket } from './ScanBracket';
 import { tapLight } from '../utils/haptics';
 
 interface Props {
   zoneNotes: ZoneNotes;
   faceBox?: { x?: number; y?: number; width?: number; height?: number };
+  zoneMarkers?: StoredZoneMarkers | null;
   active: string | null;
   onSelect: (key: string | null) => void;
 }
@@ -64,9 +64,83 @@ function Callout({ label, note, flipAbove, align, rect }: { label: string; note:
   );
 }
 
-export function SkinZoneOverlay({ zoneNotes, faceBox: rawFaceBox, active, onSelect }: Props) {
+// One marker's own reveal-in-on-mount + dim-when-something-else-is-active
+// animation, split from the parent so each marker gets its own Animated
+// values (a shared value would make every marker jump together instead of
+// independently fading toward/away from focus).
+function Marker({ m, index, active, onSelect }: { m: ZoneMarker; index: number; active: string | null; onSelect: (key: string) => void }) {
+  const isActive = active === m.key;
+  // Staggered pop-in (~80ms apart) instead of all 8 markers landing at once
+  // — reads as the AI actually finding each zone in turn, not a static
+  // overlay dumped on the photo the instant it loads.
+  const reveal = useRef(new Animated.Value(0)).current;
+  useEffect(() => {
+    Animated.timing(reveal, { toValue: 1, duration: 280, delay: index * 80, easing: Easing.out(Easing.cubic), useNativeDriver: true }).start();
+    // Mount-once — restarting this on every re-render (e.g. a selection
+    // change) would replay the pop-in for markers that aren't even moving.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // A selected marker stays fully visible; every OTHER marker dims to ~30%
+  // instead of all 8 reading as equally important regardless of which one
+  // (if any) is actually being looked at.
+  const dim = useRef(new Animated.Value(1)).current;
+  useEffect(() => {
+    Animated.timing(dim, { toValue: active == null || isActive ? 1 : 0.3, duration: 200, useNativeDriver: true }).start();
+  }, [active, isActive, dim]);
+
+  const posStyle = {
+    left: `${m.rect.x * 100}%`,
+    top: `${m.rect.y * 100}%`,
+    width: `${m.rect.width * 100}%`,
+    height: `${m.rect.height * 100}%`,
+  } as const;
+  const scale = reveal.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] });
+
+  return (
+    <>
+      <Animated.View pointerEvents="none" style={[styles.tapTarget, posStyle, { opacity: Animated.multiply(reveal, dim), transform: [{ scale }] }]}>
+        <ScanBracket
+          style={StyleSheet.absoluteFill}
+          color={isActive ? Colors.brand : 'rgba(255,255,255,0.75)'}
+          size={isActive ? 18 : 14}
+          thickness={isActive ? 2.5 : 1.5}
+          pulse={isActive}
+        >
+          <View pointerEvents="none" style={[styles.dot, isActive && styles.dotActive]} />
+        </ScanBracket>
+      </Animated.View>
+      <Pressable
+        onPress={() => onSelect(m.key)}
+        // A real tap target across the whole zone, not just the small dot —
+        // hitSlop pads it further so a marker over a narrow zone (under-eye)
+        // isn't fiddly to hit.
+        hitSlop={12}
+        style={[styles.tapTarget, posStyle]}
+      />
+      {isActive && (
+        <Callout
+          label={m.label}
+          note={m.note}
+          // Callouts default to below the marker, but a zone low on the
+          // face (chin, jawline) can sit close enough to the photo's bottom
+          // edge that "below" pushes the box past it entirely — the
+          // wrapper has no overflow:hidden, so that meant the callout
+          // visually spilling onto the text content below the photo
+          // instead of staying on it. Flip above instead whenever there's
+          // not enough room below.
+          flipAbove={m.rect.y + m.rect.height > 0.72}
+          align={m.align}
+          rect={m.rect}
+        />
+      )}
+    </>
+  );
+}
+
+export function SkinZoneOverlay({ zoneNotes, faceBox: rawFaceBox, zoneMarkers, active, onSelect }: Props) {
   const faceBox = resolveFaceBox(rawFaceBox);
-  const markers = buildZoneMarkers(zoneNotes, faceBox);
+  const markers = buildZoneMarkers(zoneNotes, faceBox, zoneMarkers);
 
   if (markers.length === 0) return null;
 
@@ -85,52 +159,9 @@ export function SkinZoneOverlay({ zoneNotes, faceBox: rawFaceBox, active, onSele
       {active != null && (
         <Pressable style={StyleSheet.absoluteFill} onPress={() => onSelect(null)} />
       )}
-      {markers.map(m => {
-        const isActive = active === m.key;
-        const posStyle = {
-          left: `${m.rect.x * 100}%`,
-          top: `${m.rect.y * 100}%`,
-          width: `${m.rect.width * 100}%`,
-          height: `${m.rect.height * 100}%`,
-        } as const;
-        return (
-          <React.Fragment key={m.key}>
-            <ScanBracket
-              style={posStyle}
-              color={isActive ? Colors.brand : 'rgba(255,255,255,0.75)'}
-              size={isActive ? 18 : 14}
-              thickness={isActive ? 2.5 : 1.5}
-              pulse={isActive}
-            >
-              <View pointerEvents="none" style={[styles.dot, isActive && styles.dotActive]} />
-            </ScanBracket>
-            <Pressable
-              onPress={() => select(m.key)}
-              // A real tap target across the whole zone, not just the small
-              // dot — hitSlop pads it further so a marker over a narrow zone
-              // (under-eye) isn't fiddly to hit.
-              hitSlop={12}
-              style={[styles.tapTarget, posStyle]}
-            />
-            {isActive && (
-              <Callout
-                label={m.label}
-                note={m.note}
-                // Callouts default to below the marker, but a zone low on
-                // the face (chin, jawline) can sit close enough to the
-                // photo's bottom edge that "below" pushes the box past it
-                // entirely — the wrapper has no overflow:hidden, so that
-                // meant the callout visually spilling onto the text content
-                // below the photo instead of staying on it. Flip above
-                // instead whenever there's not enough room below.
-                flipAbove={m.rect.y + m.rect.height > 0.72}
-                align={m.align}
-                rect={m.rect}
-              />
-            )}
-          </React.Fragment>
-        );
-      })}
+      {markers.map((m, i) => (
+        <Marker key={m.key} m={m} index={i} active={active} onSelect={select} />
+      ))}
     </View>
   );
 }

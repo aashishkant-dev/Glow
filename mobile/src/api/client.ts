@@ -1411,6 +1411,13 @@ export interface SkinScan {
   // guide-oval fallback otherwise. {} on scans from before this field
   // existed (SkinZoneOverlay falls back to the same fixed constant then).
   faceBox: { x?: number; y?: number; width?: number; height?: number };
+  // Per-zone marker rects (0–1 fractions of the photo, same space as
+  // faceBox) derived from real ML Kit landmark/contour points on THIS
+  // photo — see deriveZoneMarkers in skinZones.ts. Only whichever zones the
+  // client could actually place; null on scans from before this existed, or
+  // when detection didn't yield usable geometry, in which case every zone
+  // falls back to the ZONE_RECTS proportion estimate as it always has.
+  zoneMarkers: Partial<Record<'forehead' | 'nose' | 'chin' | 'cheekL' | 'cheekR' | 'underEyeL' | 'underEyeR' | 'jawline', { x: number; y: number; width: number; height: number }>> | null;
   recommendations: SkinRecommendation[];
   notes: string;
   createdAt: string;
@@ -1418,12 +1425,18 @@ export interface SkinScan {
 
 // `faceRegion` is the {x,y,width,height} (0–1 fractions of the photo) the
 // on-screen alignment oval maps to — see SkinScanCamera.tsx. Optional; the
-// backend falls back to a generous center crop without it.
+// backend falls back to a generous center crop without it. `zoneMarkers`
+// (same shape as SkinScan.zoneMarkers above) is the client's own
+// landmark-derived zone positions for this exact photo, if detection
+// produced any — persisted as-is so the result screen (now, and any future
+// visit to this same scan) can anchor markers to real geometry instead of a
+// proportion estimate.
 export function apiScanSkin(payload: {
   photoBase64: string;
   mimeType?: string;
   quizAnswers: Record<string, string>;
   faceRegion?: { x: number; y: number; width: number; height: number };
+  zoneMarkers?: Partial<Record<'forehead' | 'nose' | 'chin' | 'cheekL' | 'cheekR' | 'underEyeL' | 'underEyeR' | 'jawline', { x: number; y: number; width: number; height: number }>>;
   notes?: string;
 }) {
   // isNewProfile: true when the backend's face-match decided this photo
