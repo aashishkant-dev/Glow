@@ -288,17 +288,28 @@ const analyzingStepStyles = StyleSheet.create({
 // screen — same as the bracket overlay's own liveBox-or-fallback split.
 function FillLight({ width, height, face }: { width: number; height: number; face?: { x: number; y: number; width: number; height: number } | null }) {
   if (width <= 0 || height <= 0) return null;
+  // Floor the window at a generous fraction of the actual screen, not just
+  // the raw face box padded a fixed 35%/25% — at a normal selfie distance
+  // a detected face is often well under half the screen's width/height, so
+  // that padding alone left a small oval surrounded by mostly opaque white
+  // (confirmed on-device: the visible preview read as "tiny," the opposite
+  // of the goal). This keeps the real preview the dominant thing on screen
+  // — a slim bright margin for the light-bounce effect, not a peephole —
+  // while still growing past the floor for an unusually close/large face
+  // so the window never actually clips it.
+  const minRx = width * 0.46;
+  const minRy = height * 0.37;
   let cx: number, cy: number, rx: number, ry: number;
   if (face) {
     cx = face.x + face.width / 2;
     cy = face.y + face.height / 2;
-    rx = (face.width * 1.35) / 2;
-    ry = (face.height * 1.25) / 2;
+    rx = Math.max(minRx, (face.width * 1.35) / 2);
+    ry = Math.max(minRy, (face.height * 1.25) / 2);
   } else {
     cx = width / 2;
     cy = height / 2;
-    rx = OVAL_W / 2;
-    ry = OVAL_H / 2;
+    rx = Math.max(minRx, OVAL_W / 2);
+    ry = Math.max(minRy, OVAL_H / 2);
   }
   // A fresh id per render would break the gradient reference (React Native
   // SVG resolves url(#id) by string match) if this were ever memoized/

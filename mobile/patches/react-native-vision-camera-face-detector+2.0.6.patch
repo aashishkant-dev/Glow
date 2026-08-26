@@ -1,3 +1,56 @@
+diff --git a/node_modules/react-native-vision-camera-face-detector/ios/HybridFace.swift b/node_modules/react-native-vision-camera-face-detector/ios/HybridFace.swift
+index f1d44fe..050e633 100644
+--- a/node_modules/react-native-vision-camera-face-detector/ios/HybridFace.swift
++++ b/node_modules/react-native-vision-camera-face-detector/ios/HybridFace.swift
+@@ -61,9 +61,32 @@ final class HybridFace: HybridFaceSpec {
+   ) -> Bounds {
+     let scaleX = config.scaleX
+     let scaleY = config.scaleY
++
++    // config.orientation is only ever set by the LIVE camera-frame path
++    // (HybridFaceDetector.swift passes orientationManager.orientation) —
++    // the static-image path (HybridImageFaceDetector.swift, used for a
++    // just-captured photo) never sets it. The transpose below compensates
++    // for the front/back camera sensor buffer's native landscape
++    // orientation on that live pipeline; a UIImage loaded from a file has
++    // no such buffer-orientation quirk (VisionImage(image:) already reads
++    // the UIImage's own imageOrientation, so `boundingBox` arrives in the
++    // image's own upright x=horizontal/y=vertical space). Applying the
++    // live-pipeline transpose there put every static-image detection in
++    // the wrong place regardless of the caller's own aspect/plausibility
++    // checks — confirmed against a real device screenshot showing scan
++    // zone markers scattered above the actual face.
++    guard let orientation = config.orientation else {
++      return Bounds(
++        width: boundingBox.width * scaleX,
++        height: boundingBox.height * scaleY,
++        x: boundingBox.minX * scaleX,
++        y: boundingBox.minY * scaleY
++      )
++    }
++
+     var width: Double
+     var height: Double
+-    switch config.orientation {
++    switch orientation {
+       case .landscapeLeft, .landscapeRight:
+         width = boundingBox.height * scaleY
+         height = boundingBox.width * scaleX
+diff --git a/node_modules/react-native-vision-camera-face-detector/ios/HybridImageFaceDetector.swift b/node_modules/react-native-vision-camera-face-detector/ios/HybridImageFaceDetector.swift
+index 608050c..d5966a1 100644
+--- a/node_modules/react-native-vision-camera-face-detector/ios/HybridImageFaceDetector.swift
++++ b/node_modules/react-native-vision-camera-face-detector/ios/HybridImageFaceDetector.swift
+@@ -28,8 +28,8 @@ class HybridImageFaceDetector: HybridImageFaceDetectorSpec {
+       uri: try resolveInputImage(image)
+     )
+     let mlImage = VisionImage(image: uiImage)
+-    let width = Double(uiImage.size.height)
+-    let height = Double(uiImage.size.width)
++    let width = Double(uiImage.size.width)
++    let height = Double(uiImage.size.height)
+ 
+     let config = FaceProcessConfig(
+       width: width,
 diff --git a/node_modules/react-native-vision-camera-face-detector/src/hooks/useFaceDetectorOutput.ts b/node_modules/react-native-vision-camera-face-detector/src/hooks/useFaceDetectorOutput.ts
 index 3ae1a88..e7ea172 100644
 --- a/node_modules/react-native-vision-camera-face-detector/src/hooks/useFaceDetectorOutput.ts
