@@ -152,6 +152,7 @@ export function SkinScanResultScreen() {
       meta: scan.hydrationLevel ? `${HYDRATION_LABELS[scan.hydrationLevel]} hydration` : undefined,
       chips: scan.concerns,
       shareCaption: `My Glow skin check-in: ${TONE_LABELS[scan.skinTone]} tone · ${TYPE_LABELS[scan.skinType]} skin ✨`,
+      faceBox: scan.faceBox,
     });
   }
 

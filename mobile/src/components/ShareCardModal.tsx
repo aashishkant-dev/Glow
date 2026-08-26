@@ -3,18 +3,38 @@
  * details (look name/price, or a scan's AI summary/tone/type) baked into a
  * single shareable image, instead of the bare photo the old share button
  * sent. Captures the visible card (ViewShot) and hands it to the OS share
- * sheet, so what a customer sees on Instagram/iMessage is this designed card,
- * not a raw file with no context.
+ * sheet, so what a customer sees on Instagram/iMessage is this designed
+ * card — a purpose-built composition, never a screenshot of the live app
+ * screen (no status bar, no nav chrome, no debug overlay ever enters it).
+ *
+ * Two layout variants (Photo / Stat), switchable before sharing, so a
+ * repeat poster isn't stuck with one rigid template — same ShareCardSpec
+ * data, different composition. Both render at CARD_W×CARD_H points; on any
+ * modern (3x-scale) phone that alone lands react-native-view-shot's default
+ * "device scale" capture at or above 1080px wide with NO resize step —
+ * deliberately not asking it to resize up OR down after the fact, since a
+ * resize (either direction) is what risks softening text/edges after
+ * Instagram's own re-compression, not the source render itself.
  */
 import React, { useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import Svg, { Defs, RadialGradient, Stop, Ellipse } from 'react-native-svg';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ViewShot, { captureRef } from 'react-native-view-shot';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
-import * as MediaLibrary from 'expo-media-library';
+// The package's default entry (`expo-media-library`) calls
+// requireNativeModule() at MODULE-EVALUATION time with no platform guard at
+// all — confirmed live: it crashes the entire web bundle on load (`Cannot
+// find native module 'ExpoMediaLibraryNext'`), before any of this file's
+// own Platform.OS checks ever get a chance to run. `/legacy` is the same
+// underlying native calls but wrapped so unavailability only throws when a
+// function is actually CALLED — which this file already only does behind
+// its own Platform.OS === 'web' guard below (downloadLocalFile never calls
+// a real MediaLibrary.* function on web at all).
+import * as MediaLibrary from 'expo-media-library/legacy';
 import { Colors, Fonts } from '../utils/colors';
 import { GlowMark } from './GlowLogo';
 import { CloseCircleIcon } from './TabIcons';
@@ -27,6 +47,12 @@ export interface ShareCardSpec {
   meta?: string;
   chips?: string[];
   shareCaption: string;
+  // Skin-scan cards only — the real detected face region (0–1 fractions of
+  // the photo, same shape as SkinScan.faceBox) driving the soft glow accent
+  // in the Photo variant. Simply omitted for Look shares (no face detection
+  // there), which is what keeps the glow from ever appearing where it
+  // doesn't apply — no separate "is this a scan" flag needed.
+  faceBox?: { x?: number; y?: number; width?: number; height?: number };
 }
 
 interface Props {
@@ -85,13 +111,16 @@ async function shareLocalFile(uri: string, dialogTitle: string) {
 // covers, and which itself buries "Save Image" a tap or two deep on iOS).
 // expo-media-library's ADD_ONLY permission (NSPhotoLibraryAddUsageDescription,
 // already declared in app.json for exactly this) writes straight into the
-// user's photo library without needing full library read access.
+// user's photo library without needing full library read access — but only
+// if actually REQUESTED as write-only (requestPermissionsAsync's writeOnly
+// param defaults to false, i.e. full read+write, unless passed `true`
+// explicitly; this was silently requesting full access before).
 async function downloadLocalFile(uri: string) {
   if (Platform.OS === 'web') {
     await webDownload(uri);
     return;
   }
-  const { status, canAskAgain } = await MediaLibrary.requestPermissionsAsync();
+  const { status, canAskAgain } = await MediaLibrary.requestPermissionsAsync(true);
   if (status !== 'granted') {
     if (canAskAgain) {
       Alert.alert('Could not save', 'Photo library access was not granted.');
@@ -118,12 +147,191 @@ async function captureCard(shotRef: React.RefObject<any>): Promise<string> {
   return dest;
 }
 
+// Soft radial halo around the real detected face — the one place this card
+// references actual analysis geometry, deliberately NOT as debug UI (no
+// bracket, no dot grid, no label). A quiet gold ring most people will read
+// as "warm light," not "AI markup" — styled as a design element first,
+// informative second. Same radial-gradient technique as the camera
+// screen's own FillLight, so this app has one consistent "soft glow around
+// a face" visual signature rather than a one-off.
+function FaceGlow({ faceBox, width, height }: { faceBox?: ShareCardSpec['faceBox']; width: number; height: number }) {
+  if (!faceBox?.width || !faceBox?.height) return null;
+  const cx = (faceBox.x! + faceBox.width / 2) * width;
+  const cy = (faceBox.y! + faceBox.height / 2) * height;
+  const rx = (faceBox.width / 2) * width * 1.2;
+  const ry = (faceBox.height / 2) * height * 1.12;
+  return (
+    <Svg width={width} height={height} style={StyleSheet.absoluteFill} pointerEvents="none">
+      <Defs>
+        <RadialGradient id="shareFaceGlow" gradientUnits="userSpaceOnUse" cx={cx} cy={cy} rx={rx} ry={ry}>
+          <Stop offset="0.7" stopColor={Colors.gold} stopOpacity="0" />
+          <Stop offset="0.88" stopColor={Colors.gold} stopOpacity="0.24" />
+          <Stop offset="1" stopColor={Colors.gold} stopOpacity="0" />
+        </RadialGradient>
+      </Defs>
+      <Ellipse cx={cx} cy={cy} rx={rx} ry={ry} fill="url(#shareFaceGlow)" />
+    </Svg>
+  );
+}
+
+// Photo-forward variant — the hero photo fills the frame, details anchored
+// bottom over a gradient scrim, closest in spirit to the original design
+// but with real editorial hierarchy (a genuinely large serif headline, not
+// a scaled-down app label) instead of everything reading the same weight.
+function PhotoCard({ card, width, height }: { card: ShareCardSpec; width: number; height: number }) {
+  return (
+    <View style={{ width, height, backgroundColor: Colors.brandDeep }}>
+      <Image source={{ uri: card.photoUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+      <FaceGlow faceBox={card.faceBox} width={width} height={height} />
+      {/* Four stops, not three — holds the top half of the photo genuinely
+          bright (the actual subject stays visible, not just implied under a
+          flat scrim) and concentrates the darkening into the bottom third
+          where the text needs it, instead of a uniform gradient dimming
+          the whole frame evenly. */}
+      <LinearGradient
+        colors={['transparent', 'transparent', 'rgba(18,9,12,0.58)', 'rgba(14,7,10,0.95)']}
+        locations={[0, 0.45, 0.72, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={pcStyles.brandRow}>
+        <GlowMark size={14} petal="rgba(255,255,255,0.88)" petalInner="rgba(255,255,255,0.42)" core={Colors.gold} />
+        <Text style={pcStyles.brandText}>Glow</Text>
+      </View>
+      <View style={[pcStyles.content, { maxHeight: height * 0.6 }]}>
+        <Text style={pcStyles.kicker}>{card.kicker}</Text>
+        <Text style={pcStyles.title} numberOfLines={2}>{card.title}</Text>
+        {/* A curated highlight, not the full report — capped deliberately
+            tighter than what the data can actually hold (Gemini can return
+            up to 6 concerns, a long summary). Confirmed by an actual
+            rendered capture: at 4 chips + 3 subtitle lines this block grew
+            tall enough to overlap the subject's face/eyes, a real
+            compositional bug, not just a style preference. */}
+        {!!card.subtitle && <Text style={pcStyles.subtitle} numberOfLines={2}>{card.subtitle}</Text>}
+        {!!card.meta && <Text style={pcStyles.meta}>{card.meta}</Text>}
+        {!!card.chips?.length && (
+          <View style={pcStyles.chipRow}>
+            {card.chips.slice(0, 3).map((c, i) => (
+              <View key={i} style={pcStyles.chip}><Text style={pcStyles.chipText} numberOfLines={1}>{c}</Text></View>
+            ))}
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+const pcStyles = StyleSheet.create({
+  brandRow: { position: 'absolute', top: 20, left: 20, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: 0.62 },
+  brandText: { color: '#fff', fontSize: 11, fontFamily: Fonts.semibold, letterSpacing: 1.1 },
+  // maxHeight (set at the call site, as a fraction of the real card height)
+  // + overflow:hidden + flex-end is a hard backstop, not the primary fix —
+  // the per-field caps above (2-line title/subtitle, 3 chips) are what
+  // actually keep this block a predictable size; this just guarantees it
+  // can never grow into the subject's face even if that budget is wrong.
+  content: { position: 'absolute', left: 24, right: 24, bottom: 26, overflow: 'hidden', justifyContent: 'flex-end' },
+  kicker: { color: Colors.brandAccent, fontSize: 12, fontFamily: Fonts.bold, letterSpacing: 1.8, marginBottom: 10 },
+  title: { color: '#fff', fontSize: 30, fontFamily: Fonts.display, letterSpacing: -0.4, lineHeight: 34 },
+  subtitle: { color: 'rgba(255,255,255,0.9)', fontSize: 16, fontFamily: Fonts.displayItalic, marginTop: 10, lineHeight: 22 },
+  meta: { color: 'rgba(255,255,255,0.78)', fontSize: 13.5, fontFamily: Fonts.semibold, marginTop: 12 },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 14 },
+  // A soft filled pill, not a 1px stroke — a hairline border is exactly the
+  // kind of fine detail that goes patchy or vanishes after a social
+  // platform's own JPEG re-compression; a solid tinted fill degrades
+  // gracefully instead.
+  chip: { backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 100, paddingHorizontal: 12, paddingVertical: 6 },
+  chipText: { color: '#fff', fontSize: 12, fontFamily: Fonts.medium },
+});
+
+// Stat variant — a warm gradient "poster" instead of a full-bleed photo: a
+// smaller circular portrait as one element among several, big centered
+// serif headline as the actual focus. Reads more like a shareable
+// infographic than a cropped screenshot — genuinely different structure
+// from Photo, not just a recolor of the same layout, so switching between
+// them doesn't feel cosmetic.
+function StatCard({ card, width, height }: { card: ShareCardSpec; width: number; height: number }) {
+  // Confirmed by an actual rendered capture: at the old 0.46 fraction the
+  // photo alone (plus kicker/title/subtitle/meta/chips below it) genuinely
+  // overflowed CARD_H and got clipped by the card's own overflow:hidden —
+  // a real bug, not a hypothetical one. 0.3 leaves real margin even with a
+  // two-line title and wrapped chips, verified against this same capture.
+  const photoSize = width * 0.3;
+  const ringSize = photoSize + 12;
+  return (
+    <View style={{ width, height }}>
+      <LinearGradient colors={[Colors.brandDeep, Colors.brand, '#7A3A4E']} locations={[0, 0.55, 1]} style={StyleSheet.absoluteFill} />
+      {/* Soft ambient glow behind the portrait — a universal design element
+          (not face-position-dependent like PhotoCard's FaceGlow), so it
+          applies just as well to a Look photo as a skin-scan selfie. */}
+      <Svg width={width} height={height * 0.62} style={StyleSheet.absoluteFill} pointerEvents="none">
+        <Defs>
+          <RadialGradient id="shareStatGlow" gradientUnits="userSpaceOnUse" cx={width / 2} cy={height * 0.34} rx={width * 0.62} ry={width * 0.5}>
+            <Stop offset="0" stopColor={Colors.gold} stopOpacity="0.35" />
+            <Stop offset="1" stopColor={Colors.gold} stopOpacity="0" />
+          </RadialGradient>
+        </Defs>
+        <Ellipse cx={width / 2} cy={height * 0.34} rx={width * 0.62} ry={width * 0.5} fill="url(#shareStatGlow)" />
+      </Svg>
+      <View style={scStyles.brandRow}>
+        <GlowMark size={14} petal="rgba(255,255,255,0.9)" petalInner="rgba(255,255,255,0.45)" core={Colors.gold} />
+        <Text style={scStyles.brandText}>Glow</Text>
+      </View>
+      <View style={scStyles.content}>
+        <View style={[scStyles.photoRing, { width: ringSize, height: ringSize, borderRadius: ringSize / 2 }]}>
+          <Image source={{ uri: card.photoUrl }} style={{ width: photoSize, height: photoSize, borderRadius: photoSize / 2 }} contentFit="cover" />
+        </View>
+        <Text style={scStyles.kicker} numberOfLines={1}>{card.kicker}</Text>
+        <Text style={scStyles.title} numberOfLines={2}>{card.title}</Text>
+        {!!card.subtitle && <Text style={scStyles.subtitle} numberOfLines={2}>{card.subtitle}</Text>}
+        {!!card.meta && <Text style={scStyles.meta}>{card.meta}</Text>}
+        {!!card.chips?.length && (
+          <View style={scStyles.chipRow}>
+            {card.chips.slice(0, 2).map((c, i) => (
+              <View key={i} style={scStyles.chip}><Text style={scStyles.chipText} numberOfLines={1}>{c}</Text></View>
+            ))}
+          </View>
+        )}
+      </View>
+    </View>
+  );
+}
+
+const scStyles = StyleSheet.create({
+  brandRow: { position: 'absolute', top: 20, left: 20, flexDirection: 'row', alignItems: 'center', gap: 6, opacity: 0.7 },
+  brandText: { color: '#fff', fontSize: 11, fontFamily: Fonts.semibold, letterSpacing: 1.1 },
+  // flex-start + a fixed paddingTop, not justifyContent:'center' — centered
+  // content that turns out taller than the card (a long title, a wrapped
+  // chip row) clips unpredictably top-and-bottom; top-anchored at least
+  // clips in one consistent, plannable direction, and with the margin
+  // budgeted in below shouldn't need to clip at all in practice.
+  content: { flex: 1, alignItems: 'center', paddingHorizontal: 26, paddingTop: 30 },
+  photoRing: {
+    backgroundColor: 'rgba(255,255,255,0.92)', alignItems: 'center', justifyContent: 'center', marginBottom: 16,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 8 }, shadowOpacity: 0.22, shadowRadius: 16, elevation: 6,
+  },
+  kicker: { color: Colors.goldSoft, fontSize: 11, fontFamily: Fonts.bold, letterSpacing: 1.8, marginBottom: 8, textAlign: 'center' },
+  title: { color: '#fff', fontSize: 25, fontFamily: Fonts.display, letterSpacing: -0.3, lineHeight: 29, textAlign: 'center' },
+  subtitle: { color: 'rgba(255,255,255,0.92)', fontSize: 13.5, fontFamily: Fonts.displayItalic, marginTop: 8, lineHeight: 18.5, textAlign: 'center' },
+  meta: { color: 'rgba(255,255,255,0.85)', fontSize: 12.5, fontFamily: Fonts.semibold, marginTop: 8, textAlign: 'center' },
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12, justifyContent: 'center' },
+  chip: { backgroundColor: 'rgba(255,255,255,0.18)', borderRadius: 100, paddingHorizontal: 12, paddingVertical: 5 },
+  chipText: { color: '#fff', fontSize: 11.5, fontFamily: Fonts.medium },
+});
+
 export function ShareCardModal({ visible, card, onClose }: Props) {
   const insets = useSafeAreaInsets();
+  const { width: winW } = useWindowDimensions();
   const shotRef = useRef<any>(null);
   const [sharing, setSharing] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [variant, setVariant] = useState<'photo' | 'stat'>('photo');
   const busy = sharing || downloading;
+
+  // Bigger than a bare-minimum preview — on any modern 3x-scale phone this
+  // alone is enough for the default (no explicit resize) capture to land
+  // at or above a real 1080px-wide export. See the file header for why no
+  // resize step is deliberately involved at all.
+  const CARD_W = Math.min(380, winW - 56);
+  const CARD_H = CARD_W * (1350 / 1080); // 4:5 — native to both feed and Stories
 
   async function doShare() {
     if (!card || busy) return;
@@ -160,7 +368,19 @@ export function ShareCardModal({ visible, card, onClose }: Props) {
           <CloseCircleIcon size={30} color="rgba(255,255,255,0.85)" />
         </Pressable>
 
-        <View style={styles.cardWrap}>
+        {/* Two structurally different layouts (see PhotoCard/StatCard),
+            not a rigid single template — switching is instant since both
+            render from the exact same ShareCardSpec, just composed
+            differently. */}
+        <View style={styles.variantRow}>
+          {(['photo', 'stat'] as const).map(v => (
+            <Pressable key={v} onPress={() => setVariant(v)} style={[styles.variantPill, variant === v && styles.variantPillActive]}>
+              <Text style={[styles.variantPillText, variant === v && styles.variantPillTextActive]}>{v === 'photo' ? 'Photo' : 'Stat'}</Text>
+            </Pressable>
+          ))}
+        </View>
+
+        <View style={[styles.cardWrap, { width: CARD_W, height: CARD_H }]}>
           {/* Native pinch-to-zoom (ScrollView's own minimumZoomScale/
               maximumZoomScale, no new dependency) — same mechanism already
               used for the full result photo. captureRef below always
@@ -169,41 +389,18 @@ export function ShareCardModal({ visible, card, onClose }: Props) {
               so a capture mid-zoom still comes out as the full, correctly
               framed card. */}
           <ScrollView
-            style={styles.card}
-            contentContainerStyle={styles.cardZoomContent}
+            style={{ width: CARD_W, height: CARD_H }}
+            contentContainerStyle={{ width: CARD_W, height: CARD_H }}
             minimumZoomScale={1}
             maximumZoomScale={3}
             showsHorizontalScrollIndicator={false}
             showsVerticalScrollIndicator={false}
             centerContent
           >
-            <ViewShot ref={shotRef} style={styles.card} options={{ format: 'png', quality: 0.95 }}>
-              <Image source={{ uri: card.photoUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
-              <LinearGradient colors={['transparent', 'rgba(20,10,13,0.55)', 'rgba(20,10,13,0.94)']} locations={[0, 0.5, 1]} style={StyleSheet.absoluteFill} />
-
-              {/* Small watermark-style credit, not a shout — the previous
-                  bold all-caps lockup was the actual complaint (a real
-                  scan/look photo read as "an ad for Glow" more than a
-                  personal share), so this keeps just enough presence to
-                  say where the reading came from. */}
-              <View style={styles.brandRow}>
-                <GlowMark size={13} petal="rgba(255,255,255,0.85)" petalInner="rgba(255,255,255,0.4)" core={Colors.gold} />
-                <Text style={styles.brandText}>Glow</Text>
-              </View>
-
-              <View style={styles.content}>
-                <Text style={styles.kicker}>{card.kicker}</Text>
-                <Text style={styles.title} numberOfLines={2}>{card.title}</Text>
-                {!!card.subtitle && <Text style={styles.subtitle} numberOfLines={3}>{card.subtitle}</Text>}
-                {!!card.meta && <Text style={styles.meta}>{card.meta}</Text>}
-                {!!card.chips?.length && (
-                  <View style={styles.chipRow}>
-                    {card.chips.slice(0, 4).map((c, i) => (
-                      <View key={i} style={styles.chip}><Text style={styles.chipText} numberOfLines={1}>{c}</Text></View>
-                    ))}
-                  </View>
-                )}
-              </View>
+            <ViewShot ref={shotRef} style={{ width: CARD_W, height: CARD_H }} options={{ format: 'png', quality: 0.95 }}>
+              {variant === 'photo'
+                ? <PhotoCard card={card} width={CARD_W} height={CARD_H} />
+                : <StatCard card={card} width={CARD_W} height={CARD_H} />}
             </ViewShot>
           </ScrollView>
         </View>
@@ -222,39 +419,19 @@ export function ShareCardModal({ visible, card, onClose }: Props) {
   );
 }
 
-const CARD_W = 300;
-const CARD_H = CARD_W * 1.25; // 4:5 — matches the stored scan photo's own aspect ratio
-
 const styles = StyleSheet.create({
   backdrop: { flex: 1, backgroundColor: 'rgba(10,6,7,0.92)', alignItems: 'center', justifyContent: 'center' },
   closeBtn: { position: 'absolute', right: 16, zIndex: 2 },
+  variantRow: { flexDirection: 'row', gap: 8, marginBottom: 16, backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: 100, padding: 4 },
+  variantPill: { paddingHorizontal: 18, paddingVertical: 8, borderRadius: 100 },
+  variantPillActive: { backgroundColor: 'rgba(255,255,255,0.16)' },
+  variantPillText: { color: 'rgba(255,255,255,0.55)', fontSize: 13, fontFamily: Fonts.semibold },
+  variantPillTextActive: { color: '#fff' },
   cardWrap: {
-    width: CARD_W, height: CARD_H, borderRadius: 24, overflow: 'hidden',
+    borderRadius: 24, overflow: 'hidden',
     shadowColor: '#000', shadowOffset: { width: 0, height: 16 }, shadowOpacity: 0.4, shadowRadius: 30, elevation: 10,
   },
-  card: { width: CARD_W, height: CARD_H, backgroundColor: Colors.brandDeep },
-  cardZoomContent: { width: CARD_W, height: CARD_H },
-  zoomHint: {
-    color: 'rgba(255,255,255,0.55)', fontSize: 11.5, fontFamily: Fonts.medium,
-    marginTop: 10,
-  },
-  brandRow: {
-    position: 'absolute', top: 14, left: 14,
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    opacity: 0.6,
-  },
-  brandText: { color: '#fff', fontSize: 9.5, fontFamily: Fonts.semibold, letterSpacing: 1 },
-  content: { position: 'absolute', left: 18, right: 18, bottom: 18 },
-  kicker: { color: Colors.brandAccent, fontSize: 10.5, fontFamily: Fonts.bold, letterSpacing: 1.4, marginBottom: 6 },
-  title: { color: '#fff', fontSize: 20, fontFamily: Fonts.display, letterSpacing: -0.3, lineHeight: 25 },
-  subtitle: { color: 'rgba(255,255,255,0.88)', fontSize: 13, fontFamily: Fonts.displayItalic, marginTop: 6, lineHeight: 18 },
-  meta: { color: 'rgba(255,255,255,0.75)', fontSize: 12, fontFamily: Fonts.semibold, marginTop: 8 },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 10 },
-  chip: {
-    backgroundColor: 'rgba(255,255,255,0.16)', borderRadius: 100,
-    paddingHorizontal: 9, paddingVertical: 4, borderWidth: 1, borderColor: 'rgba(255,255,255,0.22)',
-  },
-  chipText: { color: '#fff', fontSize: 10.5, fontFamily: Fonts.medium },
+  zoomHint: { color: 'rgba(255,255,255,0.55)', fontSize: 11.5, fontFamily: Fonts.medium, marginTop: 10 },
   footer: { paddingTop: 18, flexDirection: 'row', gap: 12 },
   shareBtn: {
     backgroundColor: Colors.brand, borderRadius: 100, paddingHorizontal: 32, paddingVertical: 15,

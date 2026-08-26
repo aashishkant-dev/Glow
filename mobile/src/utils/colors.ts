@@ -161,3 +161,11 @@ export const Fonts = {
   displayItalic: 'Fraunces_400Regular_Italic',
   display:       'Fraunces_700Bold',
 } as const;
+
+// One spacing scale, not ad-hoc numbers picked per-screen — the gap between
+// a genuinely designed layout and a "debug view" is usually less about any
+// single value and more about every value coming from the same small set,
+// so rhythm reads as intentional. xs/sm nudge things that sit right next to
+// each other (an icon and its label); md/lg separate related blocks; xl/xxl
+// separate distinct sections.
+export const Spacing = { xs: 4, sm: 8, md: 12, lg: 16, xl: 24, xxl: 32 } as const;
