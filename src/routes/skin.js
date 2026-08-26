@@ -28,6 +28,7 @@ function serializeScan(s) {
     hydrationLevel: s.hydrationLevel || '',
     zoneNotes: s.zoneNotes || {},
     faceBox: s.faceBox || {},
+    zoneMarkers: s.zoneMarkers ?? null,
     recommendations: s.recommendations,
     notes: s.notes,
     createdAt: s.createdAt,
@@ -174,12 +175,37 @@ function resolveCropBox(faceRegion, imgWidth, imgHeight) {
   };
 }
 
+const ZONE_MARKER_KEYS = ['forehead', 'nose', 'chin', 'cheekL', 'cheekR', 'underEyeL', 'underEyeR', 'jawline'];
+
+// Client-computed, per-photo landmark-derived zone marker rects (see
+// deriveZoneMarkers in mobile/src/utils/skinZones.ts) — 0–1 fractions of the
+// photo, same space as faceBox. Only ever display geometry (never fed back
+// into analysis), but still sanitized before it reaches the database: drops
+// any key outside the known 8 zones and any rect missing a finite x/y/
+// width/height, and clamps every value into 0–1 rather than trusting a
+// client-supplied number outright. Returns null (not {}) when nothing
+// survives, so the result screen's "does this scan have real marker
+// geometry" check is a plain truthiness test.
+function sanitizeZoneMarkers(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const clamp01 = (v) => Math.min(1, Math.max(0, typeof v === 'number' && Number.isFinite(v) ? v : NaN));
+  const out = {};
+  for (const key of ZONE_MARKER_KEYS) {
+    const rect = raw[key];
+    if (!rect || typeof rect !== 'object') continue;
+    const x = clamp01(rect.x), y = clamp01(rect.y), width = clamp01(rect.width), height = clamp01(rect.height);
+    if ([x, y, width, height].some(Number.isNaN)) continue;
+    out[key] = { x, y, width, height };
+  }
+  return Object.keys(out).length > 0 ? out : null;
+}
+
 router.post(
   '/scan',
   authenticate,
   async (req, res) => {
     try {
-      const { photoBase64, mimeType = 'image/jpeg', quizAnswers, faceRegion, notes } = req.body;
+      const { photoBase64, mimeType = 'image/jpeg', quizAnswers, faceRegion, zoneMarkers: rawZoneMarkers, notes } = req.body;
       if (!photoBase64) return res.status(400).json({ error: 'photoBase64 required' });
       if (photoBase64.length > 8_000_000) return res.status(413).json({ error: 'Image too large. Maximum 6 MB.' });
       if (notes && notes.length > 300) return res.status(400).json({ error: 'Notes must be 300 characters or fewer' });
@@ -358,6 +384,7 @@ router.post(
             hydrationLevel: result.hydrationLevel || '',
             zoneNotes: result.zoneNotes || {},
             faceBox,
+            zoneMarkers: sanitizeZoneMarkers(rawZoneMarkers),
             recommendations: result.recommendations,
             quizAnswers: quizAnswers || {},
             notes: notes || '',

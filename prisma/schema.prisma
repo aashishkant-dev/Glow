@@ -929,6 +929,17 @@ model SkinScan {
   // fixed crop. "{}" (pre-this-column scans) falls back to that same fixed
   // constant client-side.
   faceBox         Json     @default("{}")
+  // { forehead: {x,y,width,height}, nose: {...}, ... } — landmark-derived
+  // marker rects (see resolveZoneMarkers in skinZones.js/skinZones.ts),
+  // computed once client-side from real ML Kit contour points on the
+  // captured photo and persisted so a past scan's markers render from the
+  // same real geometry every time, not just on the scan that produced
+  // them. Null (not "{}") on any scan captured before this existed, or
+  // whenever the client's contour pass didn't yield usable geometry — the
+  // result screen falls back to the older fixed-proportion-of-faceBox
+  // estimate for those, the same graceful-degradation pattern already
+  // used for zoneNotes' even older 3-zone shape.
+  zoneMarkers     Json?
   // [{ category, title, note }] — small enough, and shaped differently
   // enough per-concern, that a Json array is a better fit than a side table.
   recommendations Json     @default("[]")
