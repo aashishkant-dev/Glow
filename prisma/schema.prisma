@@ -940,6 +940,16 @@ model SkinScan {
   // estimate for those, the same graceful-degradation pattern already
   // used for zoneNotes' even older 3-zone shape.
   zoneMarkers     Json?
+  // { redness: url, texture: url, shine: url, wrinkles: url } — transparent
+  // PNG overlays from the interim heuristic heatmap engine (see
+  // src/utils/skinHeatmaps.js), same pixel dimensions as photoUrl so the
+  // client stacks each directly with zero coordinate translation. Replaces
+  // the old point-marker system entirely — a concern missing its key here
+  // means it had no assessable pixels for this scan (heavy occlusion,
+  // extreme pose, or a scan from before this existed), which the result
+  // screen must treat as "not assessed," never fall back to guessing.
+  // Null (not "{}") on any scan captured before this existed.
+  heatmaps        Json?
   // [{ category, title, note }] — small enough, and shaped differently
   // enough per-concern, that a Json array is a better fit than a side table.
   recommendations Json     @default("[]")

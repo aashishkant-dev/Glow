@@ -8,6 +8,7 @@ const { uploadFile } = require('../utils/storage');
 const { authenticate } = require('../middleware/auth');
 const { analyzeSkin } = require('../utils/skinAnalysis');
 const { analyzeWithGemini } = require('../utils/geminiSkinAnalysis');
+const { generateHeatmaps } = require('../utils/skinHeatmaps');
 
 const router = express.Router();
 
@@ -29,6 +30,7 @@ function serializeScan(s) {
     zoneNotes: s.zoneNotes || {},
     faceBox: s.faceBox || {},
     zoneMarkers: s.zoneMarkers ?? null,
+    heatmaps: s.heatmaps ?? null,
     recommendations: s.recommendations,
     notes: s.notes,
     createdAt: s.createdAt,
@@ -183,9 +185,26 @@ const ZONE_MARKER_KEYS = ['forehead', 'nose', 'chin', 'cheekL', 'cheekR', 'under
 // into analysis), but still sanitized before it reaches the database: drops
 // any key outside the known 8 zones and any rect missing a finite x/y/
 // width/height, and clamps every value into 0–1 rather than trusting a
-// client-supplied number outright. Returns null (not {}) when nothing
-// survives, so the result screen's "does this scan have real marker
-// geometry" check is a plain truthiness test.
+// client-supplied number outright.
+//
+// Returns null ONLY when `raw` itself wasn't a real object — the client's
+// landmark pass never ran at all (old app version, web, detector
+// unavailable) — and mobile's buildZoneMarkers (skinZones.ts) treats that
+// null as license to fall back to the fixed-proportion ZONE_RECTS guess for
+// EVERY zone, since a guess is genuinely the best information available
+// with zero real geometry to work from.
+//
+// A real object that survives sanitization down to `{}` (every key the
+// client sent failed validation, or the client's own landmark pass
+// confidently placed zero zones — heavy occlusion, extreme head pose) is
+// returned as `{}`, not collapsed to null. This used to also return null,
+// which was indistinguishable from "never ran" and meant the WORST
+// detections — the ones occlusion/pose defeated most thoroughly — got the
+// blind per-zone guess for every zone instead of skipping all of them; the
+// two off-face marker reports (a baseball cap, a tilted-back head) are
+// exactly this path. `{}` still reads as falsy-for-"any zones present"
+// wherever code checks `Object.keys(scan.zoneMarkers).length`, but is
+// correctly truthy for "did the real landmark pass run at all."
 function sanitizeZoneMarkers(raw) {
   if (!raw || typeof raw !== 'object') return null;
   const clamp01 = (v) => Math.min(1, Math.max(0, typeof v === 'number' && Number.isFinite(v) ? v : NaN));
@@ -197,7 +216,7 @@ function sanitizeZoneMarkers(raw) {
     if ([x, y, width, height].some(Number.isNaN)) continue;
     out[key] = { x, y, width, height };
   }
-  return Object.keys(out).length > 0 ? out : null;
+  return out;
 }
 
 router.post(
@@ -211,6 +230,34 @@ router.post(
       if (notes && notes.length > 300) return res.status(400).json({ error: 'Notes must be 300 characters or fewer' });
       if (!process.env.BLOB_READ_WRITE_TOKEN) {
         return res.status(500).json({ error: 'File storage is not configured. Contact support.' });
+      }
+
+      // Sanitized here, before any image decode/resize/upload/Gemini work —
+      // reused again below for heatmap generation and the DB write, one
+      // computation. Rejecting a genuinely too-poor photo as early as
+      // possible (this needs nothing but the request body) avoids spending
+      // real decode/upload/API cost on a scan that's going to get bounced
+      // anyway.
+      const sanitizedZoneMarkers = sanitizeZoneMarkers(rawZoneMarkers);
+
+      // A real signal (not a guess) that this specific photo is too
+      // occluded/poorly angled/dark to give a confident read on almost
+      // anything: the client's own on-device landmark pass found usable
+      // geometry for at most 1 of 8 zones. This is exactly the "very poor
+      // photo, face barely detected" case a results screen should never
+      // paper over with a heatmap that reads as complete when it
+      // structurally can't be — reject here instead, with a clear retake
+      // message. Checked ONLY when the client actually ran the landmark
+      // pass (sanitizedZoneMarkers is a real, non-null object) — a legacy/
+      // web client that never attempts it sends null regardless of photo
+      // quality and must not be punished the same way; Gemini's own
+      // faceDetected check further below still runs for those. <= 1 is
+      // deliberately generous — this is a coarse pre-check, not the final
+      // word on photo quality.
+      if (sanitizedZoneMarkers && Object.keys(sanitizedZoneMarkers).length <= 1) {
+        return res.status(400).json({
+          error: "We couldn't get a confident read from that photo — try again with even lighting and your whole face clearly visible, nothing covering your forehead, eyes, or cheeks.",
+        });
       }
 
       const buf = Buffer.from(photoBase64, 'base64');
@@ -255,12 +302,39 @@ router.post(
       // model's own internal tiling actually uses per image regardless of
       // input size — more pixels past that point cost transfer/processing
       // time without adding analysis fidelity.
-      const [{ data: rawPixels, info: rawInfo }, storedBuf, geminiBuf] = await Promise.all([
+      // heatmapPixels: raw RGB at the EXACT SAME resize params as storedBuf
+      // (not just the same target numbers — .resize(fit:'inside') rarely
+      // lands on exactly 1080x1350, see storedBuf's own history of that
+      // exact mismatch breaking marker alignment) so generateHeatmaps'
+      // output lines up pixel-for-pixel with photoUrl with zero client-side
+      // coordinate translation, the same guarantee faceBox already gives
+      // the old marker system.
+      const [{ data: rawPixels, info: rawInfo }, storedBuf, geminiBuf, { data: heatmapPixels, info: heatmapInfo }] = await Promise.all([
         base.clone().extract(pixelBox).resize(40, 40, { fit: 'fill' }).removeAlpha().raw().toBuffer({ resolveWithObject: true }),
         base.clone().resize(1080, 1350, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer(),
         base.clone().resize(900, 1125, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer(),
+        base.clone().resize(1080, 1350, { fit: 'inside', withoutEnlargement: true }).removeAlpha().raw().toBuffer({ resolveWithObject: true }),
       ]);
       const geminiB64 = geminiBuf.toString('base64');
+
+      // Kicked off here (pure CPU pixel math — no dependency on Gemini's
+      // result) so it runs CONCURRENTLY with the several-second Gemini
+      // call below rather than adding to it sequentially, same "start
+      // early, await late" pattern uploadPromise already uses.
+      const heatmapsPromise = generateHeatmaps({
+        buffer: heatmapPixels,
+        info: heatmapInfo,
+        faceBox,
+        zoneMarkers: sanitizedZoneMarkers,
+      }).catch((err) => {
+        // Heatmaps are a display-only enhancement — a bug in this brand
+        // new pixel-math path must never fail the whole scan (the user
+        // already waited through a real photo upload + analysis call by
+        // this point). Missing heatmaps degrade to "not assessed" the same
+        // as a scan that had zero assessable zones, not a lost scan.
+        console.error('[skin] heatmap generation failed:', err.message);
+        return { concerns: {} };
+      });
 
       // Fired off here, not awaited until it's actually needed below (right
       // before the scan is saved) — the upload has zero dependency on the
@@ -361,6 +435,24 @@ router.post(
       const uploaded = await uploadPromise;
       if (!uploaded?.url) return res.status(500).json({ error: 'Photo upload failed. Please try again.' });
 
+      // Each concern's overlay (already awaited, ready by now given it
+      // started concurrently with the Gemini call above) uploads to blob
+      // storage the same way the main photo did; a concern with no
+      // assessable pixels (heatmapsPromise's own null) is simply skipped
+      // here — `heatmaps` ends up missing that key, which the client must
+      // read as "not assessed," never a broken image.
+      const { concerns: heatmapConcerns } = await heatmapsPromise;
+      const heatmapUploadEntries = await Promise.all(
+        Object.entries(heatmapConcerns)
+          .filter(([, c]) => !!c)
+          .map(async ([concern, c]) => {
+            const up = await uploadFile(`skin-scans/${req.user.id}-${Date.now()}-${concern}.png`, c.png, 'image/png');
+            if (!up?.url) return null;
+            return [concern, { url: up.url, label: c.label, severity: c.severity, band: c.band, verdict: c.verdict, education: c.education }];
+          }),
+      );
+      const heatmaps = Object.fromEntries(heatmapUploadEntries.filter(Boolean));
+
       const scan = await prisma.$transaction(async (tx) => {
         // A new profile is only ever actually created here — once a scan is
         // definitely being saved under it — never speculatively during the
@@ -384,7 +476,8 @@ router.post(
             hydrationLevel: result.hydrationLevel || '',
             zoneNotes: result.zoneNotes || {},
             faceBox,
-            zoneMarkers: sanitizeZoneMarkers(rawZoneMarkers),
+            zoneMarkers: sanitizedZoneMarkers,
+            heatmaps: Object.keys(heatmaps).length > 0 ? heatmaps : null,
             recommendations: result.recommendations,
             quizAnswers: quizAnswers || {},
             notes: notes || '',

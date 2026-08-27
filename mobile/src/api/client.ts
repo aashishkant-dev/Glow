@@ -1374,6 +1374,44 @@ export interface SkinRecommendation {
   note: string;
 }
 
+export type SkinHeatmapConcernKey = 'redness' | 'texture' | 'pores' | 'shine' | 'wrinkles';
+
+// One concern's full heuristic read — see src/utils/skinHeatmaps.js's own
+// CONCERN_META for where label/verdict/education/tips come from (templated,
+// severity-banded copy, not a trained model's own free-text output).
+export interface SkinHeatmapConcern {
+  url: string;
+  label: string;
+  // The two ends of THIS concern's own severity gradient bar (e.g.
+  // {low:'Even Tone', high:'Flushed'} for redness) — never a generic
+  // Low/High pair reused across concerns.
+  gradientLabels: { low: string; high: string };
+  // 0-1, the 85th percentile of severity across this concern's assessable
+  // pixels — deliberately not a plain mean (see skinHeatmaps.js's own
+  // comment: a real, localized flag shouldn't get averaged away by a much
+  // larger calm area). Drives the vertical gradient bar's marker position.
+  // The SAME z-score-derived scale and band thresholds apply across every
+  // concern, so comparing severity between concerns (e.g. to sort the
+  // Summary tab worst-first) is comparing like with like.
+  severity: number;
+  // severity rescaled to 0-100, for display where a percent-like number
+  // reads more naturally than a 0-1 float.
+  severityScore: number;
+  band: 'clear' | 'mild' | 'moderate' | 'notable';
+  verdict: string;
+  education: string;
+  // 2-4 short, actionable tips (ingredient categories, not specific SKUs —
+  // there's no product catalog to link yet).
+  tips: string[];
+  // A SEPARATE axis from severity — how much to trust this particular
+  // read, not how bad it is. Computed from real signals (how many of this
+  // concern's own relevant zones were assessable, and how much real pixel
+  // area backs the read), not fabricated. The UI should visibly flag a
+  // 'low' confidence result ("based on limited visibility") rather than
+  // presenting every concern with equal certainty.
+  confidence: { level: 'low' | 'medium' | 'high'; zoneFraction: number; pixelCount: number };
+}
+
 export interface SkinScan {
   id: string;
   // Which physical person this scan belongs to — see SkinProfile below. A
@@ -1409,7 +1447,7 @@ export interface SkinScan {
   // The face region actually used for analysis, as 0–1 fractions of the
   // photo — from on-device face detection when available, or the fixed
   // guide-oval fallback otherwise. {} on scans from before this field
-  // existed (SkinZoneOverlay falls back to the same fixed constant then).
+  // existed.
   faceBox: { x?: number; y?: number; width?: number; height?: number };
   // Per-zone marker rects (0–1 fractions of the photo, same space as
   // faceBox) derived from real ML Kit landmark/contour points on THIS
@@ -1418,6 +1456,15 @@ export interface SkinScan {
   // when detection didn't yield usable geometry, in which case every zone
   // falls back to the ZONE_RECTS proportion estimate as it always has.
   zoneMarkers: Partial<Record<'forehead' | 'nose' | 'chin' | 'cheekL' | 'cheekR' | 'underEyeL' | 'underEyeR' | 'jawline', { x: number; y: number; width: number; height: number }>> | null;
+  // Interim heuristic heatmap overlays — replaces the old point-marker
+  // system entirely (see src/utils/skinHeatmaps.js on the backend). `url`
+  // is a transparent PNG the exact same pixel dimensions as `photoUrl`, so
+  // it stacks directly with no coordinate math. A concern absent from this
+  // object had no assessable pixels for this scan (heavy occlusion,
+  // extreme pose) — the results screen must show that concern as "not
+  // assessed," never fall back to a guess. Null on scans from before this
+  // existed.
+  heatmaps: Partial<Record<SkinHeatmapConcernKey, SkinHeatmapConcern>> | null;
   recommendations: SkinRecommendation[];
   notes: string;
   createdAt: string;

@@ -1,10 +1,9 @@
 /**
  * Corner-bracket scan targeting — the visual language of ID-scanning and
  * professional dermatology-analysis apps (four L-shaped corner marks, not a
- * full outline box). Used identically by the live camera overlay
- * (SkinScanCamera) and the result photo's tappable zone markers
- * (SkinZoneOverlay), so a scan reads as one consistent, deliberate scanning
- * system rather than two different box styles bolted together.
+ * full outline box). Used by SkinScanCamera's live framing ring and status
+ * pills — the same scan-indicator language whether the camera is
+ * searching, poor, or ready.
  */
 import React, { useEffect, useRef } from 'react';
 import { Animated, StyleSheet, View, type ViewStyle } from 'react-native';

@@ -288,4 +288,4 @@ function analyzeSkin({ buffer, channels, quizAnswers }) {
   };
 }
 
-module.exports = { analyzeSkin, QUIZ_QUESTIONS, nearestSkinTone, analyzeSkinPixels, scoreSkinType };
+module.exports = { analyzeSkin, QUIZ_QUESTIONS, nearestSkinTone, analyzeSkinPixels, scoreSkinType, rgbToLab };

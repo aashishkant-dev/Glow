@@ -1,52 +1,36 @@
 /**
- * Shared zone geometry — the sub-rects used both by SkinZoneOverlay (labeled,
- * tappable markers on a finished result photo) and SkinScanCamera's live
- * preview (unlabeled real-time guide lines while framing the shot). One
- * definition so the two never drift apart — a mismatch would mean the live
- * guide points at a different spot than the markers the result screen ends
- * up showing for the exact same face.
+ * Real, per-photo zone geometry derived from ML Kit's own contour/landmark
+ * points on a captured skin-scan photo (see SkinScanCamera.tsx's
+ * detectFaceRegion, the only caller of deriveZoneMarkers below). Historically
+ * this fed a point-marker + tooltip overlay on the result screen
+ * (SkinZoneOverlay/MarkerCallout) — that whole rendering approach has been
+ * replaced by full-region heatmap overlays generated server-side (see
+ * src/utils/skinHeatmaps.js), since a heatmap masks itself to an actual
+ * region and structurally cannot render "on a hat" or "on the ceiling" the
+ * way a coordinate point could.
  *
- * Standard portrait-proportion estimates WITHIN a face box, not per-feature
- * detection — good enough to visually "point at" the right area, not a
- * precision medical measurement.
- *
- * Eight zones (forehead/nose/chin/cheekL/cheekR/underEyeL/underEyeR/
- * jawline) — split out from an earlier 3-zone version (tZone/cheeks/
- * underEye, kept below as LEGACY_ZONE_RECTS) so a scan can point out as much
- * or as little as the photo actually shows: Gemini only writes a note for a
- * zone with something genuinely visible there, so a clear-skinned photo
- * might surface 2-3 markers and a more textured one 6-8, instead of always
- * exactly the same fixed count regardless of the photo.
+ * This file's job now is narrower but still real: computing `zoneMarkers`
+ * (StoredZoneMarkers below) client-side and sending it to the backend, which
+ * uses those same per-zone rects as the source of truth for which regions of
+ * the photo are confidently assessable skin — a zone this pass couldn't
+ * place (occlusion, low confidence) is excluded from the heatmap entirely,
+ * not guessed at, exactly the same "no marker beats a wrong marker"
+ * principle the old point-marker system was built around, just applied to a
+ * region mask instead of a dot.
  */
 
 export type FaceBox = { x: number; y: number; width: number; height: number };
 export type ZoneKey = 'forehead' | 'nose' | 'chin' | 'cheekL' | 'cheekR' | 'underEyeL' | 'underEyeR' | 'jawline';
-export type LegacyZoneKey = 'tZone' | 'cheekL' | 'cheekR' | 'underEye';
-
-// Mirrors DEFAULT_REGION in src/routes/skin.js.
-export const DEFAULT_FACE_BOX: FaceBox = { x: 0.22, y: 0.16, width: 0.56, height: 0.6 };
-
-// Metadata driving both SkinZoneOverlay's tappable markers and
-// SkinScanResultScreen's text list — one source so a zone's label/side never
-// drifts between the photo overlay and the list underneath it.
-export const ZONE_META: { key: ZoneKey; label: string; align: 'left' | 'right' | 'center' }[] = [
-  { key: 'forehead', label: 'Forehead', align: 'center' },
-  { key: 'nose', label: 'Nose', align: 'center' },
-  { key: 'chin', label: 'Chin', align: 'center' },
-  { key: 'cheekL', label: 'Left cheek', align: 'left' },
-  { key: 'cheekR', label: 'Right cheek', align: 'right' },
-  { key: 'underEyeL', label: 'Left under-eye', align: 'left' },
-  { key: 'underEyeR', label: 'Right under-eye', align: 'right' },
-  { key: 'jawline', label: 'Jawline', align: 'center' },
-];
 
 // Fractions OF the face box (not the full photo). Deliberately checked
 // pairwise for actual rectangle overlap, not just eyeballed — the previous
 // values had two real intersections (underEyeL/R clipped into nose's
-// corners, and chin sat almost entirely inside jawline's box), which is
-// what made a scan with several zones active read as visually cluttered
-// rather than 8 distinct, separated markers. Every pair below has a real
-// gap or at most a touching edge, never an overlapping area.
+// corners, and chin sat almost entirely inside jawline's box). Every pair
+// below has a real gap or at most a touching edge, never an overlapping
+// area. Mirrored in src/utils/skinHeatmaps.js on the backend (kept in sync
+// by hand, same convention as DEFAULT_REGION/DEFAULT_FACE_BOX already used
+// across the JS/TS boundary) — the exact width/height a zone gets here is
+// also the shape of its heatmap mask region server-side.
 export const ZONE_RECTS: Record<ZoneKey, FaceBox> = {
   forehead:   { x: 0.22, y: 0.02, width: 0.56, height: 0.20 },
   underEyeL:  { x: 0.14, y: 0.26, width: 0.22, height: 0.09 },
@@ -58,48 +42,12 @@ export const ZONE_RECTS: Record<ZoneKey, FaceBox> = {
   jawline:    { x: 0.06, y: 0.82, width: 0.88, height: 0.12 },
 };
 
-// Coarser 3-zone geometry from before the granular breakdown above — kept
-// only so a scan saved before this change still renders its markers (its
-// zoneNotes only ever has tZone/cheeks/underEye, never the 8 keys above).
-export const LEGACY_ZONE_RECTS: Record<LegacyZoneKey, FaceBox> = {
-  tZone:    { x: 0.30, y: 0.03, width: 0.40, height: 0.58 },
-  cheekL:   { x: 0.04, y: 0.42, width: 0.30, height: 0.30 },
-  cheekR:   { x: 0.66, y: 0.42, width: 0.30, height: 0.30 },
-  underEye: { x: 0.20, y: 0.30, width: 0.60, height: 0.11 },
-};
-
-function toPhotoFrac(rect: FaceBox, faceBox: FaceBox): FaceBox {
-  return {
-    x: faceBox.x + rect.x * faceBox.width,
-    y: faceBox.y + rect.y * faceBox.height,
-    width: rect.width * faceBox.width,
-    height: rect.height * faceBox.height,
-  };
-}
-
-export function zoneRectToPhotoFrac(zone: ZoneKey, faceBox: FaceBox): FaceBox {
-  return toPhotoFrac(ZONE_RECTS[zone], faceBox);
-}
-
-export function legacyZoneRectToPhotoFrac(zone: LegacyZoneKey, faceBox: FaceBox): FaceBox {
-  return toPhotoFrac(LEGACY_ZONE_RECTS[zone], faceBox);
-}
-
-export function resolveFaceBox(raw?: { x?: number; y?: number; width?: number; height?: number } | null): FaceBox {
-  return raw?.width && raw?.height
-    ? { x: raw.x ?? DEFAULT_FACE_BOX.x, y: raw.y ?? DEFAULT_FACE_BOX.y, width: raw.width, height: raw.height }
-    : DEFAULT_FACE_BOX;
-}
-
 // ---- Landmark-derived zone positions -------------------------------------
 //
-// Everything above (ZONE_RECTS) places a zone at a FIXED fraction of the
-// detected face box — a reasonable estimate for a typically-framed face, but
-// not actually anchored to where that zone is on THIS specific photo. The
-// functions below compute a real center for each zone from ML Kit's own
-// contour/landmark points (react-native-vision-camera-face-detector, already
-// installed — see SkinScanCamera.tsx's detectFaceRegion, which is the only
-// caller), reusing ZONE_RECTS' own already-tuned width/height for each zone
+// Computes a real center for each zone from ML Kit's own contour/landmark
+// points (react-native-vision-camera-face-detector, already installed —
+// see SkinScanCamera.tsx's detectFaceRegion, which is the only caller),
+// reusing ZONE_RECTS' own already-tuned width/height for each zone
 // (non-overlapping, visually reasonable) so only the CENTER changes, not the
 // box shape/size.
 //
@@ -130,6 +78,36 @@ export interface RawFacialPoints {
   mouthBottom?: Point;
 }
 
+// ML Kit's own head-pose and eye-openness numbers (Face.pitchAngle/
+// leftEyeOpenProbability/rightEyeOpenProbability — always/optionally present
+// on every detection, see react-native-vision-camera-face-detector's Face
+// type) — the only real, native confidence-adjacent signals this detector
+// exposes. Neither one is a general occlusion detector (there's no "is
+// something covering this feature" API), but each catches a specific,
+// concrete failure mode: a large pitch means the head is tilted enough
+// (back or forward) that 2D forehead/chin landmark geometry stops being
+// trustworthy even when points are returned, and a low eye-open probability
+// means whatever ML Kit is looking at for that eye isn't a clearly open,
+// clearly visible eye (closed, or occluded by hair/a cap brim/a hand) — both
+// exactly the "head tilted back" and "cap" conditions from the reported
+// off-face markers. Eye-open probabilities are subject-relative (ML Kit's
+// own LEFT_EYE/RIGHT_EYE convention), same as the raw contour points, so the
+// caller must apply the same mirrored-based swap before comparing one to the
+// other.
+export interface FaceConfidenceSignals {
+  pitchAngle: number;
+  leftEyeOpenProbability?: number;
+  rightEyeOpenProbability?: number;
+}
+
+// Beyond this many degrees of pitch (chin tipped up or down), the forehead/
+// chin/jawline zones stop getting placed at all — the head tilted back in
+// both reported broken photos is squarely the case this exists for.
+const PITCH_GATE_DEG = 18;
+// Below this, ML Kit isn't looking at a clearly-open, clearly-visible eye —
+// don't trust that eye's contour for an under-eye marker.
+const EYE_OPEN_MIN = 0.4;
+
 function centroid(points: Point[]): Point | null {
   if (!points.length) return null;
   let sx = 0, sy = 0;
@@ -152,6 +130,21 @@ function bottomCentroid(points: Point[], fraction: number): Point | null {
 // face's own pixel bounding box — a single noisy input point putting a
 // marker outside the actual face is exactly the bug this feature exists to
 // fix, so this is a floor/ceiling, not a nicety.
+//
+// A center that needs REAL clamping (more than a few px of rounding slop) to
+// even land inside the face box is rejected outright, not clamped-and-shown.
+// This is the guard against ML Kit's own failure mode under occlusion: it
+// has no concept of "can't see this feature" and no per-point confidence —
+// asked for an eyebrow/eye contour it doesn't actually have visual evidence
+// for (hidden under a cap), it still returns a full point, extrapolated from
+// generic face-proportion priors rather than this photo's real geometry.
+// That point is usually still "roughly near the face" (so a naive in-bounds
+// check wouldn't catch it) but a genuinely on-face point from a clean
+// detection essentially never needs clamping — clamping firing at all is
+// itself the signal something's wrong, so treat it as "couldn't place this
+// zone," same as ML Kit returning no points at all, rather than silently
+// snapping the guess into bounds and displaying it as if it were confident.
+const CLAMP_TOLERANCE_PX = 3;
 function centeredZoneRect(zone: ZoneKey, center: Point | null, faceBoxPx: FaceBox, imgWidth: number, imgHeight: number): FaceBox | null {
   if (!center || imgWidth <= 0 || imgHeight <= 0) return null;
   const template = ZONE_RECTS[zone];
@@ -159,34 +152,51 @@ function centeredZoneRect(zone: ZoneKey, center: Point | null, faceBoxPx: FaceBo
   const heightPx = template.height * faceBoxPx.height;
   const maxLeft = Math.max(faceBoxPx.x, faceBoxPx.x + faceBoxPx.width - widthPx);
   const maxTop = Math.max(faceBoxPx.y, faceBoxPx.y + faceBoxPx.height - heightPx);
-  const left = Math.min(Math.max(center.x - widthPx / 2, faceBoxPx.x), maxLeft);
-  const top = Math.min(Math.max(center.y - heightPx / 2, faceBoxPx.y), maxTop);
+  const idealLeft = center.x - widthPx / 2;
+  const idealTop = center.y - heightPx / 2;
+  const left = Math.min(Math.max(idealLeft, faceBoxPx.x), maxLeft);
+  const top = Math.min(Math.max(idealTop, faceBoxPx.y), maxTop);
+  if (Math.abs(left - idealLeft) > CLAMP_TOLERANCE_PX || Math.abs(top - idealTop) > CLAMP_TOLERANCE_PX) return null;
   return { x: left / imgWidth, y: top / imgHeight, width: widthPx / imgWidth, height: heightPx / imgHeight };
 }
 
+// Already-persisted, landmark-derived rects for a scan (SkinScan.
+// zoneMarkers — 0-1 fractions of the full photo, same space as faceBox
+// itself) — null/undefined for a scan captured before this existed, or
+// where the client's contour pass didn't yield usable geometry at all.
+export type StoredZoneMarkers = Partial<Record<ZoneKey, FaceBox>>;
+
 // Derives real, per-photo zone positions from ML Kit's contour/landmark
 // points. Returns only the zones it could actually place — any zone ML Kit
-// didn't return usable points for is simply absent, letting the caller
-// (buildZoneMarkers) fall back to the ZONE_RECTS estimate for just that one
-// zone rather than an all-or-nothing result.
-export function deriveZoneMarkers(points: RawFacialPoints, faceBoxPx: FaceBox, imgWidth: number, imgHeight: number, mirrored: boolean): Partial<Record<ZoneKey, FaceBox>> {
-  const out: Partial<Record<ZoneKey, FaceBox>> = {};
+// didn't return usable points for (or that failed a confidence check below)
+// is simply absent, which the backend's heatmap masking (skinHeatmaps.js)
+// reads as "exclude this region," never a guess.
+export function deriveZoneMarkers(points: RawFacialPoints, faceBoxPx: FaceBox, imgWidth: number, imgHeight: number, mirrored: boolean, signals: FaceConfidenceSignals): StoredZoneMarkers {
+  const out: StoredZoneMarkers = {};
   const set = (zone: ZoneKey, center: Point | null) => {
     const rect = centeredZoneRect(zone, center, faceBoxPx, imgWidth, imgHeight);
     if (rect) out[zone] = rect;
   };
 
-  const browCentroid = centroid([...(points.leftEyebrowTop || []), ...(points.rightEyebrowTop || [])]);
-  if (browCentroid) set('forehead', { x: browCentroid.x, y: browCentroid.y - faceBoxPx.height * 0.16 });
+  // Forehead/chin/jawline all rely on the head being roughly level — a
+  // sharp pitch (chin tipped up, as in the reported "head tilted back"
+  // photos) foreshortens exactly this geometry, so skip placing any of them
+  // rather than trust a 2D projection that's no longer reliable.
+  const poseReliable = Math.abs(signals.pitchAngle) <= PITCH_GATE_DEG;
+
+  if (poseReliable) {
+    const browCentroid = centroid([...(points.leftEyebrowTop || []), ...(points.rightEyebrowTop || [])]);
+    if (browCentroid) set('forehead', { x: browCentroid.x, y: browCentroid.y - faceBoxPx.height * 0.16 });
+
+    const chinCentroid = bottomCentroid(points.faceContour || [], 0.12)
+      ?? (points.mouthBottom ? { x: points.mouthBottom.x, y: points.mouthBottom.y + faceBoxPx.height * 0.14 } : null);
+    set('chin', chinCentroid);
+
+    set('jawline', bottomCentroid(points.faceContour || [], 0.28));
+  }
 
   const noseCentroid = centroid([...(points.noseBridge || []), ...(points.noseBottom || [])]);
   set('nose', noseCentroid);
-
-  const chinCentroid = bottomCentroid(points.faceContour || [], 0.12)
-    ?? (points.mouthBottom ? { x: points.mouthBottom.x, y: points.mouthBottom.y + faceBoxPx.height * 0.14 } : null);
-  set('chin', chinCentroid);
-
-  set('jawline', bottomCentroid(points.faceContour || [], 0.28));
 
   // ML Kit's LEFT_*/RIGHT_* points are the SUBJECT's own anatomical
   // left/right, not viewer-left/right — a photo of someone shows their own
@@ -198,99 +208,25 @@ export function deriveZoneMarkers(points: RawFacialPoints, faceBoxPx: FaceBox, i
   // preview shown while framing typically is). `mirrored` comes from the
   // captured Photo's own isMirrored flag (see SkinScanCamera.tsx), not an
   // assumption about capture defaults, so this self-corrects either way.
+  // The same swap applies to eye-open probabilities below — they're
+  // reported in the same subject-relative LEFT_EYE/RIGHT_EYE convention as
+  // the contours, so whichever raw eye a zone's contour came from is also
+  // whichever raw probability must gate it.
   const swapLR = !mirrored;
   set('cheekL', (swapLR ? points.rightCheek : points.leftCheek) ?? null);
   set('cheekR', (swapLR ? points.leftCheek : points.rightCheek) ?? null);
 
   const underEyeOffset = faceBoxPx.height * 0.09;
-  const leftEyeC = centroid((swapLR ? points.rightEye : points.leftEye) || []);
-  if (leftEyeC) set('underEyeL', { x: leftEyeC.x, y: leftEyeC.y + underEyeOffset });
-  const rightEyeC = centroid((swapLR ? points.leftEye : points.rightEye) || []);
-  if (rightEyeC) set('underEyeR', { x: rightEyeC.x, y: rightEyeC.y + underEyeOffset });
+  const leftEyeOpen = (swapLR ? signals.rightEyeOpenProbability : signals.leftEyeOpenProbability) ?? 1;
+  const rightEyeOpen = (swapLR ? signals.leftEyeOpenProbability : signals.rightEyeOpenProbability) ?? 1;
+  if (leftEyeOpen >= EYE_OPEN_MIN) {
+    const leftEyeC = centroid((swapLR ? points.rightEye : points.leftEye) || []);
+    if (leftEyeC) set('underEyeL', { x: leftEyeC.x, y: leftEyeC.y + underEyeOffset });
+  }
+  if (rightEyeOpen >= EYE_OPEN_MIN) {
+    const rightEyeC = centroid((swapLR ? points.leftEye : points.rightEye) || []);
+    if (rightEyeC) set('underEyeR', { x: rightEyeC.x, y: rightEyeC.y + underEyeOffset });
+  }
 
   return out;
-}
-
-export interface ZoneNotes {
-  forehead?: string; nose?: string; chin?: string;
-  cheekL?: string; cheekR?: string;
-  underEyeL?: string; underEyeR?: string;
-  jawline?: string;
-  tZone?: string; cheeks?: string; underEye?: string;
-}
-
-export interface ZoneMarker {
-  key: string;
-  label: string;
-  note: string;
-  // null when this scan's landmark pass genuinely ran (storedMarkers is a
-  // real, non-null object) but couldn't confidently place THIS specific
-  // zone — occlusion, a missing contour, an off-face detection for just
-  // that feature. Deliberately NOT filled with the ZONE_RECTS proportion
-  // guess in that case (unlike a legacy scan with no landmark data at all,
-  // where the guess is genuinely the best information available) — a
-  // guessed position for a zone the model itself couldn't place is exactly
-  // how a marker ends up on hair/ceiling/background. The zone's text note
-  // still renders in the list either way; only the photo marker is
-  // skipped. See buildZoneMarkers below for exactly which case is which.
-  rect: FaceBox | null;
-  align: 'left' | 'right' | 'center';
-  // True when `rect` came from this scan's own real landmark geometry
-  // (deriveZoneMarkers, persisted as SkinScan.zoneMarkers) rather than the
-  // ZONE_RECTS proportion estimate — not currently shown in the UI, but a
-  // cheap, honest signal to have on hand rather than needing to re-derive
-  // it later (e.g. for a future "estimated position" affordance).
-  anchored: boolean;
-}
-
-// Already-persisted, landmark-derived rects for THIS scan (SkinScan.
-// zoneMarkers — 0-1 fractions of the full photo, same space as faceBox
-// itself) — null/undefined for a scan captured before this existed, or
-// where the client's contour pass didn't yield usable geometry, in which
-// case every zone falls back to the ZONE_RECTS estimate below exactly as
-// it always has.
-export type StoredZoneMarkers = Partial<Record<ZoneKey, FaceBox>>;
-
-// Single source for "which zones does this scan have something to point
-// at, and where" — SkinZoneOverlay (the tappable photo markers) and
-// SkinScanResultScreen (the list underneath, which also wants the flagged/
-// clear split for ALL 8 zones, not just the flagged ones) both build off
-// this instead of each re-deriving it, so the two views can never drift
-// out of sync with each other.
-export function buildZoneMarkers(zoneNotes: ZoneNotes | undefined, faceBox: FaceBox, storedMarkers?: StoredZoneMarkers | null): ZoneMarker[] {
-  const isGranular = ZONE_META.some(z => !!zoneNotes?.[z.key]);
-  if (isGranular) {
-    return ZONE_META
-      .filter(z => !!zoneNotes?.[z.key])
-      .map(z => {
-        const anchoredRect = storedMarkers?.[z.key];
-        // storedMarkers itself null/undefined: this scan's client never
-        // ran the landmark pass at all (older scan) — the ZONE_RECTS
-        // estimate is genuinely the best information available, same as
-        // always. storedMarkers a real object but missing THIS key: the
-        // pass ran and explicitly could not place this zone — no marker,
-        // not a guess (see the `rect` field's own comment above).
-        const rect = anchoredRect ?? (storedMarkers ? null : zoneRectToPhotoFrac(z.key, faceBox));
-        return {
-          key: z.key,
-          label: z.label,
-          note: zoneNotes![z.key]!,
-          rect,
-          align: z.align,
-          anchored: !!anchoredRect,
-        };
-      });
-  }
-  const markers: ZoneMarker[] = [];
-  if (zoneNotes?.tZone) {
-    markers.push({ key: 'tZone', label: 'T-zone', note: zoneNotes.tZone, rect: legacyZoneRectToPhotoFrac('tZone', faceBox), align: 'center', anchored: false });
-  }
-  if (zoneNotes?.cheeks) {
-    markers.push({ key: 'cheekL', label: 'Cheeks', note: zoneNotes.cheeks, rect: legacyZoneRectToPhotoFrac('cheekL', faceBox), align: 'left', anchored: false });
-    markers.push({ key: 'cheekR', label: 'Cheeks', note: zoneNotes.cheeks, rect: legacyZoneRectToPhotoFrac('cheekR', faceBox), align: 'right', anchored: false });
-  }
-  if (zoneNotes?.underEye) {
-    markers.push({ key: 'underEye', label: 'Under-eye', note: zoneNotes.underEye, rect: legacyZoneRectToPhotoFrac('underEye', faceBox), align: 'center', anchored: false });
-  }
-  return markers;
 }
