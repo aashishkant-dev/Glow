@@ -79,6 +79,19 @@ function ZoomablePhotoModal({ visible, photoUrl, aspect, onClose, onShare }: {
   );
 }
 
+// Honest, specific reason copy for why this scan's heatmaps are an
+// estimate rather than a real Perfect Corp read — surfaced once at the top
+// of the Summary tab (see the ESTIMATED pill on each concern tab for the
+// per-concern reminder). 'not_configured' covers both "vendor not set up
+// yet" and any scan from before this integration existed.
+const ESTIMATED_REASON_COPY: Record<string, string> = {
+  not_configured: "This reading uses our free estimate model, not the full AI Skin Diagnostic — still useful, but less precise.",
+  network_error: "We couldn't reach our live analysis service for this scan, so this is an estimated read. Try a new scan when you're back online for the full analysis.",
+  timeout: 'The live analysis service took too long to respond, so this is an estimated read for this scan.',
+  quota_exceeded: "We've hit our live analysis limit for now, so this is an estimated read. Full analysis will resume shortly.",
+  server_error: 'The live analysis service had an issue, so this is an estimated read for this scan.',
+};
+
 const TONE_LABELS: Record<string, string> = { FAIR: 'Fair', LIGHT: 'Light', MEDIUM: 'Medium', TAN: 'Tan', DEEP: 'Deep', RICH: 'Rich' };
 const TONE_SWATCH: Record<string, string> = { FAIR: '#F5D5C0', LIGHT: '#E8B894', MEDIUM: '#C68863', TAN: '#A9673F', DEEP: '#7A4B32', RICH: '#4A2C20' };
 const TYPE_LABELS: Record<string, string> = { DRY: 'Dry', OILY: 'Oily', COMBINATION: 'Combination', NORMAL: 'Normal', SENSITIVE: 'Sensitive' };
@@ -258,6 +271,16 @@ export function SkinScanResultScreen() {
         <View style={[styles.body, activeTab !== 'summary' && styles.bodyNoTop]}>
           {activeTab === 'summary' && (
             <>
+              {/* Only when this scan's heatmaps came from the free heuristic
+                  fallback, not the real Perfect Corp API — an honest reason
+                  why, not a silent quality downgrade. Absent entirely on a
+                  real vendor-backed read (the common case once configured). */}
+              {!!scan.heatmaps && scan.heatmapSource === 'estimated' && (
+                <View style={styles.estimatedBanner}>
+                  <Text style={styles.estimatedBannerText}>{ESTIMATED_REASON_COPY[scan.heatmapSourceReason || 'not_configured']}</Text>
+                </View>
+              )}
+
               <View style={styles.eyebrowRow}>
                 <SparkleIcon size={13} color={Colors.brand} />
                 <Text style={styles.eyebrow}>{justScanned ? 'AI READING' : 'SCAN DETAILS'}</Text>
@@ -450,6 +473,8 @@ const styles = StyleSheet.create({
 
   body: { padding: 20, gap: 4 },
   bodyNoTop: { paddingTop: 8 },
+  estimatedBanner: { backgroundColor: Colors.surfaceCream, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 14 },
+  estimatedBannerText: { fontSize: 12, fontFamily: Fonts.medium, color: Colors.secondaryLabel, lineHeight: 17 },
   eyebrowRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
   eyebrow: { fontSize: 11, fontFamily: Fonts.semibold, color: Colors.brandDark, letterSpacing: 1.4 },
 

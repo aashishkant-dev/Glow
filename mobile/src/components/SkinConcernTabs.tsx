@@ -37,12 +37,18 @@ export type ConcernTab = 'summary' | SkinHeatmapConcernKey;
 
 // Order + display label — one place so the tab bar and the Summary tab's
 // concern-row list (SkinScanResultScreen) can never drift on ordering.
+// Matches the product spec exactly: Pores, Dryness, Fine Lines & Wrinkles,
+// Blemishes, Uneven Texture, Dark Spots, Redness. Keys are Perfect Corp's
+// own SD concern names (src/utils/perfectCorpClient.js's DST_ACTIONS), used
+// directly rather than an app-invented translation layer.
 export const CONCERN_ORDER: { key: SkinHeatmapConcernKey; label: string }[] = [
+  { key: 'pore', label: 'Pores' },
+  { key: 'moisture', label: 'Dryness' },
+  { key: 'wrinkle', label: 'Fine Lines' },
+  { key: 'acne', label: 'Blemishes' },
+  { key: 'texture', label: 'Uneven Texture' },
+  { key: 'age_spot', label: 'Dark Spots' },
   { key: 'redness', label: 'Redness' },
-  { key: 'texture', label: 'Texture' },
-  { key: 'pores', label: 'Pores' },
-  { key: 'shine', label: 'Shine' },
-  { key: 'wrinkles', label: 'Fine Lines' },
 ];
 
 type Heatmaps = Partial<Record<SkinHeatmapConcernKey, SkinHeatmapConcern>> | null;
@@ -196,7 +202,18 @@ export function ConcernDetailCard({ concernKey, concern, onViewRecommendations }
 
   return (
     <Animated.View style={[detailStyles.card, { opacity }]}>
-      <Text style={detailStyles.title}>{meta.label}</Text>
+      <View style={detailStyles.titleRow}>
+        <Text style={detailStyles.title}>{meta.label}</Text>
+        {/* Real vendor read vs. free heuristic fallback is a genuine
+            accuracy difference the user explicitly asked to always see —
+            never present an estimated read with the same confidence as a
+            licensed vision model's output. */}
+        {concern.source === 'estimated' && (
+          <View style={detailStyles.estimatedPill}>
+            <Text style={detailStyles.estimatedPillText}>ESTIMATED</Text>
+          </View>
+        )}
+      </View>
       <View style={detailStyles.row}>
         <SeverityGradientBar severity={concern.severity} gradientLabels={concern.gradientLabels} />
         <View style={detailStyles.rowBody}>
@@ -233,7 +250,10 @@ export function ConcernDetailCard({ concernKey, concern, onViewRecommendations }
 
 const detailStyles = StyleSheet.create({
   card: { paddingHorizontal: 20, paddingTop: 8, paddingBottom: 4 },
-  title: { fontSize: 15.5, fontFamily: Fonts.display, color: Colors.label, marginBottom: 12 },
+  titleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 12 },
+  title: { fontSize: 15.5, fontFamily: Fonts.display, color: Colors.label },
+  estimatedPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 100, backgroundColor: Colors.surfaceCream },
+  estimatedPillText: { fontSize: 9, fontFamily: Fonts.bold, color: Colors.tertiaryLabel, letterSpacing: 0.5 },
   row: { flexDirection: 'row', gap: 16 },
   rowBody: { flex: 1, gap: 8 },
   verdictRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },

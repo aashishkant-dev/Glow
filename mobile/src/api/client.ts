@@ -85,7 +85,13 @@ async function request<T>(method: Method, path: string, body?: object, auth = tr
       }
       const message =
         (json as any).error || (json as any).message || `Request failed: ${res.status}`;
-      throw new Error(message);
+      const errWithCode: any = new Error(message);
+      // A distinct machine-readable code (LOW_IMAGE_QUALITY, QUOTA_EXCEEDED,
+      // etc. — see routes/skin.js) alongside the human message, so a screen
+      // that needs to render a specific state (not just show `message` in
+      // an Alert) can branch on `err.code` without parsing text.
+      if ((json as any).code) errWithCode.code = (json as any).code;
+      throw errWithCode;
     }
     return sanitizeDecimals(json) as T;
   } catch (err: any) {
@@ -103,10 +109,18 @@ async function request<T>(method: Method, path: string, body?: object, auth = tr
       await new Promise(r => setTimeout(r, 1000));
       return request<T>(method, path, body, auth, retries - 1, timeoutMs);
     }
-    if (err.name === 'AbortError') throw new Error('Connection timed out. Check your internet connection.');
+    if (err.name === 'AbortError') {
+      const e: any = new Error('Connection timed out. Check your internet connection.');
+      e.code = 'TIMEOUT';
+      throw e;
+    }
     // Retries exhausted (or none configured) — a raw native exception
     // string is not something a user should ever see verbatim.
-    if (isNetworkError) throw new Error('Connection lost. Check your internet and try again.');
+    if (isNetworkError) {
+      const e: any = new Error('Connection lost. Check your internet and try again.');
+      e.code = 'NETWORK_ERROR';
+      throw e;
+    }
     throw err;
   }
 }
@@ -1374,14 +1388,28 @@ export interface SkinRecommendation {
   note: string;
 }
 
-export type SkinHeatmapConcernKey = 'redness' | 'texture' | 'pores' | 'shine' | 'wrinkles';
+// Perfect Corp's own SD-tier concern names (src/utils/perfectCorpClient.js's
+// DST_ACTIONS) — used directly as this app's tab keys rather than inventing
+// a translation layer, per the product decision to use the vendor's real
+// field names. 'pore'/'wrinkle'/'acne' etc., not 'pores'/'wrinkles'.
+export type SkinHeatmapConcernKey = 'pore' | 'moisture' | 'wrinkle' | 'acne' | 'texture' | 'age_spot' | 'redness';
 
-// One concern's full heuristic read — see src/utils/skinHeatmaps.js's own
-// CONCERN_META for where label/verdict/education/tips come from (templated,
-// severity-banded copy, not a trained model's own free-text output).
+// One concern's full read — see src/utils/skinConcernContent.js for where
+// label/verdict/education/tips come from (shared, severity-banded copy —
+// same content regardless of which engine below produced the number).
 export interface SkinHeatmapConcern {
   url: string;
   label: string;
+  // Short tab-bar label — same as `label` for most concerns, distinct where
+  // the full label ("Fine Lines & Wrinkles") is too long for a pill.
+  tabLabel: string;
+  // 'perfectcorp' when this concern's severity/mask came from the real
+  // Perfect Corp AI Skin Diagnostic API; 'estimated' when the free
+  // heuristic fallback produced it (vendor not configured, or the live
+  // call failed for this scan — see SkinScan.heatmapSourceReason). The UI
+  // must visibly label an 'estimated' result — never present it with the
+  // same confidence as a licensed vendor read.
+  source: 'perfectcorp' | 'estimated';
   // The two ends of THIS concern's own severity gradient bar (e.g.
   // {low:'Even Tone', high:'Flushed'} for redness) — never a generic
   // Low/High pair reused across concerns.
@@ -1404,12 +1432,19 @@ export interface SkinHeatmapConcern {
   // there's no product catalog to link yet).
   tips: string[];
   // A SEPARATE axis from severity — how much to trust this particular
-  // read, not how bad it is. Computed from real signals (how many of this
-  // concern's own relevant zones were assessable, and how much real pixel
-  // area backs the read), not fabricated. The UI should visibly flag a
-  // 'low' confidence result ("based on limited visibility") rather than
-  // presenting every concern with equal certainty.
-  confidence: { level: 'low' | 'medium' | 'high'; zoneFraction: number; pixelCount: number };
+  // read, not how bad it is. On the 'estimated' path this is computed from
+  // real signals (zone coverage + pixel area); on the 'perfectcorp' path
+  // Perfect Corp's SD schema doesn't publish a per-concern confidence
+  // field, so this reflects "a licensed vision model produced this," not a
+  // fabricated precision claim — zoneFraction/pixelCount are only ever
+  // populated on the 'estimated' path (undefined on 'perfectcorp').
+  confidence: { level: 'low' | 'medium' | 'high'; zoneFraction?: number; pixelCount?: number };
+  // Perfect Corp's raw 0-100 score for this concern (higher = healthier) —
+  // only present on the 'perfectcorp' path. Kept alongside `severity`
+  // (which is already inverted/normalized for the gradient bar) so a
+  // future screen can show the vendor's own number verbatim if useful.
+  rawScore?: number;
+  uiScore?: number;
 }
 
 export interface SkinScan {
@@ -1465,6 +1500,17 @@ export interface SkinScan {
   // assessed," never fall back to a guess. Null on scans from before this
   // existed.
   heatmaps: Partial<Record<SkinHeatmapConcernKey, SkinHeatmapConcern>> | null;
+  // 'perfectcorp' when `heatmaps` came from the real vendor API for this
+  // scan, 'estimated' when the free heuristic fallback produced it — see
+  // each SkinHeatmapConcern's own `source` for the identical per-concern
+  // value (kept at both levels so a screen can show one banner without
+  // reading into an arbitrary concern first). Undefined on scans from
+  // before this existed — treat as 'estimated' (the old heuristic-only
+  // era) for display purposes.
+  heatmapSource?: 'perfectcorp' | 'estimated';
+  // Why heatmapSource is 'estimated' for this specific scan — only present
+  // when it is. Drives the result screen's banner copy.
+  heatmapSourceReason?: 'not_configured' | 'network_error' | 'timeout' | 'quota_exceeded' | 'server_error';
   recommendations: SkinRecommendation[];
   notes: string;
   createdAt: string;
@@ -1481,7 +1527,6 @@ export interface SkinScan {
 export function apiScanSkin(payload: {
   photoBase64: string;
   mimeType?: string;
-  quizAnswers: Record<string, string>;
   faceRegion?: { x: number; y: number; width: number; height: number };
   zoneMarkers?: Partial<Record<'forehead' | 'nose' | 'chin' | 'cheekL' | 'cheekR' | 'underEyeL' | 'underEyeR' | 'jawline', { x: number; y: number; width: number; height: number }>>;
   notes?: string;

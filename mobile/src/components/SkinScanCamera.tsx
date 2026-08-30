@@ -3,14 +3,23 @@
  * NOT a third CameraCapture variant: a diagnostic photo must never go through
  * a color filter (it would corrupt the exact signal being analyzed), so this
  * has no filter carousel at all, forces the front camera, and swaps the
- * usual caption/category compose panel for a short skin quiz + an
- * "Analyzing…" step. What IS reused from CameraCapture is the *pattern* —
- * one flex-column bottom cluster instead of independently-anchored rows —
- * so this starts from the corrected layout, not a second copy of the bug it
+ * usual caption/category compose panel for a brief "Checking your photo…"
+ * beat + an "Analyzing…" step. No manual quiz — removed deliberately, not
+ * an oversight: every real reference this screen is built against (Sephora's
+ * own Smart Skin Scan, Perfect Corp's AI Skin Diagnostic) goes from one
+ * well-lit selfie straight to results in seconds, with a two-stage
+ * "validate capture conditions, THEN analyze" flow instead — which is
+ * exactly what the three live status gates below already do. A face found
+ * on the captured photo goes straight into analysis with no extra tap; a
+ * miss gets an explicit retake prompt instead of a manual "answer this
+ * first" gate. What IS reused from CameraCapture is the *pattern* — one
+ * flex-column bottom cluster instead of independently-anchored rows — so
+ * this starts from the corrected layout, not a second copy of the bug it
  * fixed.
  *
- * Analysis is free/on-device-style pixel math + this quiz (see
- * src/utils/skinAnalysis.js on the backend) — never a paid vision API call.
+ * Analysis is free/on-device-style pixel math (see src/utils/skinAnalysis.js
+ * on the backend) or Gemini vision when configured — never a paid
+ * per-call vision API charged against a manual questionnaire's answers.
  *
  * Camera: react-native-vision-camera (not expo-camera) specifically so the
  * live preview can run a real-time ML Kit face detector via
@@ -53,17 +62,17 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as Haptics from 'expo-haptics';
 import * as Brightness from 'expo-brightness';
 import { Platform } from 'react-native';
-import { useCameraDevice, useCameraPermission, useFrameOutput, usePhotoOutput, type CameraRef, type Photo } from 'react-native-vision-camera';
+import { useCameraDevice, useCameraPermission, useFrameOutput, usePhotoOutput, type CameraFrameOutput, type CameraRef, type Photo } from 'react-native-vision-camera';
 import { Camera as FaceDetectCamera, useImageFaceDetector, type Face as LiveFace } from 'react-native-vision-camera-face-detector';
 import { runOnJS } from 'react-native-worklets';
 import * as FileSystem from 'expo-file-system/legacy';
 import { Colors, Fonts } from '../utils/colors';
 import { GlowMark } from './GlowLogo';
 import { SparkleIcon } from './BeautyIcons';
-import { SKIN_QUIZ_QUESTIONS } from '../data/skinQuiz';
 import { apiScanSkin, SkinScan } from '../api/client';
 import { tapLight, tapWarning } from '../utils/haptics';
 import { ScanBracket } from './ScanBracket';
+import { ErrorBoundary } from './ErrorBoundary';
 import { deriveZoneMarkers, type RawFacialPoints, type StoredZoneMarkers, type FaceConfidenceSignals } from '../utils/skinZones';
 
 function stripDataUrlPrefix(value: string): string {
@@ -336,7 +345,7 @@ function buildTips(previousScan?: SkinScan | null): string[] {
   return tips;
 }
 
-type Step = 'camera' | 'quiz' | 'analyzing';
+type Step = 'camera' | 'reviewing' | 'analyzing';
 
 function AnalyzingStepRow({ label, done, active }: { label: string; done: boolean; active?: boolean }) {
   return (
@@ -415,6 +424,90 @@ function ringGeometry(width: number, height: number, face?: { x: number; y: numb
   return { left: width / 2 - OVAL_W / 2, top: height / 2 - OVAL_H / 2, width: OVAL_W, height: OVAL_H };
 }
 
+// Real per-frame brightness via react-native-vision-camera's Nitro
+// useFrameOutput, wired to react-native-worklets through the separately
+// installed react-native-vision-camera-worklets package. The Y (luma)
+// plane's raw bytes are genuine per-pixel brightness with zero ML model
+// needed — averaging a stride-sampled subset of them (not every byte, to
+// keep this cheap enough to run every frame) gives a real scene brightness
+// reading, and the fraction of very-dark sampled pixels is a cheap proxy
+// for "harsh, unevenly lit" rather than "evenly dim." pixelFormat 'yuv' +
+// enablePreviewSizedOutputBuffers keep this on the cheap zero-conversion
+// path — see useFrameOutput's own doc comment on why 'yuv' (not 'rgb') is
+// right when only CPU pixel access is needed, not GPU rendering.
+//
+// A SEPARATE component, not inline in SkinScanCamera, specifically so it
+// can be wrapped in an <ErrorBoundary fallback={null}> at the call site.
+// useFrameOutput calls into the native worklets module SYNCHRONOUSLY during
+// this component's first render (inside a useMemo) — if the app was built
+// without a full native rebuild for the newly-added
+// react-native-vision-camera-worklets dependency (a plain JS/Metro reload
+// is NOT enough), that call throws immediately. Isolated in its own
+// component, that throw is caught by the boundary and this piece alone
+// disappears (onOutputReady/onSample simply never fire); inline in the main
+// component, the same throw would crash the ENTIRE camera screen, taking
+// working position/angle gating and the shutter down with it over a
+// completely optional lighting nicety. lightingSample staying null forever
+// is already a handled case (see lightingGate's own comment on the grace-
+// period fallback) — this just makes "the native module isn't linked" hit
+// that exact same safe path instead of a hard crash.
+function LightingSensor({ onSample, onOutputReady }: {
+  onSample: (s: { avgLuma: number; darkFraction: number }) => void;
+  onOutputReady: (output: CameraFrameOutput) => void;
+}) {
+  const lastLightingSampleAtRef = useRef(0);
+  const output = useFrameOutput({
+    pixelFormat: 'yuv',
+    enablePreviewSizedOutputBuffers: true,
+    onFrame(frame) {
+      'worklet';
+      const now = Date.now();
+      // Throttles the EXPENSIVE part (sampling + averaging the frame) at
+      // the source, not just the React state update after — mutated from
+      // inside the worklet, which runs on its own persistent
+      // thread/runtime, so this plain ref (not a React state value) is the
+      // correct primitive: the same compiled worklet function is reused
+      // for every frame rather than recreated, so mutations to a captured
+      // ref persist across calls exactly like the vision-camera
+      // community's own documented frame-skipping pattern.
+      if (now - lastLightingSampleAtRef.current < 350) {
+        frame.dispose();
+        return;
+      }
+      lastLightingSampleAtRef.current = now;
+      if (!frame.isPlanar) {
+        frame.dispose();
+        return;
+      }
+      const planes = frame.getPlanes();
+      if (planes.length === 0) {
+        frame.dispose();
+        return;
+      }
+      // Plane 0 of a YUV frame is always the full-resolution Y (luma)
+      // plane — exactly the channel that represents brightness, with no
+      // color information to discard first.
+      const luma = new Uint8Array(planes[0].getPixelBuffer());
+      frame.dispose();
+      const len = luma.length;
+      if (len === 0) return;
+      const STRIDE = 41; // prime — avoids landing on a repeating row/column pattern
+      const DARK_BYTE_THRESHOLD = 40; // 0-255 luma
+      let sum = 0, dark = 0, sampled = 0;
+      for (let i = 0; i < len; i += STRIDE) {
+        const v = luma[i];
+        sum += v;
+        if (v < DARK_BYTE_THRESHOLD) dark++;
+        sampled++;
+      }
+      if (sampled === 0) return;
+      runOnJS(onSample)({ avgLuma: sum / sampled, darkFraction: dark / sampled });
+    },
+  });
+  useEffect(() => { onOutputReady(output); }, [output, onOutputReady]);
+  return null;
+}
+
 export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: Props) {
   const insets = useSafeAreaInsets();
   const { width: winW, height: winH } = useWindowDimensions();
@@ -474,73 +567,14 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
   // Real per-frame brightness — the one framing signal the live ring
   // couldn't previously give any real answer on (see the old captureState
   // comment, now below, on why it never claimed to detect "poor light").
-  // useFrameOutput (react-native-vision-camera's Nitro frame-access API,
-  // wired to react-native-worklets via the newly added
-  // react-native-vision-camera-worklets) streams real YUV frames; the Y
-  // (luma) plane's raw bytes are genuine per-pixel brightness with zero ML
-  // model needed — averaging a stride-sampled subset of them (not every
-  // byte, to keep this cheap enough to run every frame) gives a real scene
-  // brightness reading, and the fraction of very-dark sampled pixels is a
-  // cheap proxy for "harsh, unevenly lit" rather than "evenly dim."
-  // pixelFormat 'yuv' + enablePreviewSizedOutputBuffers keep this on the
-  // cheap zero-conversion path — see useFrameOutput's own doc comment on
-  // why 'yuv' (not 'rgb') is the right format when only CPU pixel access is
-  // needed, not GPU rendering.
+  // The actual worklet/useFrameOutput logic lives in LightingSensor below,
+  // rendered inside an ErrorBoundary — see that component's own header
+  // comment for why this needs to be a separate child, not inline here.
   const [lightingSample, setLightingSample] = useState<{ avgLuma: number; darkFraction: number } | null>(null);
-  // Throttles the EXPENSIVE part (sampling + averaging the frame) at the
-  // source, not just the React state update after — mutated from inside the
-  // worklet, which runs on its own persistent thread/runtime, so this plain
-  // ref (not a React state value) is the correct primitive here: the same
-  // compiled worklet function is reused for every frame rather than
-  // recreated, so mutations to a captured ref persist across calls exactly
-  // like the vision-camera community's own documented frame-skipping
-  // pattern for frame processors.
-  const lastLightingSampleAtRef = useRef(0);
-  const LIGHTING_SAMPLE_INTERVAL_MS = 350;
-  const LIGHTING_SAMPLE_STRIDE = 41; // prime — avoids landing on a repeating row/column pattern
-  const LIGHTING_DARK_BYTE_THRESHOLD = 40; // 0-255 luma
-  const lightingOutput = useFrameOutput({
-    pixelFormat: 'yuv',
-    enablePreviewSizedOutputBuffers: true,
-    onFrame(frame) {
-      'worklet';
-      const now = Date.now();
-      if (now - lastLightingSampleAtRef.current < LIGHTING_SAMPLE_INTERVAL_MS) {
-        frame.dispose();
-        return;
-      }
-      lastLightingSampleAtRef.current = now;
-      if (!frame.isPlanar) {
-        frame.dispose();
-        return;
-      }
-      const planes = frame.getPlanes();
-      if (planes.length === 0) {
-        frame.dispose();
-        return;
-      }
-      // Plane 0 of a YUV frame is always the full-resolution Y (luma)
-      // plane — exactly the channel that represents brightness, with no
-      // color information to discard first.
-      const luma = new Uint8Array(planes[0].getPixelBuffer());
-      frame.dispose();
-      const len = luma.length;
-      if (len === 0) return;
-      let sum = 0, dark = 0, sampled = 0;
-      for (let i = 0; i < len; i += LIGHTING_SAMPLE_STRIDE) {
-        const v = luma[i];
-        sum += v;
-        if (v < LIGHTING_DARK_BYTE_THRESHOLD) dark++;
-        sampled++;
-      }
-      if (sampled === 0) return;
-      runOnJS(setLightingSample)({ avgLuma: sum / sampled, darkFraction: dark / sampled });
-    },
-  });
+  const [lightingOutput, setLightingOutput] = useState<CameraFrameOutput | null>(null);
 
   const [step, setStep] = useState<Step>('camera');
   const [shot, setShot] = useState<{ uri: string; base64: string; mimeType: string; faceRegion: FaceRegion | null; zoneMarkers: StoredZoneMarkers | null } | null>(null);
-  const [answers, setAnswers] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
   // A failed capture (bad temp-file write, unreadable file, etc.) used to
   // just console.error and silently reset back to a tappable shutter —
@@ -701,7 +735,6 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
   function reset() {
     setStep('camera');
     setShot(null);
-    setAnswers({});
     setCameraReady(false);
     setError(null);
     setNoFaceWarning(false);
@@ -754,7 +787,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
       // relationship to it.
       const { width: imgWidth, height: imgHeight } = await getImageSize(uri);
 
-      setStep('quiz');
+      setStep('reviewing');
       setDetectingFace(true);
       setNoFaceWarning(false);
       // isMirrored decides which side ML Kit's anatomical LEFT_CHEEK/
@@ -768,9 +801,20 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
           faceRegion, noFaceDetected, zoneMarkerKeys: zoneMarkers ? Object.keys(zoneMarkers) : null,
         });
       }
-      setShot({ uri, base64: stripDataUrlPrefix(base64), mimeType: 'image/jpeg', faceRegion, zoneMarkers });
+      const newShot = { uri, base64: stripDataUrlPrefix(base64), mimeType: 'image/jpeg', faceRegion, zoneMarkers };
+      setShot(newShot);
       setNoFaceWarning(noFaceDetected);
       setDetectingFace(false);
+      // A face WAS found on the captured still — go straight to analysis,
+      // no manual "looks good?" tap required (see submit's own comment on
+      // why). A miss stays on 'reviewing' and shows a clear retake prompt
+      // instead — real, actionable feedback before spending an upload +
+      // Gemini call on a photo likely to get rejected anyway. Deliberately
+      // NOT awaited and NOT an early return — this still needs to fall
+      // through to setCapturing(false) below exactly like the miss case
+      // does; submit() manages the 'analyzing'/'reviewing' step transitions
+      // entirely on its own from here.
+      if (!noFaceDetected) submit(newShot);
     } catch (err) {
       console.error('[SkinScanCamera] shoot failed', err);
       tapWarning();
@@ -780,13 +824,6 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
     }
     setCapturing(false);
   }
-
-  function selectAnswer(questionId: string, choiceId: string) {
-    tapLight();
-    setAnswers(prev => ({ ...prev, [questionId]: choiceId }));
-  }
-
-  const allAnswered = SKIN_QUIZ_QUESTIONS.every(q => !!answers[q.id]);
 
   // The real analysis is one request/response — Gemini doesn't hand back
   // incremental progress — but showing it as a flat single spinner made the
@@ -815,9 +852,9 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
     'Reading your photo…',
     'Detecting your face…',
     'Checking skin tone & hydration…',
-    'Analyzing texture & pores…',
-    'Checking for redness & shine…',
-    'Tracing fine lines…',
+    'Analyzing pores, texture & dryness…',
+    'Checking for redness, dark spots & blemishes…',
+    'Tracing fine lines & wrinkles…',
     'Writing your personalized recommendations…',
   ];
   const [analyzingStage, setAnalyzingStage] = useState(0);
@@ -836,24 +873,30 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
     Animated.timing(analyzingTextFade, { toValue: 1, duration: 200, useNativeDriver: true }).start();
   }, [analyzingStage, analyzingTextFade]);
 
-  async function submit() {
-    if (!shot || !allAnswered) return;
+  // Takes the just-captured shot directly rather than reading it off state —
+  // called immediately from shoot() the instant on-device detection confirms
+  // a face, before the setShot() that triggered it could have committed and
+  // re-rendered. No quiz answers: every real reference this camera screen is
+  // built against (Sephora's own Smart Skin Scan, Perfect Corp's AI Skin
+  // Diagnostic) goes straight from one well-lit selfie to results in
+  // seconds — no manual questionnaire gates the scan itself.
+  async function submit(shotToSubmit: typeof shot) {
+    if (!shotToSubmit) return;
     setStep('analyzing');
     setError(null);
     try {
       const { scan, bookCategory, isNewProfile } = await apiScanSkin({
-        photoBase64: shot.base64,
-        mimeType: shot.mimeType,
-        quizAnswers: answers,
-        faceRegion: shot.faceRegion || undefined,
-        zoneMarkers: shot.zoneMarkers || undefined,
+        photoBase64: shotToSubmit.base64,
+        mimeType: shotToSubmit.mimeType,
+        faceRegion: shotToSubmit.faceRegion || undefined,
+        zoneMarkers: shotToSubmit.zoneMarkers || undefined,
       });
       reset();
       onComplete(scan, bookCategory, isNewProfile);
     } catch (err: any) {
       console.error('[SkinScanCamera] scan failed', err);
       setError(err?.message || 'Could not analyze your photo. Please try again.');
-      setStep('quiz');
+      setStep('reviewing');
     }
   }
 
@@ -926,19 +969,22 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
   const angleGate: Gate = maxTilt == null ? 'red' : maxTilt <= 10 ? 'green' : maxTilt <= 20 ? 'amber' : 'red';
   const angleReason = maxTilt == null ? 'Look straight at the camera' : angleGate === 'red' ? 'Straighten your head' : 'Almost straight';
 
-  // --- Lighting: real per-frame brightness (see lightingOutput above) ---
+  // --- Lighting: real per-frame brightness (see LightingSensor above) ---
   // `lightingSample` starts null and only ever gets its first value once
   // the frame-output worklet has actually fired — this is new, on-device
   // native plumbing (react-native-vision-camera-worklets) that could not be
-  // verified against a real device from where this was written. Rather
-  // than let a worklet that silently never fires permanently red-light the
-  // shutter (bricking capture entirely), a short grace window is given for
-  // a first sample to arrive; past it with still nothing, lighting is
-  // treated as passing (not blocking) rather than failing closed — the
-  // same "no verified signal" outcome as before this feature existed, not
-  // a worse one. `__DEV__` logging below makes that exact situation
-  // impossible to miss if it happens, instead of silently masking a broken
-  // frame output as "good light."
+  // verified against a real device from where this was written, and stays
+  // null forever both if that native module was never rebuilt into the app
+  // binary (LightingSensor's ErrorBoundary catches that throw — see its own
+  // comment) and if it's linked but the callback simply never fires for
+  // some other reason. Rather than let either case permanently red-light
+  // the shutter (bricking capture entirely over an optional lighting
+  // nicety), a short grace window is given for a first sample to arrive;
+  // past it with still nothing, lighting is treated as passing (not
+  // blocking) rather than failing closed — the same "no verified signal"
+  // outcome as before this feature existed, not a worse one. `__DEV__`
+  // logging below makes that exact situation impossible to miss if it
+  // happens, instead of silently masking it as "good light."
   const LIGHTING_GRACE_MS = 1200;
   const lightingGraceElapsed = Date.now() - cameraActiveSinceRef.current > LIGHTING_GRACE_MS;
   const lightingGate: Gate = lightingSample == null
@@ -1000,13 +1046,23 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
             camera's actual supported start/stop path — synchronous,
             main-thread-coordinated — instead of relying on unmount +
             eventual GC to tear down a native capture session. */}
+        {/* Rendered whenever the camera itself is (not gated on step) so its
+            hook runs early and lightingOutput is ready by the time the
+            Camera below needs it. fallback={null}: see LightingSensor's own
+            header comment — losing this is silently invisible, not a
+            broken screen. */}
+        {hasPermission && device != null && (
+          <ErrorBoundary fallback={null}>
+            <LightingSensor onSample={setLightingSample} onOutputReady={setLightingOutput} />
+          </ErrorBoundary>
+        )}
         {hasPermission && device != null && (
           <FaceDetectCamera
             ref={cameraRef}
             style={StyleSheet.absoluteFill}
             device={device}
             isActive={visible && step === 'camera'}
-            outputs={[photoOutput, lightingOutput]}
+            outputs={lightingOutput ? [photoOutput, lightingOutput] : [photoOutput]}
             onFacesDetected={onFacesDetected}
             onError={(err: Error) => console.error('[SkinScanCamera] camera error', err)}
             performanceMode="fast"
@@ -1107,9 +1163,18 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
               <View style={{ width: 42 }} />
             </View>
 
-            {/* Pushed down from its old insets.top+60 to make room for the
-                status pill row above it, which now occupies that space. */}
-            {cameraReady && !!tips[tipIndex] && (
+            {/* Setup tips (remove glasses, clear your forehead, face a
+                window) and the three live status pills were both trying to
+                occupy the same "top of screen" attention at once — real
+                clutter, not a styling nitpick. They're now mutually
+                exclusive instead of always-both-visible: tips only show
+                before any face is being tracked at all (positionGate ===
+                'red', liveBox null) — genuinely "how do I get set up"
+                advice for that moment — and disappear the instant a face is
+                found, when the pills' own specific, real-time feedback
+                (Lighting/Look Straight/Position) is strictly more useful
+                than a generic rotating tip competing for the same space. */}
+            {cameraReady && positionGate === 'red' && !!tips[tipIndex] && (
               <Animated.View style={[styles.tipCard, { top: insets.top + 98, opacity: tipFade }]} pointerEvents="none">
                 <SparkleIcon size={12} color="#fff" />
                 <Text style={styles.tipCardText}>{tips[tipIndex]}</Text>
@@ -1171,27 +1236,26 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
           </View>
         )}
 
-        {step === 'quiz' && shot && (
-          <View style={styles.quizRoot}>
-            {/* justifyContent: 'center' on the content container (which
-                needs the ScrollView's own flex:1 to have a bounded height
-                to center WITHIN) — the quiz is down to one question, so
-                stretching a scroll area to fill the whole screen and
-                pinning the buttons to the very bottom left a large dead
-                gap between them; a short screen now reads as intentionally
-                compact instead of broken. Still scrolls normally if
-                content ever grows past one screen (e.g. error banner +
-                warning banner + question all showing on a small device). */}
+        {/* No quiz step anymore — a face found on the captured still goes
+            straight into submit()/'analyzing' from shoot() itself (see its
+            own comment on why: every real reference this screen is built
+            against skips a manual questionnaire for the scan). This step is
+            genuinely visible only for a brief "Checking your photo…" beat,
+            or — when on-device detection came back empty — an explicit
+            retake prompt instead of silently pressing on into an upload +
+            Gemini call that's very likely to get rejected anyway. */}
+        {step === 'reviewing' && shot && (
+          <View style={styles.reviewRoot}>
             <ScrollView
-              style={styles.quizScroll}
+              style={styles.reviewScroll}
               contentContainerStyle={{ flexGrow: 1, justifyContent: 'center', paddingTop: insets.top + 20, paddingBottom: insets.bottom + 24, paddingHorizontal: 20 }}
             >
-              <View style={styles.quizPhotoRow}>
-                <Image source={{ uri: shot.uri }} style={styles.quizPhotoThumb} contentFit="cover" />
+              <View style={styles.reviewPhotoRow}>
+                <Image source={{ uri: shot.uri }} style={styles.reviewPhotoThumb} contentFit="cover" />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.quizTitle}>One quick question</Text>
-                  <Text style={styles.quizSubtitle}>
-                    {detectingFace ? 'Checking your photo…' : 'Our AI reads the rest straight from your photo.'}
+                  <Text style={styles.reviewTitle}>{detectingFace ? 'Checking your photo…' : "Let's try that again"}</Text>
+                  <Text style={styles.reviewSubtitle}>
+                    {detectingFace ? 'One second.' : "We couldn't clearly see a face in this one."}
                   </Text>
                 </View>
               </View>
@@ -1203,49 +1267,25 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
               )}
 
               {/* Real on-device face detection (not Gemini — free, instant,
-                  no rate limit) came back empty for this photo. Not a hard
-                  block: Gemini still gets the final say server-side, and a
-                  detection miss in tricky lighting doesn't always mean
-                  Gemini will miss it too — but worth flagging before
-                  spending an upload + API call on it. */}
-              {noFaceWarning && (
-                <View style={styles.faceWarningBanner}>
-                  <Text style={styles.faceWarningBannerText}>We couldn't clearly detect a face in this photo. You can retake it below, or continue anyway.</Text>
-                </View>
-              )}
-
-              {SKIN_QUIZ_QUESTIONS.map(q => (
-                <View key={q.id} style={styles.questionCard}>
-                  <Text style={styles.questionText}>{q.question}</Text>
-                  <View style={styles.choiceGrid}>
-                    {q.choices.map(c => {
-                      const active = answers[q.id] === c.id;
-                      return (
-                        <Pressable
-                          key={c.id}
-                          style={[styles.choicePill, active && styles.choicePillActive]}
-                          onPress={() => selectAnswer(q.id, c.id)}
-                        >
-                          <Text style={[styles.choicePillText, active && styles.choicePillTextActive]}>{c.label}</Text>
-                        </Pressable>
-                      );
-                    })}
+                  no rate limit) came back empty for this photo — a clear
+                  "we couldn't get a good reading" state instead of pressing
+                  on into a results screen built on data that was never
+                  confidently there, or spending an upload + Gemini call on
+                  a photo the backend's own low-confidence gate is very
+                  likely to reject anyway (see routes/skin.js). Retake is
+                  the only action here on purpose — no "continue anyway";
+                  the old escape hatch just deferred the same rejection by
+                  several seconds instead of preventing it. */}
+              {noFaceWarning && !detectingFace && (
+                <>
+                  <View style={styles.faceWarningBanner}>
+                    <Text style={styles.faceWarningBannerText}>Try even, front-facing light with your whole face — including your forehead — clearly in frame.</Text>
                   </View>
-                </View>
-              ))}
-
-              <View style={styles.quizButtonRow}>
-                <Pressable onPress={() => { setShot(null); setStep('camera'); }} style={styles.retakeBtn}>
-                  <Text style={styles.retakeBtnText}>Retake</Text>
-                </Pressable>
-                <Pressable
-                  style={[styles.analyzeBtn, !allAnswered && styles.analyzeBtnDisabled]}
-                  onPress={submit}
-                  disabled={!allAnswered}
-                >
-                  <Text style={styles.analyzeBtnText}>Analyze my skin ✨</Text>
-                </Pressable>
-              </View>
+                  <Pressable onPress={() => { setShot(null); setStep('camera'); }} style={styles.retakeBtnFull}>
+                    <Text style={styles.retakeBtnFullText}>Retake photo</Text>
+                  </Pressable>
+                </>
+              )}
             </ScrollView>
           </View>
         )}
@@ -1260,7 +1300,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
             <View style={styles.analyzingSteps}>
               <AnalyzingStepRow label="Face detected" done={analyzingStage >= 1} />
               <AnalyzingStepRow label="Tone, type & hydration read" done={analyzingStage >= 3} active={analyzingStage >= 1 && analyzingStage < 3} />
-              <AnalyzingStepRow label="Texture, redness, shine & fine lines checked" done={analyzingStage >= 6} active={analyzingStage >= 3 && analyzingStage < 6} />
+              <AnalyzingStepRow label="Pores, texture, redness, dark spots & fine lines checked" done={analyzingStage >= 6} active={analyzingStage >= 3 && analyzingStage < 6} />
               <AnalyzingStepRow label="Personalized recommendations" done={false} active={analyzingStage >= 6} />
             </View>
           </View>
@@ -1288,7 +1328,12 @@ const styles = StyleSheet.create({
     position: 'absolute', left: 0, right: 0, zIndex: 1,
     flexDirection: 'row', justifyContent: 'center', gap: 8,
   },
-  pill: { borderRadius: 100, paddingHorizontal: 12, paddingVertical: 6 },
+  pill: {
+    borderRadius: 100, paddingHorizontal: 12, paddingVertical: 6,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4,
+    elevation: 3,
+  },
   pillText: { color: '#fff', fontSize: 11, fontFamily: Fonts.semibold, letterSpacing: 0.2 },
   topBar: {
     position: 'absolute', left: 16, right: 16, zIndex: 2,
@@ -1352,44 +1397,26 @@ const styles = StyleSheet.create({
   permissionBtnText: { fontSize: 15, fontFamily: Fonts.semibold, color: '#fff' },
   permissionLink: { color: 'rgba(255,255,255,0.8)', fontSize: 13.5, fontFamily: Fonts.medium },
 
-  quizRoot: { flex: 1, backgroundColor: Colors.systemBackground },
+  reviewRoot: { flex: 1, backgroundColor: Colors.systemBackground },
   // flex:1 here is required for the ScrollView's own contentContainerStyle
   // (justifyContent: 'center', set where it's used) to have a bounded
   // height to center within — see the comment there.
-  quizScroll: { flex: 1 },
-  quizPhotoRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 22 },
-  quizPhotoThumb: { width: 56, height: 56, borderRadius: 16, backgroundColor: Colors.brandLight },
-  quizTitle: { fontSize: 19, fontFamily: Fonts.display, color: Colors.label },
-  quizSubtitle: { fontSize: 12.5, color: Colors.secondaryLabel, fontFamily: Fonts.regular, marginTop: 3 },
+  reviewScroll: { flex: 1 },
+  reviewPhotoRow: { flexDirection: 'row', alignItems: 'center', gap: 14, marginBottom: 22 },
+  reviewPhotoThumb: { width: 56, height: 56, borderRadius: 16, backgroundColor: Colors.brandLight },
+  reviewTitle: { fontSize: 19, fontFamily: Fonts.display, color: Colors.label },
+  reviewSubtitle: { fontSize: 12.5, color: Colors.secondaryLabel, fontFamily: Fonts.regular, marginTop: 3 },
 
   errorBanner: { backgroundColor: '#FDECEC', borderRadius: 14, padding: 12, marginBottom: 16 },
   errorBannerText: { color: Colors.systemRed, fontSize: 12.5, fontFamily: Fonts.medium },
   faceWarningBanner: { backgroundColor: Colors.brandLight, borderRadius: 14, padding: 12, marginBottom: 16 },
   faceWarningBannerText: { color: Colors.brandDark, fontSize: 12.5, fontFamily: Fonts.medium, lineHeight: 17 },
 
-  questionCard: { marginBottom: 20 },
-  questionText: { fontSize: 14.5, fontFamily: Fonts.semibold, color: Colors.label, marginBottom: 10 },
-  choiceGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  choicePill: {
-    paddingHorizontal: 14, paddingVertical: 10, borderRadius: 14,
-    backgroundColor: Colors.surfaceCream, borderWidth: 1, borderColor: Colors.separator,
+  retakeBtnFull: {
+    marginTop: 4, paddingVertical: 15, borderRadius: 16,
+    backgroundColor: Colors.brand, alignItems: 'center',
   },
-  choicePillActive: { backgroundColor: Colors.brand, borderColor: Colors.brand },
-  choicePillText: { fontSize: 13, fontFamily: Fonts.medium, color: Colors.label },
-  choicePillTextActive: { color: '#fff', fontFamily: Fonts.semibold },
-
-  // Buttons now live inside the centered scroll content, right after the
-  // question, instead of pinned to the screen's bottom edge (see the
-  // ScrollView's contentContainerStyle comment above).
-  quizButtonRow: { flexDirection: 'row', gap: 10, marginTop: 28 },
-  retakeBtn: {
-    paddingHorizontal: 18, paddingVertical: 14, borderRadius: 16,
-    backgroundColor: Colors.surfaceCream,
-  },
-  retakeBtnText: { fontSize: 14, fontFamily: Fonts.semibold, color: Colors.secondaryLabel },
-  analyzeBtn: { flex: 1, backgroundColor: Colors.brand, borderRadius: 16, alignItems: 'center', justifyContent: 'center' },
-  analyzeBtnDisabled: { backgroundColor: Colors.systemGray4 },
-  analyzeBtnText: { color: '#fff', fontSize: 15, fontFamily: Fonts.semibold },
+  retakeBtnFullText: { fontSize: 15, fontFamily: Fonts.semibold, color: '#fff' },
 
   analyzingRoot: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.systemBackground, gap: 4 },
   analyzingText: { fontSize: 17, fontFamily: Fonts.semibold, color: Colors.label, marginTop: 16 },
