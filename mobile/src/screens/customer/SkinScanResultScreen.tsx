@@ -16,7 +16,7 @@
  * (`scan.heatmaps` null) shows no tabs at all — Summary only — rather than
  * four tabs that can only ever say "not assessed."
  */
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -143,6 +143,23 @@ export function SkinScanResultScreen() {
   // photoWrap) and the tab bar + detail card (in the body below) all read
   // the same selection from one place.
   const [activeTab, setActiveTab] = useState<ConcernTab>('summary');
+  // Bug fix (real device report, 2026-08-30): the ScrollView had no ref and
+  // nothing reset its scroll position on tab change — the WHOLE point of a
+  // concern tab is the heatmap overlay on the photo at the top, but if the
+  // user had scrolled down at all (e.g. reading one concern's tips, then
+  // tapping the next tab pill — which stays at whatever scroll position
+  // it's currently rendered at, since it isn't pinned), every subsequent
+  // tab inherited that same scroll offset and showed neck/collar instead
+  // of the face. Not a crop/frame bug — the photo and overlay were never
+  // wrong, just scrolled out of view. selectTab (below) is now the ONLY
+  // way activeTab changes, so this can't be reintroduced by a future call
+  // site forgetting to scroll back up.
+  const scrollRef = useRef<ScrollView>(null);
+  function selectTab(tab: ConcernTab) {
+    tapLight();
+    setActiveTab(tab);
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }
   // The photo container's aspect ratio, measured from the actual loaded
   // image — NOT hardcoded. The backend stores at `resize(1080, 1350, {fit:
   // 'inside'})`, which only FITS WITHIN that box while preserving the
@@ -221,7 +238,10 @@ export function SkinScanResultScreen() {
 
   return (
     <View style={styles.container}>
-      <ScrollView showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 40 }}>
+      {/* Extra bottom padding (vs. the old +40) so the floating New Scan
+          button below never sits on top of "Delete this scan"/the
+          disclaimer text at full scroll. */}
+      <ScrollView ref={scrollRef} showsVerticalScrollIndicator={false} contentContainerStyle={{ paddingBottom: insets.bottom + 90 }}>
         <View style={styles.photoWrap}>
           <Image
             source={{ uri: scan.photoUrl }}
@@ -257,14 +277,14 @@ export function SkinScanResultScreen() {
             gets no tab bar rather than one whose every tab can only ever
             say "not assessed." */}
         {!!scan.heatmaps && (
-          <ConcernTabBar activeTab={activeTab} onSelect={(tab) => { tapLight(); setActiveTab(tab); }} heatmaps={scan.heatmaps} />
+          <ConcernTabBar activeTab={activeTab} onSelect={selectTab} heatmaps={scan.heatmaps} />
         )}
 
         {activeTab !== 'summary' && (
           <ConcernDetailCard
             concernKey={activeTab}
             concern={scan.heatmaps?.[activeTab]}
-            onViewRecommendations={() => setActiveTab('summary')}
+            onViewRecommendations={() => selectTab('summary')}
           />
         )}
 
@@ -334,7 +354,7 @@ export function SkinScanResultScreen() {
                           label={label}
                           verdict={c?.verdict ?? 'Not assessed in this photo'}
                           band={c?.band ?? 'unassessed'}
-                          onPress={() => { tapLight(); setActiveTab(key); }}
+                          onPress={() => selectTab(key)}
                         />
                       );
                     })}
@@ -402,6 +422,23 @@ export function SkinScanResultScreen() {
           </Text>
         </View>
       </ScrollView>
+
+      {/* Real device bug report (2026-08-30): no way to start a fresh scan
+          from a result reached via history — the old "Not happy with this
+          scan? Retake it" button only ever appears for a just-completed
+          scan (justScanned), and lives inside the scrollable content, so it
+          isn't even visible unless scrolled to. This is a SEPARATE,
+          ALWAYS-visible action, floating outside the ScrollView so it's
+          reachable regardless of scroll position or which concern tab is
+          active — reuses the exact same retakeScan() navigation (routes
+          through MySpace's own camera-reopen mechanism, see that
+          function's comment) since "start a new scan" and "retake this
+          one" are the same navigation, just reached from a different
+          prompt. */}
+      <Pressable style={[styles.newScanFab, { bottom: insets.bottom + 16 }]} onPress={retakeScan}>
+        <SparkleIcon size={14} color="#fff" />
+        <Text style={styles.newScanFabText}>New Scan</Text>
+      </Pressable>
 
       <ShareCardModal visible={!!shareCard} card={shareCard} onClose={() => setShareCard(null)} />
       <ZoomablePhotoModal
@@ -516,6 +553,19 @@ const styles = StyleSheet.create({
     borderWidth: 1.5, borderColor: Colors.brandAccent,
   },
   retakeBtnText: { color: Colors.brandDark, fontSize: 13, fontFamily: Fonts.semibold },
+
+  // Floats OUTSIDE the ScrollView (a sibling, not a child) so it stays
+  // fixed on screen regardless of scroll position or which concern tab is
+  // active — see the real-device bug fix note at its call site.
+  newScanFab: {
+    position: 'absolute', alignSelf: 'center',
+    flexDirection: 'row', alignItems: 'center', gap: 7,
+    backgroundColor: Colors.brand, borderRadius: 100,
+    paddingHorizontal: 20, paddingVertical: 13,
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.2, shadowRadius: 10,
+    elevation: 6,
+  },
+  newScanFabText: { color: '#fff', fontSize: 14, fontFamily: Fonts.semibold },
 
   sectionTitle: { fontSize: 15.5, fontFamily: Fonts.display, color: Colors.label, marginTop: 24, marginBottom: 10 },
   recCard: { backgroundColor: Colors.surfaceCream, borderRadius: 18, padding: 14, marginBottom: 10 },
