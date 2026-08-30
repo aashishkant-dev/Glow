@@ -108,60 +108,23 @@ function analyzeSkinPixels(buffer, channels) {
   };
 }
 
-// ── Skin type: quiz + photo shine signal, blended ───────────────────────────
-// A small transparent point system — every answer/signal nudges one or more
-// of the app's 5 SkinType buckets. Not a trained classifier; documented as a
-// heuristic on purpose (see the file header disclaimer).
-const QUIZ_QUESTIONS = [
-  {
-    id: 'tightness',
-    question: 'A few hours after washing, how does your skin feel?',
-    choices: [
-      { id: 'tight', label: 'Tight or flaky', scores: { DRY: 2 } },
-      { id: 'comfortable', label: 'Comfortable, balanced', scores: { NORMAL: 2 } },
-      { id: 'shiny', label: 'Shiny all over', scores: { OILY: 2 } },
-      { id: 'varies', label: 'Depends on the area', scores: { COMBINATION: 2 } },
-    ],
-  },
-  {
-    id: 'midday_shine',
-    question: 'By midday, how does your T-zone (forehead, nose, chin) look?',
-    choices: [
-      { id: 'very_shiny', label: 'Very shiny', scores: { OILY: 2 } },
-      { id: 'slightly_shiny', label: 'Slightly shiny', scores: { COMBINATION: 1 } },
-      { id: 'matte', label: 'Still matte', scores: { DRY: 1, NORMAL: 1 } },
-      { id: 'no_change', label: 'No real change', scores: { NORMAL: 2 } },
-    ],
-  },
-  {
-    id: 'sensitivity',
-    question: 'Does your skin react to new products (redness, itching, stinging)?',
-    choices: [
-      { id: 'often', label: 'Often', scores: { SENSITIVE: 2 } },
-      { id: 'sometimes', label: 'Sometimes', scores: { SENSITIVE: 1 } },
-      { id: 'rarely', label: 'Rarely or never', scores: {} },
-    ],
-  },
-  {
-    id: 'pores',
-    question: 'How visible are your pores, especially around the nose?',
-    choices: [
-      { id: 'very_visible', label: 'Very visible', scores: { OILY: 1, COMBINATION: 1 } },
-      { id: 'somewhat', label: 'Somewhat visible', scores: { COMBINATION: 1 } },
-      { id: 'barely', label: 'Barely visible', scores: { DRY: 1, NORMAL: 1 } },
-    ],
-  },
-];
-
-function scoreSkinType(quizAnswers, shineRatio) {
+// ── Skin type: photo shine signal only ──────────────────────────────────────
+// Used to ask a short quiz (tightness/midday-shine/sensitivity/pores) and
+// blend the answers in as points alongside this signal. Removed entirely —
+// this is the FALLBACK path only (real scans go through Gemini's own vision
+// classification in geminiSkinAnalysis.js, which reads all of this straight
+// off the photo), and every real skin-analysis reference this app has been
+// built against (Sephora's own Smart Skin Scan, Perfect Corp's AI Skin
+// Diagnostic) skips a manual quiz for the scan itself — see the mobile
+// camera's own comment for the sourced research this decision is based on.
+// Real, disclosed trade-off: SENSITIVE can no longer be reached via this
+// heuristic at all (it only ever scored from the quiz's sensitivity
+// question — nothing in a single still photo reliably shows how skin reacts
+// to new products over time) — Gemini's own path can still classify
+// SENSITIVE from visible signs (widespread redness, visible reactivity), so
+// this only narrows the free/no-Gemini fallback, not the primary path.
+function scoreSkinType(shineRatio) {
   const scores = { DRY: 0, OILY: 0, COMBINATION: 0, NORMAL: 0, SENSITIVE: 0 };
-
-  for (const q of QUIZ_QUESTIONS) {
-    const answerId = quizAnswers?.[q.id];
-    const choice = q.choices.find((c) => c.id === answerId);
-    if (!choice) continue;
-    for (const [type, pts] of Object.entries(choice.scores)) scores[type] += pts;
-  }
 
   // Photo shine signal — thresholds picked so an average, evenly-lit selfie
   // lands in the "no strong signal" middle band and only a clearly shiny or
@@ -170,12 +133,6 @@ function scoreSkinType(quizAnswers, shineRatio) {
   else if (shineRatio > 0.10) scores.COMBINATION += 1;
   else if (shineRatio < 0.03) scores.DRY += 1;
 
-  // Plain argmax — SENSITIVE only ever accrues points from one quiz
-  // question (nothing in a single still photo reliably signals
-  // sensitivity), so it naturally only wins when that's the one clear
-  // signal the user gave; it isn't specially excluded or force-applied on
-  // top of another type, which would make the label and the recommended
-  // products (built for whichever type wins here) disagree.
   let best = 'NORMAL', bestScore = 0;
   for (const [type, s] of Object.entries(scores)) {
     if (s > bestScore) { bestScore = s; best = type; }
@@ -230,18 +187,14 @@ function toneAdvisory(skinTone) {
   };
 }
 
-function concernsFor(skinType, scores, shineRatio, quizAnswers) {
+function concernsFor(skinType, shineRatio) {
   const concerns = [];
   if (skinType === 'OILY') concerns.push('Excess shine', 'Enlarged pores');
   if (skinType === 'DRY') concerns.push('Tightness', 'Flaking');
   if (skinType === 'COMBINATION') concerns.push('Uneven oil balance');
   if (skinType === 'NORMAL') concerns.push('General maintenance');
-  if (skinType === 'SENSITIVE') concerns.push('Reactivity to new products');
-  // Surfaces as a concern even when it wasn't the winning type — e.g. a
-  // primarily-oily result where the user still flagged occasional reactivity.
-  if (skinType !== 'SENSITIVE' && ((scores?.SENSITIVE ?? 0) > 0 || quizAnswers?.sensitivity === 'often')) {
-    concerns.push('Sensitivity / reactivity');
-  }
+  // SENSITIVE can no longer win skinType on this heuristic path (see
+  // scoreSkinType's own comment) — no dead "reactivity" branch kept for it.
   if (shineRatio > 0.2) concerns.push('Midday shine breakthrough');
   return [...new Set(concerns)];
 }
@@ -265,16 +218,15 @@ function buildSummary(skinType) {
 
 // ── Public entry point ──────────────────────────────────────────────────
 // buffer/channels: raw pixel data for the cropped, downsampled face region.
-// quizAnswers: { [questionId]: choiceId }.
-function analyzeSkin({ buffer, channels, quizAnswers }) {
+function analyzeSkin({ buffer, channels }) {
   const { avgRgb, shineRatio } = analyzeSkinPixels(buffer, channels);
   const skinTone = nearestSkinTone(avgRgb);
-  const { skinType, scores } = scoreSkinType(quizAnswers, shineRatio);
+  const { skinType } = scoreSkinType(shineRatio);
 
   return {
     skinTone,
     skinType,
-    concerns: concernsFor(skinType, scores, shineRatio, quizAnswers),
+    concerns: concernsFor(skinType, shineRatio),
     // Free heuristic has no basis to compare two photos, unlike the Gemini
     // path — always null here, never fabricated.
     summary: buildSummary(skinType),
@@ -288,4 +240,4 @@ function analyzeSkin({ buffer, channels, quizAnswers }) {
   };
 }
 
-module.exports = { analyzeSkin, QUIZ_QUESTIONS, nearestSkinTone, analyzeSkinPixels, scoreSkinType, rgbToLab };
+module.exports = { analyzeSkin, nearestSkinTone, analyzeSkinPixels, scoreSkinType, rgbToLab };

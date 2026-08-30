@@ -950,6 +950,22 @@ model SkinScan {
   // screen must treat as "not assessed," never fall back to guessing.
   // Null (not "{}") on any scan captured before this existed.
   heatmaps        Json?
+  // 'perfectcorp' when `heatmaps` came from the real Perfect Corp AI Skin
+  // Diagnostic API, 'estimated' when it came from the free on-device-style
+  // heuristic fallback (src/utils/skinHeatmaps.js) — either because
+  // PERFECTCORP_API_KEY isn't set, or the live call failed/timed out/hit
+  // quota for this specific scan. The result screen must show a visible
+  // "estimated" label whenever this isn't 'perfectcorp' — never present a
+  // heuristic guess with the same confidence as a licensed vendor read.
+  // Defaults to 'estimated' so every pre-existing scan (all heuristic, from
+  // before this column existed) reads correctly with zero backfill needed.
+  heatmapSource       String  @default("estimated")
+  // Why heatmapSource ended up 'estimated' for THIS scan — 'not_configured'
+  // (no API key set), 'network_error', 'timeout', 'quota_exceeded', or
+  // 'server_error'. Null when heatmapSource is 'perfectcorp'. Purely for
+  // the result screen's banner copy ("couldn't reach the live analysis
+  // service" vs "analysis quota reached") — never used for retry logic.
+  heatmapSourceReason String?
   // [{ category, title, note }] — small enough, and shaped differently
   // enough per-concern, that a Json array is a better fit than a side table.
   recommendations Json     @default("[]")
@@ -962,4 +978,27 @@ model SkinScan {
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([profileId, createdAt(sort: Desc)])
+}
+
+// One row per attempted call to a paid, metered third-party AI vendor
+// (currently Perfect Corp's Skin Analysis API) — the only way to answer
+// "how much are we actually using this" from inside the app instead of
+// discovering it on a bill. Written for both successes AND failures (a
+// failed call that still consumed vendor-side compute is exactly the kind
+// of thing that's invisible without this). See GET /admin/api-usage.
+model ApiUsageLog {
+  id         String   @id @default(cuid())
+  provider   String   // 'perfectcorp' — kept as a plain string, not an enum, so a future vendor doesn't need a migration to add
+  endpoint   String   // e.g. 'file-upload', 'skin-analysis', 'skin-analysis-poll'
+  success    Boolean
+  statusCode Int?
+  // Vendor or internal error code ('error_src_face_too_small', 'timeout',
+  // 'network_error', 'rate_limited', ...) — null on success.
+  errorCode  String?
+  durationMs Int?
+  scanId     String?  // the SkinScan this call was for, when one was ultimately created
+  userId     String?
+  createdAt  DateTime @default(now())
+
+  @@index([provider, createdAt(sort: Desc)])
 }

@@ -84,11 +84,7 @@ const RESPONSE_SCHEMA = {
   ],
 };
 
-function buildPrompt({ sensitivityHint, referenceProfiles = [] }) {
-  const sensitivityLine = sensitivityHint
-    ? `\nThe user self-reports how their skin reacts to new products: "${sensitivityHint}". A single photo can't reliably show sensitivity — weigh this alongside what you actually see.`
-    : '';
-
+function buildPrompt({ referenceProfiles = [] }) {
   const formatTrend = (trend = []) => trend
     .map((t, i) => `    ${i === 0 ? 'Most recent' : `${i + 1} scans ago`} (${t.daysAgo} day${t.daysAgo === 1 ? '' : 's'} ago): ${t.skinTone.toLowerCase()} tone, ${t.skinType.toLowerCase()} skin, concerns: ${t.concerns.join(', ') || 'none noted'}${t.summary ? ` — "${t.summary}"` : ''}`)
     .join('\n');
@@ -115,7 +111,7 @@ Now look closely at Image 1 (the new selfie) — really examine it at full detai
    - DEEP: deep brown skin, rich melanin visible, clearly darker than TAN.
    - RICH: the deepest brown/near-ebony tones.
    Sample at LEAST three separate points before deciding — forehead, one cheek, and the jawline — each away from shadow, flush, redness, or specular shine, then judge the tone those points actually converge on, not a single glance at whichever looked easiest. Mentally correct for the photo's own white balance/lighting warmth first (a warm indoor light or a cool flash can shift how tone reads, but the underlying skin color is what matters). MEDIUM is a real category, not a safe fallback — if you're mentally reaching for it because you're unsure, that's a signal to look again at your three sample points rather than default to it; commit to whichever of the six the evidence actually points to across the full FAIR–RICH range.
-3. Classify the apparent skin type as exactly one of: DRY, OILY, COMBINATION, NORMAL, SENSITIVE, based on visible cues — shine/texture, pore size and visibility, flaking, redness.${sensitivityLine}
+3. Classify the apparent skin type as exactly one of: DRY, OILY, COMBINATION, NORMAL, SENSITIVE, based on visible cues — shine/texture, pore size and visibility, flaking, redness. SENSITIVE specifically from visible signs (widespread fine redness, visible reactivity/flushing, thin-looking irritated-looking skin) since there's no self-reported history to lean on — only classify it when the photo itself actually shows those signs, not as a default when nothing else fits clearly.
 4. Rate apparent hydration as LOW, MODERATE, or HIGH — dull, tight, or flaking skin reads LOW; a healthy dewy/plump look reads HIGH.
 5. Look at eight zones SEPARATELY, the way an in-person consultation actually would — close, clinical-grade inspection of each one in turn, not one glance at the whole face. For each zone below that genuinely shows something, write 1-2 specific, plain-language sentences covering whichever of these are actually visible there: texture, pore size/density, oiliness or shine, tone evenness, fine lines, redness, or hyperpigmentation. A thin one-liner like "Looks fine" or "Some oiliness" is not acceptable when the zone has more to see — describe it the way you'd actually describe it to the person's face. Left and right sides are SEPARATE zones now specifically so real asymmetry shows up as different notes on each side, not a single merged comment — real dermatological observations are rarely perfectly symmetric. Leave a zone's note as an empty string when there's truly nothing to observe there — never invent detail to fill it — but don't leave a zone empty just because you're being economical: how many of these 8 end up with real notes should genuinely track how much this specific photo shows, from just 2-3 on a very clear, even-toned face up to most of them on one with more visible texture or variation:
    - foreheadNote: forehead (pore size/density, oiliness/shine, fine lines)
@@ -136,10 +132,6 @@ If no face is clearly visible, set faceDetected to false and fill the other fiel
 /**
  * @param {string} base64Jpeg - the new selfie, base64-encoded, no data: prefix.
  * @param {object} [context]
- * @param {string} [context.sensitivityHint] - plain-language answer to the
- *   app's one remaining quiz question ("often"/"sometimes"/"rarely" reworded
- *   to a sentence by the caller) — everything else the old 4-question quiz
- *   asked, Gemini now reads directly from the photo instead.
  * @param {{photoBase64:string, daysAgo:number, skinTone:string, skinType:string, concerns:string[]}[]} [context.referenceProfiles]
  *   One entry per existing SkinProfile candidate on the account, in order —
  *   the returned matchedProfileIndex is 1-based into this array. Omit/empty
@@ -156,7 +148,7 @@ async function analyzeWithGemini(base64Jpeg, context = {}) {
   const body = {
     contents: [{
       parts: [
-        { text: buildPrompt({ sensitivityHint: context.sensitivityHint, referenceProfiles }) },
+        { text: buildPrompt({ referenceProfiles }) },
         { inline_data: { mime_type: 'image/jpeg', data: base64Jpeg } },
         ...referenceProfiles.map(p => ({ inline_data: { mime_type: 'image/jpeg', data: p.photoBase64 } })),
       ],

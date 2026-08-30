@@ -14,6 +14,7 @@ mobile/.expo/
 .vercel
 uploads/
 glow.env
+apikey_youcam.txt
 
 # AI tools
 .gemini/

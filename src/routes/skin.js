@@ -9,8 +9,138 @@ const { authenticate } = require('../middleware/auth');
 const { analyzeSkin } = require('../utils/skinAnalysis');
 const { analyzeWithGemini } = require('../utils/geminiSkinAnalysis');
 const { generateHeatmaps } = require('../utils/skinHeatmaps');
+const { analyzeWithPerfectCorp, PerfectCorpError } = require('../utils/perfectCorpClient');
+const { CONCERN_CONTENT, severityBand } = require('../utils/skinConcernContent');
 
 const router = express.Router();
+
+// The old heuristic engine's concern keys (skinHeatmaps.js, unchanged) don't
+// match Perfect Corp's own naming — remapped here, once, rather than
+// touching that file. 'shine' has no Perfect Corp SD equivalent in this
+// app's 7-tab spec and is dropped (not surfaced as a tab) on the fallback
+// path; a scan on the fallback path simply has no moisture/age_spot/acne
+// data (see buildConcernRecord's null branch — "not assessed," never
+// fabricated).
+const HEURISTIC_KEY_MAP = { pores: 'pore', wrinkles: 'wrinkle', texture: 'texture', redness: 'redness' };
+
+// A distinguishable rejection for "this specific photo failed Perfect
+// Corp's own image-quality gate" (face too small / too dark / below
+// minimum resolution) — thrown up through getConcernAnalysis so the route
+// can 400 with a retake prompt, the same treatment Gemini's
+// faceDetected:false already gets, rather than being swallowed into a
+// silent fallback to the heuristic (which would hit the identical problem
+// with the identical photo).
+class ImageQualityRejection extends Error {}
+
+// Builds one concern's full record from EITHER engine's raw output —
+// content (label/verdict/education/tips) always comes from
+// skinConcernContent.js, so the copy a user reads is identical regardless
+// of which engine produced the severity number underneath it. `maskUrl` is
+// already the uploaded (our own blob storage) URL by the time this runs.
+function buildConcernRecord(key, { severity, maskUrl, confidence, source, rawScore, uiScore }) {
+  const content = CONCERN_CONTENT[key];
+  const band = severityBand(severity);
+  return {
+    url: maskUrl,
+    label: content.label,
+    tabLabel: content.tabLabel,
+    source,
+    gradientLabels: content.gradientLabels,
+    severity,
+    severityScore: Math.round(severity * 100),
+    band,
+    verdict: content.verdict[band],
+    education: content.education,
+    tips: content.tips,
+    confidence,
+    ...(rawScore != null ? { rawScore, uiScore } : {}),
+  };
+}
+
+async function logApiUsage({ endpoint, success, statusCode, errorCode, durationMs, scanId, userId }) {
+  try {
+    await prisma.apiUsageLog.create({
+      data: { provider: 'perfectcorp', endpoint, success, statusCode: statusCode ?? null, errorCode: errorCode ?? null, durationMs: durationMs ?? null, scanId: scanId ?? null, userId: userId ?? null },
+    });
+  } catch (err) {
+    // Usage logging must never fail a real scan.
+    console.error('[skin] usage log write failed:', err.message);
+  }
+}
+
+// Orchestrates real-API-first, heuristic-fallback concern analysis. Tries
+// Perfect Corp when configured; on ANY failure other than a genuine
+// image-quality rejection (which propagates — see ImageQualityRejection),
+// falls back to the free heuristic and labels the result 'estimated' with
+// a specific, honest reason. Never fabricates data for a concern neither
+// engine could assess (see buildConcernRecord's null passthrough below).
+async function getConcernAnalysis({ photoUrl, heuristicPixels, heuristicInfo, faceBox, zoneMarkers, userId }) {
+  if (process.env.PERFECTCORP_API_KEY) {
+    const start = Date.now();
+    try {
+      const result = await analyzeWithPerfectCorp(photoUrl);
+      // result is only null when the key genuinely isn't set — already
+      // checked above — so a null here would be a real bug, not a normal
+      // path; treated the same as any other unexpected failure below.
+      if (!result) throw new PerfectCorpError('analyzeWithPerfectCorp returned null despite a configured key', 'UNKNOWN');
+
+      const heatmaps = {};
+      for (const [key, concern] of Object.entries(result.concerns)) {
+        if (!concern) { heatmaps[key] = null; continue; }
+        const up = await uploadFile(`skin-scans/${userId}-${Date.now()}-${key}.png`, concern.maskBuffer, 'image/png');
+        if (!up?.url) { heatmaps[key] = null; continue; }
+        heatmaps[key] = buildConcernRecord(key, {
+          severity: concern.severity, maskUrl: up.url, confidence: { level: 'high' },
+          source: 'perfectcorp', rawScore: concern.rawScore, uiScore: concern.uiScore,
+        });
+      }
+      for (const u of result.usage) await logApiUsage({ endpoint: u.endpoint, success: true, durationMs: u.durationMs, userId });
+      await logApiUsage({ endpoint: 'skin-analysis-total', success: true, durationMs: Date.now() - start, userId });
+      return { heatmaps, heatmapSource: 'perfectcorp', heatmapSourceReason: null };
+    } catch (err) {
+      if (err instanceof PerfectCorpError && err.code === 'LOW_IMAGE_QUALITY') {
+        await logApiUsage({ endpoint: 'skin-analysis', success: false, errorCode: err.code, durationMs: Date.now() - start, userId });
+        // err.message is Perfect Corp's own human-readable reason (e.g.
+        // "The face in the input image is turned or tilted too far.") —
+        // relayed directly since it's specific and actionable, with a
+        // short retake nudge appended rather than replaced with a generic
+        // canned line that would say less than what the vendor already
+        // told us.
+        throw new ImageQualityRejection(`${err.message} Try another photo.`);
+      }
+      const errorCode = err instanceof PerfectCorpError ? err.code : 'UNKNOWN';
+      console.error('[skin] Perfect Corp analysis failed, falling back to free heuristic:', err.message);
+      await logApiUsage({ endpoint: 'skin-analysis', success: false, statusCode: err.statusCode, errorCode, durationMs: Date.now() - start, userId });
+      const reason = { NETWORK_ERROR: 'network_error', TIMEOUT: 'timeout', QUOTA_EXCEEDED: 'quota_exceeded', SERVER_ERROR: 'server_error' }[errorCode] || 'server_error';
+      return runHeuristicFallback({ heuristicPixels, heuristicInfo, faceBox, zoneMarkers, userId, reason });
+    }
+  }
+  return runHeuristicFallback({ heuristicPixels, heuristicInfo, faceBox, zoneMarkers, userId, reason: 'not_configured' });
+}
+
+async function runHeuristicFallback({ heuristicPixels, heuristicInfo, faceBox, zoneMarkers, userId, reason }) {
+  const { concerns } = await generateHeatmaps({ buffer: heuristicPixels, info: heuristicInfo, faceBox, zoneMarkers }).catch((err) => {
+    console.error('[skin] heuristic heatmap generation failed:', err.message);
+    return { concerns: {} };
+  });
+  const heatmaps = {};
+  for (const [oldKey, mappedKey] of Object.entries(HEURISTIC_KEY_MAP)) {
+    const concern = concerns[oldKey];
+    if (!concern) { heatmaps[mappedKey] = null; continue; }
+    const up = await uploadFile(`skin-scans/${userId}-${Date.now()}-${mappedKey}.png`, concern.png, 'image/png');
+    if (!up?.url) { heatmaps[mappedKey] = null; continue; }
+    heatmaps[mappedKey] = buildConcernRecord(mappedKey, {
+      severity: concern.severity, maskUrl: up.url,
+      confidence: { level: concern.confidence.level, zoneFraction: concern.confidence.zoneFraction, pixelCount: concern.confidence.pixelCount },
+      source: 'estimated',
+    });
+  }
+  // moisture/age_spot/acne: the free heuristic has no signal for these at
+  // all — explicit null ("not assessed"), never fabricated, same rule the
+  // whole heatmap system has followed since it replaced point markers.
+  for (const key of ['moisture', 'age_spot', 'acne']) heatmaps[key] = null;
+  return { heatmaps, heatmapSource: 'estimated', heatmapSourceReason: reason };
+}
 
 // Booking-category hand-off is always the same regardless of which analysis
 // path produced the result — it doesn't need AI to decide.
@@ -31,6 +161,8 @@ function serializeScan(s) {
     faceBox: s.faceBox || {},
     zoneMarkers: s.zoneMarkers ?? null,
     heatmaps: s.heatmaps ?? null,
+    heatmapSource: s.heatmapSource ?? 'estimated',
+    heatmapSourceReason: s.heatmapSourceReason ?? undefined,
     recommendations: s.recommendations,
     notes: s.notes,
     createdAt: s.createdAt,
@@ -125,15 +257,6 @@ async function gatherProfileCandidates(userId) {
   return { profiles, referenceProfiles };
 }
 
-// Maps the one remaining quiz question's choice id to a plain sentence
-// Gemini's prompt can drop straight in — everything else the old
-// 4-question quiz asked, Gemini now reads directly from the photo instead.
-const SENSITIVITY_HINTS = {
-  often: 'reacts often to new products (redness, itching, stinging)',
-  sometimes: 'sometimes reacts to new products',
-  rarely: 'rarely or never reacts to new products',
-};
-
 // Resolves the pixel-space crop rect to analyze. `faceRegion` (optional) is
 // {x,y,width,height} as 0–1 fractions of the photo, computed client-side from
 // where the on-screen alignment oval sits over the live camera preview (see
@@ -224,7 +347,7 @@ router.post(
   authenticate,
   async (req, res) => {
     try {
-      const { photoBase64, mimeType = 'image/jpeg', quizAnswers, faceRegion, zoneMarkers: rawZoneMarkers, notes } = req.body;
+      const { photoBase64, mimeType = 'image/jpeg', faceRegion, zoneMarkers: rawZoneMarkers, notes } = req.body;
       if (!photoBase64) return res.status(400).json({ error: 'photoBase64 required' });
       if (photoBase64.length > 8_000_000) return res.status(413).json({ error: 'Image too large. Maximum 6 MB.' });
       if (notes && notes.length > 300) return res.status(400).json({ error: 'Notes must be 300 characters or fewer' });
@@ -317,25 +440,6 @@ router.post(
       ]);
       const geminiB64 = geminiBuf.toString('base64');
 
-      // Kicked off here (pure CPU pixel math — no dependency on Gemini's
-      // result) so it runs CONCURRENTLY with the several-second Gemini
-      // call below rather than adding to it sequentially, same "start
-      // early, await late" pattern uploadPromise already uses.
-      const heatmapsPromise = generateHeatmaps({
-        buffer: heatmapPixels,
-        info: heatmapInfo,
-        faceBox,
-        zoneMarkers: sanitizedZoneMarkers,
-      }).catch((err) => {
-        // Heatmaps are a display-only enhancement — a bug in this brand
-        // new pixel-math path must never fail the whole scan (the user
-        // already waited through a real photo upload + analysis call by
-        // this point). Missing heatmaps degrade to "not assessed" the same
-        // as a scan that had zero assessable zones, not a lost scan.
-        console.error('[skin] heatmap generation failed:', err.message);
-        return { concerns: {} };
-      });
-
       // Fired off here, not awaited until it's actually needed below (right
       // before the scan is saved) — the upload has zero dependency on the
       // face-match/Gemini work that follows, so there's no reason to pay
@@ -349,10 +453,9 @@ router.post(
       // Gathers this account's other profiles' reference photos up front —
       // pure data fetching, no API call yet (see gatherProfileCandidates).
       const { profiles, referenceProfiles } = await gatherProfileCandidates(req.user.id);
-      const sensitivityHint = SENSITIVITY_HINTS[quizAnswers?.sensitivity];
 
       // Real vision-model analysis when GEMINI_API_KEY is configured, with
-      // the free pixel-math + quiz heuristic (skinAnalysis.js) as a fallback
+      // the free pixel-math heuristic (skinAnalysis.js) as a fallback
       // — both on any Gemini error (bad key, network, rate limit) and when
       // the key simply isn't set, so this route works either way. A face
       // Gemini can't find is the one case that should NOT silently fall
@@ -372,7 +475,6 @@ router.post(
       let isNewProfile = false;
       try {
         const gemini = await analyzeWithGemini(geminiB64, {
-          sensitivityHint,
           referenceProfiles: referenceProfiles.map(r => ({
             photoBase64: r.photoBase64, daysAgo: r.daysAgo, skinTone: r.skinTone, skinType: r.skinType, concerns: r.concerns, trend: r.trend,
           })),
@@ -425,7 +527,7 @@ router.post(
         console.error('Gemini skin analysis failed, falling back to free heuristic:', err.message);
       }
       if (!result) {
-        result = analyzeSkin({ buffer: rawPixels, channels: rawInfo.channels, quizAnswers });
+        result = analyzeSkin({ buffer: rawPixels, channels: rawInfo.channels });
         // Gemini unavailable/errored — can't tell people apart right now, so
         // default to the account's original profile rather than
         // fragmenting history into a new profile on every single scan.
@@ -435,23 +537,32 @@ router.post(
       const uploaded = await uploadPromise;
       if (!uploaded?.url) return res.status(500).json({ error: 'Photo upload failed. Please try again.' });
 
-      // Each concern's overlay (already awaited, ready by now given it
-      // started concurrently with the Gemini call above) uploads to blob
-      // storage the same way the main photo did; a concern with no
-      // assessable pixels (heatmapsPromise's own null) is simply skipped
-      // here — `heatmaps` ends up missing that key, which the client must
-      // read as "not assessed," never a broken image.
-      const { concerns: heatmapConcerns } = await heatmapsPromise;
-      const heatmapUploadEntries = await Promise.all(
-        Object.entries(heatmapConcerns)
-          .filter(([, c]) => !!c)
-          .map(async ([concern, c]) => {
-            const up = await uploadFile(`skin-scans/${req.user.id}-${Date.now()}-${concern}.png`, c.png, 'image/png');
-            if (!up?.url) return null;
-            return [concern, { url: up.url, label: c.label, severity: c.severity, band: c.band, verdict: c.verdict, education: c.education }];
-          }),
-      );
-      const heatmaps = Object.fromEntries(heatmapUploadEntries.filter(Boolean));
+      // Perfect Corp fetches the photo itself via src_file_url rather than
+      // accepting bytes directly, so this can only start once the photo is
+      // actually live at a public URL — hence AFTER uploadPromise resolves,
+      // not concurrent with the Gemini call above (a real, accepted latency
+      // trade for correctness over cleverness here). A genuine image-quality
+      // rejection from Perfect Corp gets the same treatment as Gemini's
+      // faceDetected:false above — a clear 400 retake prompt, not a scan
+      // saved on bad data. Every other failure mode already resolved (never
+      // rejected) inside getConcernAnalysis, labeled 'estimated' with a
+      // specific reason.
+      let heatmaps, heatmapSource, heatmapSourceReason;
+      try {
+        ({ heatmaps, heatmapSource, heatmapSourceReason } = await getConcernAnalysis({
+          photoUrl: uploaded.url,
+          heuristicPixels: heatmapPixels,
+          heuristicInfo: heatmapInfo,
+          faceBox,
+          zoneMarkers: sanitizedZoneMarkers,
+          userId: req.user.id,
+        }));
+      } catch (err) {
+        if (err instanceof ImageQualityRejection) {
+          return res.status(400).json({ error: err.message, code: 'LOW_IMAGE_QUALITY' });
+        }
+        throw err;
+      }
 
       const scan = await prisma.$transaction(async (tx) => {
         // A new profile is only ever actually created here — once a scan is
@@ -477,9 +588,10 @@ router.post(
             zoneNotes: result.zoneNotes || {},
             faceBox,
             zoneMarkers: sanitizedZoneMarkers,
-            heatmaps: Object.keys(heatmaps).length > 0 ? heatmaps : null,
+            heatmaps: Object.values(heatmaps).some(Boolean) ? heatmaps : null,
+            heatmapSource,
+            heatmapSourceReason,
             recommendations: result.recommendations,
-            quizAnswers: quizAnswers || {},
             notes: notes || '',
           },
         });

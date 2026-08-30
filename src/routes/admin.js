@@ -1072,4 +1072,65 @@ async function _syncProviderProfileFromDoc(document, approved) {
   }
 }
 
+// ── GET /admin/api-usage ────────────────────────────────────────────────────────
+// Cost visibility for paid, metered third-party AI vendors (currently
+// Perfect Corp's Skin Analysis API — see src/utils/perfectCorpClient.js and
+// ApiUsageLog in schema.prisma) — so usage is checkable from inside the
+// app, not discovered on a bill. Every attempted vendor call is logged here,
+// success or failure, since a failed call can still consume vendor-side
+// compute.
+router.get(
+  '/api-usage',
+  authenticateAdminOrUser,
+  async (req, res) => {
+    try {
+      const days = Math.min(90, Math.max(1, parseInt(req.query.days, 10) || 30));
+      const since = new Date(Date.now() - days * 86_400_000);
+      const provider = req.query.provider || 'perfectcorp';
+
+      const [logs, totalCalls, failedCalls] = await Promise.all([
+        prisma.apiUsageLog.findMany({
+          where: { provider, createdAt: { gte: since } },
+          orderBy: { createdAt: 'desc' },
+          take: 200,
+        }),
+        prisma.apiUsageLog.count({ where: { provider, createdAt: { gte: since } } }),
+        prisma.apiUsageLog.count({ where: { provider, createdAt: { gte: since }, success: false } }),
+      ]);
+
+      // One row per calendar day, oldest first — the shape a simple usage
+      // chart needs without any client-side date bucketing.
+      const byDay = {};
+      for (const log of logs) {
+        const day = log.createdAt.toISOString().slice(0, 10);
+        if (!byDay[day]) byDay[day] = { day, total: 0, success: 0, failed: 0 };
+        byDay[day].total++;
+        byDay[day][log.success ? 'success' : 'failed']++;
+      }
+
+      // Real scans (skin-analysis-total is one row per completed attempt,
+      // success or fail) vs. every individual sub-call (file-upload, task
+      // create, poll) — the number a person actually cares about ("how many
+      // scans hit the paid API today") is scan attempts, not raw row count.
+      const scanAttempts = logs.filter(l => l.endpoint === 'skin-analysis-total').length;
+
+      res.json({
+        provider,
+        sinceDays: days,
+        totalCalls,
+        failedCalls,
+        scanAttempts,
+        byDay: Object.values(byDay).sort((a, b) => a.day.localeCompare(b.day)),
+        recent: logs.slice(0, 50).map(l => ({
+          id: l.id, endpoint: l.endpoint, success: l.success, statusCode: l.statusCode,
+          errorCode: l.errorCode, durationMs: l.durationMs, createdAt: l.createdAt,
+        })),
+      });
+    } catch (err) {
+      console.error('GET /admin/api-usage error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
 module.exports = router;
