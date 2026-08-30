@@ -10,7 +10,7 @@ const { analyzeSkin } = require('../utils/skinAnalysis');
 const { analyzeWithGemini } = require('../utils/geminiSkinAnalysis');
 const { generateHeatmaps } = require('../utils/skinHeatmaps');
 const { analyzeWithPerfectCorp, PerfectCorpError } = require('../utils/perfectCorpClient');
-const { CONCERN_CONTENT, severityBand } = require('../utils/skinConcernContent');
+const { CONCERN_CONTENT, severityBand, buildVerdict } = require('../utils/skinConcernContent');
 
 const router = express.Router();
 
@@ -49,7 +49,9 @@ function buildConcernRecord(key, { severity, maskUrl, confidence, source, rawSco
     severity,
     severityScore: Math.round(severity * 100),
     band,
-    verdict: content.verdict[band],
+    // Real per-scan specificity, not a fixed band sentence regardless of
+    // what this particular photo showed — see buildVerdict's own comment.
+    verdict: buildVerdict(key, band, zoneBreakdown),
     education: content.education,
     tips: content.tips,
     confidence,
@@ -161,6 +163,11 @@ function serializeScan(s) {
   return {
     id: s.id,
     profileId: s.profileId,
+    // Set only on an additional angle of a multi-angle session (see
+    // schema.prisma's SkinScan.parentScanId) — null for a normal scan AND
+    // for the primary/first photo of a multi-angle one (the one other
+    // angles point back to, never itself pointing forward).
+    parentScanId: s.parentScanId ?? null,
     photoUrl: s.photoUrl,
     skinTone: s.skinTone,
     skinType: s.skinType,
@@ -358,12 +365,26 @@ router.post(
   authenticate,
   async (req, res) => {
     try {
-      const { photoBase64, mimeType = 'image/jpeg', faceRegion, zoneMarkers: rawZoneMarkers, notes } = req.body;
+      const { photoBase64, mimeType = 'image/jpeg', faceRegion, zoneMarkers: rawZoneMarkers, notes, parentScanId } = req.body;
       if (!photoBase64) return res.status(400).json({ error: 'photoBase64 required' });
       if (photoBase64.length > 8_000_000) return res.status(413).json({ error: 'Image too large. Maximum 6 MB.' });
       if (notes && notes.length > 300) return res.status(400).json({ error: 'Notes must be 300 characters or fewer' });
       if (!process.env.BLOB_READ_WRITE_TOKEN) {
         return res.status(500).json({ error: 'File storage is not configured. Contact support.' });
+      }
+
+      // Multi-angle scan (see schema.prisma's SkinScan.parentScanId): this
+      // photo is explicitly another angle of an already-known scan session
+      // ("straight-on, then either side"), not a brand-new unrelated scan.
+      // Validated up front (real ownership check, real row) so a bad/
+      // someone-else's id fails fast with a clear 404, not a foreign-key
+      // error deep in the transaction below.
+      let parentScan = null;
+      if (parentScanId) {
+        parentScan = await prisma.skinScan.findUnique({ where: { id: parentScanId } });
+        if (!parentScan || parentScan.userId !== req.user.id) {
+          return res.status(404).json({ error: 'Original scan not found for this additional angle.' });
+        }
       }
 
       // Sanitized here, before any image decode/resize/upload/Gemini work —
@@ -545,6 +566,19 @@ router.post(
         if (profiles.length > 0) profileId = profiles[0].id;
       }
 
+      // Multi-angle scan: which profile this belongs to is already known
+      // (the parent scan already went through real face-matching) — an
+      // explicit "this is another angle of THAT session" beats re-running
+      // face-match against this angle's own photo, which could disagree
+      // with itself on a side profile Gemini reads as a different person.
+      // Overrides whatever the analysis above computed; the skin
+      // tone/type/concerns/heatmaps for THIS photo are untouched — only
+      // which profile/history it files under changes.
+      if (parentScan) {
+        profileId = parentScan.profileId;
+        isNewProfile = false;
+      }
+
       const uploaded = await uploadPromise;
       if (!uploaded?.url) return res.status(500).json({ error: 'Photo upload failed. Please try again.' });
 
@@ -604,6 +638,7 @@ router.post(
             heatmapSourceReason,
             recommendations: result.recommendations,
             notes: notes || '',
+            parentScanId: parentScan ? parentScan.id : null,
           },
         });
 
@@ -811,4 +846,95 @@ router.delete(
   }
 );
 
+// Every scan in the same multi-angle session as :id — whether :id IS the
+// primary (first) photo or one of its additional angles, this always
+// resolves to the FULL group (primary + every angle), ordered oldest
+// first (the capture order a gallery/carousel should show). Empty array
+// (not 404) for an ordinary single-photo scan — "no other angles" is a
+// normal, common answer, not an error.
+router.get(
+  '/scans/:id/angles',
+  authenticate,
+  async (req, res) => {
+    try {
+      const scan = await prisma.skinScan.findUnique({ where: { id: req.params.id } });
+      if (!scan || scan.userId !== req.user.id) return res.status(404).json({ error: 'Scan not found' });
+
+      const primaryId = scan.parentScanId || scan.id;
+      const group = await prisma.skinScan.findMany({
+        where: { userId: req.user.id, OR: [{ id: primaryId }, { parentScanId: primaryId }] },
+        orderBy: { createdAt: 'asc' },
+      });
+      res.json({ angles: group.map(serializeScan) });
+    } catch (err) {
+      console.error('GET /skin/scans/:id/angles error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+// Deep Scan — the explicit, user-triggered upgrade to a real Perfect Corp
+// read on an ALREADY-CAPTURED scan's photo, distinct from the automatic
+// try-then-fallback that POST /scan already does on every new scan. The
+// distinction matters: on a fresh scan, silently falling back to the free
+// heuristic on any Perfect Corp hiccup is the right call (the user never
+// asked for the paid path specifically, so a transient failure shouldn't
+// block them getting SOME result). Here, the user explicitly asked for the
+// real vendor read — a failure should say so honestly, not silently hand
+// back the same estimated result they already have and call it done.
+router.post(
+  '/scans/:id/deep-scan',
+  authenticate,
+  async (req, res) => {
+    try {
+      const scan = await prisma.skinScan.findUnique({ where: { id: req.params.id } });
+      if (!scan || scan.userId !== req.user.id) return res.status(404).json({ error: 'Scan not found' });
+
+      if (!process.env.PERFECTCORP_API_KEY) {
+        return res.status(400).json({ error: 'Deep Scan isn\'t available right now.', code: 'NOT_CONFIGURED' });
+      }
+
+      const start = Date.now();
+      let result;
+      try {
+        result = await analyzeWithPerfectCorp(scan.photoUrl);
+        if (!result) throw new PerfectCorpError('analyzeWithPerfectCorp returned null despite a configured key', 'UNKNOWN');
+      } catch (err) {
+        const errorCode = err instanceof PerfectCorpError ? err.code : 'UNKNOWN';
+        console.error(`[skin] Deep Scan failed for scan ${scan.id}:`, err.message);
+        await logApiUsage({ endpoint: 'deep-scan', success: false, statusCode: err.statusCode, errorCode, durationMs: Date.now() - start, scanId: scan.id, userId: req.user.id });
+        // Honest, specific failure — never silently substitutes the
+        // estimated result the user already has and calls it a Deep Scan.
+        const message = errorCode === 'LOW_IMAGE_QUALITY'
+          ? err.message
+          : "Deep Scan couldn't complete right now — your existing result is unchanged. Try again in a moment.";
+        return res.status(502).json({ error: message, code: errorCode });
+      }
+
+      const heatmaps = { ...(scan.heatmaps || {}) };
+      for (const [key, concern] of Object.entries(result.concerns)) {
+        if (!concern) { heatmaps[key] = null; continue; }
+        const up = await uploadFile(`skin-scans/${req.user.id}-${Date.now()}-${key}.png`, concern.maskBuffer, 'image/png');
+        if (!up?.url) { heatmaps[key] = null; continue; }
+        heatmaps[key] = buildConcernRecord(key, {
+          severity: concern.severity, maskUrl: up.url, confidence: { level: 'high' },
+          source: 'perfectcorp', rawScore: concern.rawScore, uiScore: concern.uiScore,
+        });
+      }
+      for (const u of result.usage) await logApiUsage({ endpoint: u.endpoint, success: true, durationMs: u.durationMs, scanId: scan.id, userId: req.user.id });
+      await logApiUsage({ endpoint: 'deep-scan-total', success: true, durationMs: Date.now() - start, scanId: scan.id, userId: req.user.id });
+
+      const updated = await prisma.skinScan.update({
+        where: { id: scan.id },
+        data: { heatmaps, heatmapSource: 'perfectcorp', heatmapSourceReason: null },
+      });
+      res.json({ scan: serializeScan(updated) });
+    } catch (err) {
+      console.error('POST /skin/scans/:id/deep-scan error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
 module.exports = router;
+router.__test = { getConcernAnalysis };

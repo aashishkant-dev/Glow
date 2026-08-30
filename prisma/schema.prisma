@@ -976,8 +976,26 @@ model SkinScan {
   notes           String   @default("")
   createdAt       DateTime @default(now())
 
+  // Multi-angle scans: an additional photo captured as part of the SAME
+  // scan session (e.g. "straight-on, then either side") rather than a
+  // brand-new, unrelated scan — points at the FIRST photo in that session.
+  // Deliberately a self-relation on the existing SkinScan model, not a new
+  // ScanPhoto table: every angle gets a fully independent analysis (its
+  // own skinTone/skinType/heatmaps/zoneMarkers/deep-scan eligibility) for
+  // free, since it IS just a normal SkinScan row — no separate heatmap-
+  // generation, deep-scan, or share-card code path to build or maintain
+  // for "the other angles." Null (the common case) means either a
+  // single-photo scan, or the FIRST photo of a multi-angle session (the
+  // one other angles point back to) — never itself pointing at a later
+  // sibling. onDelete: SetNull, not Cascade: deleting the primary angle
+  // shouldn't silently delete every other angle's real analysis with it.
+  parentScanId    String?
+  parentScan      SkinScan?  @relation("ScanAngles", fields: [parentScanId], references: [id], onDelete: SetNull)
+  angles          SkinScan[] @relation("ScanAngles")
+
   @@index([userId, createdAt(sort: Desc)])
   @@index([profileId, createdAt(sort: Desc)])
+  @@index([parentScanId])
 }
 
 // One row per attempted call to a paid, metered third-party AI vendor

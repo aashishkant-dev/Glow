@@ -53,6 +53,13 @@ export interface ShareCardSpec {
   // there), which is what keeps the glow from ever appearing where it
   // doesn't apply — no separate "is this a scan" flag needed.
   faceBox?: { x?: number; y?: number; width?: number; height?: number };
+  // Present only when sharing FROM a specific concern tab with real
+  // heatmap data (not the Summary tab) — the real per-concern overlay PNG,
+  // the same one already rendering on the results screen, so the Heatmap
+  // variant below shows actual visual proof of the finding rather than
+  // just repeating the verdict as text. Its presence is what makes the
+  // Heatmap variant pill appear at all (see ShareCardModal).
+  heatmap?: { url: string; label: string; verdict: string; band: 'clear' | 'mild' | 'moderate' | 'notable' };
 }
 
 interface Props {
@@ -242,6 +249,54 @@ const pcStyles = StyleSheet.create({
   chipText: { color: '#fff', fontSize: 12, fontFamily: Fonts.medium },
 });
 
+const BAND_COLOR: Record<'clear' | 'mild' | 'moderate' | 'notable', string> = {
+  clear: Colors.systemGreen, mild: Colors.brand, moderate: Colors.systemOrange, notable: Colors.systemRed,
+};
+
+// Heatmap variant — the actual visual proof of one concern's finding, not
+// just the verdict restated as text. Stacks the SAME per-concern overlay
+// PNG already rendering on the results screen (never a separate render or
+// a re-derived image) on top of the base photo, same as
+// ConcernHeatmapOverlay does there — this card is a different COMPOSITION
+// of real data, not a different analysis. Only ever rendered when
+// card.heatmap is present (see ShareCardModal's variant list).
+function HeatmapCard({ card, width, height }: { card: ShareCardSpec; width: number; height: number }) {
+  const heatmap = card.heatmap!;
+  return (
+    <View style={{ width, height, backgroundColor: Colors.brandDeep }}>
+      <Image source={{ uri: card.photoUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+      <Image source={{ uri: heatmap.url }} style={StyleSheet.absoluteFill} contentFit="cover" />
+      <LinearGradient
+        colors={['rgba(18,9,12,0.5)', 'transparent', 'transparent', 'rgba(14,7,10,0.95)']}
+        locations={[0, 0.22, 0.68, 1]}
+        style={StyleSheet.absoluteFill}
+      />
+      <View style={pcStyles.brandRow}>
+        <GlowMark size={14} petal="rgba(255,255,255,0.88)" petalInner="rgba(255,255,255,0.42)" core={Colors.gold} />
+        <Text style={pcStyles.brandText}>Glow</Text>
+      </View>
+      <View style={hmStyles.topBadge}>
+        <View style={[hmStyles.bandDot, { backgroundColor: BAND_COLOR[heatmap.band] }]} />
+        <Text style={hmStyles.topBadgeText}>{heatmap.label.toUpperCase()} READING</Text>
+      </View>
+      <View style={[pcStyles.content, { maxHeight: height * 0.6 }]}>
+        <Text style={pcStyles.kicker}>{card.kicker}</Text>
+        <Text style={pcStyles.title} numberOfLines={2}>{heatmap.label}</Text>
+        <Text style={pcStyles.subtitle} numberOfLines={3}>{heatmap.verdict}</Text>
+      </View>
+    </View>
+  );
+}
+
+const hmStyles = StyleSheet.create({
+  topBadge: {
+    position: 'absolute', top: 20, right: 20, flexDirection: 'row', alignItems: 'center', gap: 6,
+    backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 100, paddingHorizontal: 10, paddingVertical: 6,
+  },
+  bandDot: { width: 7, height: 7, borderRadius: 3.5 },
+  topBadgeText: { color: '#fff', fontSize: 9.5, fontFamily: Fonts.bold, letterSpacing: 0.6 },
+});
+
 // Stat variant — a warm gradient "poster" instead of a full-bleed photo: a
 // smaller circular portrait as one element among several, big centered
 // serif headline as the actual focus. Reads more like a shareable
@@ -323,7 +378,22 @@ export function ShareCardModal({ visible, card, onClose }: Props) {
   const shotRef = useRef<any>(null);
   const [sharing, setSharing] = useState(false);
   const [downloading, setDownloading] = useState(false);
-  const [variant, setVariant] = useState<'photo' | 'stat'>('photo');
+  // Defaults to 'heatmap' when the card actually has one (shared from a
+  // concern tab) — that's clearly the intent of sharing from there; falls
+  // back to 'photo' otherwise, unchanged from before. Resets whenever a
+  // different card is opened (a fresh `card` object identity each time
+  // shareProgress()/openHeatmapShare() is called).
+  const [variant, setVariant] = useState<'photo' | 'stat' | 'heatmap'>(card?.heatmap ? 'heatmap' : 'photo');
+  const prevCardRef = useRef(card);
+  if (card !== prevCardRef.current) {
+    prevCardRef.current = card;
+    // Every fresh card open picks the variant that actually matches what
+    // was just shared — a heatmap card defaults to showing it (that's the
+    // point of sharing from a concern tab); a card with none must never
+    // leave `variant` pointed at 'heatmap' from a previous open, since
+    // HeatmapCard assumes card.heatmap exists.
+    setVariant(card?.heatmap ? 'heatmap' : 'photo');
+  }
   const busy = sharing || downloading;
 
   // Bigger than a bare-minimum preview — on any modern 3x-scale phone this
@@ -368,14 +438,17 @@ export function ShareCardModal({ visible, card, onClose }: Props) {
           <CloseCircleIcon size={30} color="rgba(255,255,255,0.85)" />
         </Pressable>
 
-        {/* Two structurally different layouts (see PhotoCard/StatCard),
-            not a rigid single template — switching is instant since both
-            render from the exact same ShareCardSpec, just composed
-            differently. */}
+        {/* Structurally different layouts (see PhotoCard/StatCard/
+            HeatmapCard), not one rigid template — switching is instant
+            since all three render from the exact same ShareCardSpec, just
+            composed differently. Heatmap only ever appears as an option
+            when this card actually has one (shared from a concern tab,
+            not the Summary tab) — never a pill that would render nothing
+            or crash. */}
         <View style={styles.variantRow}>
-          {(['photo', 'stat'] as const).map(v => (
+          {(['photo', 'stat', ...(card.heatmap ? ['heatmap'] : [])] as ('photo' | 'stat' | 'heatmap')[]).map(v => (
             <Pressable key={v} onPress={() => setVariant(v)} style={[styles.variantPill, variant === v && styles.variantPillActive]}>
-              <Text style={[styles.variantPillText, variant === v && styles.variantPillTextActive]}>{v === 'photo' ? 'Photo' : 'Stat'}</Text>
+              <Text style={[styles.variantPillText, variant === v && styles.variantPillTextActive]}>{v === 'photo' ? 'Photo' : v === 'stat' ? 'Stat' : 'Heatmap'}</Text>
             </Pressable>
           ))}
         </View>
@@ -398,9 +471,15 @@ export function ShareCardModal({ visible, card, onClose }: Props) {
             centerContent
           >
             <ViewShot ref={shotRef} style={{ width: CARD_W, height: CARD_H }} options={{ format: 'png', quality: 0.95 }}>
-              {variant === 'photo'
-                ? <PhotoCard card={card} width={CARD_W} height={CARD_H} />
-                : <StatCard card={card} width={CARD_W} height={CARD_H} />}
+              {/* card.heatmap re-checked here (not just trusting `variant`)
+                  — defensive against variant ever being stale 'heatmap'
+                  for a card that doesn't have one, which would otherwise
+                  crash HeatmapCard's non-null assertion. */}
+              {variant === 'heatmap' && card.heatmap
+                ? <HeatmapCard card={card} width={CARD_W} height={CARD_H} />
+                : variant === 'stat'
+                ? <StatCard card={card} width={CARD_W} height={CARD_H} />
+                : <PhotoCard card={card} width={CARD_W} height={CARD_H} />}
             </ViewShot>
           </ScrollView>
         </View>

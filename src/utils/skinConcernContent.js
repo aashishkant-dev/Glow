@@ -159,4 +159,31 @@ function severityBand(severity) {
   return 'notable';
 }
 
-module.exports = { CONCERN_CONTENT, CONCERN_ORDER, severityBand };
+// Real per-scan specificity for the verdict line, without a second set of
+// templates to maintain or an LLM call to pay for: the band-level sentence
+// (CONCERN_CONTENT[key].verdict[band], unchanged) already reads correctly
+// on its own — this appends a clause naming the actual worst 1-2 zones
+// FROM THIS SCAN'S OWN computed zoneBreakdown (skinHeatmaps.js — the same
+// severity data driving the heatmap, not a separate guess), so "Pores read
+// visibly enlarged" becomes "...especially around your nose and right
+// cheek" when there's real zone data, and degrades gracefully to the
+// original generic sentence when there isn't (the 'perfectcorp' path
+// today, or a concern with too little assessable area for a per-zone
+// breakdown) — never a fabricated location. No clause on the 'clear' band
+// — there's nothing found to point to.
+function zoneClause(zoneBreakdown) {
+  if (!zoneBreakdown || zoneBreakdown.length === 0) return '';
+  const top = zoneBreakdown.slice(0, 2).map((z) => z.label.toLowerCase());
+  const names = top.length === 2 ? `${top[0]} and ${top[1]}` : top[0];
+  return `, especially around your ${names}`;
+}
+
+function buildVerdict(key, band, zoneBreakdown) {
+  const base = CONCERN_CONTENT[key].verdict[band];
+  if (band === 'clear') return base;
+  const clause = zoneClause(zoneBreakdown);
+  if (!clause) return base;
+  return base.endsWith('.') ? `${base.slice(0, -1)}${clause}.` : `${base}${clause}`;
+}
+
+module.exports = { CONCERN_CONTENT, CONCERN_ORDER, severityBand, buildVerdict };

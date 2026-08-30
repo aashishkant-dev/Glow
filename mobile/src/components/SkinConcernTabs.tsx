@@ -257,6 +257,14 @@ export function ConcernDetailCard({ concernKey, concern, onViewRecommendations, 
             <Text style={detailStyles.estimatedPillText}>ESTIMATED</Text>
           </View>
         )}
+        {/* Mirrors the ESTIMATED pill for the opposite case — a real Deep
+            Scan (Perfect Corp) result deserves its own visible attribution,
+            not just the absence of the estimated label. */}
+        {concern.source === 'perfectcorp' && (
+          <View style={detailStyles.dermPill}>
+            <Text style={detailStyles.dermPillText}>DERMATOLOGIST-GRADE</Text>
+          </View>
+        )}
       </View>
       <View style={detailStyles.row}>
         <SeverityGradientBar severity={concern.severity} gradientLabels={concern.gradientLabels} />
@@ -327,6 +335,8 @@ const detailStyles = StyleSheet.create({
   title: { fontSize: 15.5, fontFamily: Fonts.display, color: Colors.label },
   estimatedPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 100, backgroundColor: Colors.surfaceCream },
   estimatedPillText: { fontSize: 9, fontFamily: Fonts.bold, color: Colors.tertiaryLabel, letterSpacing: 0.5 },
+  dermPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 100, backgroundColor: Colors.label },
+  dermPillText: { fontSize: 9, fontFamily: Fonts.bold, color: '#fff', letterSpacing: 0.5 },
   zoneChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 2 },
   zoneChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 100, backgroundColor: Colors.surfaceCream },
   zoneChipActive: { backgroundColor: Colors.brand },

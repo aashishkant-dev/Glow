@@ -16,19 +16,20 @@
  * (`scan.heatmaps` null) shows no tabs at all — Summary only — rather than
  * four tabs that can only ever say "not assessed."
  */
-import React, { useRef, useState } from 'react';
-import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Colors, Fonts } from '../../utils/colors';
-import { apiDeleteSkinScan, SkinScan } from '../../api/client';
+import { apiDeleteSkinScan, apiDeepScan, apiGetScanAngles, SkinScan } from '../../api/client';
 import { tapLight, confirmAction } from '../../utils/haptics';
 import { NearbyArtistRow } from '../../components/NearbyArtistRow';
 import { ConcernHeatmapOverlay, ConcernTabBar, ConcernDetailCard, CONCERN_ORDER, ConcernTab } from '../../components/SkinConcernTabs';
 import { resolveZoneRect, ZoneKey, FaceBox } from '../../utils/skinZones';
 import { ShareCardModal, ShareCardSpec } from '../../components/ShareCardModal';
+import { SkinScanCamera } from '../../components/SkinScanCamera';
 import { SparkleIcon } from '../../components/BeautyIcons';
 import { CloseCircleIcon, SearchIcon } from '../../components/TabIcons';
 
@@ -135,9 +136,33 @@ export function SkinScanResultScreen() {
   const insets = useSafeAreaInsets();
   const nav = useNavigation<any>();
   const route = useRoute<any>();
-  const scan: SkinScan = route.params.scan;
+  // Real state (not a plain destructure of route.params) specifically so a
+  // successful Deep Scan can update what's on screen — the whole point of
+  // Deep Scan is seeing the real result replace the estimated one without
+  // leaving this screen or re-navigating.
+  const [scan, setScan] = useState<SkinScan>(route.params.scan);
   const justScanned: boolean = !!route.params.justScanned;
   const [deleting, setDeleting] = useState(false);
+  const [deepScanning, setDeepScanning] = useState(false);
+  // Multi-angle scans (see schema.prisma's SkinScan.parentScanId): every
+  // scan in this session, oldest first — just [scan] itself for an
+  // ordinary single-photo scan, which is also the initial value so the
+  // gallery has something correct to render before the real fetch below
+  // resolves (never an empty flash). `angleCamera` is a SEPARATE, local
+  // <SkinScanCamera> instance just for capturing an additional angle —
+  // deliberately not routed through My Space's own camera-reopen
+  // mechanism (that's for "start an unrelated new scan," not "add a
+  // second photo to THIS scan"), so it never disturbs My Space's own
+  // latest/history state.
+  const [angles, setAngles] = useState<SkinScan[]>([route.params.scan]);
+  const [angleCameraOpen, setAngleCameraOpen] = useState(false);
+  useEffect(() => {
+    let cancelled = false;
+    apiGetScanAngles(route.params.scan.id)
+      .then(({ angles: fetched }) => { if (!cancelled && fetched.length > 0) setAngles(fetched); })
+      .catch((err) => console.error('[SkinScanResultScreen] failed to load scan angles', err));
+    return () => { cancelled = true; };
+  }, [route.params.scan.id]);
   const [shareCard, setShareCard] = useState<ShareCardSpec | null>(null);
   // Which tab is showing — 'summary' or one concern. Lifted to screen level
   // (not owned inside a tab component) so the photo overlay (inside
@@ -173,6 +198,20 @@ export function SkinScanResultScreen() {
   function selectZone(zone: string) {
     tapLight();
     setHighlightedZone((prev) => (prev === zone ? null : zone));
+  }
+  // Switches which angle's photo/heatmaps this screen is showing — the
+  // tab/zone state resets since a different angle's heatmaps may not have
+  // data for whichever concern/zone was selected on the previous one.
+  function selectAngle(angleScan: SkinScan) {
+    tapLight();
+    setScan(angleScan);
+    setActiveTab('summary');
+    setHighlightedZone(null);
+    scrollRef.current?.scrollTo({ y: 0, animated: true });
+  }
+  function onAngleCaptured(newScan: SkinScan) {
+    setAngles((prev) => [...prev, newScan]);
+    selectAngle(newScan);
   }
   // Resolved to full-photo 0-1 fractions (same space as the heatmap
   // overlay) only when a zone is actually selected — real landmark
@@ -225,6 +264,14 @@ export function SkinScanResultScreen() {
 
   function shareProgress() {
     tapLight();
+    // Sharing FROM a specific concern tab (not Summary) with real heatmap
+    // data attaches that concern's own overlay + verdict — this is what
+    // makes the Heatmap card variant possible (real visual proof of "my
+    // pores reading," not just the tone/type summary restated). Absent
+    // entirely when sharing from Summary, or from a concern this scan
+    // couldn't assess — ShareCardModal simply doesn't offer that variant
+    // then, same as before this existed.
+    const activeConcern = activeTab !== 'summary' ? scan.heatmaps?.[activeTab] : undefined;
     // The old share just sent the bare photo — this bakes the actual reading
     // (tone/type/hydration, the AI's own summary, the concerns) into a
     // designed card, so what lands in a DM/Story actually says something.
@@ -235,8 +282,13 @@ export function SkinScanResultScreen() {
       subtitle: scan.summary || undefined,
       meta: scan.hydrationLevel ? `${HYDRATION_LABELS[scan.hydrationLevel]} hydration` : undefined,
       chips: scan.concerns,
-      shareCaption: `My Glow skin check-in: ${TONE_LABELS[scan.skinTone]} tone · ${TYPE_LABELS[scan.skinType]} skin ✨`,
+      shareCaption: activeConcern
+        ? `My Glow ${activeConcern.label} reading ✨`
+        : `My Glow skin check-in: ${TONE_LABELS[scan.skinTone]} tone · ${TYPE_LABELS[scan.skinType]} skin ✨`,
       faceBox: scan.faceBox,
+      heatmap: activeConcern
+        ? { url: activeConcern.url, label: activeConcern.label, verdict: activeConcern.verdict, band: activeConcern.band }
+        : undefined,
     });
   }
 
@@ -257,6 +309,26 @@ export function SkinScanResultScreen() {
         }
       },
     });
+  }
+
+  // Explicit, user-triggered — never auto-fired. A failure shows the real
+  // reason (Deep Scan's own honest error, not a silent re-serve of the
+  // estimated result the user already has) and leaves `scan` untouched;
+  // success replaces it wholesale, so every concern tab (and the tap-to-
+  // highlight system already wired to `scan.heatmaps`) picks up the real
+  // Perfect Corp data with no separate code path of its own.
+  async function runDeepScan() {
+    tapLight();
+    setDeepScanning(true);
+    try {
+      const { scan: updated } = await apiDeepScan(scan.id);
+      setScan(updated);
+      setActiveTab('summary');
+    } catch (err: any) {
+      Alert.alert('Deep Scan', err?.message || "Couldn't complete Deep Scan right now. Try again in a moment.");
+    } finally {
+      setDeepScanning(false);
+    }
   }
 
   return (
@@ -294,6 +366,29 @@ export function SkinScanResultScreen() {
           </Pressable>
         </View>
 
+        {/* Multi-angle gallery (see schema.prisma's SkinScan.parentScanId)
+            — a thumbnail strip. Always rendered, even for a plain
+            single-photo scan (just one thumbnail + the add tile then) —
+            it's the one visible entry point for "add another angle" at
+            all, so gating it behind already HAVING a second angle would
+            make the feature undiscoverable. Tapping a thumbnail swaps the
+            ENTIRE screen (photo, heatmaps, tabs) to that angle's own
+            independent analysis — never a crop of the same data, each
+            angle really is its own full scan. The trailing "+" tile opens
+            a second, local, purpose-built camera instance (angleCamera)
+            to add another — deliberately not My Space's own camera-reopen
+            flow, which is for starting an unrelated new scan. */}
+        <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.angleRow}>
+          {angles.map((a) => (
+            <Pressable key={a.id} onPress={() => selectAngle(a)} style={[styles.angleThumbWrap, a.id === scan.id && styles.angleThumbWrapActive]}>
+              <Image source={{ uri: a.photoUrl }} style={styles.angleThumb} contentFit="cover" />
+            </Pressable>
+          ))}
+          <Pressable onPress={() => { tapLight(); setAngleCameraOpen(true); }} style={styles.angleAddTile}>
+            <Text style={styles.angleAddTileText}>+</Text>
+          </Pressable>
+        </ScrollView>
+
         {/* Outside styles.body (which has its own horizontal padding) since
             ConcernTabBar carries its own — only rendered at all when this
             scan actually has heatmap data; a scan from before this existed
@@ -324,6 +419,22 @@ export function SkinScanResultScreen() {
                 <View style={styles.estimatedBanner}>
                   <Text style={styles.estimatedBannerText}>{ESTIMATED_REASON_COPY[scan.heatmapSourceReason || 'not_configured']}</Text>
                 </View>
+              )}
+
+              {/* Deep Scan — the explicit, user-triggered upgrade to a real
+                  Perfect Corp read on this exact photo (never fired
+                  automatically). Only shown when this scan ISN'T already a
+                  real vendor result — no point offering to upgrade
+                  something that's already the real thing. */}
+              {scan.heatmapSource !== 'perfectcorp' && (
+                <Pressable style={styles.deepScanBtn} onPress={runDeepScan} disabled={deepScanning}>
+                  {deepScanning ? (
+                    <ActivityIndicator color="#fff" size="small" />
+                  ) : (
+                    <SparkleIcon size={14} color="#fff" />
+                  )}
+                  <Text style={styles.deepScanBtnText}>{deepScanning ? 'Running Deep Scan…' : 'Run Deep Scan (AI Skin Diagnostic)'}</Text>
+                </Pressable>
               )}
 
               <View style={styles.eyebrowRow}>
@@ -473,6 +584,19 @@ export function SkinScanResultScreen() {
         onClose={() => setZoomOpen(false)}
         onShare={() => { setZoomOpen(false); shareProgress(); }}
       />
+      {/* Local, purpose-built instance for "add another angle" — parentScanId
+          always points at angles[0] (the group's primary/first photo,
+          angles being fetched oldest-first), regardless of which angle is
+          currently being viewed, so every additional angle files under the
+          SAME session rather than chaining off whichever one happened to
+          be on screen when "+" was tapped. */}
+      <SkinScanCamera
+        visible={angleCameraOpen}
+        onClose={() => setAngleCameraOpen(false)}
+        onComplete={(newScan) => { setAngleCameraOpen(false); onAngleCaptured(newScan); }}
+        previousScan={scan}
+        parentScanId={angles[0]?.id ?? scan.id}
+      />
     </View>
   );
 }
@@ -515,6 +639,16 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0,0,0,0.4)', alignItems: 'center', justifyContent: 'center',
   },
 
+  angleRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 20, paddingTop: 12 },
+  angleThumbWrap: { borderRadius: 12, borderWidth: 2, borderColor: 'transparent' },
+  angleThumbWrapActive: { borderColor: Colors.brand },
+  angleThumb: { width: 52, height: 64, borderRadius: 10, backgroundColor: Colors.surfaceCream },
+  angleAddTile: {
+    width: 52, height: 64, borderRadius: 10, borderWidth: 1.5, borderColor: Colors.separatorSoft,
+    borderStyle: 'dashed', alignItems: 'center', justifyContent: 'center',
+  },
+  angleAddTileText: { fontSize: 22, fontFamily: Fonts.medium, color: Colors.tertiaryLabel },
+
   zoomRoot: { flex: 1, backgroundColor: '#000' },
   zoomCloseBtn: {
     position: 'absolute', right: 14, zIndex: 2, borderRadius: 15, overflow: 'hidden',
@@ -537,6 +671,11 @@ const styles = StyleSheet.create({
   bodyNoTop: { paddingTop: 8 },
   estimatedBanner: { backgroundColor: Colors.surfaceCream, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 14 },
   estimatedBannerText: { fontSize: 12, fontFamily: Fonts.medium, color: Colors.secondaryLabel, lineHeight: 17 },
+  deepScanBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: Colors.label, borderRadius: 100, paddingVertical: 13, marginBottom: 16,
+  },
+  deepScanBtnText: { color: '#fff', fontSize: 13.5, fontFamily: Fonts.semibold },
   eyebrowRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
   eyebrow: { fontSize: 11, fontFamily: Fonts.semibold, color: Colors.brandDark, letterSpacing: 1.4 },
 

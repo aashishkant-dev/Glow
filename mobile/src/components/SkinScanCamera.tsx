@@ -305,6 +305,12 @@ interface Props {
   // flagged X, make sure that area is lit"), not just generic photography
   // advice. Omit/null on a first-ever scan.
   previousScan?: SkinScan | null;
+  // Set only when this capture is an ADDITIONAL angle of an existing scan
+  // session (see schema.prisma's SkinScan.parentScanId), never for a
+  // normal new scan — passed straight through to apiScanSkin so the
+  // backend skips face-matching (already known) and files this angle
+  // under the same profile/session instead of starting a new one.
+  parentScanId?: string;
 }
 
 const GENERIC_TIPS = [
@@ -508,7 +514,7 @@ function LightingSensor({ onSample, onOutputReady }: {
   return null;
 }
 
-export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: Props) {
+export function SkinScanCamera({ visible, onClose, onComplete, previousScan, parentScanId }: Props) {
   const insets = useSafeAreaInsets();
   const { width: winW, height: winH } = useWindowDimensions();
   // canRequestPermission is true only while status is 'not-determined' (the
@@ -890,6 +896,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
         mimeType: shotToSubmit.mimeType,
         faceRegion: shotToSubmit.faceRegion || undefined,
         zoneMarkers: shotToSubmit.zoneMarkers || undefined,
+        parentScanId,
       });
       reset();
       onComplete(scan, bookCategory, isNewProfile);
@@ -966,7 +973,17 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
   const rollAngle = primaryLiveFace?.rollAngle ?? null;
   const yawAngle = primaryLiveFace?.yawAngle ?? null;
   const maxTilt = pitchAngle == null ? null : Math.max(Math.abs(pitchAngle), Math.abs(rollAngle ?? 0), Math.abs(yawAngle ?? 0));
-  const angleGate: Gate = maxTilt == null ? 'red' : maxTilt <= 10 ? 'green' : maxTilt <= 20 ? 'amber' : 'red';
+  // Tuning note (2026-08-30): the green cutoff here used to be 10° — TIGHTER
+  // than PITCH_GATE_DEG=18 in skinZones.ts, the actual downstream tolerance
+  // the analysis pipeline uses to decide whether forehead/chin/jawline are
+  // still placeable. That mismatch meant the LIVE gate was blocking the
+  // shutter on plenty of photos the backend would have handled fine (nose/
+  // cheek/eye zones don't depend on pitch at all; forehead/chin/jawline
+  // degrade gracefully to "not assessed" past 18°, not a scan rejection).
+  // Raised to sit just under that real tolerance instead of an arbitrary
+  // tighter number, so a mostly-frontal photo isn't rejected pre-capture
+  // for an angle the backend would have accepted anyway.
+  const angleGate: Gate = maxTilt == null ? 'red' : maxTilt <= 15 ? 'green' : maxTilt <= 25 ? 'amber' : 'red';
   const angleReason = maxTilt == null ? 'Look straight at the camera' : angleGate === 'red' ? 'Straighten your head' : 'Almost straight';
 
   // --- Lighting: real per-frame brightness (see LightingSensor above) ---
@@ -987,10 +1004,20 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan }: P
   // happens, instead of silently masking it as "good light."
   const LIGHTING_GRACE_MS = 1200;
   const lightingGraceElapsed = Date.now() - cameraActiveSinceRef.current > LIGHTING_GRACE_MS;
+  // Tuning note (2026-08-30): green used to require avgLuma in [70,205] —
+  // real reported complaints on this exact screen were about being
+  // rejected/blank in normal indoor light, and the severity math this
+  // photo eventually feeds (skinHeatmaps.js) is SELF-RELATIVE — z-scored
+  // against this photo's OWN mean/stddev, not an absolute brightness
+  // baseline — so a dimmer-but-evenly-lit room has just as much usable
+  // relative signal as a bright one. Loosened the green/amber bands
+  // accordingly; the red floor/ceiling (genuinely too dark to see
+  // anything, or blown out) is unchanged — those photos really are
+  // unusable regardless of relative scoring.
   const lightingGate: Gate = lightingSample == null
     ? (lightingGraceElapsed ? 'green' : 'red')
-    : (lightingSample.avgLuma < 45 || lightingSample.avgLuma > 230 || lightingSample.darkFraction >= 0.5) ? 'red'
-    : (lightingSample.avgLuma < 70 || lightingSample.avgLuma > 205 || lightingSample.darkFraction >= 0.3) ? 'amber'
+    : (lightingSample.avgLuma < 40 || lightingSample.avgLuma > 235 || lightingSample.darkFraction >= 0.5) ? 'red'
+    : (lightingSample.avgLuma < 55 || lightingSample.avgLuma > 215 || lightingSample.darkFraction >= 0.35) ? 'amber'
     : 'green';
   const lightingReason = lightingSample != null && lightingSample.avgLuma < 45 ? 'Find brighter light'
     : lightingSample != null && lightingSample.avgLuma > 230 ? 'Too much direct light'

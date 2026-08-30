@@ -1465,6 +1465,10 @@ export interface SkinScan {
   // Which physical person this scan belongs to — see SkinProfile below. A
   // shared-device account (family sharing one phone) can have more than one.
   profileId: string;
+  // Set only when this scan is an ADDITIONAL angle of another scan (see
+  // apiGetScanAngles) — null for a normal scan and for the primary/first
+  // photo of a multi-angle session.
+  parentScanId?: string | null;
   photoUrl: string;
   skinTone: SkinToneValue;
   skinType: SkinTypeValue;
@@ -1543,6 +1547,10 @@ export function apiScanSkin(payload: {
   faceRegion?: { x: number; y: number; width: number; height: number };
   zoneMarkers?: Partial<Record<'forehead' | 'nose' | 'chin' | 'cheekL' | 'cheekR' | 'underEyeL' | 'underEyeR' | 'jawline', { x: number; y: number; width: number; height: number }>>;
   notes?: string;
+  // Set only when this photo is an ADDITIONAL angle of an existing scan
+  // session, not a normal new scan — see schema.prisma's
+  // SkinScan.parentScanId and SkinScanCamera's own prop of the same name.
+  parentScanId?: string;
 }) {
   // isNewProfile: true when the backend's face-match decided this photo
   // doesn't match anyone previously scanned on this account and started a
@@ -1564,6 +1572,13 @@ export function apiGetSkinScans(profileId?: string, cursor?: string, limit = 20)
   return request<{ scans: SkinScan[]; nextCursor: string | null }>('GET', `/skin/scans?${params.toString()}`);
 }
 
+// Every scan in the same multi-angle session as scanId, oldest first —
+// just [scan] itself for an ordinary single-photo scan (see
+// schema.prisma's SkinScan.parentScanId), never an error.
+export function apiGetScanAngles(scanId: string) {
+  return request<{ angles: SkinScan[] }>('GET', `/skin/scans/${scanId}/angles`);
+}
+
 export function apiGetLatestSkinScan(profileId?: string) {
   const params = profileId ? `?${new URLSearchParams({ profileId }).toString()}` : '';
   return request<{ scan: SkinScan | null }>('GET', `/skin/latest${params}`);
@@ -1571,6 +1586,21 @@ export function apiGetLatestSkinScan(profileId?: string) {
 
 export function apiDeleteSkinScan(scanId: string) {
   return request<{ success: boolean }>('DELETE', `/skin/scans/${scanId}`);
+}
+
+// Explicit, user-triggered upgrade to a real Perfect Corp read on an
+// already-captured scan's photo — distinct from the automatic try-then-
+// fallback every new scan already goes through. A failure here throws a
+// real error (via request()'s existing error handling — `code` will be
+// 'NOT_CONFIGURED', 'LOW_IMAGE_QUALITY', or a vendor failure code) rather
+// than silently returning the same estimated result; the caller should
+// show it, not swallow it. 90s timeout (no retries) — a real Perfect Corp
+// task create+poll cycle can legitimately take under a minute (see
+// perfectCorpClient.js's own POLL_TIMEOUT_MS), and retrying an explicit,
+// user-initiated paid call on a transient blip risks a duplicate charge
+// more than it saves a tap.
+export function apiDeepScan(scanId: string) {
+  return request<{ scan: SkinScan }>('POST', `/skin/scans/${scanId}/deep-scan`, undefined, true, 0, 90_000);
 }
 
 // ─── My Space — skin profiles ───────────────────────────────────────────────
