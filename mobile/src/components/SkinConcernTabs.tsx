@@ -32,6 +32,7 @@ import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Fonts } from '../utils/colors';
 import { SkinHeatmapConcern, SkinHeatmapConcernKey } from '../api/client';
+import { FaceBox } from '../utils/skinZones';
 
 export type ConcernTab = 'summary' | SkinHeatmapConcernKey;
 
@@ -53,12 +54,48 @@ export const CONCERN_ORDER: { key: SkinHeatmapConcernKey; label: string }[] = [
 
 type Heatmaps = Partial<Record<SkinHeatmapConcernKey, SkinHeatmapConcern>> | null;
 
+// Tap-to-highlight "spotlight": four opaque bars framing a cutout at
+// `zoneRect` (already resolved to full-photo 0-1 fractions by the caller —
+// see skinZones.ts's resolveZoneRect) — dims everything OUTSIDE the
+// tapped zone while leaving it, and the heatmap color underneath it, at
+// full visibility. Four plain Views rather than an SVG mask/library: every
+// zone rect this app uses is already a rectangle (see ZONE_RECTS), so a
+// literal rectangular cutout needs nothing more than this. Percentage
+// strings position it in the exact same fractional space the base photo
+// and heatmap overlay already share, so it needs zero pixel math of its
+// own and can't drift out of alignment with either.
+// React Native's DimensionValue only accepts the literal `${number}%`
+// template pattern, not a general string — a plain template-literal const
+// widens to `string` and fails to typecheck against it, hence this cast in
+// one place rather than four.
+function pct(fraction: number): `${number}%` {
+  return `${fraction * 100}%`;
+}
+
+function ZoneHighlightMask({ zoneRect }: { zoneRect: FaceBox }) {
+  const DIM = 'rgba(0,0,0,0.6)';
+  const leftPct = pct(Math.max(0, zoneRect.x));
+  const topPct = pct(Math.max(0, zoneRect.y));
+  const rightEdgePct = pct(Math.min(1, zoneRect.x + zoneRect.width));
+  const bottomEdgePct = pct(Math.min(1, zoneRect.y + zoneRect.height));
+  const heightPct = pct(Math.max(0, zoneRect.height));
+  return (
+    <View style={StyleSheet.absoluteFill} pointerEvents="none">
+      <View style={{ position: 'absolute', left: 0, right: 0, top: 0, height: topPct, backgroundColor: DIM }} />
+      <View style={{ position: 'absolute', left: 0, right: 0, top: bottomEdgePct, bottom: 0, backgroundColor: DIM }} />
+      <View style={{ position: 'absolute', left: 0, top: topPct, width: leftPct, height: heightPct, backgroundColor: DIM }} />
+      <View style={{ position: 'absolute', right: 0, top: topPct, left: rightEdgePct, height: heightPct, backgroundColor: DIM }} />
+    </View>
+  );
+}
+
 // Lives inside the same absolute-fill photo container the base <Image>
-// sits in — a plain Image stack, not an interactive overlay, since the
-// heatmap itself is pre-rendered server-side. Nothing renders for
-// 'summary' or a concern this scan has no data for. Fades in (~200ms)
-// rather than popping in on every tab switch.
-export function ConcernHeatmapOverlay({ activeTab, heatmaps }: { activeTab: ConcernTab; heatmaps: Heatmaps }) {
+// sits in — a plain Image stack, not an interactive overlay by itself
+// (the heatmap PNG is pre-rendered server-side), PLUS the tap-to-highlight
+// spotlight (ZoneHighlightMask) stacked on top when a specific zone is
+// selected. Nothing renders for 'summary' or a concern this scan has no
+// data for. Fades in (~200ms) rather than popping in on every tab switch.
+export function ConcernHeatmapOverlay({ activeTab, heatmaps, highlightedZoneRect }: { activeTab: ConcernTab; heatmaps: Heatmaps; highlightedZoneRect?: FaceBox | null }) {
   const concern = activeTab === 'summary' ? undefined : heatmaps?.[activeTab];
   const opacity = useRef(new Animated.Value(0)).current;
   useEffect(() => {
@@ -70,6 +107,7 @@ export function ConcernHeatmapOverlay({ activeTab, heatmaps }: { activeTab: Conc
   return (
     <Animated.View style={[StyleSheet.absoluteFill, { opacity }]} pointerEvents="none">
       <Image source={{ uri: concern.url }} style={StyleSheet.absoluteFill} contentFit="cover" />
+      {!!highlightedZoneRect && <ZoneHighlightMask zoneRect={highlightedZoneRect} />}
     </Animated.View>
   );
 }
@@ -171,10 +209,16 @@ const gradStyles = StyleSheet.create({
 // per-concern recommendation set in this data model, so pointing at the one
 // real list beats fabricating five more. Fades in (~180ms) on concern
 // switch, same motion language as the heatmap overlay it sits beside.
-export function ConcernDetailCard({ concernKey, concern, onViewRecommendations }: {
+export function ConcernDetailCard({ concernKey, concern, onViewRecommendations, highlightedZone, onSelectZone }: {
   concernKey: SkinHeatmapConcernKey;
   concern: SkinHeatmapConcern | undefined;
   onViewRecommendations: () => void;
+  // Tap-to-highlight: which zone (if any) is currently spotlighted on the
+  // photo, and the handler to change it. Tapping the already-selected zone
+  // deselects it (back to the full, undimmed overlay) — see
+  // SkinScanResultScreen's selectZone, the single place this toggle lives.
+  highlightedZone?: string | null;
+  onSelectZone?: (zone: string) => void;
 }) {
   const meta = CONCERN_ORDER.find(c => c.key === concernKey)!;
   const opacity = useRef(new Animated.Value(0)).current;
@@ -230,6 +274,30 @@ export function ConcernDetailCard({ concernKey, concern, onViewRecommendations }
           {concern.confidence.level === 'low' && (
             <Text style={detailStyles.confidenceNote}>Based on limited visibility in this area — retake with it clearly in frame for a fuller read.</Text>
           )}
+          {/* Tap-to-highlight: real per-zone severity (skinHeatmaps.js),
+              worst-first — tapping a chip spotlights that exact region on
+              the photo above (dims the rest) instead of the old marker
+              system's floating tooltip. Only renders when this concern
+              actually has zone data (empty on the 'perfectcorp' path so
+              far, or a concern with too little assessable area for a
+              breakdown) — no chips is the honest state, not a bug. */}
+          {concern.zoneBreakdown.length > 0 && (
+            <View style={detailStyles.zoneChipRow}>
+              {concern.zoneBreakdown.map((z) => {
+                const active = highlightedZone === z.zone;
+                return (
+                  <Pressable
+                    key={z.zone}
+                    onPress={() => onSelectZone?.(z.zone)}
+                    style={[detailStyles.zoneChip, active && detailStyles.zoneChipActive]}
+                  >
+                    <View style={[detailStyles.zoneChipDot, { backgroundColor: BAND_COLOR[z.band] }]} />
+                    <Text style={[detailStyles.zoneChipText, active && detailStyles.zoneChipTextActive]}>{z.label}</Text>
+                  </Pressable>
+                );
+              })}
+            </View>
+          )}
           <Text style={detailStyles.education}>{concern.education}</Text>
           <View style={detailStyles.tipsList}>
             {concern.tips.map((tip, i) => (
@@ -254,6 +322,12 @@ const detailStyles = StyleSheet.create({
   title: { fontSize: 15.5, fontFamily: Fonts.display, color: Colors.label },
   estimatedPill: { paddingHorizontal: 8, paddingVertical: 3, borderRadius: 100, backgroundColor: Colors.surfaceCream },
   estimatedPillText: { fontSize: 9, fontFamily: Fonts.bold, color: Colors.tertiaryLabel, letterSpacing: 0.5 },
+  zoneChipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginTop: 2 },
+  zoneChip: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 100, backgroundColor: Colors.surfaceCream },
+  zoneChipActive: { backgroundColor: Colors.brand },
+  zoneChipDot: { width: 6, height: 6, borderRadius: 3 },
+  zoneChipText: { fontSize: 11.5, fontFamily: Fonts.semibold, color: Colors.secondaryLabel },
+  zoneChipTextActive: { color: '#fff' },
   row: { flexDirection: 'row', gap: 16 },
   rowBody: { flex: 1, gap: 8 },
   verdictRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },

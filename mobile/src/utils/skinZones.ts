@@ -160,6 +160,31 @@ function centeredZoneRect(zone: ZoneKey, center: Point | null, faceBoxPx: FaceBo
   return { x: left / imgWidth, y: top / imgHeight, width: widthPx / imgWidth, height: heightPx / imgHeight };
 }
 
+// Resolves one zone's rect in FULL-PHOTO 0-1 fraction space (same space as
+// faceBox/photoUrl) — the geometry the tap-to-highlight spotlight overlay
+// (SkinConcernTabs.tsx's ZoneHighlightMask) needs to position itself.
+// Prefers this scan's own real landmark-derived rect (zoneMarkers[zone] —
+// already full-photo fractions) when present; falls back to ZONE_RECTS'
+// fixed proportion of faceBox otherwise — the exact same "real geometry
+// first, proportion estimate as fallback" rule already used everywhere
+// else this data flows (see deriveZoneMarkers' own file header, and
+// skinHeatmaps.js's assessableZoneRects on the backend, which this
+// mirrors). Returns null only if faceBox itself is missing/empty (a scan
+// from before faceBox existed) — there's no reasonable proportion to fall
+// back to without it.
+export function resolveZoneRect(zone: ZoneKey, zoneMarkers: StoredZoneMarkers | null | undefined, faceBox: FaceBox | undefined): FaceBox | null {
+  const anchored = zoneMarkers?.[zone];
+  if (anchored) return anchored;
+  if (!faceBox || !faceBox.width || !faceBox.height) return null;
+  const r = ZONE_RECTS[zone];
+  return {
+    x: faceBox.x + r.x * faceBox.width,
+    y: faceBox.y + r.y * faceBox.height,
+    width: r.width * faceBox.width,
+    height: r.height * faceBox.height,
+  };
+}
+
 // Already-persisted, landmark-derived rects for a scan (SkinScan.
 // zoneMarkers — 0-1 fractions of the full photo, same space as faceBox
 // itself) — null/undefined for a scan captured before this existed, or

@@ -607,6 +607,40 @@ const RELEVANT_ZONES = {
   pores: PORE_ZONES, wrinkles: WRINKLE_ZONES,
 };
 
+// Display names for the tap-to-highlight zone breakdown (see
+// zoneBreakdownFor) — the only place these need to read like something a
+// person taps on, rather than an internal key.
+const ZONE_LABELS = {
+  forehead: 'Forehead', nose: 'Nose', chin: 'Chin',
+  cheekL: 'Left Cheek', cheekR: 'Right Cheek',
+  underEyeL: 'Left Under-Eye', underEyeR: 'Right Under-Eye',
+  jawline: 'Jawline',
+};
+
+// Per-zone severity for the tap-to-highlight interaction — the SAME
+// severity map already computed for the whole concern, just re-summarized
+// one zone's own ellipse at a time instead of the concern's full mask.
+// Reuses ellipseWeight directly (not buildMasks' union) since each zone
+// needs its OWN isolated weight, not the union every other zone's mask
+// already blends into. Returns only zones that are both relevant to this
+// concern (RELEVANT_ZONES) AND actually assessable for this scan
+// (zoneRects has a real rect for it) — worst-first, so tapping the first
+// chip always surfaces the most affected area. An empty array (not null)
+// when nothing qualifies — the caller renders no chips, not a crash.
+function zoneBreakdownFor(concern, severity, zoneRects, width, height) {
+  const relevant = RELEVANT_ZONES[concern].filter((z) => !!zoneRects[z]);
+  const out = relevant.map((zone) => {
+    const rect = zoneRects[zone];
+    const zoneMask = new Float32Array(width * height);
+    for (let y = 0; y < height; y++) {
+      for (let x = 0; x < width; x++) zoneMask[y * width + x] = ellipseWeight(x, y, rect, width, height);
+    }
+    const p85 = percentileSeverityWhereMasked(severity, zoneMask, 0.15, 0.85);
+    return { zone, label: ZONE_LABELS[zone], severity: p85, band: severityBand(p85) };
+  });
+  return out.sort((a, b) => b.severity - a.severity);
+}
+
 // Confidence is a SEPARATE axis from severity — "how much do we trust this
 // number," not "how bad is it." Two real, honestly-computed inputs, not a
 // fabricated third heuristic on top of the others:
@@ -690,6 +724,7 @@ async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers }) {
       education: meta.education,
       tips: meta.tips,
       confidence: concernConfidence(concern, mask, zoneRects, width, height),
+      zoneBreakdown: zoneBreakdownFor(concern, severity, zoneRects, width, height),
     };
   }
 

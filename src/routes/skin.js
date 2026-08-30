@@ -37,7 +37,7 @@ class ImageQualityRejection extends Error {}
 // skinConcernContent.js, so the copy a user reads is identical regardless
 // of which engine produced the severity number underneath it. `maskUrl` is
 // already the uploaded (our own blob storage) URL by the time this runs.
-function buildConcernRecord(key, { severity, maskUrl, confidence, source, rawScore, uiScore }) {
+function buildConcernRecord(key, { severity, maskUrl, confidence, source, rawScore, uiScore, zoneBreakdown }) {
   const content = CONCERN_CONTENT[key];
   const band = severityBand(severity);
   return {
@@ -53,6 +53,16 @@ function buildConcernRecord(key, { severity, maskUrl, confidence, source, rawSco
     education: content.education,
     tips: content.tips,
     confidence,
+    // Per-zone severity for the tap-to-highlight interaction (see
+    // mobile SkinConcernTabs.tsx) — only real on the 'estimated' path so
+    // far (skinHeatmaps.js computes it directly from the same severity
+    // map as the overlay itself). The 'perfectcorp' path doesn't have
+    // this yet — Perfect Corp's SD schema doesn't publish confirmed
+    // per-zone data, and no successful live response has been observed
+    // to check what score_info.json's pore/wrinkle subcategories actually
+    // look like. Always [] there, never a guess — the UI treats an empty
+    // array as "no tappable zones for this concern," not an error.
+    zoneBreakdown: zoneBreakdown || [],
     ...(rawScore != null ? { rawScore, uiScore } : {}),
   };
 }
@@ -133,6 +143,7 @@ async function runHeuristicFallback({ heuristicPixels, heuristicInfo, faceBox, z
       severity: concern.severity, maskUrl: up.url,
       confidence: { level: concern.confidence.level, zoneFraction: concern.confidence.zoneFraction, pixelCount: concern.confidence.pixelCount },
       source: 'estimated',
+      zoneBreakdown: concern.zoneBreakdown,
     });
   }
   // moisture/age_spot/acne: the free heuristic has no signal for these at

@@ -1445,6 +1445,16 @@ export interface SkinHeatmapConcern {
   // future screen can show the vendor's own number verbatim if useful.
   rawScore?: number;
   uiScore?: number;
+  // Per-zone severity for this concern, worst-first — powers tap-to-
+  // highlight (tap a zone, that region's heatmap brightens while the rest
+  // dims — see SkinConcernTabs.tsx's ZoneHighlightMask). `zone` matches
+  // skinZones.ts's ZoneKey (forehead/nose/chin/cheekL/cheekR/underEyeL/
+  // underEyeR/jawline). Real, computed data on the 'estimated' path;
+  // always [] on 'perfectcorp' so far — Perfect Corp's SD schema doesn't
+  // have confirmed per-zone output yet (no successful live response has
+  // been checked), so there's nothing to show rather than a guess. An
+  // empty array means "no tappable zones for this concern," not an error.
+  zoneBreakdown: { zone: string; label: string; severity: number; band: 'clear' | 'mild' | 'moderate' | 'notable' }[];
 }
 
 export interface SkinScan {

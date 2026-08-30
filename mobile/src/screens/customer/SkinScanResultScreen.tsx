@@ -27,6 +27,7 @@ import { apiDeleteSkinScan, SkinScan } from '../../api/client';
 import { tapLight, confirmAction } from '../../utils/haptics';
 import { NearbyArtistRow } from '../../components/NearbyArtistRow';
 import { ConcernHeatmapOverlay, ConcernTabBar, ConcernDetailCard, CONCERN_ORDER, ConcernTab } from '../../components/SkinConcernTabs';
+import { resolveZoneRect, ZoneKey, FaceBox } from '../../utils/skinZones';
 import { ShareCardModal, ShareCardSpec } from '../../components/ShareCardModal';
 import { SparkleIcon } from '../../components/BeautyIcons';
 import { CloseCircleIcon, SearchIcon } from '../../components/TabIcons';
@@ -155,11 +156,33 @@ export function SkinScanResultScreen() {
   // way activeTab changes, so this can't be reintroduced by a future call
   // site forgetting to scroll back up.
   const scrollRef = useRef<ScrollView>(null);
+  // Tap-to-highlight: which zone (e.g. 'forehead') is currently spotlighted
+  // on the active concern's overlay — null means show the full, undimmed
+  // overlay (the default). Cleared on every tab switch since a zone
+  // belongs to exactly one concern's own zoneBreakdown; carrying it across
+  // tabs would either spotlight the wrong region or silently do nothing.
+  const [highlightedZone, setHighlightedZone] = useState<string | null>(null);
   function selectTab(tab: ConcernTab) {
     tapLight();
     setActiveTab(tab);
+    setHighlightedZone(null);
     scrollRef.current?.scrollTo({ y: 0, animated: true });
   }
+  // Tapping the already-highlighted zone's chip again clears it (back to
+  // the full overlay) — a toggle, not a one-way selection.
+  function selectZone(zone: string) {
+    tapLight();
+    setHighlightedZone((prev) => (prev === zone ? null : zone));
+  }
+  // Resolved to full-photo 0-1 fractions (same space as the heatmap
+  // overlay) only when a zone is actually selected — real landmark
+  // geometry when this scan has it (scan.zoneMarkers), the same
+  // proportion-of-faceBox fallback used everywhere else otherwise. null
+  // when unresolvable (no faceBox at all — a scan from before it existed),
+  // which ConcernHeatmapOverlay treats as "no spotlight," not a crash.
+  const highlightedZoneRect = highlightedZone
+    ? resolveZoneRect(highlightedZone as ZoneKey, scan.zoneMarkers, scan.faceBox as FaceBox)
+    : null;
   // The photo container's aspect ratio, measured from the actual loaded
   // image — NOT hardcoded. The backend stores at `resize(1080, 1350, {fit:
   // 'inside'})`, which only FITS WITHIN that box while preserving the
@@ -252,7 +275,7 @@ export function SkinScanResultScreen() {
               if (width && height) setPhotoAspect(width / height);
             }}
           />
-          <ConcernHeatmapOverlay activeTab={activeTab} heatmaps={scan.heatmaps} />
+          <ConcernHeatmapOverlay activeTab={activeTab} heatmaps={scan.heatmaps} highlightedZoneRect={highlightedZoneRect} />
           <LinearGradient colors={['rgba(0,0,0,0.35)', 'transparent']} style={styles.photoTopGradient} pointerEvents="none" />
           <Pressable style={[styles.floatBack, { top: insets.top + 8 }]} onPress={goBack} hitSlop={12}>
             <Text style={styles.floatBackText}>‹</Text>
@@ -285,6 +308,8 @@ export function SkinScanResultScreen() {
             concernKey={activeTab}
             concern={scan.heatmaps?.[activeTab]}
             onViewRecommendations={() => selectTab('summary')}
+            highlightedZone={highlightedZone}
+            onSelectZone={selectZone}
           />
         )}
 
