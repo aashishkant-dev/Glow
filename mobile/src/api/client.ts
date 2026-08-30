@@ -1454,7 +1454,10 @@ export interface SkinHeatmapConcern {
   // have confirmed per-zone output yet (no successful live response has
   // been checked), so there's nothing to show rather than a guess. An
   // empty array means "no tappable zones for this concern," not an error.
-  zoneBreakdown: { zone: string; label: string; severity: number; band: 'clear' | 'mild' | 'moderate' | 'notable' }[];
+  // Optional (not just possibly-empty) because every scan already in the
+  // database predates this field — its persisted `heatmaps` JSON simply
+  // doesn't have it, not even as [].
+  zoneBreakdown?: { zone: string; label: string; severity: number; band: 'clear' | 'mild' | 'moderate' | 'notable' }[];
 }
 
 export interface SkinScan {

@@ -281,7 +281,12 @@ export function ConcernDetailCard({ concernKey, concern, onViewRecommendations, 
               actually has zone data (empty on the 'perfectcorp' path so
               far, or a concern with too little assessable area for a
               breakdown) — no chips is the honest state, not a bug. */}
-          {concern.zoneBreakdown.length > 0 && (
+          {/* Optional chaining despite the type saying required: every scan
+              already in the database was generated before this field
+              existed, so its `heatmaps` JSON (persisted, never rewritten)
+              simply doesn't have it — undefined, not []. A type isn't a
+              runtime guarantee against historical data. */}
+          {!!concern.zoneBreakdown?.length && (
             <View style={detailStyles.zoneChipRow}>
               {concern.zoneBreakdown.map((z) => {
                 const active = highlightedZone === z.zone;
