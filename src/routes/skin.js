@@ -937,4 +937,3 @@ router.post(
 );
 
 module.exports = router;
-router.__test = { getConcernAnalysis };
