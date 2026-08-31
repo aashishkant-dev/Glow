@@ -23,15 +23,6 @@ const router = express.Router();
 // fabricated).
 const HEURISTIC_KEY_MAP = { pores: 'pore', wrinkles: 'wrinkle', texture: 'texture', redness: 'redness' };
 
-// A distinguishable rejection for "this specific photo failed Perfect
-// Corp's own image-quality gate" (face too small / too dark / below
-// minimum resolution) — thrown up through getConcernAnalysis so the route
-// can 400 with a retake prompt, the same treatment Gemini's
-// faceDetected:false already gets, rather than being swallowed into a
-// silent fallback to the heuristic (which would hit the identical problem
-// with the identical photo).
-class ImageQualityRejection extends Error {}
-
 // Builds one concern's full record from EITHER engine's raw output —
 // content (label/verdict/education/tips) always comes from
 // skinConcernContent.js, so the copy a user reads is identical regardless
@@ -80,53 +71,21 @@ async function logApiUsage({ endpoint, success, statusCode, errorCode, durationM
   }
 }
 
-// Orchestrates real-API-first, heuristic-fallback concern analysis. Tries
-// Perfect Corp when configured; on ANY failure other than a genuine
-// image-quality rejection (which propagates — see ImageQualityRejection),
-// falls back to the free heuristic and labels the result 'estimated' with
-// a specific, honest reason. Never fabricates data for a concern neither
-// engine could assess (see buildConcernRecord's null passthrough below).
-async function getConcernAnalysis({ photoUrl, heuristicPixels, heuristicInfo, faceBox, zoneMarkers, userId }) {
-  if (process.env.PERFECTCORP_API_KEY) {
-    const start = Date.now();
-    try {
-      const result = await analyzeWithPerfectCorp(photoUrl);
-      // result is only null when the key genuinely isn't set — already
-      // checked above — so a null here would be a real bug, not a normal
-      // path; treated the same as any other unexpected failure below.
-      if (!result) throw new PerfectCorpError('analyzeWithPerfectCorp returned null despite a configured key', 'UNKNOWN');
-
-      const heatmaps = {};
-      for (const [key, concern] of Object.entries(result.concerns)) {
-        if (!concern) { heatmaps[key] = null; continue; }
-        const up = await uploadFile(`skin-scans/${userId}-${Date.now()}-${key}.png`, concern.maskBuffer, 'image/png');
-        if (!up?.url) { heatmaps[key] = null; continue; }
-        heatmaps[key] = buildConcernRecord(key, {
-          severity: concern.severity, maskUrl: up.url, confidence: { level: 'high' },
-          source: 'perfectcorp', rawScore: concern.rawScore, uiScore: concern.uiScore,
-        });
-      }
-      for (const u of result.usage) await logApiUsage({ endpoint: u.endpoint, success: true, durationMs: u.durationMs, userId });
-      await logApiUsage({ endpoint: 'skin-analysis-total', success: true, durationMs: Date.now() - start, userId });
-      return { heatmaps, heatmapSource: 'perfectcorp', heatmapSourceReason: null };
-    } catch (err) {
-      if (err instanceof PerfectCorpError && err.code === 'LOW_IMAGE_QUALITY') {
-        await logApiUsage({ endpoint: 'skin-analysis', success: false, errorCode: err.code, durationMs: Date.now() - start, userId });
-        // err.message is Perfect Corp's own human-readable reason (e.g.
-        // "The face in the input image is turned or tilted too far.") —
-        // relayed directly since it's specific and actionable, with a
-        // short retake nudge appended rather than replaced with a generic
-        // canned line that would say less than what the vendor already
-        // told us.
-        throw new ImageQualityRejection(`${err.message} Try another photo.`);
-      }
-      const errorCode = err instanceof PerfectCorpError ? err.code : 'UNKNOWN';
-      console.error('[skin] Perfect Corp analysis failed, falling back to free heuristic:', err.message);
-      await logApiUsage({ endpoint: 'skin-analysis', success: false, statusCode: err.statusCode, errorCode, durationMs: Date.now() - start, userId });
-      const reason = { NETWORK_ERROR: 'network_error', TIMEOUT: 'timeout', QUOTA_EXCEEDED: 'quota_exceeded', SERVER_ERROR: 'server_error' }[errorCode] || 'server_error';
-      return runHeuristicFallback({ heuristicPixels, heuristicInfo, faceBox, zoneMarkers, userId, reason });
-    }
-  }
+// Quick Scan (the free, ordinary scan-from-camera flow this function backs)
+// is ALWAYS our own on-device-geometry + pixel heuristic — it never calls
+// Perfect Corp, even when a key is configured. That's deliberate: Perfect
+// Corp is metered/paid per call, and running it on every routine scan (not
+// just when someone explicitly asks for the paid tier) burns through quota
+// on scans nobody asked to spend it on. Perfect Corp is reserved entirely
+// for the explicit, user-triggered "Deep Scan" action (see
+// POST /scans/:id/deep-scan below, which calls analyzeWithPerfectCorp
+// directly on an existing scan's photo) — that flow owns its own
+// capture-quality expectations, separate from Quick Scan's live gating in
+// SkinScanCamera. 'not_configured' as the reason isn't a misnomer here: its
+// UI copy ("uses our free estimate model, not the full AI Skin Diagnostic")
+// is exactly true for Quick Scan regardless of whether a Perfect Corp key
+// exists — this tier just never spends it.
+async function getConcernAnalysis({ heuristicPixels, heuristicInfo, faceBox, zoneMarkers, userId }) {
   return runHeuristicFallback({ heuristicPixels, heuristicInfo, faceBox, zoneMarkers, userId, reason: 'not_configured' });
 }
 
@@ -514,7 +473,7 @@ router.post(
         if (gemini) {
           if (!gemini.faceDetected) {
             console.log(`[skin] Gemini rejected scan from user ${req.user.id}: no face detected`);
-            return res.status(400).json({ error: 'We couldn\'t clearly see a face in that photo. Try again with good lighting, centered in the oval.' });
+            return res.status(400).json({ error: 'We couldn\'t clearly see a face in that photo. Try again with good lighting, centered in the oval.', code: 'NO_FACE_DETECTED' });
           }
           analysisSource = 'gemini';
           result = {
@@ -586,28 +545,19 @@ router.post(
       // accepting bytes directly, so this can only start once the photo is
       // actually live at a public URL — hence AFTER uploadPromise resolves,
       // not concurrent with the Gemini call above (a real, accepted latency
-      // trade for correctness over cleverness here). A genuine image-quality
-      // rejection from Perfect Corp gets the same treatment as Gemini's
-      // faceDetected:false above — a clear 400 retake prompt, not a scan
-      // saved on bad data. Every other failure mode already resolved (never
-      // rejected) inside getConcernAnalysis, labeled 'estimated' with a
-      // specific reason.
-      let heatmaps, heatmapSource, heatmapSourceReason;
-      try {
-        ({ heatmaps, heatmapSource, heatmapSourceReason } = await getConcernAnalysis({
-          photoUrl: uploaded.url,
-          heuristicPixels: heatmapPixels,
-          heuristicInfo: heatmapInfo,
-          faceBox,
-          zoneMarkers: sanitizedZoneMarkers,
-          userId: req.user.id,
-        }));
-      } catch (err) {
-        if (err instanceof ImageQualityRejection) {
-          return res.status(400).json({ error: err.message, code: 'LOW_IMAGE_QUALITY' });
-        }
-        throw err;
-      }
+      // trade for correctness over cleverness here). Quick Scan's heuristic
+      // engine never rejects on image quality the way Perfect Corp's
+      // Deep Scan does (see getConcernAnalysis's own comment on why it
+      // never calls Perfect Corp at all) — every concern it can't assess
+      // just comes back null, labeled 'estimated' with a specific reason,
+      // never a 400.
+      const { heatmaps, heatmapSource, heatmapSourceReason } = await getConcernAnalysis({
+        heuristicPixels: heatmapPixels,
+        heuristicInfo: heatmapInfo,
+        faceBox,
+        zoneMarkers: sanitizedZoneMarkers,
+        userId: req.user.id,
+      });
 
       const scan = await prisma.$transaction(async (tx) => {
         // A new profile is only ever actually created here — once a scan is

@@ -582,6 +582,12 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   const [step, setStep] = useState<Step>('camera');
   const [shot, setShot] = useState<{ uri: string; base64: string; mimeType: string; faceRegion: FaceRegion | null; zoneMarkers: StoredZoneMarkers | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Which FAMILY of failure `error` belongs to — drives the reviewing-step
+  // header/subtitle (see classifyScanError below). null means no submit()
+  // failure happened (either nothing's wrong yet, or this is the separate
+  // on-device noFaceWarning path, which never touches error/errorKind at
+  // all — see shoot()).
+  const [errorKind, setErrorKind] = useState<'network' | 'face' | 'server' | null>(null);
   // A failed capture (bad temp-file write, unreadable file, etc.) used to
   // just console.error and silently reset back to a tappable shutter —
   // nothing on screen ever showed anything went wrong, which is exactly
@@ -743,6 +749,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
     setShot(null);
     setCameraReady(false);
     setError(null);
+    setErrorKind(null);
     setNoFaceWarning(false);
     setLiveFaces([]);
   }
@@ -890,6 +897,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
     if (!shotToSubmit) return;
     setStep('analyzing');
     setError(null);
+    setErrorKind(null);
     try {
       const { scan, bookCategory, isNewProfile } = await apiScanSkin({
         photoBase64: shotToSubmit.base64,
@@ -901,10 +909,39 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       reset();
       onComplete(scan, bookCategory, isNewProfile);
     } catch (err: any) {
+      // The raw err.message is ALWAYS logged (for debugging/crash
+      // reporting) but only ever reaches the screen through
+      // classifyScanError's mapped, human copy below — never rendered
+      // verbatim. This is what was leaking things like "fetch failed:
+      // FetchRequestCanceledException: Fetch request has been canceled (at
+      // Expo/NativeResponse.swift:63)" straight into the UI, mislabeled
+      // under the on-device "couldn't see a face" copy even though it was a
+      // network-layer failure with nothing to do with face detection.
       console.error('[SkinScanCamera] scan failed', err);
-      setError(err?.message || 'Could not analyze your photo. Please try again.');
+      const { kind, message } = classifyScanError(err);
+      setErrorKind(kind);
+      setError(message);
       setStep('reviewing');
     }
+  }
+
+  // client.ts already maps known transport failures (timeout, dropped/
+  // canceled connection) to a clean message + a machine-readable `code`
+  // ('TIMEOUT'/'NETWORK_ERROR'), and routes/skin.js attaches `code:
+  // 'NO_FACE_DETECTED'` / `'LOW_IMAGE_QUALITY'` to its own genuine
+  // photo-quality 400s. Branching on `code` means this never has to trust
+  // (or guess at) the shape of err.message itself — an err with no
+  // recognized code is treated as an opaque server/unknown failure, not
+  // shown to the user verbatim, regardless of what it actually says.
+  function classifyScanError(err: any): { kind: 'network' | 'face' | 'server'; message: string } {
+    const code = err?.code;
+    if (code === 'TIMEOUT' || code === 'NETWORK_ERROR') {
+      return { kind: 'network', message: 'Connection issue — check your network and try again.' };
+    }
+    if (code === 'NO_FACE_DETECTED' || code === 'LOW_IMAGE_QUALITY') {
+      return { kind: 'face', message: err?.message || "We couldn't clearly see a face in that photo. Try again with good lighting, centered in the oval." };
+    }
+    return { kind: 'server', message: "Something went wrong on our end — try again in a moment." };
   }
 
   // Biggest live-detected face — null when nothing's currently detected.
@@ -955,11 +992,18 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
     : (sizeRatio < 0.62 || centerOffsetX > 0.22 || centerOffsetY > 0.22) ? 'red'
     : (sizeRatio < 0.75 || centerOffsetX > 0.14 || centerOffsetY > 0.14) ? 'amber'
     : 'green';
+  // Mirrors positionGate's own branching (same conditions, same order) so
+  // the pill's status TEXT can never disagree with its status COLOR — the
+  // old version picked its message off a different, shorter chain (it
+  // never re-checked offset once sizeRatio cleared 0.75, and its final
+  // branch always said "Almost centered" even when actually green), so a
+  // pill could plausibly show green while still reading "Almost centered."
   const positionReason = !liveBox ? 'Position your face in the frame'
-    : sizeRatio < 0.62 ? 'Move a little closer'
-    : (centerOffsetX > 0.22 || centerOffsetY > 0.22) ? 'Center your face in the frame'
-    : sizeRatio < 0.75 ? 'A little closer'
-    : 'Almost centered';
+    : (sizeRatio < 0.62 || centerOffsetX > 0.22 || centerOffsetY > 0.22)
+      ? (sizeRatio < 0.62 ? 'Move closer' : 'Center your face')
+    : (sizeRatio < 0.75 || centerOffsetX > 0.14 || centerOffsetY > 0.14)
+      ? (sizeRatio < 0.75 ? 'A little closer' : 'Almost centered')
+    : 'Centered';
 
   // --- Head angle: real ML Kit pitch/roll/yaw on the live-tracked face ---
   // These numbers were already being computed by the same on-device
@@ -984,7 +1028,15 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // tighter number, so a mostly-frontal photo isn't rejected pre-capture
   // for an angle the backend would have accepted anyway.
   const angleGate: Gate = maxTilt == null ? 'red' : maxTilt <= 15 ? 'green' : maxTilt <= 25 ? 'amber' : 'red';
-  const angleReason = maxTilt == null ? 'Look straight at the camera' : angleGate === 'red' ? 'Straighten your head' : 'Almost straight';
+  // Switches on angleGate itself (not a separate re-derivation of the same
+  // thresholds) so text and color can't drift apart — the old version's red
+  // and amber branches both existed, but green fell through to "Almost
+  // straight" too, the same "green pill, non-green-sounding text" bug as
+  // positionReason above.
+  const angleReason = maxTilt == null ? 'Look straight at the camera'
+    : angleGate === 'red' ? 'Straighten your head'
+    : angleGate === 'amber' ? 'Almost straight'
+    : 'Straight';
 
   // --- Lighting: real per-frame brightness (see LightingSensor above) ---
   // `lightingSample` starts null and only ever gets its first value once
@@ -1019,10 +1071,22 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
     : (lightingSample.avgLuma < 40 || lightingSample.avgLuma > 235 || lightingSample.darkFraction >= 0.5) ? 'red'
     : (lightingSample.avgLuma < 55 || lightingSample.avgLuma > 215 || lightingSample.darkFraction >= 0.35) ? 'amber'
     : 'green';
-  const lightingReason = lightingSample != null && lightingSample.avgLuma < 45 ? 'Find brighter light'
-    : lightingSample != null && lightingSample.avgLuma > 230 ? 'Too much direct light'
-    : lightingSample != null && lightingSample.darkFraction >= 0.3 ? 'Avoid harsh shadows'
-    : 'Even out the lighting';
+  // Reads off lightingGate's OWN bands rather than a separately-hand-picked
+  // set of cutoffs (45/230/0.3) that didn't actually match the gate's real
+  // thresholds (40/235/0.5 red, 55/215/0.35 amber) — that mismatch meant a
+  // sample could sit inside the gate's amber/red band while this text still
+  // reported the good-lighting default "Even out the lighting" (or vice
+  // versa), the exact "color and text disagree" bug this pill is meant to
+  // fix. No sample yet during the grace window reads as "Checking…", not a
+  // silent blank pill; past the grace window with still nothing, lighting
+  // is treated as passing per lightingGate above, so text agrees: "Good".
+  const lightingReason = lightingSample == null
+    ? (lightingGraceElapsed ? 'Good' : 'Checking…')
+    : lightingGate === 'red'
+      ? (lightingSample.avgLuma < 40 ? 'Too dark' : lightingSample.avgLuma > 235 ? 'Too bright' : 'Avoid harsh shadows')
+    : lightingGate === 'amber'
+      ? (lightingSample.avgLuma < 55 ? 'A bit dark' : lightingSample.avgLuma > 215 ? 'A bit bright' : 'Some shadows')
+    : 'Good';
 
   const allGreen = positionGate === 'green' && angleGate === 'green' && lightingGate === 'green';
   const isReady = allGreen;
@@ -1167,12 +1231,15 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
             <View style={[styles.pillRow, { top: insets.top + 58 }]} pointerEvents="none">
               <View style={[styles.pill, { backgroundColor: GATE_COLOR[lightingGate] }]}>
                 <Text style={styles.pillText}>Lighting</Text>
+                <Text style={styles.pillStatusText} numberOfLines={1}>{lightingReason}</Text>
               </View>
               <View style={[styles.pill, { backgroundColor: GATE_COLOR[angleGate] }]}>
                 <Text style={styles.pillText}>Look Straight</Text>
+                <Text style={styles.pillStatusText} numberOfLines={1}>{angleReason}</Text>
               </View>
               <View style={[styles.pill, { backgroundColor: GATE_COLOR[positionGate] }]}>
                 <Text style={styles.pillText}>Position</Text>
+                <Text style={styles.pillStatusText} numberOfLines={1}>{positionReason}</Text>
               </View>
             </View>
 
@@ -1280,14 +1347,38 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
               <View style={styles.reviewPhotoRow}>
                 <Image source={{ uri: shot.uri }} style={styles.reviewPhotoThumb} contentFit="cover" />
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.reviewTitle}>{detectingFace ? 'Checking your photo…' : "Let's try that again"}</Text>
+                  {/* Three genuinely different failure families, three
+                      different headers — a canceled/dropped network request
+                      is not a face-detection problem, and telling the user
+                      "we couldn't see your face" for it sends them to fix
+                      the wrong thing (repositioning/relighting won't help a
+                      network issue). noFaceWarning (on-device, pre-submit)
+                      and errorKind==='face' (server-side, post-submit) are
+                      the only two paths that legitimately get the
+                      face-detection copy. */}
+                  <Text style={styles.reviewTitle}>
+                    {detectingFace ? 'Checking your photo…'
+                      : errorKind === 'network' ? 'Connection issue'
+                      : errorKind === 'server' ? 'Something went wrong'
+                      : "Let's try that again"}
+                  </Text>
                   <Text style={styles.reviewSubtitle}>
-                    {detectingFace ? 'One second.' : "We couldn't clearly see a face in this one."}
+                    {detectingFace ? 'One second.'
+                      : errorKind === 'network' ? 'Check your network and try again.'
+                      : errorKind === 'server' ? "That scan didn't go through. Try again in a moment."
+                      : "We couldn't clearly see a face in this one."}
                   </Text>
                 </View>
               </View>
 
-              {!!error && (
+              {/* Only shown for the face-quality family — it's the one case
+                  where the mapped message carries real, specific-to-this-
+                  photo guidance beyond the subtitle above (e.g. Perfect
+                  Corp's own reason, or the exact retake nudge). Network/
+                  server failures already say everything useful in the
+                  subtitle itself; repeating it in a second banner would
+                  just be noise. */}
+              {!!error && errorKind === 'face' && (
                 <View style={styles.errorBanner}>
                   <Text style={styles.errorBannerText}>{error}</Text>
                 </View>
@@ -1312,6 +1403,25 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
                     <Text style={styles.retakeBtnFullText}>Retake photo</Text>
                   </Pressable>
                 </>
+              )}
+
+              {/* submit() failures (any errorKind) had NO action here at all
+                  before — the screen showed the header/banner and just sat
+                  there. Network/server failures don't mean the photo itself
+                  was bad, so those retry the SAME shot instead of discarding
+                  a perfectly good photo and forcing a full retake; only the
+                  face-quality family (the photo genuinely was the problem)
+                  sends the user back to the camera. */}
+              {!!error && !detectingFace && (
+                <Pressable
+                  onPress={() => {
+                    if (errorKind === 'face') { setShot(null); setStep('camera'); }
+                    else submit(shot);
+                  }}
+                  style={styles.retakeBtnFull}
+                >
+                  <Text style={styles.retakeBtnFullText}>{errorKind === 'face' ? 'Retake photo' : 'Try again'}</Text>
+                </Pressable>
               )}
             </ScrollView>
           </View>
@@ -1356,12 +1466,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'center', gap: 8,
   },
   pill: {
-    borderRadius: 100, paddingHorizontal: 12, paddingVertical: 6,
+    borderRadius: 16, paddingHorizontal: 12, paddingVertical: 6, minWidth: 84,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.35)',
     shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.25, shadowRadius: 4,
-    elevation: 3,
+    elevation: 3, alignItems: 'center',
   },
   pillText: { color: '#fff', fontSize: 11, fontFamily: Fonts.semibold, letterSpacing: 0.2 },
+  // The actual pass/fail status per pill (e.g. "Too dark", "Move closer",
+  // "Good") — previously each pill only carried its color and a static
+  // category label (Lighting/Look Straight/Position) with no text
+  // explaining what was wrong or how to fix it before capture.
+  pillStatusText: { color: 'rgba(255,255,255,0.92)', fontSize: 9.5, fontFamily: Fonts.medium, marginTop: 1 },
   topBar: {
     position: 'absolute', left: 16, right: 16, zIndex: 2,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',

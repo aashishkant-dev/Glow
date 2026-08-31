@@ -45,12 +45,16 @@ const POLL_TIMEOUT_MS = 60_000;
 const MASK_DOWNLOAD_TIMEOUT_MS = 15_000;
 
 class PerfectCorpError extends Error {
-  constructor(message, code, { statusCode = null, retryable = false } = {}) {
+  constructor(message, code, { statusCode = null, retryable = false, internalReason = null } = {}) {
     super(message);
     this.name = 'PerfectCorpError';
     this.code = code;
     this.statusCode = statusCode;
     this.retryable = retryable;
+    // The raw vendor error code, if any — for server-side logs only. .message
+    // is what gets relayed to the client on LOW_IMAGE_QUALITY, so it's kept
+    // vendor-branding-free and code-free; this is where the real reason goes.
+    this.internalReason = internalReason;
   }
 }
 
@@ -95,7 +99,13 @@ const IMAGE_QUALITY_ERROR_CODES = new Set([
 
 function classifyHttpError(status, bodyErrorCode) {
   if (bodyErrorCode && IMAGE_QUALITY_ERROR_CODES.has(bodyErrorCode)) {
-    return new PerfectCorpError(`Perfect Corp rejected this photo: ${bodyErrorCode}`, 'LOW_IMAGE_QUALITY', { statusCode: status, retryable: false });
+    // No vendor human-readable string comes with an HTTP-level error body
+    // (just the code) — unlike the task-level path below, there's nothing
+    // to relay here, so this stays a clean, vendor-free message. .message
+    // is what routes/skin.js relays straight to the mobile client on a
+    // LOW_IMAGE_QUALITY rejection (see ImageQualityRejection) — it must
+    // never carry the raw vendor code or the "Perfect Corp" name.
+    return new PerfectCorpError('The photo didn\'t meet the quality requirements for analysis.', 'LOW_IMAGE_QUALITY', { statusCode: status, retryable: false, internalReason: bodyErrorCode });
   }
   if (status === 401 || status === 403) {
     return new PerfectCorpError(`Perfect Corp rejected the API key (${status})`, 'AUTH_FAILED', { statusCode: status, retryable: false });
@@ -181,11 +191,16 @@ async function pollTask(taskId) {
       // small, too dark, too tilted, face too small) — treated uniformly
       // as a retake-worthy rejection rather than maintained as an
       // allowlist that live testing keeps finding gaps in (see
-      // IMAGE_QUALITY_ERROR_CODES's own comment). errorMessage is Perfect
-      // Corp's own human-readable string ("The face in the input image is
-      // turned or tilted too far.") — relayed directly since it's already
-      // clear and actionable, not replaced with a generic canned line.
-      throw new PerfectCorpError(errorMessage || `Perfect Corp couldn't process this photo (${errorCode || 'unknown reason'})`, 'LOW_IMAGE_QUALITY', { retryable: false });
+      // IMAGE_QUALITY_ERROR_CODES's own comment). errorMessage, when
+      // present, is Perfect Corp's own human-readable string ("The face in
+      // the input image is turned or tilted too far.") — relayed directly
+      // since it's already clear, actionable, and vendor-agnostic prose (no
+      // internal code or brand name in it). When it's absent, the fallback
+      // must NOT be built from the raw errorCode/vendor name — that string
+      // is what routes/skin.js relays verbatim to the mobile client on a
+      // LOW_IMAGE_QUALITY rejection, and an internal code or "Perfect Corp"
+      // has no business being user-facing text.
+      throw new PerfectCorpError(errorMessage || 'The photo didn\'t meet the quality requirements for analysis.', 'LOW_IMAGE_QUALITY', { retryable: false, internalReason: errorCode });
     }
     await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
   }

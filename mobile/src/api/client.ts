@@ -104,7 +104,18 @@ async function request<T>(method: Method, path: string, body?: object, auth = tr
     // the user ("fetch failed: UnexpectedException: The network connection
     // was lost. (at ExpoModulesCore/Promise.swift:56)") instead of ever
     // getting its intended retry.
-    const isNetworkError = err.name === 'AbortError' || /network|failed to fetch|connection was lost|offline/i.test(err.message || '');
+    // "cancel" added after a second real leak (SkinScanCamera, 2026-08-31):
+    // "fetch failed: FetchRequestCanceledException: Fetch request has been
+    // canceled (at Expo/NativeResponse.swift:63)" — a different Expo fetch
+    // exception class than AbortError (err.name here is
+    // "FetchRequestCanceledException", not "AbortError"), thrown when the
+    // OS/native layer cancels the in-flight request (e.g. the app was
+    // backgrounded mid-request) rather than when OUR OWN AbortController
+    // timeout fires. That's still a network/transport failure, not
+    // anything about the request body or server response, so it belongs in
+    // this bucket — retried once, then surfaced with the same clean
+    // NETWORK_ERROR message as any other dropped connection.
+    const isNetworkError = err.name === 'AbortError' || /network|failed to fetch|connection was lost|offline|cancel/i.test(err.message || '');
     if (retries > 0 && isNetworkError) {
       await new Promise(r => setTimeout(r, 1000));
       return request<T>(method, path, body, auth, retries - 1, timeoutMs);
@@ -119,6 +130,19 @@ async function request<T>(method: Method, path: string, body?: object, auth = tr
     if (isNetworkError) {
       const e: any = new Error('Connection lost. Check your internet and try again.');
       e.code = 'NETWORK_ERROR';
+      throw e;
+    }
+    // Last-resort net for whatever this actually is: every screen in this
+    // app reads err.message straight into an Alert/banner (grep err.message
+    // across src/screens), so this one chokepoint is what stands between an
+    // unrecognized native/JS exception and a class name or file path
+    // rendering directly in the UI (the exact FetchRequestCanceledException
+    // leak above was one instance of this — this catches the next
+    // unanticipated one too, whatever it turns out to be).
+    if (err instanceof Error && /exception\b|\bat\s+\S+\.(swift|kt|java|m|mm):\d+|\.swift:\d+|\.kt:\d+/i.test(err.message || '')) {
+      console.error('[api] unrecognized raw error reached the request() boundary, sanitizing before it hits the UI:', err.message);
+      const e: any = new Error('Something went wrong. Please try again.');
+      e.code = 'UNKNOWN_ERROR';
       throw e;
     }
     throw err;
