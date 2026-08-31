@@ -74,6 +74,18 @@ import { tapLight, tapWarning } from '../utils/haptics';
 import { ScanBracket } from './ScanBracket';
 import { ErrorBoundary } from './ErrorBoundary';
 import { deriveZoneMarkers, type RawFacialPoints, type StoredZoneMarkers, type FaceConfidenceSignals } from '../utils/skinZones';
+import SkinSegmentationModule from '../../modules/skin-segmentation/src/SkinSegmentationModule';
+import { detectFacesInFrame, type DetectedFace } from '../../modules/mediapipe-face-landmarker/src';
+
+// Part 2 of this project's own scope report — OFF by default. Flip to true
+// only once modules/mediapipe-face-landmarker has actually been built and
+// verified on a real device (see MediaPipeFaceLandmarkerSensor's own
+// comment): this module has never been compiled, let alone run — this
+// environment has no Swift/Xcode toolchain at all (confirmed in that
+// report). While false, MediaPipeFaceLandmarkerSensor never even mounts —
+// the existing ML Kit live-detection path below (onFacesDetected/liveFaces)
+// is completely unaffected, zero added runtime cost, zero risk.
+const USE_MEDIAPIPE_LIVE_DETECTION = false;
 
 function stripDataUrlPrefix(value: string): string {
   const commaIndex = value.indexOf(',');
@@ -523,6 +535,84 @@ function LightingSensor({ onSample, onOutputReady }: {
   return null;
 }
 
+// Part 2 of this project's own scope report (live MediaPipe Face Landmarker
+// swap): a SEPARATE frame output alongside LightingSensor's, same
+// ErrorBoundary-wrapped "fails to empty, never crashes the screen"
+// contract — see this component's own call site for why (the same
+// "native module not linked/built yet" case LightingSensor's own header
+// comment already documents applies here too, and MORE so: this native
+// module is genuinely new and unverified against a real device or even a
+// compiler, see the scope report).
+//
+// GATED OFF BY DEFAULT (see USE_MEDIAPIPE_LIVE_DETECTION below) — this
+// component is only actually mounted once that flag is flipped on, so
+// until MediaPipe is verified working on a real device, this has ZERO
+// runtime cost or risk to the existing, working ML Kit live-detection path
+// (onFacesDetected/liveFaces below, unchanged).
+//
+// pixelFormat 'native' (not 'yuv' the way LightingSensor uses) — an
+// UNVERIFIED choice: modules/mediapipe-face-landmarker's Swift side wraps
+// the raw CVPixelBuffer directly via MPImage(pixelBuffer:) — 'native' there
+// deliberately does NOT request a specific conversion the way
+// LightingSensor's YUV-plane byte access does; whether MediaPipe's MPImage
+// accepts vision-camera's particular default/native buffer format as-is is
+// exactly the kind of thing that needs real on-device confirmation — see
+// this project's own scope report.
+//
+// Android is DIFFERENT, and load-bearing, not a symmetric guess: confirmed
+// directly against react-native-vision-camera-ocr-plus's own real, working
+// Android native code (HybridGlowFaceLandmarker.cpp's own header cites the
+// exact same fact from that reference) — VisionCamera v5 delivers GPU-only
+// AHardwareBuffers by default on Android, which the CPU-lock path in that
+// native code CANNOT read at all. pixelFormat: 'rgb' is what actually
+// requests a CPU-readable buffer; without it, every single frame silently
+// falls through to the GPU/API-31+ fallback path (or fails outright below
+// that). This is the single highest-confidence, most load-bearing fact in
+// the entire Android piece of this swap — verify this is still 'rgb' before
+// debugging anything else if Android detection comes back empty.
+function MediaPipeFaceLandmarkerSensor({ onFacesDetected, onOutputReady }: {
+  onFacesDetected: (faces: DetectedFace[]) => void;
+  onOutputReady: (output: CameraFrameOutput) => void;
+}) {
+  const lastUpdateRef = useRef(0);
+  const output = useFrameOutput({
+    pixelFormat: Platform.OS === 'android' ? 'rgb' : 'native',
+    onFrame(frame) {
+      'worklet';
+      // Same ~10Hz throttle as the existing ML Kit path's onFacesDetected
+      // (see that callback's own comment on why 10Hz specifically) — kept
+      // identical so a side-by-side comparison between the two detectors
+      // (see this project's own scope report on verifying MediaPipe
+      // against the ML Kit baseline) isn't confounded by a different
+      // update rate.
+      const now = Date.now();
+      if (now - lastUpdateRef.current < 100) {
+        frame.dispose();
+        return;
+      }
+      lastUpdateRef.current = now;
+      // Same getNativeBuffer/.pointer/.release() pattern
+      // react-native-vision-camera-ocr-plus's own real, working v5 Nitro
+      // frame-processor plugin uses (see this project's own research citing
+      // that library's Camera.tsx) — a raw native buffer pointer handed
+      // directly to the Nitro HybridObject as a worklet-safe synchronous
+      // call, not marshaled through React state first.
+      const nb = (frame as any).getNativeBuffer() as { pointer: bigint; release: () => void };
+      const orientation: string = (frame as any).orientation ?? 'unknown';
+      let faces: DetectedFace[] = [];
+      try {
+        faces = detectFacesInFrame(nb.pointer, orientation);
+      } finally {
+        nb.release();
+      }
+      frame.dispose();
+      runOnJS(onFacesDetected)(faces);
+    },
+  });
+  useEffect(() => { onOutputReady(output); }, [output, onOutputReady]);
+  return null;
+}
+
 // Moved to module scope from inside SkinScanCamera (where it's still used,
 // alongside GATE_RANK/useStabilized below, which need it here — a local
 // type declaration inside the component isn't visible to a module-level
@@ -656,6 +746,13 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
     lastFaceUpdateRef.current = now;
     setLiveFaces(faces);
   }, []);
+  // Part 2 of this project's own scope report — only ever populated while
+  // USE_MEDIAPIPE_LIVE_DETECTION is true (MediaPipeFaceLandmarkerSensor
+  // isn't even mounted otherwise, see that flag's own comment). Its own
+  // throttling already happens inside that sensor's worklet, mirroring
+  // onFacesDetected's own — no second throttle needed here.
+  const [mediaPipeFaces, setMediaPipeFaces] = useState<DetectedFace[]>([]);
+  const [mediaPipeOutput, setMediaPipeOutput] = useState<CameraFrameOutput | null>(null);
 
   // Real per-frame brightness — the one framing signal the live ring
   // couldn't previously give any real answer on (see the old captureState
@@ -667,7 +764,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   const [lightingOutput, setLightingOutput] = useState<CameraFrameOutput | null>(null);
 
   const [step, setStep] = useState<Step>('camera');
-  const [shot, setShot] = useState<{ uri: string; base64: string; mimeType: string; faceRegion: FaceRegion | null; zoneMarkers: StoredZoneMarkers | null } | null>(null);
+  const [shot, setShot] = useState<{ uri: string; base64: string; mimeType: string; faceRegion: FaceRegion | null; zoneMarkers: StoredZoneMarkers | null; skinMask: { base64: string; width: number; height: number } | null } | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Which FAMILY of failure `error` belongs to — drives the reviewing-step
   // header/subtitle (see classifyScanError below). null means no submit()
@@ -924,6 +1021,24 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       // relationship to it.
       const { width: imgWidth, height: imgHeight } = await getImageSize(uri);
 
+      // Fired here, not awaited until right before newShot is built below —
+      // same "start early, await late" pattern the backend's own
+      // uploadPromise/concernAnalysisPromise already use (routes/skin.js),
+      // so this runs CONCURRENTLY with detectFaceRegion's synchronous ML
+      // Kit pass just below rather than adding its own latency on top.
+      // Never thrown past this point — a genuine miss (no person at all),
+      // an unlinked/not-yet-built native module (this is genuinely new
+      // code, unverified against a real device or build — see this
+      // module's own file header), or any other native failure all
+      // collapse to the same "no mask" outcome, which the backend's own
+      // buildMasks (skinHeatmaps.js) already treats as a no-regression
+      // fallback to its existing ellipse-only occlusion handling. Analysis
+      // must never be blocked or degraded by this new, less-proven path.
+      const segmentationPromise = SkinSegmentationModule.getSkinSegmentation(uri).catch((err) => {
+        console.warn('[SkinScanCamera] getSkinSegmentation failed, falling back to ellipse-only occlusion', err instanceof Error ? err.message : err);
+        return null;
+      });
+
       setStep('reviewing');
       setDetectingFace(true);
       setNoFaceWarning(false);
@@ -938,7 +1053,19 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
           faceRegion, noFaceDetected, zoneMarkerKeys: zoneMarkers ? Object.keys(zoneMarkers) : null,
         });
       }
-      const newShot = { uri, base64: stripDataUrlPrefix(base64), mimeType: 'image/jpeg', faceRegion, zoneMarkers };
+      const segmentation = await segmentationPromise;
+      const skinMask = segmentation?.personDetected && segmentation.maskBase64
+        ? { base64: segmentation.maskBase64, width: segmentation.maskWidth, height: segmentation.maskHeight }
+        : null;
+      if (__DEV__) {
+        console.log('[SkinScanCamera] getSkinSegmentation result', {
+          personDetected: segmentation?.personDetected ?? null,
+          maskWidth: segmentation?.maskWidth ?? null,
+          maskHeight: segmentation?.maskHeight ?? null,
+          hasFaceLandmarks: !!segmentation?.faceLandmarks,
+        });
+      }
+      const newShot = { uri, base64: stripDataUrlPrefix(base64), mimeType: 'image/jpeg', faceRegion, zoneMarkers, skinMask };
       setShot(newShot);
       setNoFaceWarning(noFaceDetected);
       setDetectingFace(false);
@@ -1043,6 +1170,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
         mimeType: shotToSubmit.mimeType,
         faceRegion: shotToSubmit.faceRegion || undefined,
         zoneMarkers: shotToSubmit.zoneMarkers || undefined,
+        skinMask: shotToSubmit.skinMask || undefined,
         parentScanId,
       });
       reset();
@@ -1091,10 +1219,31 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // frames often don't; that's what put the box in the wrong place
   // on-device. autoMode hands the rotation/scaling to the plugin's native
   // side instead of guessing at it in JS.
-  const primaryLiveFace = liveFaces.length
-    ? liveFaces.reduce((biggest, f) => (f.bounds.width * f.bounds.height > biggest.bounds.width * biggest.bounds.height ? f : biggest), liveFaces[0])
+  // Part 2 of this project's own scope report: while
+  // USE_MEDIAPIPE_LIVE_DETECTION is on, mediaPipeFaces drives this instead
+  // of ML Kit's liveFaces — everything downstream (positionGate/angleGate,
+  // the ring, the pills) reads primaryLiveFace/pitchAngle/rollAngle/
+  // yawAngle below and neither knows nor cares which detector produced
+  // them, by design (see GlowFaceLandmarker.nitro.ts's own header comment
+  // on why the native output shape was reduced to match LiveFace exactly).
+  // The one real difference handled here: MediaPipe's bounds come back as
+  // 0-1 NORMALIZED fractions of the frame (a deliberate scope reduction —
+  // see HybridGlowFaceLandmarker.swift's own comment), not the
+  // screen/preview PIXEL coordinates ML Kit's own autoMode already
+  // provides — scaled to pixels here, once, against the same
+  // winW/winH already passed to <FaceDetectCamera> below.
+  const primaryLiveFace = USE_MEDIAPIPE_LIVE_DETECTION
+    ? (mediaPipeFaces.length
+      ? mediaPipeFaces.reduce((biggest, f) => (f.bounds.width * f.bounds.height > biggest.bounds.width * biggest.bounds.height ? f : biggest), mediaPipeFaces[0])
+      : null)
+    : (liveFaces.length
+      ? liveFaces.reduce((biggest, f) => (f.bounds.width * f.bounds.height > biggest.bounds.width * biggest.bounds.height ? f : biggest), liveFaces[0])
+      : null);
+  const liveBox = primaryLiveFace
+    ? (USE_MEDIAPIPE_LIVE_DETECTION
+      ? { x: primaryLiveFace.bounds.x * winW, y: primaryLiveFace.bounds.y * winH, width: primaryLiveFace.bounds.width * winW, height: primaryLiveFace.bounds.height * winH }
+      : primaryLiveFace.bounds)
     : null;
-  const liveBox = primaryLiveFace?.bounds ?? null;
   // The fixed, honest guide-oval size (OVAL_W×OVAL_H) — NOT the fill-
   // light window's old inflated ~90%-of-screen sizing. That distinction
   // matters beyond the visual: the "too small" threshold below is a
@@ -1403,13 +1552,27 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
             <LightingSensor onSample={setLightingSample} onOutputReady={setLightingOutput} />
           </ErrorBoundary>
         )}
+        {/* Part 2 of this project's own scope report — only actually mounts
+            while USE_MEDIAPIPE_LIVE_DETECTION is true (default false, see
+            that flag's own comment). ErrorBoundary here for the exact same
+            reason LightingSensor's own has one: this native module has
+            never been built or run — if it isn't linked (or throws for any
+            other reason), this piece alone disappears
+            (mediaPipeFaces stays [], the flag's own fallback to liveFaces
+            below is unaffected) rather than taking down the whole camera
+            screen. */}
+        {USE_MEDIAPIPE_LIVE_DETECTION && visible && hasPermission && device != null && (
+          <ErrorBoundary fallback={null}>
+            <MediaPipeFaceLandmarkerSensor onFacesDetected={setMediaPipeFaces} onOutputReady={setMediaPipeOutput} />
+          </ErrorBoundary>
+        )}
         {visible && hasPermission && device != null && (
           <FaceDetectCamera
             ref={cameraRef}
             style={StyleSheet.absoluteFill}
             device={device}
             isActive={visible && step === 'camera'}
-            outputs={lightingOutput ? [photoOutput, lightingOutput] : [photoOutput]}
+            outputs={[photoOutput, lightingOutput, USE_MEDIAPIPE_LIVE_DETECTION ? mediaPipeOutput : null].filter((o): o is NonNullable<typeof o> => o != null)}
             onFacesDetected={onFacesDetected}
             onError={(err: Error) => console.error('[SkinScanCamera] camera error', err)}
             performanceMode="fast"

@@ -1,0 +1,18 @@
+{
+  "name": "nitro-glow-face-landmarker",
+  "version": "0.1.0",
+  "description": "Live MediaPipe Face Landmarker frame-processor plugin for the Glow skin-scan camera",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "files": ["src", "ios", "android", "nitrogen", "*.podspec", "!ios/build", "!android/build"],
+  "scripts": {
+    "specs": "nitrogen --logLevel=\"debug\""
+  },
+  "peerDependencies": {
+    "react-native-nitro-modules": "*",
+    "react-native-vision-camera": "*"
+  },
+  "devDependencies": {
+    "nitrogen": "0.37.1"
+  }
+}

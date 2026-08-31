@@ -1,0 +1,143 @@
+// Adapted from react-native-vision-camera-ocr-plus's own real, working
+// v5/Nitro Android build.gradle (see this project's own scope report for
+// why that specific reference was chosen — it's a real, actively-
+// maintained plugin using the same Nitro+native-C+++AHardwareBuffer
+// pattern this module needs). getExtOrDefault/reactNativeArchitectures
+// read the SAME rootProject.ext values every other native Android module
+// in this app already depends on (react-native-vision-camera itself
+// included) — not invented here, not guessed at.
+buildscript {
+  def kotlinVersion = rootProject.ext.has("kotlinVersion")
+    ? rootProject.ext.get("kotlinVersion")
+    : project.properties["NitroGlowFaceLandmarker_kotlinVersion"]
+
+  repositories {
+    google()
+    mavenCentral()
+  }
+
+  dependencies {
+    classpath "com.android.tools.build:gradle:9.2.1"
+    classpath "org.jetbrains.kotlin:kotlin-gradle-plugin:$kotlinVersion"
+  }
+}
+
+def reactNativeArchitectures() {
+  def value = rootProject.getProperties().get("reactNativeArchitectures")
+  return value ? value.split(",") : ["armeabi-v7a", "x86", "x86_64", "arm64-v8a"]
+}
+
+apply plugin: "com.android.library"
+apply plugin: 'org.jetbrains.kotlin.android'
+apply from: '../nitrogen/generated/android/NitroGlowFaceLandmarker+autolinking.gradle'
+apply from: "./fix-prefab.gradle"
+
+def getExtOrDefault(name) {
+  return rootProject.ext.has(name) ? rootProject.ext.get(name) : project.properties["NitroGlowFaceLandmarker_" + name]
+}
+
+def getExtOrIntegerDefault(name) {
+  return rootProject.ext.has(name) ? rootProject.ext.get(name) : (project.properties["NitroGlowFaceLandmarker_" + name]).toInteger()
+}
+
+android {
+  namespace "com.margelo.nitro.glowfacelandmarker"
+
+  ndkVersion getExtOrDefault("ndkVersion")
+  compileSdkVersion getExtOrIntegerDefault("compileSdkVersion")
+
+  defaultConfig {
+    minSdkVersion getExtOrIntegerDefault("minSdkVersion")
+    targetSdkVersion getExtOrIntegerDefault("targetSdkVersion")
+
+    externalNativeBuild {
+      cmake {
+        cppFlags "-frtti -fexceptions -Wall -Wextra -fstack-protector-all"
+        arguments "-DANDROID_STL=c++_shared", "-DANDROID_SUPPORT_FLEXIBLE_PAGE_SIZES=ON"
+        abiFilters (*reactNativeArchitectures())
+      }
+    }
+  }
+
+  buildTypes {
+    debug {
+      externalNativeBuild {
+        cmake { cppFlags "-O1 -g" }
+      }
+    }
+    release {
+      externalNativeBuild {
+        cmake { cppFlags "-O2" }
+      }
+      minifyEnabled false
+    }
+  }
+
+  externalNativeBuild {
+    cmake {
+      path "CMakeLists.txt"
+    }
+  }
+
+  // The .task model file ships as a library asset (src/main/assets/) —
+  // Android's standard asset-merging picks this up automatically into the
+  // final app's assets at build time with no extra sourceSets declaration
+  // needed; HybridGlowFaceLandmarker.kt loads it via
+  // BaseOptions.builder().setModelAssetPath("face_landmarker.task"),
+  // resolved through the app's own AssetManager at that same merged path.
+
+  packagingOptions {
+    excludes = [
+      "META-INF",
+      "META-INF/**",
+      "**/libc++_shared.so",
+      "**/libNitroModules.so",
+      "**/libfbjni.so",
+      "**/libjsi.so",
+      "**/libfolly_json.so",
+      "**/libfolly_runtime.so",
+      "**/libglog.so",
+      "**/libhermes.so",
+      "**/libhermes-executor-debug.so",
+      "**/libhermes_executor.so",
+      "**/libreactnative.so",
+      "**/libreactnativejni.so",
+      "**/libturbomodulejsijni.so",
+      "**/libreact_nativemodule_core.so",
+      "**/libjscexecutor.so"
+    ]
+  }
+
+  buildFeatures {
+    buildConfig true
+    prefab true
+  }
+
+  lintOptions {
+    disable "GradleCompatible"
+    abortOnError false
+  }
+
+  compileOptions {
+    sourceCompatibility JavaVersion.VERSION_1_8
+    targetCompatibility JavaVersion.VERSION_1_8
+  }
+}
+
+repositories {
+  mavenCentral()
+  google()
+}
+
+dependencies {
+  //noinspection GradleDynamicVersion
+  implementation "com.facebook.react:react-native:+"
+  implementation project(":react-native-nitro-modules")
+
+  // MediaPipe Tasks Vision — the real, official Google-published artifact.
+  // Version deliberately left as a real, resolvable range rather than an
+  // exact pin guessed blind; pin an exact version once this has actually
+  // been built once and the working version is known (same reasoning as
+  // the iOS podspec's own MediaPipeTasksVision dependency).
+  implementation "com.google.mediapipe:tasks-vision:latest.release"
+}

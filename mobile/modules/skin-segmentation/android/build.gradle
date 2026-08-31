@@ -1,0 +1,30 @@
+plugins {
+  id 'com.android.library'
+  id 'expo-module-gradle-plugin'
+}
+
+group = 'expo.modules.skinsegmentation'
+version = '0.1.0'
+
+android {
+  namespace "expo.modules.skinsegmentation"
+  defaultConfig {
+    versionCode 1
+    versionName "0.1.0"
+  }
+  lintOptions {
+    abortOnError false
+  }
+}
+
+dependencies {
+  // ML Kit's native (on-device) Selfie Segmentation SDK — deliberately NOT
+  // the JS-bridged react-native-vision-camera-face-detector package already
+  // used elsewhere in this app for live face detection, which has no
+  // segmentation capability of its own. Unbundled model (downloaded on
+  // first use via Play Services, not shipped in the APK) — the -beta6
+  // qualifier is the real current published version as of this writing;
+  // confirm against https://developers.google.com/ml-kit/vision/selfie-segmentation/android
+  // before a stable release supersedes it.
+  implementation 'com.google.mlkit:segmentation-selfie:16.0.0-beta6'
+}

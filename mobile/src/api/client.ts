@@ -1618,6 +1618,14 @@ export function apiScanSkin(payload: {
   // session, not a normal new scan — see schema.prisma's
   // SkinScan.parentScanId and SkinScanCamera's own prop of the same name.
   parentScanId?: string;
+  // Real per-pixel person/skin segmentation confidence from
+  // modules/skin-segmentation — a grayscale PNG (0=background,
+  // 255=confidently skin), base64, no data: prefix. Optional: undefined on
+  // Android before its own native module exists, an older client, or a
+  // failed/unavailable native call — the backend degrades to its existing
+  // ellipse-only occlusion handling with no regression when this is absent
+  // (see skinHeatmaps.js's buildMasks own comment on that fallback).
+  skinMask?: { base64: string; width: number; height: number };
 }) {
   // isNewProfile: true when the backend's face-match decided this photo
   // doesn't match anyone previously scanned on this account and started a
