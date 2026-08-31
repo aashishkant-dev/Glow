@@ -458,7 +458,7 @@ function ringGeometry(width: number, height: number, face?: { x: number; y: numb
 // period fallback) — this just makes "the native module isn't linked" hit
 // that exact same safe path instead of a hard crash.
 function LightingSensor({ onSample, onOutputReady }: {
-  onSample: (s: { avgLuma: number; darkFraction: number }) => void;
+  onSample: (s: { avgLuma: number; darkFraction: number; brightFraction: number }) => void;
   onOutputReady: (output: CameraFrameOutput) => void;
 }) {
   const lastLightingSampleAtRef = useRef(0);
@@ -499,19 +499,65 @@ function LightingSensor({ onSample, onOutputReady }: {
       if (len === 0) return;
       const STRIDE = 41; // prime — avoids landing on a repeating row/column pattern
       const DARK_BYTE_THRESHOLD = 40; // 0-255 luma
-      let sum = 0, dark = 0, sampled = 0;
+      // A harshly backlit frame (bright window/sky behind an underexposed
+      // face — the actual scene in the reported "negative/orange-looking"
+      // screenshot) can average out to a perfectly normal-looking avgLuma:
+      // a large blown-out bright region and a darker face region cancel out
+      // in the mean. brightFraction catches that bimodal case directly —
+      // what fraction of the frame is already clipped/near-white —
+      // independent of what the AVERAGE says.
+      const BRIGHT_BYTE_THRESHOLD = 245; // 0-255 luma
+      let sum = 0, dark = 0, bright = 0, sampled = 0;
       for (let i = 0; i < len; i += STRIDE) {
         const v = luma[i];
         sum += v;
         if (v < DARK_BYTE_THRESHOLD) dark++;
+        if (v > BRIGHT_BYTE_THRESHOLD) bright++;
         sampled++;
       }
       if (sampled === 0) return;
-      runOnJS(onSample)({ avgLuma: sum / sampled, darkFraction: dark / sampled });
+      runOnJS(onSample)({ avgLuma: sum / sampled, darkFraction: dark / sampled, brightFraction: bright / sampled });
     },
   });
   useEffect(() => { onOutputReady(output); }, [output, onOutputReady]);
   return null;
+}
+
+// Debounces a discrete value (a Gate, or any other small enum-ish type)
+// against transient single-reading noise — a blink, a momentary shadow, one
+// off frame from the detector — without adding a real hook library. `raw`
+// is the INSTANTANEOUS value computed fresh every render exactly as before
+// (nothing about how positionGate/angleGate/lightingGate are computed
+// changes); this only decides HOW MANY consecutive times in a row a NEW raw
+// value has to show up before it's trusted enough to actually update what's
+// displayed. Both directions go through the same debounce — flipping to a
+// worse state (a genuinely lost/blocked gate) and flipping to a better one
+// (newly ready) are treated symmetrically here, deliberately: the ask was
+// "don't flicker between pass/fail," not "react instantly to bad news but
+// require confirmation for good news," and an asymmetric version would
+// still flicker on any reading that alternates between two states rather
+// than genuinely holding one.
+function useStabilized<T>(raw: T, framesToConfirm: number): T {
+  const [stable, setStable] = useState<T>(raw);
+  const stableRef = useRef(raw);
+  const pendingRef = useRef<{ value: T; count: number } | null>(null);
+  useEffect(() => {
+    if (raw === stableRef.current) {
+      pendingRef.current = null;
+      return;
+    }
+    if (pendingRef.current && pendingRef.current.value === raw) {
+      pendingRef.current.count += 1;
+    } else {
+      pendingRef.current = { value: raw, count: 1 };
+    }
+    if (pendingRef.current.count >= framesToConfirm) {
+      stableRef.current = raw;
+      pendingRef.current = null;
+      setStable(raw);
+    }
+  }, [raw, framesToConfirm]);
+  return stable;
 }
 
 export function SkinScanCamera({ visible, onClose, onComplete, previousScan, parentScanId }: Props) {
@@ -576,7 +622,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // The actual worklet/useFrameOutput logic lives in LightingSensor below,
   // rendered inside an ErrorBoundary — see that component's own header
   // comment for why this needs to be a separate child, not inline here.
-  const [lightingSample, setLightingSample] = useState<{ avgLuma: number; darkFraction: number } | null>(null);
+  const [lightingSample, setLightingSample] = useState<{ avgLuma: number; darkFraction: number; brightFraction: number } | null>(null);
   const [lightingOutput, setLightingOutput] = useState<CameraFrameOutput | null>(null);
 
   const [step, setStep] = useState<Step>('camera');
@@ -734,15 +780,52 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // platforms, since it comes from the same getter the setter's value space
   // matches) fixes this without needing the actual EV-per-step size, which
   // vision-camera doesn't expose to JS at all.
-  // Maxed out, not conservatively capped — an overexposed-in-a-bright-room
-  // selfie is a minor cosmetic issue; a preview too dark to see yourself in
-  // at all is a broken feature. Between those two failure modes, this
-  // deliberately picks the one that's still usable.
+  // Previously maxed out UNCONDITIONALLY, regardless of actual ambient
+  // light — "an overexposed-in-a-bright-room selfie is a minor cosmetic
+  // issue; a preview too dark to see yourself in at all is a broken
+  // feature." That was true as a one-time choice between two fixed
+  // failure modes, but it's what caused a NEW, distinct symptom: a
+  // preview that looked badly warped/blown-out in a normally-lit room —
+  // maxExposureBias applied to an already-bright scene, not a lens or
+  // mirroring bug. Now scaled by the SAME real-time avgLuma reading
+  // lightingGate already computes (see LightingSensor above) instead of a
+  // static per-device constant: full boost in a genuinely dark scene,
+  // tapering to none once the scene is already comfortably lit, so a
+  // bright room is never pushed past what it needs. DARK/LIT reuse
+  // lightingGate's own thresholds (55 = its "needs light" amber/red
+  // boundary, 140 picked partway to its 215 "too bright" ceiling) rather
+  // than a second, separately-tuned set that could drift out of sync with
+  // it. Falls back to the full boost — the exact previous behavior — only
+  // while there's no real brightness reading yet (the sensor's bootstrap
+  // window, or a device where its worklet never fires at all; see
+  // LightingSensor's own comment): same "assume the worst, fail open"
+  // choice already made for lightingGate, not a regression for the
+  // genuinely-dark-room case this originally fixed.
   const exposureBias = useMemo(() => {
     if (!device?.supportsExposureBias) return 0;
-    if (Platform.OS === 'android') return Math.round(device.maxExposureBias);
-    return device.maxExposureBias;
-  }, [device]);
+    const max = device.maxExposureBias;
+    const boost = (() => {
+      if (lightingSample == null) return max;
+      const DARK = 55;
+      const LIT = 140;
+      const t = Math.max(0, Math.min(1, (lightingSample.avgLuma - DARK) / (LIT - DARK)));
+      const base = max * (1 - t);
+      // A harshly backlit frame doesn't just need LESS positive boost, it
+      // needs active NEGATIVE compensation — avgLuma alone (the t above)
+      // can still land mid-range on a backlit frame (see lightingGate's own
+      // comment: the blown background and dark face cancel out in the
+      // mean), so on its own this function would keep applying a positive
+      // bias to a scene that's already over-exposed in parts. brightFraction
+      // pulls bias down toward the device's actual negative range as more
+      // of the frame clips — full negative range once at least 45% of the
+      // sampled frame is already blown (lightingGate's own red threshold
+      // for this), scaling from 0 at 15% up to that.
+      const clipT = Math.max(0, Math.min(1, (lightingSample.brightFraction - 0.15) / (0.45 - 0.15)));
+      const min = device.minExposureBias;
+      return base + clipT * (min - base);
+    })();
+    return Platform.OS === 'android' ? Math.round(boost) : boost;
+  }, [device, lightingSample]);
 
   function reset() {
     setStep('camera');
@@ -988,10 +1071,21 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   const sizeRatio = liveBox ? liveBox.width / OVAL_W : 0;
   const centerOffsetX = liveBox ? Math.abs(liveBox.x + liveBox.width / 2 - idealCx) / OVAL_W : 1;
   const centerOffsetY = liveBox ? Math.abs(liveBox.y + liveBox.height / 2 - idealCy) / OVAL_H : 1;
-  const positionGate: Gate = !liveBox ? 'red'
+  const rawPositionGate: Gate = !liveBox ? 'red'
     : (sizeRatio < 0.62 || centerOffsetX > 0.22 || centerOffsetY > 0.22) ? 'red'
     : (sizeRatio < 0.75 || centerOffsetX > 0.14 || centerOffsetY > 0.14) ? 'amber'
     : 'green';
+  // Debounced against single-frame noise (a blink, a momentary shadow, one
+  // off reading from the detector) — onFacesDetected fires ~10x/sec (see
+  // its own throttle comment), so 5 consecutive agreeing readings is
+  // roughly half a second, matching the "buffer the last 5-10 frames,
+  // require agreement" ask without literally storing a 5-10-entry window:
+  // a run of N-in-a-row is equivalent to "N of the last N agreed" and is
+  // simpler to reason about than a sliding majority vote. positionGate
+  // (this stabilized value) is what every downstream consumer below —
+  // positionReason's branch choice, ringColor, isReady, captureHint, the
+  // pill — already reads; nothing past this line needed to change.
+  const positionGate = useStabilized(rawPositionGate, 5);
   // Mirrors positionGate's own branching (same conditions, same order) so
   // the pill's status TEXT can never disagree with its status COLOR — the
   // old version picked its message off a different, shorter chain (it
@@ -1027,7 +1121,9 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // Raised to sit just under that real tolerance instead of an arbitrary
   // tighter number, so a mostly-frontal photo isn't rejected pre-capture
   // for an angle the backend would have accepted anyway.
-  const angleGate: Gate = maxTilt == null ? 'red' : maxTilt <= 15 ? 'green' : maxTilt <= 25 ? 'amber' : 'red';
+  const rawAngleGate: Gate = maxTilt == null ? 'red' : maxTilt <= 15 ? 'green' : maxTilt <= 25 ? 'amber' : 'red';
+  // Same debounce, same 5-reading/~0.5s window as positionGate above.
+  const angleGate = useStabilized(rawAngleGate, 5);
   // Switches on angleGate itself (not a separate re-derivation of the same
   // thresholds) so text and color can't drift apart — the old version's red
   // and amber branches both existed, but green fell through to "Almost
@@ -1066,11 +1162,24 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // accordingly; the red floor/ceiling (genuinely too dark to see
   // anything, or blown out) is unchanged — those photos really are
   // unusable regardless of relative scoring.
-  const lightingGate: Gate = lightingSample == null
+  // brightFraction added after a real reported case: a harshly backlit
+  // frame (bright window/sky filling the background, face underexposed in
+  // front of it) averaged out to a normal-looking avgLuma — the blown
+  // background and the darker face cancelled out in the mean — so this
+  // gate read green ("Lighting: Good") on a frame that produced a
+  // washed-out, orange-cast, unusable photo. brightFraction (what fraction
+  // of the frame is already clipped near-white) catches that bimodal case
+  // directly, independent of what the average says.
+  const rawLightingGate: Gate = lightingSample == null
     ? (lightingGraceElapsed ? 'green' : 'red')
-    : (lightingSample.avgLuma < 40 || lightingSample.avgLuma > 235 || lightingSample.darkFraction >= 0.5) ? 'red'
-    : (lightingSample.avgLuma < 55 || lightingSample.avgLuma > 215 || lightingSample.darkFraction >= 0.35) ? 'amber'
+    : (lightingSample.avgLuma < 40 || lightingSample.avgLuma > 235 || lightingSample.darkFraction >= 0.5 || lightingSample.brightFraction >= 0.45) ? 'red'
+    : (lightingSample.avgLuma < 55 || lightingSample.avgLuma > 215 || lightingSample.darkFraction >= 0.35 || lightingSample.brightFraction >= 0.25) ? 'amber'
     : 'green';
+  // Only 3 readings here, not 5 like position/angle above — lightingSample
+  // itself only updates ~every 350ms (LightingSensor's own throttle), so 3
+  // in a row is already ~1s of agreement; 5 would be ~1.75s, noticeably
+  // slower to confirm "ready" than the other two gates for no real benefit.
+  const lightingGate = useStabilized(rawLightingGate, 3);
   // Reads off lightingGate's OWN bands rather than a separately-hand-picked
   // set of cutoffs (45/230/0.3) that didn't actually match the gate's real
   // thresholds (40/235/0.5 red, 55/215/0.35 amber) — that mismatch meant a
@@ -1080,12 +1189,17 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // fix. No sample yet during the grace window reads as "Checking…", not a
   // silent blank pill; past the grace window with still nothing, lighting
   // is treated as passing per lightingGate above, so text agrees: "Good".
+  // brightFraction checked BEFORE avgLuma's own too-bright branch — a
+  // backlit frame is what's actually happening whenever brightFraction is
+  // what tripped the gate (avgLuma alone can look fine in that case, per
+  // the gate's own comment above), so it gets its own, more accurate
+  // message instead of the generic "too bright" one.
   const lightingReason = lightingSample == null
     ? (lightingGraceElapsed ? 'Good' : 'Checking…')
     : lightingGate === 'red'
-      ? (lightingSample.avgLuma < 40 ? 'Too dark' : lightingSample.avgLuma > 235 ? 'Too bright' : 'Avoid harsh shadows')
+      ? (lightingSample.brightFraction >= 0.45 ? 'Move light from behind you' : lightingSample.avgLuma < 40 ? 'Too dark' : lightingSample.avgLuma > 235 ? 'Too bright' : 'Avoid harsh shadows')
     : lightingGate === 'amber'
-      ? (lightingSample.avgLuma < 55 ? 'A bit dark' : lightingSample.avgLuma > 215 ? 'A bit bright' : 'Some shadows')
+      ? (lightingSample.brightFraction >= 0.25 ? 'Backlit — face the light' : lightingSample.avgLuma < 55 ? 'A bit dark' : lightingSample.avgLuma > 215 ? 'A bit bright' : 'Some shadows')
     : 'Good';
 
   const allGreen = positionGate === 'green' && angleGate === 'green' && lightingGate === 'green';
@@ -1108,9 +1222,57 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
     wasReadyRef.current = isReady;
   }, [isReady, readyScaleAnim]);
 
+  // Auto-capture: once every gate is green AND stays green for
+  // AUTO_CAPTURE_HOLD_MS straight, fire the shutter with no tap needed —
+  // matches how Sephora/Perfect Corp/ID-scan-style capture flows behave
+  // once framing/lighting/angle are all confirmed good. The hold window
+  // (not an instant fire the moment isReady flips true) is deliberate: a
+  // bare "all green" instant is often a single transient frame (mid-blink
+  // recovery, a brief steady moment before drifting again), and firing on
+  // that gives a worse photo than the manual-tap flow ever did. Holding for
+  // 1.5s straight both filters that out and gives the countdown text below
+  // something real to show, rather than a silent surprise capture.
+  // Manual tap (the shutter Pressable's onPress) still works at any time
+  // and isn't affected by this — it just fires immediately, same as always.
+  const AUTO_CAPTURE_HOLD_MS = 1500;
+  const autoCaptureIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const [autoCaptureRemainingMs, setAutoCaptureRemainingMs] = useState<number | null>(null);
+  useEffect(() => {
+    const clear = () => {
+      if (autoCaptureIntervalRef.current) { clearInterval(autoCaptureIntervalRef.current); autoCaptureIntervalRef.current = null; }
+      setAutoCaptureRemainingMs(null);
+    };
+    if (step !== 'camera' || !visible || capturing || !isReady) { clear(); return; }
+    // Already counting down from an earlier tick where isReady was also
+    // true — don't restart the clock just because this effect re-ran.
+    if (autoCaptureIntervalRef.current) return;
+    const startedAt = Date.now();
+    setAutoCaptureRemainingMs(AUTO_CAPTURE_HOLD_MS);
+    autoCaptureIntervalRef.current = setInterval(() => {
+      const remaining = AUTO_CAPTURE_HOLD_MS - (Date.now() - startedAt);
+      if (remaining <= 0) {
+        clear();
+        shoot();
+        return;
+      }
+      setAutoCaptureRemainingMs(remaining);
+    }, 100);
+    return clear;
+  }, [isReady, step, visible, capturing]);
+
   const ringBox = ringGeometry(winW, winH, liveBox);
   const ringColor = positionGate === 'green' ? Colors.brand : positionGate === 'amber' ? Colors.systemOrange : 'rgba(255,255,255,0.8)';
-  const GATE_COLOR: Record<Gate, string> = { red: Colors.systemRed, amber: Colors.systemOrange, green: Colors.brand };
+  // Colors.systemGreen here, NOT Colors.brand (the ring's own pass color,
+  // reused above) — brand (#D97A91, rose) sits too close in hue/saturation
+  // to systemRed (#D96C6C) and systemOrange (#D99A6C) to read as a distinct
+  // color on a small pill; all three are muted rose/terracotta tones from
+  // the same part of the wheel. That's what made every pill look the same
+  // color regardless of pass/fail last round: the color WAS correctly bound
+  // per-gate (GATE_COLOR[lightingGate] etc., unchanged below) — the actual
+  // bug was the color choice itself, not the binding. systemGreen (#3BA55D)
+  // is already used elsewhere in this app for pass/success states
+  // (trustGreen/onlineGreen) and is genuinely distinguishable from both.
+  const GATE_COLOR: Record<Gate, string> = { red: Colors.systemRed, amber: Colors.systemOrange, green: Colors.systemGreen };
   // __DEV__-only live readout of exactly what each gate is seeing —
   // requested explicitly: a way to visually confirm on-device that these
   // are real, moving numbers, not a static/fake state. Off in production
@@ -1122,32 +1284,50 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
     <Modal visible={visible} animationType="slide" onRequestClose={handleClose} statusBarTranslucent>
       <View style={styles.root}>
         {/* The Camera itself is deliberately NOT gated on step === 'camera'
-            — it stays mounted (paused via isActive) for as long as this
-            sheet exists at all, only truly unmounting when hasPermission/
-            device change (rare) or SkinScanCamera itself unmounts. Mounting
-            it fresh on every step change (i.e. every single photo capture)
-            crashed on-device in production: React would unmount it after
-            each shot, and Hermes's GC finalized the underlying native
-            camera session LATER, on its own background thread — vision-
-            camera's Swift teardown (AVCaptureSession dealloc →
-            detachFromFigCaptureSession) isn't safe to run there, so
-            AVFoundation asserted and the whole process aborted. isActive
-            (tied to the Modal's own `visible`, not just `step`, so it goes
+            — it stays mounted (paused via isActive) for as long as the sheet
+            is actually open, only truly unmounting when it closes (visible
+            goes false), hasPermission/device change (rare), or
+            SkinScanCamera itself unmounts. Mounting it fresh on every step
+            change (i.e. every single photo capture) crashed on-device in
+            production: React would unmount it after each shot, and Hermes's
+            GC finalized the underlying native camera session LATER, on its
+            own background thread — vision-camera's Swift teardown
+            (AVCaptureSession dealloc → detachFromFigCaptureSession) isn't
+            safe to run there, so AVFoundation asserted and the whole
+            process aborted. isActive (also tied to `visible`, so it goes
             false the instant the sheet starts closing too) is vision-
             camera's actual supported start/stop path — synchronous,
             main-thread-coordinated — instead of relying on unmount +
-            eventual GC to tear down a native capture session. */}
+            eventual GC to tear down a native capture session.
+
+            Gated on `visible` here too (not just hasPermission/device) —
+            this component is mounted PERMANENTLY by both real call sites
+            (MySpaceScreen's <SkinScanCamera visible={cameraOpen} .../> and
+            SkinScanResultScreen's angle-capture instance), only toggling
+            `visible`, never actually unmounting SkinScanCamera itself. That
+            means without this gate, a real, live AVCaptureSession was being
+            created and held open for as long as MySpaceScreen or any scan
+            result screen was simply on screen — for the ENTIRE app session
+            in practice, whether or not the user ever opened the camera —
+            not just "for as long as the sheet exists" as the paragraph
+            above assumes. Every extra long-lived session is more exposure
+            to the exact GC-timing crash this whole file works around (see
+            useCameraSession's patch in patches/), on top of just being
+            wasted camera hardware/memory. Session creation is genuinely
+            fast, so gating it on `visible` costs a small, one-time delay
+            only the first time the sheet opens per mount — not a per-step
+            cost, since `visible` doesn't flip on step changes. */}
         {/* Rendered whenever the camera itself is (not gated on step) so its
             hook runs early and lightingOutput is ready by the time the
             Camera below needs it. fallback={null}: see LightingSensor's own
             header comment — losing this is silently invisible, not a
             broken screen. */}
-        {hasPermission && device != null && (
+        {visible && hasPermission && device != null && (
           <ErrorBoundary fallback={null}>
             <LightingSensor onSample={setLightingSample} onOutputReady={setLightingOutput} />
           </ErrorBoundary>
         )}
-        {hasPermission && device != null && (
+        {visible && hasPermission && device != null && (
           <FaceDetectCamera
             ref={cameraRef}
             style={StyleSheet.absoluteFill}
@@ -1215,9 +1395,9 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
             {debugBox && (
               <View style={styles.debugBox} pointerEvents="none">
                 <Text style={styles.debugText}>
-                  position={positionGate} size={sizeRatio.toFixed(2)} offX={centerOffsetX.toFixed(2)} offY={centerOffsetY.toFixed(2)}
-                  {'\n'}angle={angleGate} pitch={pitchAngle?.toFixed(1) ?? '—'} roll={rollAngle?.toFixed(1) ?? '—'} yaw={yawAngle?.toFixed(1) ?? '—'}
-                  {'\n'}lighting={lightingGate} avgLuma={lightingSample?.avgLuma.toFixed(1) ?? (lightingGraceElapsed ? 'NO SAMPLE — worklet not firing?' : 'sampling…')} darkFrac={lightingSample?.darkFraction.toFixed(2) ?? '—'}
+                  position={positionGate}(raw {rawPositionGate}) size={sizeRatio.toFixed(2)} offX={centerOffsetX.toFixed(2)} offY={centerOffsetY.toFixed(2)}
+                  {'\n'}angle={angleGate}(raw {rawAngleGate}) pitch={pitchAngle?.toFixed(1) ?? '—'} roll={rollAngle?.toFixed(1) ?? '—'} yaw={yawAngle?.toFixed(1) ?? '—'}
+                  {'\n'}lighting={lightingGate}(raw {rawLightingGate}) avgLuma={lightingSample?.avgLuma.toFixed(1) ?? (lightingGraceElapsed ? 'NO SAMPLE — worklet not firing?' : 'sampling…')} darkFrac={lightingSample?.darkFraction.toFixed(2) ?? '—'} brightFrac={lightingSample?.brightFraction.toFixed(2) ?? '—'} exposureBias={exposureBias.toFixed(2)}
                   {'\n'}box: x={debugBox.x.toFixed(0)} y={debugBox.y.toFixed(0)} w={debugBox.width.toFixed(0)} h={debugBox.height.toFixed(0)}
                 </Text>
               </View>
@@ -1287,6 +1467,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
                 {captureError
                   ? captureError
                   : !cameraReady ? 'Camera warming up…'
+                  : autoCaptureRemainingMs != null ? `Hold still — capturing in ${Math.ceil(autoCaptureRemainingMs / 1000)}…`
                   : captureHint}
               </Text>
               <View style={styles.shootRow}>

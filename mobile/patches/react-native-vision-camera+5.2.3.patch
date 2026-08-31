@@ -1,19 +1,89 @@
 diff --git a/node_modules/react-native-vision-camera/lib/hooks/internal/useCameraSession.js b/node_modules/react-native-vision-camera/lib/hooks/internal/useCameraSession.js
-index 39d5ef0..6302f04 100644
+index 39d5ef0..b851691 100644
 --- a/node_modules/react-native-vision-camera/lib/hooks/internal/useCameraSession.js
 +++ b/node_modules/react-native-vision-camera/lib/hooks/internal/useCameraSession.js
-@@ -31,6 +31,14 @@ export function useCameraSession({ enableMultiCamSupport, onError, }) {
-             // remove all connections
-             session?.stop();
-             session?.configure([]);
-+            // Dispose synchronously here, on the main JS thread, during a
-+            // normal React effect cleanup — instead of leaving the native
-+            // AVCaptureSession to be released later by Hermes's background
-+            // GC thread, which crashes (AVCaptureSession dealloc ->
-+            // detachFromFigCaptureSession: hits an AVFoundation assertion
-+            // when it doesn't run on a safe thread). Patched via
-+            // patch-package (see patches/) pending a fix upstream.
-+            session?.dispose();
+@@ -1,6 +1,57 @@
+ import { useEffect, useState } from 'react';
+ import { VisionCamera } from '../../VisionCamera';
+ import { useStableCallback } from './useStableCallback';
++// Empties a session's inputs/outputs on its own native queue before letting
++// go of it — see teardownSession's own comment for the full crash this
++// exists to prevent. Shared by both the "component unmounted while session
++// was still being created" cancel path and the normal unmount teardown path
++// below, since both discard a session object and both need the same
++// protection.
++async function teardownSession(session) {
++    try {
++        // Both stop() and configure() run on HybridCameraSession's own
++        // internal serial queue (Self.queue, "com.margelo.camera.session" —
++        // see ios/Hybrid Objects/HybridCameraSession.swift), the ONLY
++        // thread-safe context AVFoundation allows for touching this
++        // AVCaptureSession. configure([]) with an empty connections array
++        // removes every currently-attached input/output (see its
++        // updateInputs/updateOutputs — an empty target list means every
++        // existing one gets removed) — awaited here so this promise doesn't
++        // resolve (and this session doesn't get treated as fully torn down)
++        // until that's actually finished.
++        await session.stop();
++        await session.configure([]);
++    }
++    catch (error) {
++        console.error('[useCameraSession] failed to stop/empty camera session before releasing it', error);
++    }
++    // dispose() is NOT a substitute for the above — it's a no-op here.
++    // HybridObject's base Swift implementation is `public func dispose() {}`
++    // (react-native-nitro-modules/ios/core/HybridObject.swift), and
++    // HybridCameraSession (react-native-vision-camera's actual Swift class)
++    // never overrides it. A previous version of this patch called
++    // session.dispose() believing it forced synchronous native teardown —
++    // confirmed against the library's own source that it does nothing at
++    // all, camera-session-specific or otherwise.
++    //
++    // What actually matters: this app's JS reference to `session` becomes
++    // GC-eligible once this function returns, and the underlying Swift
++    // object's real deinit — and with it, `AVCaptureSession`'s dealloc —
++    // still only runs whenever Hermes's background GC happens to collect
++    // it, off the capture session's queue, no matter what we call here.
++    // That's the actual crash: AVCaptureSession.dealloc synchronously
++    // iterates its OWN attached outputs and calls
++    // detachFromFigCaptureSession: on each one (AVCaptureOutput.m) — and
++    // that call asserts when it doesn't run on a safe queue, which is
++    // exactly what a GC-thread-triggered dealloc is. But by the time this
++    // function returns, configure([]) above has already made that outputs
++    // set EMPTY, and it did so ON the session's own safe queue — so
++    // whenever dealloc eventually happens, on whatever thread, there is
++    // nothing left in it to detach and nothing left for that assertion to
++    // fire on. The fix isn't forcing WHEN dealloc runs (Nitro/Hermes give
++    // JS no hook for that); it's making sure dealloc has nothing left to do
++    // by the time it runs, regardless of when or on what thread that is.
++}
+ export function useCameraSession({ enableMultiCamSupport, onError, }) {
+     const [session, setSession] = useState();
+     const stableOnError = useStableCallback(onError);
+@@ -11,7 +62,13 @@ export function useCameraSession({ enableMultiCamSupport, onError, }) {
+             try {
+                 const s = await VisionCamera.createCameraSession(enableMultiCamSupport);
+                 if (isCanceled) {
+-                    s.dispose();
++                    // The component unmounted (or this effect re-ran) while
++                    // the session was still being created — this session is
++                    // about to be discarded without ever being stored in
++                    // state, but it's still a real, live AVCaptureSession
++                    // that needs the same safe teardown as one that WAS
++                    // used — see teardownSession's own comment.
++                    void teardownSession(s);
+                     return;
+                 }
+                 setSession(s);
+@@ -28,9 +85,8 @@ export function useCameraSession({ enableMultiCamSupport, onError, }) {
+     // session teardown
+     useEffect(() => {
+         return () => {
+-            // remove all connections
+-            session?.stop();
+-            session?.configure([]);
++            if (session)
++                void teardownSession(session);
          };
      }, [session]);
      return session;
