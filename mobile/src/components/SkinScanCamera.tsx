@@ -523,24 +523,45 @@ function LightingSensor({ onSample, onOutputReady }: {
   return null;
 }
 
-// Debounces a discrete value (a Gate, or any other small enum-ish type)
-// against transient single-reading noise — a blink, a momentary shadow, one
-// off frame from the detector — without adding a real hook library. `raw`
-// is the INSTANTANEOUS value computed fresh every render exactly as before
-// (nothing about how positionGate/angleGate/lightingGate are computed
-// changes); this only decides HOW MANY consecutive times in a row a NEW raw
-// value has to show up before it's trusted enough to actually update what's
-// displayed. Both directions go through the same debounce — flipping to a
-// worse state (a genuinely lost/blocked gate) and flipping to a better one
-// (newly ready) are treated symmetrically here, deliberately: the ask was
-// "don't flicker between pass/fail," not "react instantly to bad news but
-// require confirmation for good news," and an asymmetric version would
-// still flicker on any reading that alternates between two states rather
-// than genuinely holding one.
-function useStabilized<T>(raw: T, framesToConfirm: number): T {
-  const [stable, setStable] = useState<T>(raw);
-  const stableRef = useRef(raw);
-  const pendingRef = useRef<{ value: T; count: number } | null>(null);
+// Moved to module scope from inside SkinScanCamera (where it's still used,
+// alongside GATE_RANK/useStabilized below, which need it here — a local
+// type declaration inside the component isn't visible to a module-level
+// function).
+type Gate = 'red' | 'amber' | 'green';
+
+// Ordinal safety ranking for a Gate — red is worst, green is best — so
+// useStabilized below can tell "this new reading is WORSE than what's
+// currently shown" from "this is BETTER" without a separate comparator
+// argument.
+const GATE_RANK: Record<Gate, number> = { red: 0, amber: 1, green: 2 };
+
+// Debounces a Gate against transient single-reading noise — a blink, a
+// momentary shadow, one off frame from the detector — without adding a real
+// hook library. `raw` is the INSTANTANEOUS value computed fresh every render
+// exactly as before (nothing about how positionGate/angleGate/lightingGate
+// are computed changes); this only decides how many consecutive times in a
+// row a NEW raw value has to show up before it's trusted enough to actually
+// update what's displayed.
+//
+// Asymmetric on purpose (2026-08-31 retune, was a flat symmetric count for
+// both directions): a straight N-reading window on EVERY direction change
+// was the reported lag — a real, sustained regression (moving out of frame,
+// turning away, light dropping) sat on stale "good" status for the same
+// window a marginal, hovering-right-at-the-threshold reading needs to avoid
+// flicker. Those are different problems. Flicker is only a risk on the
+// IMPROVING direction — a reading bouncing back and forth around a
+// threshold right as it crosses into "good enough." Going WORSE has no such
+// risk (a regression that reverses itself in a frame or two was never
+// "ready" to begin with), and a stale-good pill is actively misleading — it
+// tells the user they can shoot when they can't. framesToConfirmWorse is
+// still 2, not 1: a single transient reading (the blink/shadow/off-frame
+// case) is exactly the noise this exists to filter regardless of direction,
+// so the WORSE side still requires the same minimal agreement, just fewer
+// reads of it than the BETTER side.
+function useStabilized(raw: Gate, framesToConfirmBetter: number, framesToConfirmWorse: number): Gate {
+  const [stable, setStable] = useState<Gate>(raw);
+  const stableRef = useRef<Gate>(raw);
+  const pendingRef = useRef<{ value: Gate; count: number } | null>(null);
   useEffect(() => {
     if (raw === stableRef.current) {
       pendingRef.current = null;
@@ -551,12 +572,14 @@ function useStabilized<T>(raw: T, framesToConfirm: number): T {
     } else {
       pendingRef.current = { value: raw, count: 1 };
     }
-    if (pendingRef.current.count >= framesToConfirm) {
+    const isWorse = GATE_RANK[raw] < GATE_RANK[stableRef.current];
+    const threshold = isWorse ? framesToConfirmWorse : framesToConfirmBetter;
+    if (pendingRef.current.count >= threshold) {
       stableRef.current = raw;
       pendingRef.current = null;
       setStable(raw);
     }
-  }, [raw, framesToConfirm]);
+  }, [raw, framesToConfirmBetter, framesToConfirmWorse]);
   return stable;
 }
 
@@ -585,7 +608,25 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // this backend's deploy doesn't have). expo-camera's old capture path
   // always produced JPEG, which is why this regressed only after switching
   // to vision-camera. JPEG decodes everywhere with no extra plugins.
-  const photoOutput = usePhotoOutput({ containerFormat: 'jpeg' });
+  // qualityPrioritization: 'speed' — this app's real target for the earlier
+  // v3/v4-era `photoQualityBalance` prop; vision-camera v5's Nitro rewrite
+  // renamed it and moved it here, onto usePhotoOutput. Left unset before
+  // this (silently defaulting to this hook's own 'balanced'), which on iOS
+  // is exactly the setting that lets AVCapturePhotoOutput run its heavier
+  // multi-frame fusion pipeline (Deep Fusion/Smart HDR-class processing) —
+  // the same pipeline that does real-time face-detection-driven local
+  // tone-mapping/smoothing on the front TrueDepth camera, confirmed baked
+  // into the actual stored/analyzed JPEG bytes (not just the live preview)
+  // against a real captured scan. 'speed' requests a single-frame capture
+  // instead, bypassing that fusion path. Gated on
+  // device.supportsSpeedQualityPrioritization (same pattern as
+  // enableLowLightBoost below) — usePhotoOutput's own docs say capturePhoto
+  // THROWS if the selected device doesn't support the requested
+  // prioritization, so this can't just be hardcoded 'speed' unconditionally.
+  const photoOutput = usePhotoOutput({
+    containerFormat: 'jpeg',
+    qualityPrioritization: device?.supportsSpeedQualityPrioritization ? 'speed' : undefined,
+  });
   // Static-image detector for the captured photo (detectFaceRegion) — a
   // separate instance from the live camera's own detection, tuned for
   // accuracy over speed since it only ever runs once per scan.
@@ -960,6 +1001,21 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
     const timers = delays.map((ms, i) => setTimeout(() => setAnalyzingStage(i + 1), ms));
     return () => timers.forEach(clearTimeout);
   }, [step]);
+  // Real elapsed seconds since entering this step — NOT a fabricated extra
+  // stage (the sticky last stage above is deliberately final; there's no
+  // real per-stage signal past it to attach one to, same reasoning as
+  // ANALYZING_STAGES' own comment). A genuinely slow-but-still-working
+  // request (Gemini's own 25s ceiling, on top of the concurrent upload/
+  // reference-photo-fetch overhead — see routes/skin.js) reads as identical
+  // to a hang once the last stage stops moving; ticking real elapsed time is
+  // an honest "this is still going," not a fake progress claim.
+  const [analyzingElapsedSec, setAnalyzingElapsedSec] = useState(0);
+  useEffect(() => {
+    if (step !== 'analyzing') { setAnalyzingElapsedSec(0); return; }
+    const startedAt = Date.now();
+    const id = setInterval(() => setAnalyzingElapsedSec(Math.floor((Date.now() - startedAt) / 1000)), 1000);
+    return () => clearInterval(id);
+  }, [step]);
   // Short crossfade (~200ms) between stage labels instead of the text
   // snapping instantly — same short-motion language the rest of the app
   // uses for state changes (e.g. the framing tips above fade the same way).
@@ -1060,8 +1116,8 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // Lighting/Angle/Position status): each is a simple, deterministic
   // threshold check, not a trained model, and the shutter only unlocks once
   // ALL THREE read green — no more vague "Move to a brighter area" folded
-  // into the same signal as framing.
-  type Gate = 'red' | 'amber' | 'green';
+  // into the same signal as framing. (Gate itself is declared at module
+  // scope above, alongside GATE_RANK/useStabilized, which need it too.)
 
   // --- Position: face size + centering relative to the guide oval ---
   // Same underlying signal as before (no new capability needed here), now
@@ -1077,25 +1133,36 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
     : 'green';
   // Debounced against single-frame noise (a blink, a momentary shadow, one
   // off reading from the detector) — onFacesDetected fires ~10x/sec (see
-  // its own throttle comment), so 5 consecutive agreeing readings is
-  // roughly half a second, matching the "buffer the last 5-10 frames,
-  // require agreement" ask without literally storing a 5-10-entry window:
-  // a run of N-in-a-row is equivalent to "N of the last N agreed" and is
-  // simpler to reason about than a sliding majority vote. positionGate
+  // its own throttle comment), so a run of N-in-a-row is equivalent to "N
+  // of the last N agreed" and is simpler to reason about than a sliding
+  // majority vote. Asymmetric (2026-08-31 retune — see useStabilized's own
+  // comment for the full "why"): 4 reads (~400ms) to confirm an IMPROVED
+  // reading, only 2 (~200ms) to confirm a WORSE one — down from a flat 5
+  // (~500ms) both ways, which is what made a genuine regression (moving out
+  // of frame, turning away) read as the pill just not updating. positionGate
   // (this stabilized value) is what every downstream consumer below —
-  // positionReason's branch choice, ringColor, isReady, captureHint, the
+  // positionReason's outer branch, ringColor, isReady, captureHint, the
   // pill — already reads; nothing past this line needed to change.
-  const positionGate = useStabilized(rawPositionGate, 5);
-  // Mirrors positionGate's own branching (same conditions, same order) so
-  // the pill's status TEXT can never disagree with its status COLOR — the
-  // old version picked its message off a different, shorter chain (it
-  // never re-checked offset once sizeRatio cleared 0.75, and its final
-  // branch always said "Almost centered" even when actually green), so a
-  // pill could plausibly show green while still reading "Almost centered."
+  const positionGate = useStabilized(rawPositionGate, 4, 2);
+  // Outer branch keys off positionGate (the STABILIZED value) — not the raw
+  // sizeRatio/offset thresholds directly — so the pill's status TEXT can
+  // never disagree with its status COLOR. This used to re-derive its own
+  // red/amber/green split straight from the live, undebounced numbers,
+  // which meant the text could update instantly on every ~100ms frame while
+  // the color it sits right next to stayed on the OLD stabilized value for
+  // up to the full debounce window — a real, visible mismatch (and read, by
+  // itself, as "the pill" lagging, since the color is the more salient
+  // cue). angleReason/lightingReason already keyed off their own stabilized
+  // gates; this was the one gate that didn't. The INNER choice (which of
+  // two same-band phrasings — "Move closer" vs "Center your face," "A
+  // little closer" vs "Almost centered") still reads the live sizeRatio:
+  // both options in a given band are equally valid descriptions of that
+  // band, so picking between them live can't contradict a color that's
+  // already correct for that band, unlike the outer red/amber/green split.
   const positionReason = !liveBox ? 'Position your face in the frame'
-    : (sizeRatio < 0.62 || centerOffsetX > 0.22 || centerOffsetY > 0.22)
+    : positionGate === 'red'
       ? (sizeRatio < 0.62 ? 'Move closer' : 'Center your face')
-    : (sizeRatio < 0.75 || centerOffsetX > 0.14 || centerOffsetY > 0.14)
+    : positionGate === 'amber'
       ? (sizeRatio < 0.75 ? 'A little closer' : 'Almost centered')
     : 'Centered';
 
@@ -1122,8 +1189,9 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // tighter number, so a mostly-frontal photo isn't rejected pre-capture
   // for an angle the backend would have accepted anyway.
   const rawAngleGate: Gate = maxTilt == null ? 'red' : maxTilt <= 15 ? 'green' : maxTilt <= 25 ? 'amber' : 'red';
-  // Same debounce, same 5-reading/~0.5s window as positionGate above.
-  const angleGate = useStabilized(rawAngleGate, 5);
+  // Same debounce as positionGate above: 4 reads (~400ms) to confirm
+  // improved, 2 (~200ms) to confirm worse.
+  const angleGate = useStabilized(rawAngleGate, 4, 2);
   // Switches on angleGate itself (not a separate re-derivation of the same
   // thresholds) so text and color can't drift apart — the old version's red
   // and amber branches both existed, but green fell through to "Almost
@@ -1175,11 +1243,19 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
     : (lightingSample.avgLuma < 40 || lightingSample.avgLuma > 235 || lightingSample.darkFraction >= 0.5 || lightingSample.brightFraction >= 0.45) ? 'red'
     : (lightingSample.avgLuma < 55 || lightingSample.avgLuma > 215 || lightingSample.darkFraction >= 0.35 || lightingSample.brightFraction >= 0.25) ? 'amber'
     : 'green';
-  // Only 3 readings here, not 5 like position/angle above — lightingSample
-  // itself only updates ~every 350ms (LightingSensor's own throttle), so 3
-  // in a row is already ~1s of agreement; 5 would be ~1.75s, noticeably
-  // slower to confirm "ready" than the other two gates for no real benefit.
-  const lightingGate = useStabilized(rawLightingGate, 3);
+  // lightingSample itself only updates ~every 350ms (LightingSensor's own
+  // throttle) — sparser than position/angle's ~100ms, but each sample is
+  // already a spatial average over thousands of sampled pixels across one
+  // full camera frame (see LightingSensor), not a single detector's one
+  // pass/fail read, so it's inherently less prone to single-sample noise
+  // than position/angle's per-frame gate. 2 reads (~700ms) to confirm
+  // improved; 1 (~350ms, i.e. react on the very next sample) to confirm
+  // worse — a real lighting drop (someone stepping in front of a window,
+  // the phone tilting away from a lamp) is exactly the kind of change a
+  // single fresh sample already reflects, and there's no flicker risk on
+  // the worsening side (see useStabilized's own comment on why that side
+  // doesn't need the same protection as improving does).
+  const lightingGate = useStabilized(rawLightingGate, 2, 1);
   // Reads off lightingGate's OWN bands rather than a separately-hand-picked
   // set of cutoffs (45/230/0.3) that didn't actually match the gate's real
   // thresholds (40/235/0.5 red, 55/215/0.35 amber) — that mismatch meant a
@@ -1621,6 +1697,17 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
               <AnalyzingStepRow label="Pores, texture, redness, dark spots & fine lines checked" done={analyzingStage >= 6} active={analyzingStage >= 3 && analyzingStage < 6} />
               <AnalyzingStepRow label="Personalized recommendations" done={false} active={analyzingStage >= 6} />
             </View>
+            {/* Only past the point the fixed-delay stages above stop moving
+                (analyzingStage reaches its last, sticky index at 8.5s — see
+                ANALYZING_STAGES' own effect) AND only once it's been long
+                enough that a real user would start to wonder — a real,
+                ticking number instead of a static spinner, so a genuinely
+                slow-but-working request (see this effect's own comment on
+                why this can legitimately run past a minute) doesn't read
+                identically to a hang. */}
+            {analyzingStage >= ANALYZING_STAGES.length - 1 && analyzingElapsedSec >= 12 && (
+              <Text style={styles.analyzingStillWorking}>Still working — a thorough read can take up to a minute ({analyzingElapsedSec}s)…</Text>
+            )}
           </View>
         )}
       </View>
@@ -1744,4 +1831,5 @@ const styles = StyleSheet.create({
   analyzingRoot: { flex: 1, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.systemBackground, gap: 4 },
   analyzingText: { fontSize: 17, fontFamily: Fonts.semibold, color: Colors.label, marginTop: 16 },
   analyzingSteps: { marginTop: 26, gap: 14, alignItems: 'flex-start' },
+  analyzingStillWorking: { marginTop: 22, fontSize: 12, fontFamily: Fonts.medium, color: Colors.tertiaryLabel, textAlign: 'center', paddingHorizontal: 32 },
 });

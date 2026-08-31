@@ -421,6 +421,28 @@ export function SkinScanResultScreen() {
                 )}
               </View>
 
+              {/* skinType/summary above come from Gemini's own holistic read
+                  of the whole photo; the Dryness tab's verdict comes from a
+                  SEPARATE, independent local heuristic that only assesses a
+                  photo's dryness zone-by-zone (skinHeatmaps.js), gated on its
+                  own confidence checks and run concurrently with Gemini —
+                  neither pipeline sees the other's output. 'DRY' is the one
+                  skinType value with a direct concern analog (moisture ↔
+                  Dryness); the other four (OILY/COMBINATION/NORMAL/SENSITIVE)
+                  have no matching CONCERN_ORDER entry, so this stays scoped to
+                  the one case that can actually contradict, rather than
+                  guessing at a mapping for the rest. Shown only when heatmaps
+                  exist for this scan (nothing to contradict on an older scan
+                  with none) and moisture specifically came back unassessed —
+                  reconciles the two reads with an honest reason instead of
+                  either silently dropping the AI's overall impression or
+                  leaving it flatly contradicting the tab beneath it. */}
+              {scan.skinType === 'DRY' && !!scan.heatmaps && !scan.heatmaps.moisture && (
+                <Text style={styles.consistencyNote}>
+                  That's the AI's overall impression from the full photo — the Dryness tab below couldn't confirm it zone-by-zone for this specific shot (see that tab for why).
+                </Text>
+              )}
+
               {/* Concern-by-concern read — the direct successor to the old
                   per-face-zone marker list, now organized the way the
                   heatmap tabs are (by concern, not by face zone), so
@@ -648,6 +670,7 @@ const styles = StyleSheet.create({
   resultText: { fontSize: 15, fontFamily: Fonts.semibold, color: Colors.secondaryLabel },
   hydrationPill: { backgroundColor: Colors.surfaceCream, borderRadius: 100, paddingHorizontal: 10, paddingVertical: 4 },
   hydrationPillText: { fontSize: 11.5, fontFamily: Fonts.semibold, color: Colors.secondaryLabel },
+  consistencyNote: { fontSize: 12, fontFamily: Fonts.medium, color: Colors.tertiaryLabel, lineHeight: 16.5, marginTop: 8 },
 
   zoneSection: {
     marginTop: 18, backgroundColor: Colors.surfaceCream, borderRadius: 16,
