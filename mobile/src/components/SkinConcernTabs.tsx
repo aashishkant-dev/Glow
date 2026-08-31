@@ -39,9 +39,7 @@ export type ConcernTab = 'summary' | SkinHeatmapConcernKey;
 // Order + display label — one place so the tab bar and the Summary tab's
 // concern-row list (SkinScanResultScreen) can never drift on ordering.
 // Matches the product spec exactly: Pores, Dryness, Fine Lines & Wrinkles,
-// Blemishes, Uneven Texture, Dark Spots, Redness. Keys are Perfect Corp's
-// own SD concern names (src/utils/perfectCorpClient.js's DST_ACTIONS), used
-// directly rather than an app-invented translation layer.
+// Blemishes, Uneven Texture, Dark Spots, Redness.
 export const CONCERN_ORDER: { key: SkinHeatmapConcernKey; label: string }[] = [
   { key: 'pore', label: 'Pores' },
   { key: 'moisture', label: 'Dryness' },

@@ -17,13 +17,13 @@
  * four tabs that can only ever say "not assessed."
  */
 import React, { useEffect, useRef, useState } from 'react';
-import { ActivityIndicator, Alert, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
+import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useNavigation, useRoute } from '@react-navigation/native';
 import { Colors, Fonts } from '../../utils/colors';
-import { apiDeleteSkinScan, apiDeepScan, apiGetScanAngles, SkinScan } from '../../api/client';
+import { apiDeleteSkinScan, apiGetScanAngles, SkinScan } from '../../api/client';
 import { tapLight, confirmAction } from '../../utils/haptics';
 import { NearbyArtistRow } from '../../components/NearbyArtistRow';
 import { ConcernHeatmapOverlay, ConcernTabBar, ConcernDetailCard, CONCERN_ORDER, ConcernTab } from '../../components/SkinConcernTabs';
@@ -136,14 +136,12 @@ export function SkinScanResultScreen() {
   const insets = useSafeAreaInsets();
   const nav = useNavigation<any>();
   const route = useRoute<any>();
-  // Real state (not a plain destructure of route.params) specifically so a
-  // successful Deep Scan can update what's on screen — the whole point of
-  // Deep Scan is seeing the real result replace the estimated one without
-  // leaving this screen or re-navigating.
+  // Real state (not a plain destructure of route.params) so switching to a
+  // different captured angle (see selectAngle/onAngleCaptured below) can
+  // update what's on screen without leaving this screen or re-navigating.
   const [scan, setScan] = useState<SkinScan>(route.params.scan);
   const justScanned: boolean = !!route.params.justScanned;
   const [deleting, setDeleting] = useState(false);
-  const [deepScanning, setDeepScanning] = useState(false);
   // Multi-angle scans (see schema.prisma's SkinScan.parentScanId): every
   // scan in this session, oldest first — just [scan] itself for an
   // ordinary single-photo scan, which is also the initial value so the
@@ -311,26 +309,6 @@ export function SkinScanResultScreen() {
     });
   }
 
-  // Explicit, user-triggered — never auto-fired. A failure shows the real
-  // reason (Deep Scan's own honest error, not a silent re-serve of the
-  // estimated result the user already has) and leaves `scan` untouched;
-  // success replaces it wholesale, so every concern tab (and the tap-to-
-  // highlight system already wired to `scan.heatmaps`) picks up the real
-  // Perfect Corp data with no separate code path of its own.
-  async function runDeepScan() {
-    tapLight();
-    setDeepScanning(true);
-    try {
-      const { scan: updated } = await apiDeepScan(scan.id);
-      setScan(updated);
-      setActiveTab('summary');
-    } catch (err: any) {
-      Alert.alert('Deep Scan', err?.message || "Couldn't complete Deep Scan right now. Try again in a moment.");
-    } finally {
-      setDeepScanning(false);
-    }
-  }
-
   return (
     <View style={styles.container}>
       {/* Extra bottom padding (vs. the old +40) so the floating New Scan
@@ -411,30 +389,16 @@ export function SkinScanResultScreen() {
         <View style={[styles.body, activeTab !== 'summary' && styles.bodyNoTop]}>
           {activeTab === 'summary' && (
             <>
-              {/* Only when this scan's heatmaps came from the free heuristic
-                  fallback, not the real Perfect Corp API — an honest reason
-                  why, not a silent quality downgrade. Absent entirely on a
-                  real vendor-backed read (the common case once configured). */}
+              {/* Shown on every scan now — there's no other tier since Perfect
+                  Corp's removal, but the banner's own copy already reads
+                  correctly either way ("uses our free estimate model, not
+                  the full AI Skin Diagnostic") so it stays as an honest,
+                  permanent disclosure rather than special-cased away. Only
+                  absent on a scan with no heatmaps at all. */}
               {!!scan.heatmaps && scan.heatmapSource === 'estimated' && (
                 <View style={styles.estimatedBanner}>
                   <Text style={styles.estimatedBannerText}>{ESTIMATED_REASON_COPY[scan.heatmapSourceReason || 'not_configured']}</Text>
                 </View>
-              )}
-
-              {/* Deep Scan — the explicit, user-triggered upgrade to a real
-                  Perfect Corp read on this exact photo (never fired
-                  automatically). Only shown when this scan ISN'T already a
-                  real vendor result — no point offering to upgrade
-                  something that's already the real thing. */}
-              {scan.heatmapSource !== 'perfectcorp' && (
-                <Pressable style={styles.deepScanBtn} onPress={runDeepScan} disabled={deepScanning}>
-                  {deepScanning ? (
-                    <ActivityIndicator color="#fff" size="small" />
-                  ) : (
-                    <SparkleIcon size={14} color="#fff" />
-                  )}
-                  <Text style={styles.deepScanBtnText}>{deepScanning ? 'Running Deep Scan…' : 'Run Deep Scan (AI Skin Diagnostic)'}</Text>
-                </Pressable>
               )}
 
               <View style={styles.eyebrowRow}>
@@ -671,11 +635,6 @@ const styles = StyleSheet.create({
   bodyNoTop: { paddingTop: 8 },
   estimatedBanner: { backgroundColor: Colors.surfaceCream, borderRadius: 12, paddingHorizontal: 14, paddingVertical: 10, marginBottom: 14 },
   estimatedBannerText: { fontSize: 12, fontFamily: Fonts.medium, color: Colors.secondaryLabel, lineHeight: 17 },
-  deepScanBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    backgroundColor: Colors.label, borderRadius: 100, paddingVertical: 13, marginBottom: 16,
-  },
-  deepScanBtnText: { color: '#fff', fontSize: 13.5, fontFamily: Fonts.semibold },
   eyebrowRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 10 },
   eyebrow: { fontSize: 11, fontFamily: Fonts.semibold, color: Colors.brandDark, letterSpacing: 1.4 },
 

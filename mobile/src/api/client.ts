@@ -1412,10 +1412,9 @@ export interface SkinRecommendation {
   note: string;
 }
 
-// Perfect Corp's own SD-tier concern names (src/utils/perfectCorpClient.js's
-// DST_ACTIONS) — used directly as this app's tab keys rather than inventing
-// a translation layer, per the product decision to use the vendor's real
-// field names. 'pore'/'wrinkle'/'acne' etc., not 'pores'/'wrinkles'.
+// This app's 7 skin-concern tab keys — 'pore'/'wrinkle'/'acne' etc., not
+// 'pores'/'wrinkles' (a naming convention this product settled on early on
+// and every layer, mobile and backend, still matches).
 export type SkinHeatmapConcernKey = 'pore' | 'moisture' | 'wrinkle' | 'acne' | 'texture' | 'age_spot' | 'redness';
 
 // One concern's full read — see src/utils/skinConcernContent.js for where
@@ -1485,6 +1484,14 @@ export interface SkinHeatmapConcern {
 }
 
 export interface SkinScan {
+  // Shape version of this response — see CONCERN_RECORD_SCHEMA_VERSION's
+  // own comment in src/utils/skinConcernContent.js on the backend, bumped
+  // together with it. Absent on any scan object built locally rather than
+  // received from the server (there are none of those today, but a
+  // schema-aware caller should treat a missing/older version as "verify
+  // before trusting," not assume current shape). See validateSkinScan
+  // below — this is what it checks against.
+  schemaVersion?: number;
   id: string;
   // Which physical person this scan belongs to — see SkinProfile below. A
   // shared-device account (family sharing one phone) can have more than one.
@@ -1557,6 +1564,42 @@ export interface SkinScan {
   createdAt: string;
 }
 
+const VALID_BANDS = new Set(['clear', 'mild', 'moderate', 'notable']);
+const VALID_SOURCES = new Set(['perfectcorp', 'estimated']);
+
+// Runtime counterpart to validateConcernRecord on the backend
+// (src/utils/skinConcernContent.js) — checked at the same kind of boundary
+// on this end: right after a scan is parsed from the network, before
+// anything downstream renders it. A field that's the wrong type or a
+// severity outside [0,1] would otherwise just get rendered as-is (NaN math,
+// a blank verdict, a crash on an unexpected band string) — this catches
+// that here and drops ONLY the malformed concern back to null, this app's
+// own established "not assessed" state, rather than either crashing or
+// silently rendering broken data. Logged with console.warn so a real
+// mismatch is visible in dev without being able to take the app down.
+function sanitizeSkinScan(scan: SkinScan): SkinScan {
+  if (!scan.heatmaps) return scan;
+  let changed = false;
+  const cleaned: typeof scan.heatmaps = {};
+  for (const [key, concern] of Object.entries(scan.heatmaps)) {
+    if (concern == null) { cleaned[key as SkinHeatmapConcernKey] = null as any; continue; }
+    const errors: string[] = [];
+    if (typeof concern.url !== 'string' || !concern.url) errors.push('url');
+    if (typeof concern.severity !== 'number' || Number.isNaN(concern.severity) || concern.severity < 0 || concern.severity > 1) errors.push('severity');
+    if (!VALID_BANDS.has(concern.band)) errors.push('band');
+    if (typeof concern.verdict !== 'string' || !concern.verdict) errors.push('verdict');
+    if (!VALID_SOURCES.has(concern.source)) errors.push('source');
+    if (errors.length > 0) {
+      changed = true;
+      console.warn(`[client] scan ${scan.id}: dropping malformed '${key}' concern (bad fields: ${errors.join(', ')})`);
+      cleaned[key as SkinHeatmapConcernKey] = null as any;
+    } else {
+      cleaned[key as SkinHeatmapConcernKey] = concern;
+    }
+  }
+  return changed ? { ...scan, heatmaps: cleaned } : scan;
+}
+
 // `faceRegion` is the {x,y,width,height} (0–1 fractions of the photo) the
 // on-screen alignment oval maps to — see SkinScanCamera.tsx. Optional; the
 // backend falls back to a generous center crop without it. `zoneMarkers`
@@ -1588,43 +1631,32 @@ export function apiScanSkin(payload: {
   // fix is the backend actually being faster (see skin.js's Gemini-sized
   // image resize), but this stops the client from being the thing that
   // kills an otherwise-successful slow-but-still-working request.
-  return request<{ scan: SkinScan; bookCategory: string; isNewProfile: boolean }>('POST', '/skin/scan', payload, true, 1, 70000);
+  return request<{ scan: SkinScan; bookCategory: string; isNewProfile: boolean }>('POST', '/skin/scan', payload, true, 1, 70000)
+    .then(r => ({ ...r, scan: sanitizeSkinScan(r.scan) }));
 }
 
-export function apiGetSkinScans(profileId?: string, cursor?: string, limit = 20) {
+export async function apiGetSkinScans(profileId?: string, cursor?: string, limit = 20) {
   const params = new URLSearchParams({ limit: String(limit), ...(cursor ? { cursor } : {}), ...(profileId ? { profileId } : {}) });
-  return request<{ scans: SkinScan[]; nextCursor: string | null }>('GET', `/skin/scans?${params.toString()}`);
+  const r = await request<{ scans: SkinScan[]; nextCursor: string | null }>('GET', `/skin/scans?${params.toString()}`);
+  return { ...r, scans: r.scans.map(sanitizeSkinScan) };
 }
 
 // Every scan in the same multi-angle session as scanId, oldest first —
 // just [scan] itself for an ordinary single-photo scan (see
 // schema.prisma's SkinScan.parentScanId), never an error.
-export function apiGetScanAngles(scanId: string) {
-  return request<{ angles: SkinScan[] }>('GET', `/skin/scans/${scanId}/angles`);
+export async function apiGetScanAngles(scanId: string) {
+  const r = await request<{ angles: SkinScan[] }>('GET', `/skin/scans/${scanId}/angles`);
+  return { ...r, angles: r.angles.map(sanitizeSkinScan) };
 }
 
-export function apiGetLatestSkinScan(profileId?: string) {
+export async function apiGetLatestSkinScan(profileId?: string) {
   const params = profileId ? `?${new URLSearchParams({ profileId }).toString()}` : '';
-  return request<{ scan: SkinScan | null }>('GET', `/skin/latest${params}`);
+  const r = await request<{ scan: SkinScan | null }>('GET', `/skin/latest${params}`);
+  return { ...r, scan: r.scan ? sanitizeSkinScan(r.scan) : r.scan };
 }
 
 export function apiDeleteSkinScan(scanId: string) {
   return request<{ success: boolean }>('DELETE', `/skin/scans/${scanId}`);
-}
-
-// Explicit, user-triggered upgrade to a real Perfect Corp read on an
-// already-captured scan's photo — distinct from the automatic try-then-
-// fallback every new scan already goes through. A failure here throws a
-// real error (via request()'s existing error handling — `code` will be
-// 'NOT_CONFIGURED', 'LOW_IMAGE_QUALITY', or a vendor failure code) rather
-// than silently returning the same estimated result; the caller should
-// show it, not swallow it. 90s timeout (no retries) — a real Perfect Corp
-// task create+poll cycle can legitimately take under a minute (see
-// perfectCorpClient.js's own POLL_TIMEOUT_MS), and retrying an explicit,
-// user-initiated paid call on a transient blip risks a duplicate charge
-// more than it saves a tap.
-export function apiDeepScan(scanId: string) {
-  return request<{ scan: SkinScan }>('POST', `/skin/scans/${scanId}/deep-scan`, undefined, true, 0, 90_000);
 }
 
 // ─── My Space — skin profiles ───────────────────────────────────────────────

@@ -1073,12 +1073,12 @@ async function _syncProviderProfileFromDoc(document, approved) {
 }
 
 // ── GET /admin/api-usage ────────────────────────────────────────────────────────
-// Cost visibility for paid, metered third-party AI vendors (currently
-// Perfect Corp's Skin Analysis API — see src/utils/perfectCorpClient.js and
-// ApiUsageLog in schema.prisma) — so usage is checkable from inside the
-// app, not discovered on a bill. Every attempted vendor call is logged here,
-// success or failure, since a failed call can still consume vendor-side
-// compute.
+// Cost visibility for paid, metered third-party AI vendors — logged via
+// ApiUsageLog in schema.prisma, keyed by `provider` — so usage is checkable
+// from inside the app, not discovered on a bill. No vendor currently writes
+// to this (Perfect Corp, the only one that ever did, has been removed — see
+// routes/skin.js); this stays as ready infra for whatever's added next,
+// and still serves historical rows from before the removal.
 router.get(
   '/api-usage',
   authenticateAdminOrUser,

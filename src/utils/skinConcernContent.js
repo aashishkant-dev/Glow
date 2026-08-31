@@ -2,13 +2,11 @@
 'use strict';
 
 // Shared verdict/education/tips copy for the 7-concern results screen —
-// used by BOTH the real Perfect Corp path (perfectCorpClient.js) and the
-// free heuristic fallback (skinHeatmaps.js), so the copy a user reads is
-// identical regardless of which engine actually produced the severity
-// number underneath it. Keyed by Perfect Corp's own SD concern names
-// (pore, wrinkle, age_spot, texture, redness, moisture, acne) rather than
-// an app-invented naming, per the explicit instruction to use the vendor's
-// real field names rather than inventing a translation layer.
+// the same copy regardless of which historical scan record it's read
+// against (Perfect Corp has been removed; the free heuristic in
+// skinHeatmaps.js is the only engine now). Keyed by pore/wrinkle/age_spot/
+// texture/redness/moisture/acne — the naming this product settled on early
+// on, unchanged so existing scan records/keys stay valid.
 //
 // Every concern here follows the same rules the original heatmap engine's
 // copy did (see git history of skinHeatmaps.js's CONCERN_META): a real,
@@ -186,4 +184,40 @@ function buildVerdict(key, band, zoneBreakdown) {
   return base.endsWith('.') ? `${base.slice(0, -1)}${clause}.` : `${base}${clause}`;
 }
 
-module.exports = { CONCERN_CONTENT, CONCERN_ORDER, severityBand, buildVerdict };
+// The one shape every concern-generating code path in this app must
+// produce (currently just the heuristic engine, skinHeatmaps.js, via
+// buildConcernRecord in routes/skin.js — the only other producer, Perfect
+// Corp, has been removed). schemaVersion (on the SCAN as a whole, see
+// serializeScan) is what a mobile client checks before assuming this exact
+// shape — bump it here AND in mobile/src/api/client.ts's SkinScan.
+// schemaVersion together, deliberately, whenever a field is added, renamed,
+// or its meaning changes, so client/server drift is a version mismatch a
+// client can detect, not silent corruption.
+const CONCERN_RECORD_SCHEMA_VERSION = 1;
+const VALID_BANDS = new Set(['clear', 'mild', 'moderate', 'notable']);
+const VALID_SOURCES = new Set(['estimated', 'perfectcorp']); // 'perfectcorp' kept valid for reading pre-removal historical scans only — nothing writes it anymore
+
+// Returns an array of human-readable problems, empty when the record is
+// valid. Called at the ONE place every concern record is actually built
+// (buildConcernRecord in routes/skin.js) — the boundary right after
+// generation, before anything is stored or returned — so a malformed
+// record is caught immediately at its source, not wherever it later
+// happens to get rendered or crash. `record` may legitimately be null
+// (this concern wasn't assessed at all) — that's valid, not an error.
+function validateConcernRecord(key, record) {
+  if (record == null) return [];
+  const errors = [];
+  if (!CONCERN_CONTENT[key]) errors.push(`unknown concern key: ${key}`);
+  if (typeof record.url !== 'string' || !record.url) errors.push('url missing or not a string');
+  if (typeof record.severity !== 'number' || Number.isNaN(record.severity) || record.severity < 0 || record.severity > 1) {
+    errors.push(`severity out of range [0,1]: ${record.severity}`);
+  }
+  if (!VALID_BANDS.has(record.band)) errors.push(`invalid band: ${record.band}`);
+  if (typeof record.verdict !== 'string' || !record.verdict) errors.push('verdict missing or empty');
+  if (!VALID_SOURCES.has(record.source)) errors.push(`invalid source: ${record.source}`);
+  if (!Array.isArray(record.zoneBreakdown)) errors.push('zoneBreakdown is not an array');
+  if (!record.confidence || typeof record.confidence.level !== 'string') errors.push('confidence.level missing');
+  return errors;
+}
+
+module.exports = { CONCERN_CONTENT, CONCERN_ORDER, severityBand, buildVerdict, CONCERN_RECORD_SCHEMA_VERSION, validateConcernRecord };

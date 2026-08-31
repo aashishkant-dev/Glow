@@ -28,6 +28,7 @@
 // brightness/color cutoff would give.
 
 const { rgbToLab } = require('./skinAnalysis');
+const { CONCERN_CONTENT } = require('./skinConcernContent');
 
 // Mirrors mobile/src/utils/skinZones.ts's ZONE_RECTS exactly — fractions OF
 // the face box (not the full photo), one definition kept in sync by hand on
@@ -187,14 +188,17 @@ function buildMasks(width, height, zoneRects) {
 function toGrayscaleAndLab(buffer, channels, width, height) {
   const n = width * height;
   const gray = new Float32Array(n);
-  const labA = new Float32Array(n);
+  const labA = new Float32Array(n); // a* — red-green axis (rednessSeverity, blemishSeverity)
+  const labB = new Float32Array(n); // b* — yellow-blue axis (ageSpotSeverity's brownness signal)
   for (let i = 0; i < n; i++) {
     const o = i * channels;
     const r = buffer[o], g = buffer[o + 1], b = buffer[o + 2];
     gray[i] = 0.2126 * r + 0.7152 * g + 0.0722 * b;
-    labA[i] = rgbToLab(r, g, b)[1]; // a* channel only — the redness axis
+    const lab = rgbToLab(r, g, b);
+    labA[i] = lab[1];
+    labB[i] = lab[2];
   }
-  return { gray, labA };
+  return { gray, labA, labB };
 }
 
 // Mean/stddev of `values` restricted to where mask > threshold — every
@@ -433,12 +437,179 @@ function poreSeverity(gray, poreMask, width, height) {
   return out;
 }
 
+// Dryness/flaking: small BRIGHT dips against slightly larger surroundings —
+// the mirror image of poreSeverity's dark-blob DoG above (a small-radius
+// blur stays close to a light flake's own brightness; a large-radius blur
+// dilutes it with the darker surrounding skin, so the gap peaks at
+// flake-sized bright specks). No structure-tensor exclusion like pores —
+// flaking doesn't have as clean a directional counter-signal to filter
+// against, so this is an honestly simpler, more easily fooled signal: a
+// small bright freckle, a sun fleck, or a compression artifact can trigger
+// it the same way a real flake does. Same class of disclosed limitation as
+// poreSeverity's own comment on hair/stubble, not a claim of more accuracy
+// than that. Full mask (not zone-restricted) — flaking isn't confined to
+// the T-zone/cheeks the way pore size is.
+function drynessSeverity(gray, mask, width, height) {
+  const small = gaussianApprox(gray, width, height, 2);
+  const large = gaussianApprox(gray, width, height, 9);
+  // Real, caught bug (found by actually running this against a synthetic
+  // dark patch, not assumed): a naive small-minus-large DoG gap goes
+  // POSITIVE not just at a genuine bright fleck, but in a ring just OUTSIDE
+  // any nearby DARKER feature (a mole, an age spot, a shadow, even a pore)
+  // — the wide blur's own kernel reaches back into the dark feature and
+  // gets dragged down, while the narrow blur (further from the dark
+  // feature's center) doesn't, producing a gap with nothing actually bright
+  // there. Confirmed directly: a plain flat gray=170 background pixel
+  // sitting just outside a radius-16 dark patch read as a "flake" response
+  // of 15+ with zero real brightness variation anywhere nearby. Gating on
+  // the pixel's own small-blur value being genuinely at-or-above this
+  // photo's own average brightness (not just locally above ITS OWN large
+  // blur) excludes that case — the halo pixel is not itself bright, only
+  // relatively brighter than a blur value that got dragged down by
+  // something else — while still passing a real bright fleck through
+  // (which genuinely IS elevated above the photo's own average). This
+  // REDUCES the halo, it doesn't eliminate it — re-tested after this fix:
+  // the worst false-positive response near the same test patch dropped
+  // from 15+ to about 8, not zero, since the wide blur's kernel can still
+  // reach a large/nearby dark feature from a few pixels further out. An
+  // honestly imperfect mitigation, not a claim of a full fix.
+  const { mean: meanGray } = maskedStats(gray, mask, 0.15);
+  const flake = new Float32Array(width * height);
+  for (let i = 0; i < flake.length; i++) {
+    if (mask[i] <= 0.15) continue;
+    if (small[i] <= meanGray) continue;
+    flake[i] = Math.max(0, small[i] - large[i]);
+  }
+  const { mean, std } = maskedStats(flake, mask, 0.15);
+  const out = new Float32Array(width * height);
+  for (let i = 0; i < flake.length; i++) {
+    if (mask[i] <= 0.15) continue;
+    out[i] = zScoreToSeverity((flake[i] - mean) / std);
+  }
+  return out;
+}
+
+// Dark spots: a medium-scale difference-of-Gaussians, same principle as
+// poreSeverity/drynessSeverity/blemishSeverity above (small blur stays
+// close to a spot's own value; large blur dilutes it against the broader
+// surrounding skin, so the gap peaks at spot-sized dark patches) — NOT a
+// single blur compared against the raw pixel value, which was this
+// function's first version and a real, caught bug: at the CENTER of any
+// patch larger than that one blur radius, a single blur over a
+// homogeneously-dark area returns ≈ the same dark value as the raw pixel
+// there, collapsing the "darker than surroundings" signal to ~0 exactly
+// where it should be strongest (confirmed by actually running it against a
+// synthetic dark patch and watching the reported severity come back 0).
+// Two radii — one small enough to stay inside a realistic spot, one large
+// enough to reach past it into normal skin — fixes that the same way it
+// already works for every other DoG-based concern here. Boosted where the
+// patch ALSO reads more yellow/brown than this photo's own average (Lab
+// b*, the yellow-blue axis — orthogonal to the a* red-green axis
+// rednessSeverity/blemishSeverity use): meant to separate an actual
+// pigmented spot from an ordinary shadow (under the nose, along the jaw)
+// that's dark for a purely geometric reason — a shadow reads closer to
+// neutral/bluish in b*, a spot reads warmer. A soft multiplier, not a hard
+// gate: an honest, imperfect heuristic, not a claim it reliably tells
+// pigment apart from shadow in every lighting condition. Full mask, same
+// reasoning as drynessSeverity above.
+function ageSpotSeverity(gray, labB, mask, width, height) {
+  const small = gaussianApprox(gray, width, height, 3);
+  const large = gaussianApprox(gray, width, height, 14);
+  const { mean: meanB, std: stdB } = maskedStats(labB, mask, 0.15);
+  const raw = new Float32Array(width * height);
+  for (let i = 0; i < raw.length; i++) {
+    if (mask[i] <= 0.15) continue;
+    const localDark = Math.max(0, large[i] - small[i]);
+    const brownBoost = 1 + Math.max(0, (labB[i] - meanB) / stdB) * 0.5;
+    raw[i] = localDark * brownBoost;
+  }
+  const { mean, std } = maskedStats(raw, mask, 0.15);
+  const out = new Float32Array(width * height);
+  for (let i = 0; i < raw.length; i++) {
+    if (mask[i] <= 0.15) continue;
+    out[i] = zScoreToSeverity((raw[i] - mean) / std);
+  }
+  return out;
+}
+
+// Blemishes: small RED blobs — the same difference-of-Gaussians +
+// structure-tensor coherence approach as poreSeverity above (see its own
+// comment for the full isotropic-blob-vs-directional-feature reasoning),
+// run on the Lab a* (redness) channel instead of grayscale, with no zone
+// restriction (blemishes aren't confined to the T-zone/cheeks the way pore
+// size is). Deliberately a DIFFERENT signal from rednessSeverity, not a
+// duplicate: rednessSeverity is a plain a*-channel z-score, high wherever a
+// BROAD area reads red — exactly what a diffuse flush should trigger. This
+// DoG version only responds to LOCALIZED red bumps — a small-radius blur of
+// a* stays close to an isolated red spot's own high value; a large-radius
+// blur dilutes it against the surrounding, less-red skin. A broadly flushed
+// cheek has almost no gap between those two blurs (both are already high),
+// so it stays quiet here even though it lights up rednessSeverity — which
+// is the intended split between "your skin looks flushed" and "you have an
+// active blemish." The coherence term down-weights a linear red feature
+// (a scratch, a visible vein) the same way it down-weights hair for pores.
+function blemishSeverity(labA, mask, width, height) {
+  const small = gaussianApprox(labA, width, height, 2);
+  const large = gaussianApprox(labA, width, height, 8);
+  const bump = new Float32Array(width * height);
+  for (let i = 0; i < bump.length; i++) {
+    if (mask[i] <= 0.15) continue;
+    bump[i] = Math.max(0, small[i] - large[i]);
+  }
+
+  const gx = new Float32Array(width * height);
+  const gy = new Float32Array(width * height);
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const i = y * width + x;
+      if (mask[i] <= 0.15) continue;
+      gx[i] =
+        -labA[i - width - 1] + labA[i - width + 1] +
+        -2 * labA[i - 1] + 2 * labA[i + 1] +
+        -labA[i + width - 1] + labA[i + width + 1];
+      gy[i] =
+        -labA[i - width - 1] - 2 * labA[i - width] - labA[i - width + 1] +
+        labA[i + width - 1] + 2 * labA[i + width] + labA[i + width + 1];
+    }
+  }
+  const Ixx = new Float32Array(width * height);
+  const Iyy = new Float32Array(width * height);
+  const Ixy = new Float32Array(width * height);
+  for (let i = 0; i < gx.length; i++) {
+    Ixx[i] = gx[i] * gx[i];
+    Iyy[i] = gy[i] * gy[i];
+    Ixy[i] = gx[i] * gy[i];
+  }
+  const Sxx = gaussianApprox(Ixx, width, height, 3);
+  const Syy = gaussianApprox(Iyy, width, height, 3);
+  const Sxy = gaussianApprox(Ixy, width, height, 3);
+
+  const raw = new Float32Array(width * height);
+  for (let i = 0; i < raw.length; i++) {
+    if (mask[i] <= 0.15) continue;
+    const trace = Sxx[i] + Syy[i];
+    const coherence = trace > 1e-6 ? Math.sqrt((Sxx[i] - Syy[i]) ** 2 + 4 * Sxy[i] * Sxy[i]) / trace : 0;
+    raw[i] = bump[i] * (1 - coherence);
+  }
+
+  const { mean, std } = maskedStats(raw, mask, 0.15);
+  const out = new Float32Array(width * height);
+  for (let i = 0; i < raw.length; i++) {
+    if (mask[i] <= 0.15) continue;
+    out[i] = zScoreToSeverity((raw[i] - mean) / std);
+  }
+  return out;
+}
+
 const CONCERN_COLORS = {
   redness: [217, 92, 92],
   texture: [201, 150, 90],
   pores: [140, 120, 100],
   shine: [230, 200, 90],
   wrinkles: [150, 110, 190],
+  moisture: [150, 170, 195],
+  age_spot: [143, 103, 62],
+  acne: [196, 68, 110],
 };
 
 // A PLAIN MEAN across the whole assessable region was tried first and
@@ -600,10 +771,13 @@ function renderOverlayRgba(width, height, severity, mask, colorRgb) {
 
 // Which zones actually matter for each concern's own confidence read — the
 // same lists that already restrict wrinkles/pores spatially (WRINKLE_ZONES/
-// PORE_ZONES); redness/texture/shine use the full 8-zone set since they're
-// not restricted to a sub-region.
+// PORE_ZONES); redness/texture/shine/moisture/age_spot/acne use the full
+// 8-zone set since none of them are restricted to a sub-region (flaking,
+// pigmentation, and blemishes can all occur anywhere on the face, unlike
+// pore size or expression-line creases).
 const RELEVANT_ZONES = {
   redness: ZONE_KEYS, texture: ZONE_KEYS, shine: ZONE_KEYS,
+  moisture: ZONE_KEYS, age_spot: ZONE_KEYS, acne: ZONE_KEYS,
   pores: PORE_ZONES, wrinkles: WRINKLE_ZONES,
 };
 
@@ -662,7 +836,14 @@ function zoneBreakdownFor(concern, severity, zoneRects, width, height) {
 // own test run (see the accompanying test script) at each concern's own
 // fully-assessed pixel count, kept resolution-independent by expressing
 // them as a fraction of total image pixels rather than a hardcoded count.
-const PIXEL_FLOOR_FRACTION = { redness: 0.05, texture: 0.05, shine: 0.05, pores: 0.018, wrinkles: 0.02 };
+// moisture/age_spot/acne use the same 0.05 floor as redness/texture/shine —
+// same class of concern (full 8-zone mask, not spatially restricted), so
+// the same reasoning against a structurally-smaller mask applies equally.
+// Not independently recalibrated against a real test run the way the
+// original five were (see this comment's own history) — a reasonable
+// starting point given the identical mask shape, but worth revisiting once
+// this has run against real photos.
+const PIXEL_FLOOR_FRACTION = { redness: 0.05, texture: 0.05, shine: 0.05, pores: 0.018, wrinkles: 0.02, moisture: 0.05, age_spot: 0.05, acne: 0.05 };
 function concernConfidence(concern, mask, zoneRects, width, height) {
   const relevant = RELEVANT_ZONES[concern];
   const zoneFraction = relevant.filter((z) => !!zoneRects[z]).length / relevant.length;
@@ -683,8 +864,9 @@ function concernConfidence(concern, mask, zoneRects, width, height) {
 // already computed/persisted for this scan (resolveCropBox / sanitized
 // client zoneMarkers).
 //
-// Returns { concerns: { redness, texture, pores, shine, wrinkles },
-// assessedZoneCount, totalZoneCount }. Each concern value is either null —
+// Returns { concerns: { redness, texture, pores, shine, wrinkles, moisture,
+// age_spot, acne }, assessedZoneCount, totalZoneCount }. Each concern value
+// is either null —
 // no assessable pixels at all for it (heavy occlusion/extreme pose, or none
 // of its required zones were assessable) — or { url is NOT set here (the
 // route uploads the PNG and fills this in), png (Buffer), label,
@@ -702,7 +884,7 @@ async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers }) {
   const { width, height, channels } = info;
   const zoneRects = assessableZoneRects(faceBox, zoneMarkers);
   const { full: fullMask, wrinkle: wrinkleMask, pore: poreMask, assessedZoneCount } = buildMasks(width, height, zoneRects);
-  const { gray, labA } = toGrayscaleAndLab(buffer, channels, width, height);
+  const { gray, labA, labB } = toGrayscaleAndLab(buffer, channels, width, height);
 
   async function describe(concern, severity, mask) {
     let any = false;
@@ -710,7 +892,15 @@ async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers }) {
     if (!any) return null;
     const p85 = percentileSeverityWhereMasked(severity, mask, 0.15, 0.85);
     const band = severityBand(p85);
-    const meta = CONCERN_META[concern];
+    // moisture/age_spot/acne have no CONCERN_META entry (that content was
+    // never duplicated here — see CONCERN_CONTENT in skinConcernContent.js,
+    // which routes/skin.js's buildConcernRecord actually sources
+    // label/verdict/education/tips from for every concern; CONCERN_META's
+    // own copy of those fields is unused dead weight the caller already
+    // discards, kept only for the original five so as not to touch working
+    // code while adding these three). Falls back to CONCERN_CONTENT so
+    // `meta` is never undefined for the new concerns.
+    const meta = CONCERN_META[concern] || CONCERN_CONTENT[concern];
     const rgba = renderOverlayRgba(width, height, severity, mask, CONCERN_COLORS[concern]);
     const png = await sharp(rgba, { raw: { width, height, channels: 4 } }).png().toBuffer();
     return {
@@ -728,15 +918,18 @@ async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers }) {
     };
   }
 
-  const [redness, texture, pores, shine, wrinkles] = await Promise.all([
+  const [redness, texture, pores, shine, wrinkles, moisture, age_spot, acne] = await Promise.all([
     describe('redness', rednessSeverity(labA, fullMask), fullMask),
     describe('texture', textureSeverity(gray, fullMask, width, height), fullMask),
     describe('pores', poreSeverity(gray, poreMask, width, height), poreMask),
     describe('shine', shineSeverity(gray, fullMask), fullMask),
     describe('wrinkles', wrinkleSeverity(gray, wrinkleMask, width, height), wrinkleMask),
+    describe('moisture', drynessSeverity(gray, fullMask, width, height), fullMask),
+    describe('age_spot', ageSpotSeverity(gray, labB, fullMask, width, height), fullMask),
+    describe('acne', blemishSeverity(labA, fullMask, width, height), fullMask),
   ]);
 
-  return { concerns: { redness, texture, pores, shine, wrinkles }, assessedZoneCount, totalZoneCount: ZONE_KEYS.length };
+  return { concerns: { redness, texture, pores, shine, wrinkles, moisture, age_spot, acne }, assessedZoneCount, totalZoneCount: ZONE_KEYS.length };
 }
 
 module.exports = { generateHeatmaps, ZONE_KEYS, WRINKLE_ZONES, PORE_ZONES, CONCERN_META, assessableZoneRects, buildMasks };

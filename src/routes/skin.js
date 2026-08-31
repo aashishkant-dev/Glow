@@ -9,19 +9,19 @@ const { authenticate } = require('../middleware/auth');
 const { analyzeSkin } = require('../utils/skinAnalysis');
 const { analyzeWithGemini } = require('../utils/geminiSkinAnalysis');
 const { generateHeatmaps } = require('../utils/skinHeatmaps');
-const { analyzeWithPerfectCorp, PerfectCorpError } = require('../utils/perfectCorpClient');
-const { CONCERN_CONTENT, severityBand, buildVerdict } = require('../utils/skinConcernContent');
+const { CONCERN_CONTENT, severityBand, buildVerdict, CONCERN_RECORD_SCHEMA_VERSION, validateConcernRecord } = require('../utils/skinConcernContent');
 
 const router = express.Router();
 
-// The old heuristic engine's concern keys (skinHeatmaps.js, unchanged) don't
-// match Perfect Corp's own naming — remapped here, once, rather than
-// touching that file. 'shine' has no Perfect Corp SD equivalent in this
-// app's 7-tab spec and is dropped (not surfaced as a tab) on the fallback
-// path; a scan on the fallback path simply has no moisture/age_spot/acne
-// data (see buildConcernRecord's null branch — "not assessed," never
-// fabricated).
-const HEURISTIC_KEY_MAP = { pores: 'pore', wrinkles: 'wrinkle', texture: 'texture', redness: 'redness' };
+// The heuristic engine's two oldest concern keys (skinHeatmaps.js, from
+// before this app's 7-tab naming existed) don't match it — remapped here,
+// once, rather than touching that file's established internal naming.
+// moisture/age_spot/acne are newer additions to skinHeatmaps.js and were
+// named to match the app's own keys directly, so they're identity-mapped.
+// 'shine' has no tab in this app's 7-concern spec and is dropped here (not
+// surfaced) — skinHeatmaps.js still computes it (used nowhere downstream),
+// left alone rather than touched for an unrelated cleanup.
+const HEURISTIC_KEY_MAP = { pores: 'pore', wrinkles: 'wrinkle', texture: 'texture', redness: 'redness', moisture: 'moisture', age_spot: 'age_spot', acne: 'acne' };
 
 // Builds one concern's full record from EITHER engine's raw output —
 // content (label/verdict/education/tips) always comes from
@@ -31,7 +31,7 @@ const HEURISTIC_KEY_MAP = { pores: 'pore', wrinkles: 'wrinkle', texture: 'textur
 function buildConcernRecord(key, { severity, maskUrl, confidence, source, rawScore, uiScore, zoneBreakdown }) {
   const content = CONCERN_CONTENT[key];
   const band = severityBand(severity);
-  return {
+  const record = {
     url: maskUrl,
     label: content.label,
     tabLabel: content.tabLabel,
@@ -46,18 +46,27 @@ function buildConcernRecord(key, { severity, maskUrl, confidence, source, rawSco
     education: content.education,
     tips: content.tips,
     confidence,
-    // Per-zone severity for the tap-to-highlight interaction (see
-    // mobile SkinConcernTabs.tsx) — only real on the 'estimated' path so
-    // far (skinHeatmaps.js computes it directly from the same severity
-    // map as the overlay itself). The 'perfectcorp' path doesn't have
-    // this yet — Perfect Corp's SD schema doesn't publish confirmed
-    // per-zone data, and no successful live response has been observed
-    // to check what score_info.json's pore/wrinkle subcategories actually
-    // look like. Always [] there, never a guess — the UI treats an empty
-    // array as "no tappable zones for this concern," not an error.
+    // Per-zone severity for the tap-to-highlight interaction (see mobile
+    // SkinConcernTabs.tsx) — computed by skinHeatmaps.js from the same
+    // severity map as the overlay itself. Always [] when it couldn't be
+    // placed, never a guess — the UI treats an empty array as "no
+    // tappable zones for this concern," not an error.
     zoneBreakdown: zoneBreakdown || [],
     ...(rawScore != null ? { rawScore, uiScore } : {}),
   };
+  // Validated at the exact point every concern record is generated —
+  // THE single source of truth this app has for that shape now (see
+  // validateConcernRecord's own comment). A malformed record never reaches
+  // storage or the client: this app's own established convention for
+  // "couldn't produce a real read" is null ("not assessed"), so a schema
+  // failure degrades to that same safe, already-handled UI state instead
+  // of shipping broken data — logged loudly so it's never silent.
+  const errors = validateConcernRecord(key, record);
+  if (errors.length > 0) {
+    console.error(`[skin] buildConcernRecord produced an invalid ${key} record, discarding it:`, errors);
+    return null;
+  }
+  return record;
 }
 
 async function logApiUsage({ endpoint, success, statusCode, errorCode, durationMs, scanId, userId }) {
@@ -71,20 +80,12 @@ async function logApiUsage({ endpoint, success, statusCode, errorCode, durationM
   }
 }
 
-// Quick Scan (the free, ordinary scan-from-camera flow this function backs)
-// is ALWAYS our own on-device-geometry + pixel heuristic — it never calls
-// Perfect Corp, even when a key is configured. That's deliberate: Perfect
-// Corp is metered/paid per call, and running it on every routine scan (not
-// just when someone explicitly asks for the paid tier) burns through quota
-// on scans nobody asked to spend it on. Perfect Corp is reserved entirely
-// for the explicit, user-triggered "Deep Scan" action (see
-// POST /scans/:id/deep-scan below, which calls analyzeWithPerfectCorp
-// directly on an existing scan's photo) — that flow owns its own
-// capture-quality expectations, separate from Quick Scan's live gating in
-// SkinScanCamera. 'not_configured' as the reason isn't a misnomer here: its
-// UI copy ("uses our free estimate model, not the full AI Skin Diagnostic")
-// is exactly true for Quick Scan regardless of whether a Perfect Corp key
-// exists — this tier just never spends it.
+// Every scan — this is the ONLY concern-analysis path left in the app now
+// that Perfect Corp has been removed entirely (see POST /scans/:id/deep-scan
+// below) — is our own on-device-geometry + pixel heuristic, no external
+// vendor API call at all. 'not_configured' as the reason isn't a misnomer:
+// its UI copy ("uses our free estimate model, not the full AI Skin
+// Diagnostic") stays accurate — this is simply the only tier there is now.
 async function getConcernAnalysis({ heuristicPixels, heuristicInfo, faceBox, zoneMarkers, userId }) {
   return runHeuristicFallback({ heuristicPixels, heuristicInfo, faceBox, zoneMarkers, userId, reason: 'not_configured' });
 }
@@ -107,10 +108,10 @@ async function runHeuristicFallback({ heuristicPixels, heuristicInfo, faceBox, z
       zoneBreakdown: concern.zoneBreakdown,
     });
   }
-  // moisture/age_spot/acne: the free heuristic has no signal for these at
-  // all — explicit null ("not assessed"), never fabricated, same rule the
-  // whole heatmap system has followed since it replaced point markers.
-  for (const key of ['moisture', 'age_spot', 'acne']) heatmaps[key] = null;
+  // moisture/age_spot/acne now go through the same loop above as every
+  // other concern (see HEURISTIC_KEY_MAP) — real heuristic signal, same
+  // null-on-occlusion handling, not a separate hardcoded-null branch
+  // anymore.
   return { heatmaps, heatmapSource: 'estimated', heatmapSourceReason: reason };
 }
 
@@ -120,6 +121,11 @@ const BOOK_CATEGORY = 'Facials & Skin';
 
 function serializeScan(s) {
   return {
+    // See CONCERN_RECORD_SCHEMA_VERSION's own comment (skinConcernContent.js)
+    // — bumped together with it whenever this shape changes. A mobile
+    // client can check this before trusting the shape it's about to render
+    // rather than discovering a mismatch as a rendering crash.
+    schemaVersion: CONCERN_RECORD_SCHEMA_VERSION,
     id: s.id,
     profileId: s.profileId,
     // Set only on an additional angle of a multi-angle session (see
@@ -441,6 +447,22 @@ router.post(
       // handling behavior identical to before — only the START time moved.
       const uploadPromise = uploadFile(`skin-scans/${req.user.id}-${Date.now()}.jpg`, storedBuf, 'image/jpeg');
 
+      // Also fired off here rather than after the Gemini call, now that
+      // Perfect Corp (the one thing that used to force this to wait for a
+      // live public photoUrl — src_file_url — before it could even start)
+      // is gone. getConcernAnalysis only ever needs heatmapPixels/
+      // heatmapInfo, both already available above — it has no dependency on
+      // Gemini's result or on uploadPromise, so it now runs concurrently
+      // with both instead of serialized after them. Awaited later, at the
+      // exact point its result is used, same pattern as uploadPromise above.
+      const concernAnalysisPromise = getConcernAnalysis({
+        heuristicPixels: heatmapPixels,
+        heuristicInfo: heatmapInfo,
+        faceBox,
+        zoneMarkers: sanitizedZoneMarkers,
+        userId: req.user.id,
+      });
+
       // Gathers this account's other profiles' reference photos up front —
       // pure data fetching, no API call yet (see gatherProfileCandidates).
       const { profiles, referenceProfiles } = await gatherProfileCandidates(req.user.id);
@@ -541,23 +563,13 @@ router.post(
       const uploaded = await uploadPromise;
       if (!uploaded?.url) return res.status(500).json({ error: 'Photo upload failed. Please try again.' });
 
-      // Perfect Corp fetches the photo itself via src_file_url rather than
-      // accepting bytes directly, so this can only start once the photo is
-      // actually live at a public URL — hence AFTER uploadPromise resolves,
-      // not concurrent with the Gemini call above (a real, accepted latency
-      // trade for correctness over cleverness here). Quick Scan's heuristic
-      // engine never rejects on image quality the way Perfect Corp's
-      // Deep Scan does (see getConcernAnalysis's own comment on why it
-      // never calls Perfect Corp at all) — every concern it can't assess
-      // just comes back null, labeled 'estimated' with a specific reason,
-      // never a 400.
-      const { heatmaps, heatmapSource, heatmapSourceReason } = await getConcernAnalysis({
-        heuristicPixels: heatmapPixels,
-        heuristicInfo: heatmapInfo,
-        faceBox,
-        zoneMarkers: sanitizedZoneMarkers,
-        userId: req.user.id,
-      });
+      // Started concurrently with the Gemini call and the upload above (see
+      // concernAnalysisPromise's own comment) — just picking up the result
+      // here. The heuristic engine never rejects on image quality the way
+      // the old Perfect Corp Deep Scan path did — every concern it can't
+      // assess just comes back null, labeled 'estimated' with a specific
+      // reason, never a 400.
+      const { heatmaps, heatmapSource, heatmapSourceReason } = await concernAnalysisPromise;
 
       const scan = await prisma.$transaction(async (tx) => {
         // A new profile is only ever actually created here — once a scan is
@@ -823,66 +835,17 @@ router.get(
   }
 );
 
-// Deep Scan — the explicit, user-triggered upgrade to a real Perfect Corp
-// read on an ALREADY-CAPTURED scan's photo, distinct from the automatic
-// try-then-fallback that POST /scan already does on every new scan. The
-// distinction matters: on a fresh scan, silently falling back to the free
-// heuristic on any Perfect Corp hiccup is the right call (the user never
-// asked for the paid path specifically, so a transient failure shouldn't
-// block them getting SOME result). Here, the user explicitly asked for the
-// real vendor read — a failure should say so honestly, not silently hand
-// back the same estimated result they already have and call it done.
+// Deep Scan (the Perfect Corp vendor upgrade this route used to expose)
+// removed entirely — the app no longer calls any external skin-analysis
+// vendor API. All scans, quick or otherwise, use the free on-device/local
+// heuristic exclusively (see getConcernAnalysis above). This route is kept
+// only so an old app build still holding a "Run Deep Scan" button gets a
+// clear, honest response instead of a raw 404.
 router.post(
   '/scans/:id/deep-scan',
   authenticate,
   async (req, res) => {
-    try {
-      const scan = await prisma.skinScan.findUnique({ where: { id: req.params.id } });
-      if (!scan || scan.userId !== req.user.id) return res.status(404).json({ error: 'Scan not found' });
-
-      if (!process.env.PERFECTCORP_API_KEY) {
-        return res.status(400).json({ error: 'Deep Scan isn\'t available right now.', code: 'NOT_CONFIGURED' });
-      }
-
-      const start = Date.now();
-      let result;
-      try {
-        result = await analyzeWithPerfectCorp(scan.photoUrl);
-        if (!result) throw new PerfectCorpError('analyzeWithPerfectCorp returned null despite a configured key', 'UNKNOWN');
-      } catch (err) {
-        const errorCode = err instanceof PerfectCorpError ? err.code : 'UNKNOWN';
-        console.error(`[skin] Deep Scan failed for scan ${scan.id}:`, err.message);
-        await logApiUsage({ endpoint: 'deep-scan', success: false, statusCode: err.statusCode, errorCode, durationMs: Date.now() - start, scanId: scan.id, userId: req.user.id });
-        // Honest, specific failure — never silently substitutes the
-        // estimated result the user already has and calls it a Deep Scan.
-        const message = errorCode === 'LOW_IMAGE_QUALITY'
-          ? err.message
-          : "Deep Scan couldn't complete right now — your existing result is unchanged. Try again in a moment.";
-        return res.status(502).json({ error: message, code: errorCode });
-      }
-
-      const heatmaps = { ...(scan.heatmaps || {}) };
-      for (const [key, concern] of Object.entries(result.concerns)) {
-        if (!concern) { heatmaps[key] = null; continue; }
-        const up = await uploadFile(`skin-scans/${req.user.id}-${Date.now()}-${key}.png`, concern.maskBuffer, 'image/png');
-        if (!up?.url) { heatmaps[key] = null; continue; }
-        heatmaps[key] = buildConcernRecord(key, {
-          severity: concern.severity, maskUrl: up.url, confidence: { level: 'high' },
-          source: 'perfectcorp', rawScore: concern.rawScore, uiScore: concern.uiScore,
-        });
-      }
-      for (const u of result.usage) await logApiUsage({ endpoint: u.endpoint, success: true, durationMs: u.durationMs, scanId: scan.id, userId: req.user.id });
-      await logApiUsage({ endpoint: 'deep-scan-total', success: true, durationMs: Date.now() - start, scanId: scan.id, userId: req.user.id });
-
-      const updated = await prisma.skinScan.update({
-        where: { id: scan.id },
-        data: { heatmaps, heatmapSource: 'perfectcorp', heatmapSourceReason: null },
-      });
-      res.json({ scan: serializeScan(updated) });
-    } catch (err) {
-      console.error('POST /skin/scans/:id/deep-scan error:', err);
-      res.status(500).json({ error: 'Server error' });
-    }
+    res.status(410).json({ error: 'Deep Scan has been removed.', code: 'REMOVED' });
   }
 );
 
