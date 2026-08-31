@@ -73,6 +73,13 @@ class HybridGlowFaceLandmarker: HybridGlowFaceLandmarkerSpec, FaceLandmarkerLive
     // single largest detected face (see SkinScanCamera.tsx's
     // primaryLiveFace).
     options.numFaces = 1
+    // Caught in self-review, not by any build: this defaults to false (per
+    // Google's own docs) — without it explicitly set, result.
+    // facialTransformationMatrixes below is ALWAYS empty and pitch/yaw
+    // silently reads 0 forever (a real, if quiet, functional bug — not a
+    // crash, since that 0-fallback path was already defensive, but the
+    // feature it was defending would never have engaged at all).
+    options.outputFacialTransformationMatrixes = true
     options.faceLandmarkerLiveStreamDelegate = self
     landmarker = try? FaceLandmarker(options: options)
     if landmarker == nil {

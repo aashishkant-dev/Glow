@@ -97,6 +97,11 @@ class HybridGlowFaceLandmarker : HybridGlowFaceLandmarkerSpec() {
         .setBaseOptions(baseOptions)
         .setRunningMode(RunningMode.LIVE_STREAM)
         .setNumFaces(1) // only the primary/largest face — same as iOS
+        // Same bug caught in self-review on the iOS side (see that file's
+        // own comment) — defaults false; without it,
+        // result.facialTransformationMatrixes() is always empty/absent and
+        // pitch/yaw silently reads 0 forever.
+        .setOutputFacialTransformationMatrixes(true)
         .setResultListener(this::onResult)
         .setErrorListener { error -> Log.e(TAG, "FaceLandmarker error: ${error.message}") }
         .build()
