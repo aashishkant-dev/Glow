@@ -119,7 +119,24 @@ export function ExploreScreen() {
     }, [tab, postSort, postCategoryName]),
   );
 
-  const filteredPosts = posts;
+  // This was `const filteredPosts = posts` — an unfinished stub that never
+  // actually filtered anything, which is exactly why the search bar looked
+  // "broken" on the Posts tab: typing did nothing to what was on screen.
+  // Client-side only, same as Looks/Artists above — this filters whatever
+  // page(s) are already loaded, not the full unloaded backend result set
+  // (Posts are server-paginated, unlike the fixed local LOOKS array or the
+  // once-fetched allArtists). A real fix for that would need a search
+  // query param on the posts endpoint itself; this at least makes the
+  // search bar do something real instead of nothing on this tab.
+  const filteredPosts = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return posts;
+    return posts.filter(p =>
+      p.caption?.toLowerCase().includes(q) ||
+      p.category?.toLowerCase().includes(q) ||
+      p.provider?.name?.toLowerCase().includes(q) ||
+      p.service?.name?.toLowerCase().includes(q));
+  }, [posts, query]);
   const reelPosts = useMemo(() => posts.filter(p => !!p.videoUrl), [posts]);
 
   const loadMorePosts = useCallback(() => {
@@ -342,7 +359,7 @@ export function ExploreScreen() {
             style={styles.searchInput}
             value={query}
             onChangeText={setQuery}
-            placeholder={tab === 'Looks' ? 'Search looks…' : 'Search artists or specialties…'}
+            placeholder={tab === 'Looks' ? 'Search looks…' : tab === 'Posts' ? 'Search posts…' : 'Search artists or specialties…'}
             placeholderTextColor={Colors.tertiaryLabel}
             autoCapitalize="none"
             autoCorrect={false}
