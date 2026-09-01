@@ -42,8 +42,8 @@ import { CloseCircleIcon, SearchIcon } from '../../components/TabIcons';
 // iOS/Android photo viewers use natively. contentContainerStyle sizes the
 // image at exactly its real aspect ratio (passed in, not re-measured) so
 // zoom math has real dimensions to work from, not a percentage.
-function ZoomablePhotoModal({ visible, photoUrl, aspect, onClose, onShare }: {
-  visible: boolean; photoUrl: string; aspect: number; onClose: () => void; onShare: () => void;
+function ZoomablePhotoModal({ visible, photoUrl, overlayUrl, aspect, onClose, onShare }: {
+  visible: boolean; photoUrl: string; overlayUrl?: string | null; aspect: number; onClose: () => void; onShare: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const { width: winW, height: winH } = useWindowDimensions();
@@ -67,7 +67,23 @@ function ZoomablePhotoModal({ visible, photoUrl, aspect, onClose, onShare }: {
           showsVerticalScrollIndicator={false}
           centerContent
         >
-          <Image source={{ uri: photoUrl }} style={{ width: baseWidth, height: baseHeight }} contentFit="contain" />
+          {/* A plain View wrapper, not just two absolutely-positioned
+              siblings — ScrollView's zoom needs one single child to scale
+              as a unit, and contentFit="contain" on each Image separately
+              would size them from their own (different) natural pixel
+              dimensions rather than the shared baseWidth/baseHeight this
+              modal already computed for exactly this reason. Same overlay
+              the main (non-zoomed) view already renders via
+              ConcernHeatmapOverlay — this modal was the one place it
+              never reached; a real photo+overlay pair pinch-zooms as one
+              image now instead of dropping the overlay the moment you
+              zoom in. */}
+          <View style={{ width: baseWidth, height: baseHeight }}>
+            <Image source={{ uri: photoUrl }} style={{ width: baseWidth, height: baseHeight }} contentFit="contain" />
+            {!!overlayUrl && (
+              <Image source={{ uri: overlayUrl }} style={StyleSheet.absoluteFill} contentFit="contain" pointerEvents="none" />
+            )}
+          </View>
         </ScrollView>
         <Pressable style={[styles.zoomCloseBtn, { top: insets.top + 12 }]} onPress={onClose} hitSlop={10}>
           <CloseCircleIcon size={30} color="rgba(255,255,255,0.85)" />
@@ -566,6 +582,7 @@ export function SkinScanResultScreen() {
       <ZoomablePhotoModal
         visible={zoomOpen}
         photoUrl={scan.photoUrl}
+        overlayUrl={activeTab !== 'summary' ? scan.heatmaps?.[activeTab]?.url : undefined}
         aspect={photoAspect}
         onClose={() => setZoomOpen(false)}
         onShare={() => { setZoomOpen(false); shareProgress(); }}
