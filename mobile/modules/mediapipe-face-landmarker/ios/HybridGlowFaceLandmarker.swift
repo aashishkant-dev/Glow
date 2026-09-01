@@ -46,10 +46,19 @@ import MediaPipeTasksVision
 //     instead of conforming directly.
 //  2/3. "binary operator '>' cannot be applied to operands of type
 //     'CGFloat' and 'Float'" / "cannot assign value of type 'CGFloat' to
-//     type 'Float'" — landmark coordinates (NormalizedLandmark.x/.y) are
-//     actually CGFloat, not Float as originally assumed; boundingBox and
-//     the largest-face comparison below were mixing the two. Fixed by using
-//     CGFloat throughout those two spots.
+//     type 'Float'" — this was the largest-face-by-area comparison
+//     (biggestArea) declared Float while being compared against a CGRect's
+//     width*height (CGFloat, from box.width/box.height — CGRect fields are
+//     always CGFloat). Fixed by declaring biggestArea as CGFloat. A build
+//     #37 FOLLOW-UP correction, not part of this original list: the first
+//     fix over-corrected boundingBox's own internal accumulation to
+//     CGFloat too, which was never broken — NormalizedLandmark.x/.y are
+//     actually Float (confirmed by build #37's new errors: "cannot convert
+//     value of type 'Float' to expected argument type 'CGFloat'" at
+//     exactly the 4 min/max call sites inside boundingBox). That function
+//     is back to accumulating in Float, converting to CGFloat only at the
+//     CGRect(...) boundary, which is what it looked like before any of
+//     this — the ONLY real, needed fix here was biggestArea's own type.
 //  The build ALSO reported seven "value of type 'UInt' has no member '2'"
 //  errors, all traced to the facialTransformationMatrixes-based pitch/yaw
 //  decomposition this file originally had (`m.columns.2.x` etc.) — that
@@ -193,9 +202,11 @@ class HybridGlowFaceLandmarker: HybridGlowFaceLandmarkerSpec {
     // (SkinScanCamera.tsx) and the existing live ML Kit path
     // (primaryLiveFace) already use, applied here via landmark bounding-box
     // area since MediaPipe doesn't hand back a pre-computed box the way ML
-    // Kit's Face.bounds does. CGFloat throughout (NOT Float) — see this
-    // file's own header, error #2/#3: NormalizedLandmark.x/.y are CGFloat,
-    // confirmed by a real build failure when this mixed the two.
+    // Kit's Face.bounds does. biggestArea is CGFloat specifically because
+    // it's compared against a CGRect's width*height (always CGFloat) — see
+    // this file's own header, error #2/#3, and its build-#37 follow-up
+    // correction for the full story (the landmark points THEMSELVES are
+    // Float, not CGFloat).
     var biggestIndex = 0
     var biggestArea: CGFloat = -1
     for (i, landmarks) in result.faceLandmarks.enumerated() {
@@ -246,13 +257,21 @@ class HybridGlowFaceLandmarker: HybridGlowFaceLandmarkerSpec {
 
   // MARK: - Private helpers
 
+  // Build #37's failure corrected the record here: NormalizedLandmark.x/.y
+  // are actually Float, NOT CGFloat as build #36's error message was
+  // (mis-)read to mean on a first pass — that first error was really about
+  // biggestArea below (a CGFloat, from CGRect.width*height, compared
+  // against a Float) not about THIS function's internal accumulation,
+  // which was correct as originally written. Reverted back to Float
+  // internally; CGFloat conversion happens only at the CGRect boundary,
+  // where it's actually needed.
   private static func boundingBox(_ landmarks: [NormalizedLandmark]) -> CGRect {
-    var minX: CGFloat = 1, minY: CGFloat = 1, maxX: CGFloat = 0, maxY: CGFloat = 0
+    var minX: Float = 1, minY: Float = 1, maxX: Float = 0, maxY: Float = 0
     for point in landmarks {
       minX = min(minX, point.x); maxX = max(maxX, point.x)
       minY = min(minY, point.y); maxY = max(maxY, point.y)
     }
-    return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
+    return CGRect(x: CGFloat(minX), y: CGFloat(minY), width: CGFloat(maxX - minX), height: CGFloat(maxY - minY))
   }
 
   /// Same VC v5 frame-orientation-string → UIImage.Orientation mapping the
