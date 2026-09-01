@@ -31,15 +31,41 @@ import MediaPipeTasksVision
 // existing liveBox math. This is a deliberate scope reduction, not an
 // oversight — flagged explicitly in this project's own scope report.
 //
-// NOT verified against a real device, a real Xcode/Swift build, or even a
-// syntax check — this environment has none of those (see this project's
-// scope report). Written against MediaPipe's documented Face Landmarker
-// iOS API surface. Two pieces specifically carry real, flagged uncertainty
-// beyond the usual "unbuilt" caveat — see decomposeRollAngle's and
-// MPImage's own comments below.
-class HybridGlowFaceLandmarker: HybridGlowFaceLandmarkerSpec, FaceLandmarkerLiveStreamDelegate {
+// BUILD HISTORY (real, not hypothetical): the first version of this file
+// failed a real EAS Xcode build (2026-09-01, build #36) with three distinct,
+// confirmed errors, each fixed below with the actual reason, not a second
+// guess dressed up as confidence:
+//  1. "cannot declare conformance to 'NSObjectProtocol' in Swift;
+//     'HybridGlowFaceLandmarker' should inherit 'NSObject' instead" — this
+//     class conformed to FaceLandmarkerLiveStreamDelegate directly, but its
+//     base (HybridGlowFaceLandmarkerSpec_base, Nitrogen-generated) is a
+//     plain Swift class, not NSObject-derived, and MediaPipe's delegate
+//     protocol is Objective-C-bridged (needs NSObjectProtocol). Fixed by
+//     moving the delegate conformance to a small private NSObject proxy
+//     (FaceLandmarkerDelegateProxy below) that forwards to this class
+//     instead of conforming directly.
+//  2/3. "binary operator '>' cannot be applied to operands of type
+//     'CGFloat' and 'Float'" / "cannot assign value of type 'CGFloat' to
+//     type 'Float'" — landmark coordinates (NormalizedLandmark.x/.y) are
+//     actually CGFloat, not Float as originally assumed; boundingBox and
+//     the largest-face comparison below were mixing the two. Fixed by using
+//     CGFloat throughout those two spots.
+//  The build ALSO reported seven "value of type 'UInt' has no member '2'"
+//  errors, all traced to the facialTransformationMatrixes-based pitch/yaw
+//  decomposition this file originally had (`m.columns.2.x` etc.) — that
+//  code assumed the matrix type was simd_float4x4 with no real confirmation
+//  it is, and this error doesn't even look like a normal simd_float4x4
+//  access failure. Rather than guess a SECOND time blind and burn another
+//  build finding out, that whole decomposition is REMOVED here, not
+//  re-guessed — pitch/yaw fall back to 0 (reads as "straight") the same way
+//  they already did when the matrix was unavailable. This is a real,
+//  deliberate scope cut, not a bug fix — see this project's own
+//  verification report for what real ML Kit comparison and a correct
+//  pitch/yaw source would take to add back.
+class HybridGlowFaceLandmarker: HybridGlowFaceLandmarkerSpec {
 
   private var landmarker: FaceLandmarker?
+  private var delegateProxy: FaceLandmarkerDelegateProxy?
   private let stateLock = NSLock()
   private var isBusy: Bool = false
   private var lastResult: [DetectedFace] = []
@@ -73,14 +99,18 @@ class HybridGlowFaceLandmarker: HybridGlowFaceLandmarkerSpec, FaceLandmarkerLive
     // single largest detected face (see SkinScanCamera.tsx's
     // primaryLiveFace).
     options.numFaces = 1
-    // Caught in self-review, not by any build: this defaults to false (per
-    // Google's own docs) — without it explicitly set, result.
-    // facialTransformationMatrixes below is ALWAYS empty and pitch/yaw
-    // silently reads 0 forever (a real, if quiet, functional bug — not a
-    // crash, since that 0-fallback path was already defensive, but the
-    // feature it was defending would never have engaged at all).
+    // See this class's own header for why: real, but currently unused
+    // (facialTransformationMatrixes decomposition was removed after a
+    // confirmed build failure) — left set so it's a one-line re-enable
+    // once a correct decomposition replaces the removed one, rather than
+    // needing to rediscover this option exists.
     options.outputFacialTransformationMatrixes = true
-    options.faceLandmarkerLiveStreamDelegate = self
+    // See FaceLandmarkerDelegateProxy below — this class itself no longer
+    // conforms to FaceLandmarkerLiveStreamDelegate (that's error #1 in this
+    // file's own header).
+    let proxy = FaceLandmarkerDelegateProxy(owner: self)
+    self.delegateProxy = proxy
+    options.faceLandmarkerLiveStreamDelegate = proxy
     landmarker = try? FaceLandmarker(options: options)
     if landmarker == nil {
       print("[GlowFaceLandmarker] FaceLandmarker failed to initialize")
@@ -111,11 +141,14 @@ class HybridGlowFaceLandmarker: HybridGlowFaceLandmarkerSpec, FaceLandmarkerLive
     // published docs snippet only shows the bare MPImage(pixelBuffer:)
     // default-orientation form, so this exact overload's existence/exact
     // parameter name is UNVERIFIED against the real MediaPipeTasksVision
-    // header — flagged here plainly rather than presented as certain. If
-    // this overload doesn't exist as written, the real fix is almost
-    // certainly still an orientation-aware MPImage constructor (MediaPipe's
-    // other vision tasks all need one for the same reason), just possibly
-    // named differently.
+    // header — this did NOT show up as one of the confirmed build errors
+    // (the build never got this far — it failed at the delegate-conformance
+    // error first, before any of detectFrame's own code was reached by the
+    // type checker in a way that would surface a problem here), so this
+    // is still genuinely untested, not confirmed-working. If this overload
+    // doesn't exist, the real fix is almost certainly still an
+    // orientation-aware MPImage constructor, just possibly named
+    // differently — flagged here plainly rather than presented as certain.
     guard let image = try? MPImage(pixelBuffer: pixelBuffer, orientation: Self.imageOrientation(from: orientation)) else {
       return current
     }
@@ -137,11 +170,10 @@ class HybridGlowFaceLandmarker: HybridGlowFaceLandmarkerSpec, FaceLandmarkerLive
     return current
   }
 
-  // MARK: - FaceLandmarkerLiveStreamDelegate
+  // MARK: - Result handling (called by FaceLandmarkerDelegateProxy below)
 
-  func faceLandmarker(
-    _ faceLandmarker: FaceLandmarker,
-    didFinishDetection result: FaceLandmarkerResult?,
+  fileprivate func handleResult(
+    _ result: FaceLandmarkerResult?,
     timestampInMilliseconds: Int,
     error: Error?
   ) {
@@ -161,9 +193,11 @@ class HybridGlowFaceLandmarker: HybridGlowFaceLandmarkerSpec, FaceLandmarkerLive
     // (SkinScanCamera.tsx) and the existing live ML Kit path
     // (primaryLiveFace) already use, applied here via landmark bounding-box
     // area since MediaPipe doesn't hand back a pre-computed box the way ML
-    // Kit's Face.bounds does.
+    // Kit's Face.bounds does. CGFloat throughout (NOT Float) — see this
+    // file's own header, error #2/#3: NormalizedLandmark.x/.y are CGFloat,
+    // confirmed by a real build failure when this mixed the two.
     var biggestIndex = 0
-    var biggestArea: Float = -1
+    var biggestArea: CGFloat = -1
     for (i, landmarks) in result.faceLandmarks.enumerated() {
       let box = Self.boundingBox(landmarks)
       let area = box.width * box.height
@@ -178,42 +212,23 @@ class HybridGlowFaceLandmarker: HybridGlowFaceLandmarkerSpec, FaceLandmarkerLive
     // 33 (right eye outer corner) and 263 (left eye outer corner) are
     // MediaPipe Face Mesh's own STABLE, documented canonical indices (part
     // of the published 478-point topology, not something guessed at here).
-    // This is the one angle in this module with real confidence behind it.
+    // This is the one angle in this module with real confidence behind it,
+    // and the ONLY angle computation left in this file — see this file's
+    // own header for why pitch/yaw's matrix decomposition was removed
+    // rather than re-guessed.
     let rightEye = landmarks[33]
     let leftEye = landmarks[263]
     let rollRadians = atan2(Double(leftEye.y - rightEye.y), Double(leftEye.x - rightEye.x))
     let rollDegrees = rollRadians * 180 / .pi
 
-    // Pitch/yaw: approximated from facialTransformationMatrixes when
-    // MediaPipe provides one, decomposed as a standard XYZ Euler
-    // extraction. UNVERIFIED — flagged plainly, not presented as
-    // equivalent-confidence to roll above: this depends on (a) the exact
-    // Swift type facialTransformationMatrixes actually is (written here
-    // against simd_float4x4, the typical MediaPipe Tasks Vision Swift
-    // convention, but not confirmed against the real header), and (b)
-    // MediaPipe's specific rotation-matrix axis/sign convention matching
-    // the decomposition formula below. A wrong sign or swapped axis here
-    // would NOT crash or throw — it would silently produce plausible-
-    // looking degree values that don't actually mean what
-    // SkinScanCamera.tsx's angleGate thresholds (PITCH_GATE_DEG=18, the
-    // live gate's own 15°/25° bands) assume. This is the single highest-
-    // risk piece in this whole module and the first thing to verify
-    // against real ML Kit angle output on-device before trusting it —
-    // see this project's own scope report. Falls back to 0,0 (reads as
-    // "straight") rather than a fabricated confident-looking number when
-    // options.outputFacialTransformationMatrixes wasn't set or the matrix
-    // is absent — 0,0 is a real, if uninformative, value, not a guess
-    // dressed up as a measurement.
-    var pitchDegrees: Double = 0
-    var yawDegrees: Double = 0
-    if let matrix = result.facialTransformationMatrixes.first {
-      let m = matrix
-      // Standard R = Rz(roll) * Ry(yaw) * Rx(pitch) extraction — see this
-      // function's own comment for why the CONVENTION (not just the
-      // arithmetic) needs real verification.
-      pitchDegrees = Double(atan2(-m.columns.2.y, sqrt(m.columns.2.x * m.columns.2.x + m.columns.2.z * m.columns.2.z))) * 180 / .pi
-      yawDegrees = Double(atan2(m.columns.2.x, m.columns.2.z)) * 180 / .pi
-    }
+    // Pitch/yaw: see this file's own header — the facialTransformationMatrixes
+    // decomposition that used to be here was removed after a confirmed
+    // build failure rather than re-guessed a second time blind. 0 reads as
+    // "straight," the same honest fallback this already used whenever the
+    // matrix was unavailable — not a regression from a working state, since
+    // this decomposition never actually compiled, let alone ran.
+    let pitchDegrees: Double = 0
+    let yawDegrees: Double = 0
 
     let face = DetectedFace(
       bounds: DetectedFaceBounds(
@@ -232,12 +247,12 @@ class HybridGlowFaceLandmarker: HybridGlowFaceLandmarkerSpec, FaceLandmarkerLive
   // MARK: - Private helpers
 
   private static func boundingBox(_ landmarks: [NormalizedLandmark]) -> CGRect {
-    var minX: Float = 1, minY: Float = 1, maxX: Float = 0, maxY: Float = 0
+    var minX: CGFloat = 1, minY: CGFloat = 1, maxX: CGFloat = 0, maxY: CGFloat = 0
     for point in landmarks {
       minX = min(minX, point.x); maxX = max(maxX, point.x)
       minY = min(minY, point.y); maxY = max(maxY, point.y)
     }
-    return CGRect(x: CGFloat(minX), y: CGFloat(minY), width: CGFloat(maxX - minX), height: CGFloat(maxY - minY))
+    return CGRect(x: minX, y: minY, width: maxX - minX, height: maxY - minY)
   }
 
   /// Same VC v5 frame-orientation-string → UIImage.Orientation mapping the
@@ -253,5 +268,31 @@ class HybridGlowFaceLandmarker: HybridGlowFaceLandmarkerSpec, FaceLandmarkerLive
     case "right": return .left
     default: return .up
     }
+  }
+}
+
+// Small NSObject-based forwarding proxy — FaceLandmarkerLiveStreamDelegate
+// is an Objective-C-bridged protocol requiring NSObjectProtocol conformance,
+// which HybridGlowFaceLandmarker itself can't provide (it inherits
+// Nitrogen-generated HybridGlowFaceLandmarkerSpec_base, a plain Swift class
+// — see this file's own header, error #1, confirmed by a real build
+// failure, not a preemptive guess). This is the standard fix for that exact
+// situation: a minimal NSObject subclass that does nothing but forward the
+// one delegate callback back to its owner.
+private class FaceLandmarkerDelegateProxy: NSObject, FaceLandmarkerLiveStreamDelegate {
+  private weak var owner: HybridGlowFaceLandmarker?
+
+  init(owner: HybridGlowFaceLandmarker) {
+    self.owner = owner
+    super.init()
+  }
+
+  func faceLandmarker(
+    _ faceLandmarker: FaceLandmarker,
+    didFinishDetection result: FaceLandmarkerResult?,
+    timestampInMilliseconds: Int,
+    error: Error?
+  ) {
+    owner?.handleResult(result, timestampInMilliseconds: timestampInMilliseconds, error: error)
   }
 }
