@@ -1008,6 +1008,38 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
     // capturing reset back to tappable and nothing shown to the user at all.
     let photo: Photo | null = null;
     try {
+      // Locks AE/AF/AWB right before the shutter fires — real, documented
+      // vision-camera v5 API (CameraController.lockCurrentFocus/
+      // lockCurrentExposure/lockCurrentWhiteBalance), confirmed against the
+      // installed package's own type definitions, not guessed. Directly
+      // targets the earlier warm/smooth-face investigation: continuous
+      // auto-exposure/auto-WB can still shift in the instant between the
+      // gates reading green and the shutter actually firing — locking
+      // freezes whatever the camera was already reading at that
+      // already-gated-good moment instead of letting one more auto-
+      // adjustment cycle run right as the photo is taken.
+      //
+      // iOS only — every lock method on CameraController is documented
+      // `@platform iOS` with no Android equivalent in this library at all;
+      // this is a real, permanent platform gap, not a "not implemented
+      // yet." Wrapped in its own try/catch, never blocking capture: a
+      // device that doesn't support one of the three locks (see
+      // CameraDevice.supportsFocusLocking/supportsExposureLocking/
+      // supportsWhiteBalanceLocking) throws, per the API's own docs — a
+      // slightly-worse-exposed photo from falling back to auto is a much
+      // better failure mode than the shutter not working at all.
+      const controller = cameraRef.current?.controller;
+      if (Platform.OS === 'ios' && controller) {
+        try {
+          const locks: Promise<void>[] = [];
+          if (device?.supportsFocusLocking) locks.push(controller.lockCurrentFocus());
+          if (device?.supportsExposureLocking) locks.push(controller.lockCurrentExposure());
+          if (device?.supportsWhiteBalanceLocking) locks.push(controller.lockCurrentWhiteBalance());
+          await Promise.all(locks);
+        } catch (err) {
+          console.warn('[SkinScanCamera] AE/AF/AWB lock failed, capturing with continuous auto instead', err instanceof Error ? err.message : err);
+        }
+      }
       // vision-camera v5's photo pipeline hands back an in-memory Photo, not
       // a file — saved to a temp file, then read back as base64 the same way
       // shareLook.ts/exportSkinHistory.ts already do elsewhere in this app,
@@ -1085,6 +1117,17 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       setCaptureError('Could not capture that photo — try again.');
     } finally {
       photo?.dispose();
+      // resetFocus() resets ALL THREE locked values back to continuous
+      // auto in one call (per its own doc comment) — the live preview
+      // should go back to normally auto-adjusting for whatever framing
+      // comes next (another attempt after a retake, or the next scan
+      // entirely), not stay frozen at whatever the last shot locked to.
+      // Fire-and-forget: nothing downstream depends on this completing,
+      // and a failure here (device doesn't support locking at all, so
+      // there was nothing to reset) shouldn't surface as a capture error.
+      if (Platform.OS === 'ios') {
+        cameraRef.current?.controller?.resetFocus().catch(() => {});
+      }
     }
     setCapturing(false);
   }
