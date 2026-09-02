@@ -126,7 +126,8 @@
       "@sentry/react-native",
       "expo-web-browser",
       "expo-video",
-      "expo-sharing"
+      "expo-sharing",
+      "./plugins/withMediaPipeGtmDedupe"
     ],
     "extra": {
       "apiUrl": "https://glow-backend-production-ae1e.up.railway.app",
