@@ -1432,7 +1432,7 @@ export interface SkinHeatmapConcern {
   // call failed for this scan — see SkinScan.heatmapSourceReason). The UI
   // must visibly label an 'estimated' result — never present it with the
   // same confidence as a licensed vendor read.
-  source: 'perfectcorp' | 'estimated';
+  source: 'perfectcorp' | 'estimated' | 'ivyai';
   // The two ends of THIS concern's own severity gradient bar (e.g.
   // {low:'Even Tone', high:'Flushed'} for redness) — never a generic
   // Low/High pair reused across concerns.
@@ -1501,6 +1501,15 @@ export interface SkinScan {
   // photo of a multi-angle session.
   parentScanId?: string | null;
   photoUrl: string;
+  // True when photoUrl is SkinScanCamera's own aligned frame (pose/scale
+  // normalized to a fixed target, verified via a redetect sanity check) —
+  // see schema.prisma's SkinScan.photoAligned. Two scans with this true are
+  // framed consistently against each other with no extra work; a scan
+  // where it's false (pre-alignment history, or a scan whose alignment
+  // attempt bailed) shouldn't be silently treated as visually comparable
+  // to the rest of a profile's aligned history — see MySpaceScreen's
+  // history rail for where that distinction actually shows up.
+  photoAligned: boolean;
   skinTone: SkinToneValue;
   skinType: SkinTypeValue;
   concerns: string[];
@@ -1565,7 +1574,7 @@ export interface SkinScan {
 }
 
 const VALID_BANDS = new Set(['clear', 'mild', 'moderate', 'notable']);
-const VALID_SOURCES = new Set(['perfectcorp', 'estimated']);
+const VALID_SOURCES = new Set(['perfectcorp', 'estimated', 'ivyai']);
 
 // Runtime counterpart to validateConcernRecord on the backend
 // (src/utils/skinConcernContent.js) — checked at the same kind of boundary
@@ -1626,6 +1635,23 @@ export function apiScanSkin(payload: {
   // ellipse-only occlusion handling with no regression when this is absent
   // (see skinHeatmaps.js's buildMasks own comment on that fallback).
   skinMask?: { base64: string; width: number; height: number };
+  // Up to 3 additional locked-exposure frames from the same burst as
+  // photoBase64 (see SkinScanCamera's shoot()) — the backend scores all of
+  // them plus photoBase64 for sharpness (src/utils/photoQuality.js) and
+  // analyzes whichever is actually sharpest, not necessarily photoBase64
+  // itself. Optional and purely additive: omitting it (an older client, or
+  // a device where a mid-burst capture failed) falls straight back to the
+  // original single-photo behavior server-side — see routes/skin.js's own
+  // comment on why that path is unchanged.
+  burstCandidates?: string[];
+  // True when photoBase64 is SkinScanCamera's own aligned output (its
+  // shoot()'s similarity-transform pipeline succeeded and passed its
+  // redetect sanity check), false/omitted otherwise — see schema.prisma's
+  // SkinScan.photoAligned and this same field on the SkinScan interface
+  // above for what it's actually for. The backend coerces anything other
+  // than a literal `true` to false, so omitting it (an older client) is
+  // exactly equivalent to explicitly sending false.
+  aligned?: boolean;
 }) {
   // isNewProfile: true when the backend's face-match decided this photo
   // doesn't match anyone previously scanned on this account and started a
@@ -1641,6 +1667,59 @@ export function apiScanSkin(payload: {
   // kills an otherwise-successful slow-but-still-working request.
   return request<{ scan: SkinScan; bookCategory: string; isNewProfile: boolean }>('POST', '/skin/scan', payload, true, 1, 70000)
     .then(r => ({ ...r, scan: sanitizeSkinScan(r.scan) }));
+}
+
+// The real backend pipeline stages a scan job passes through, in order —
+// see routes/skin.js's runScanPipeline, the ONE place these are actually
+// reported from. 'analyzing' is the Gemini call — the one genuinely non-
+// subdividable stage (a single external request/response, no partial-
+// progress signal) — SkinScanCamera.tsx's elapsed-time ticker is scoped to
+// exactly this stage, not the whole scan, for that reason.
+export type ScanJobStage = 'scoring_sharpness' | 'preparing_photo' | 'analyzing' | 'saving';
+
+export type ScanJobStatus =
+  | { status: 'processing'; stage: ScanJobStage }
+  | { status: 'done'; scan: SkinScan; bookCategory: string; isNewProfile: boolean }
+  | { status: 'error'; error: string; code?: string };
+
+// Kicks off the same scan pipeline as apiScanSkin, but returns almost
+// immediately with a jobId instead of blocking until the whole thing
+// finishes — the caller polls apiGetScanJobStatus for real stage updates.
+// A separate function (not an `async` flag threaded through apiScanSkin's
+// own return type) because the two genuinely return different shapes: this
+// hands back a jobId, apiScanSkin hands back the finished scan. Reuses
+// apiScanSkin's own payload type via `Parameters<>` so the two request
+// bodies can never drift apart.
+// Returns EITHER a jobId (new backend, poll it) or the finished scan
+// outright (older backend that doesn't know the `async` flag and simply
+// ignored it, returning its normal 201 body). Handling both is what makes
+// the app safe to ship BEFORE the backend is deployed: an updated client
+// talking to a not-yet-updated server would otherwise read `jobId` as
+// undefined and then poll `/skin/scan/jobs/undefined/status`, turning every
+// scan into a 404. Deploy order stops mattering entirely this way.
+export async function apiScanSkinStart(
+  payload: Parameters<typeof apiScanSkin>[0],
+): Promise<{ jobId: string; immediate?: undefined } | { jobId?: undefined; immediate: { scan: SkinScan; bookCategory: string; isNewProfile: boolean } }> {
+  const r = await request<any>('POST', '/skin/scan', { ...payload, async: true }, true, 1, 70000);
+  if (r && typeof r.jobId === 'string' && r.jobId) return { jobId: r.jobId };
+  if (r && r.scan) {
+    return { immediate: { scan: sanitizeSkinScan(r.scan), bookCategory: r.bookCategory, isNewProfile: r.isNewProfile } };
+  }
+  throw new Error('Scan could not be started.');
+}
+
+// One status check — SkinScanCamera.tsx's own polling loop calls this
+// repeatedly (see its submit()) and owns the retry/backoff/overall-timeout
+// policy around individual calls, so this stays a single plain request:
+// retries=0 (a lone dropped poll doesn't mean the scan failed — the job
+// keeps running server-side regardless — so retrying belongs one level up,
+// where "how many misses in a row" can actually be judged) and a short
+// 10s timeout (a status check is a tiny read, never expected to be slow;
+// a hung one should fail fast so the polling loop can just try again).
+export async function apiGetScanJobStatus(jobId: string): Promise<ScanJobStatus> {
+  const r = await request<any>('GET', `/skin/scan/jobs/${jobId}/status`, undefined, true, 0, 10000);
+  if (r.status === 'done' && r.scan) return { ...r, scan: sanitizeSkinScan(r.scan) };
+  return r;
 }
 
 export async function apiGetSkinScans(profileId?: string, cursor?: string, limit = 20) {

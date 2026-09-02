@@ -158,14 +158,59 @@ const BAND_COLOR: Record<SkinHeatmapConcern['band'], string> = {
 // this concern's actual severity. severity is 0 (bottom, calmest) to 1
 // (top, most severe). The marker springs into position (~220ms) on mount/
 // severity change rather than appearing static.
-function SeverityGradientBar({ severity, gradientLabels }: { severity: number; gradientLabels: { low: string; high: string } }) {
+// Confidence → marker "fog": stacked translucent white capsules drawn BEHIND
+// the marker dot (never touching the dot's own size/border, so the exact
+// computed value always stays legible) that widen and stack taller as
+// confidence drops. White was chosen because it desaturates whichever of the
+// 4 gradient colors sits under it, the same way the dot's own white fill
+// reads as "the instrument," not "the measurement" — a wider, hazier patch
+// of that same white directly encodes "the true value could be anywhere in
+// this range" instead of forcing false precision onto a marginal read.
+// 'high' is deliberately an empty array — no fog at all is itself the
+// high-confidence signal, by contrast with medium/low, not a special case.
+const CONFIDENCE_FOG: Record<'low' | 'medium' | 'high', { width: number; height: number; opacity: number }[]> = {
+  high: [],
+  medium: [
+    { width: 22, height: 34, opacity: 0.16 },
+    { width: 22, height: 22, opacity: 0.26 },
+  ],
+  low: [
+    { width: 26, height: 56, opacity: 0.14 },
+    { width: 26, height: 38, opacity: 0.20 },
+    { width: 26, height: 24, opacity: 0.26 },
+  ],
+};
+
+// Pure — no ref access — so it's safe to call from anywhere in render,
+// unlike inlining `anim` into a `.map()`-generated style object (which the
+// react-hooks/refs rule flags as a ref read escaping into a closure, even
+// though the closure itself only runs synchronously during this render).
+function fogLayerStyle(layer: { width: number; height: number; opacity: number }, topFraction: number) {
+  return {
+    position: 'absolute' as const,
+    left: -(layer.width - 10) / 2,
+    top: pct(topFraction),
+    width: layer.width,
+    height: layer.height,
+    marginTop: -layer.height / 2,
+    borderRadius: layer.width / 2,
+    backgroundColor: `rgba(255,255,255,${layer.opacity})`,
+  };
+}
+
+function SeverityGradientBar({ severity, gradientLabels, confidenceLevel }: { severity: number; gradientLabels: { low: string; high: string }; confidenceLevel: 'low' | 'medium' | 'high' }) {
   const clamped = Math.max(0, Math.min(1, severity));
-  const markerFromTopPct = (1 - clamped) * 100;
+  const topFraction = 1 - clamped;
   const anim = useRef(new Animated.Value(0)).current;
   useEffect(() => {
     anim.setValue(0);
     Animated.spring(anim, { toValue: 1, useNativeDriver: true, speed: 16, bounciness: 8 }).start();
   }, [severity, anim]);
+
+  // Unrolled rather than .map()'d over CONFIDENCE_FOG[confidenceLevel] —
+  // see fogLayerStyle's comment. At most 3 layers (the 'low' case); absent
+  // layers for 'medium'/'high' are simply undefined and render nothing.
+  const [fog0, fog1, fog2] = CONFIDENCE_FOG[confidenceLevel];
 
   return (
     <View style={gradStyles.outer}>
@@ -175,10 +220,13 @@ function SeverityGradientBar({ severity, gradientLabels }: { severity: number; g
           colors={[Colors.systemRed, Colors.systemOrange, Colors.brand, Colors.systemGreen]}
           style={gradStyles.bar}
         />
+        {!!fog0 && <Animated.View pointerEvents="none" style={[fogLayerStyle(fog0, topFraction), { opacity: anim }]} />}
+        {!!fog1 && <Animated.View pointerEvents="none" style={[fogLayerStyle(fog1, topFraction), { opacity: anim }]} />}
+        {!!fog2 && <Animated.View pointerEvents="none" style={[fogLayerStyle(fog2, topFraction), { opacity: anim }]} />}
         <Animated.View
           style={[
             gradStyles.marker,
-            { top: `${markerFromTopPct}%`, opacity: anim, transform: [{ scale: anim }] },
+            { top: pct(topFraction), opacity: anim, transform: [{ scale: anim }] },
           ]}
         />
       </View>
@@ -263,9 +311,20 @@ export function ConcernDetailCard({ concernKey, concern, onViewRecommendations, 
             <Text style={detailStyles.dermPillText}>DERMATOLOGIST-GRADE</Text>
           </View>
         )}
+        {/* Stage 7: this concern's SEVERITY came from a real Ivy AI vision
+            read, not our own pixel heuristic — so it must not carry the
+            ESTIMATED pill. The highlighted area under it is still the
+            heuristic's own map (Ivy returns scores, never pixels — see
+            mergeIvyIntoHeatmaps), which is exactly why this says the
+            reading is AI-verified rather than claiming the whole overlay is. */}
+        {concern.source === 'ivyai' && (
+          <View style={detailStyles.dermPill}>
+            <Text style={detailStyles.dermPillText}>AI-VERIFIED READING</Text>
+          </View>
+        )}
       </View>
       <View style={detailStyles.row}>
-        <SeverityGradientBar severity={concern.severity} gradientLabels={concern.gradientLabels} />
+        <SeverityGradientBar severity={concern.severity} gradientLabels={concern.gradientLabels} confidenceLevel={concern.confidence.level} />
         <View style={detailStyles.rowBody}>
           <View style={detailStyles.verdictRow}>
             <View style={[detailStyles.verdictIcon, { backgroundColor: BAND_COLOR[concern.band] }]}>

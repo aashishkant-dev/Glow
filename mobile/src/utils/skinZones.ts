@@ -108,7 +108,7 @@ const PITCH_GATE_DEG = 18;
 // don't trust that eye's contour for an under-eye marker.
 const EYE_OPEN_MIN = 0.4;
 
-function centroid(points: Point[]): Point | null {
+export function centroid(points: Point[]): Point | null {
   if (!points.length) return null;
   let sx = 0, sy = 0;
   for (const p of points) { sx += p.x; sy += p.y; }
@@ -254,4 +254,206 @@ export function deriveZoneMarkers(points: RawFacialPoints, faceBoxPx: FaceBox, i
   }
 
   return out;
+}
+
+// ---- Face alignment (Stage 6) ---------------------------------------------
+//
+// A real similarity transform (uniform scale + rotation + translation — 4
+// degrees of freedom, not a full 6-DOF affine that could also shear/
+// non-uniformly scale) computed from the SAME ML Kit contour points
+// deriveZoneMarkers already consumes — no new native dependency. Levels the
+// eye line, scales so inter-eye distance hits a fixed target, and positions
+// the eye midpoint at a fixed spot in a fixed-size output canvas — the
+// standard "aligned face crop" recipe (the same idea dlib/OpenCV face-
+// alignment tutorials and ArcFace/InsightFace-style preprocessing use,
+// simplified to 2 fit points instead of 5). Two eye centers alone fully
+// determine a similarity transform's 4 DOF (2 for the shared scale+rotation,
+// 2 for translation) — nose-tip is deliberately NOT a third least-squares fit
+// point (that would need a proper Procrustes/SVD solve, more moving parts to
+// get right with no device to verify against); instead it's used only as a
+// cheap PLAUSIBILITY gate on the input landmarks themselves (noseSanityGate
+// below) — catching a degenerate/implausible detection before any transform
+// math runs at all.
+//
+// Deliberately conservative about trusting its own geometry: rather than
+// assuming how the actual image-manipulation library lays out a rotated
+// canvas (untested, unverifiable without a device), the real safety net is
+// downstream — re-running face detection on the transformed output and
+// checking the result lands near where it was supposed to
+// (checkAlignmentSanity). A transform that fails that check must be
+// discarded in favor of the original, unaligned photo, never shipped anyway
+// on the theory that the math "should" have been right.
+
+// Output canvas: same 4:5 portrait ratio as the backend's own heatmapPixels/
+// storedBuf target (src/routes/skin.js) — aligning to that same proportion
+// client-side means the backend's own resize is close to a straight scale
+// rather than a re-crop that could reintroduce the very misalignment this
+// stage exists to remove.
+export const ALIGN_OUTPUT_WIDTH = 720;
+export const ALIGN_OUTPUT_HEIGHT = 900;
+
+// Eyes at 38% down from the top (room for forehead above, chin/jaw below)
+// and centered horizontally — a standard head-and-shoulders selfie
+// composition, not an arbitrary number. Inter-eye distance targeted at 28%
+// of the output width — a face filling a natural, comfortable portion of a
+// head-and-shoulders frame (neither a tight close-up nor a distant subject).
+export const TARGET_EYE_MID_FRAC: Point = { x: 0.5, y: 0.38 };
+export const TARGET_EYE_DIST_FRAC = 0.28;
+
+// Tolerances for checkAlignmentSanity, both expressed relative to the
+// TARGET inter-eye distance (in output pixels) rather than a flat fraction
+// of canvas size — a tolerance that scales with the feature actually being
+// aligned, not with unrelated canvas dimensions. 30% of inter-eye distance
+// is generous enough to absorb real redetection jitter (ML Kit's own contour
+// centroid isn't pixel-exact run to run) while still catching a genuinely
+// wrong transform (a missed 90 rotation, a wildly wrong scale, a swapped
+// left/right eye) by a wide margin.
+export const EYE_POSITION_TOLERANCE_FRAC = 0.30;
+export const EYE_DIST_TOLERANCE_FRAC = 0.35;
+
+export interface EyeNoseAnchors {
+  leftEyeCenter: Point;
+  rightEyeCenter: Point;
+  noseTip: Point;
+}
+
+// Same subject-relative-vs-viewer-relative swap deriveZoneMarkers already
+// applies (see its own comment) — "leftEyeCenter" here always means the
+// VIEWER's left, matching TARGET_EYE_MID_FRAC/ZONE_RECTS' own convention.
+// Returns null if ML Kit didn't return usable points for either eye or the
+// nose on this detection — alignment simply doesn't run rather than guessing
+// at a transform from partial geometry.
+export function extractEyeNoseAnchors(points: RawFacialPoints, mirrored: boolean): EyeNoseAnchors | null {
+  const swapLR = !mirrored;
+  const leftEyeCenter = centroid((swapLR ? points.rightEye : points.leftEye) || []);
+  const rightEyeCenter = centroid((swapLR ? points.leftEye : points.rightEye) || []);
+  // noseBottom (the tip/base of the nose in ML Kit's contour scheme) is
+  // preferred as the actual "nose tip"; noseBridge is only the upper ridge
+  // and used solely to fill in when noseBottom itself is missing.
+  const noseTip = centroid(points.noseBottom || []) ?? centroid([...(points.noseBridge || []), ...(points.noseBottom || [])]);
+  if (!leftEyeCenter || !rightEyeCenter || !noseTip) return null;
+  return { leftEyeCenter, rightEyeCenter, noseTip };
+}
+
+// Cheap plausibility gate on the raw landmarks themselves, before any
+// transform math runs — catches a degenerate/implausible detection (nose
+// point landing above or level with the eyes, or wildly off to one side)
+// that a bare "were points present" check can't see. Not a precision check:
+// generous bounds, meant to reject only clearly-wrong geometry.
+export function noseSanityGate(anchors: EyeNoseAnchors): boolean {
+  const { leftEyeCenter, rightEyeCenter, noseTip } = anchors;
+  const dx = rightEyeCenter.x - leftEyeCenter.x;
+  const dy = rightEyeCenter.y - leftEyeCenter.y;
+  const eyeDist = Math.hypot(dx, dy);
+  if (eyeDist < 2) return false; // degenerate/overlapping eye points
+  const midEye: Point = { x: (leftEyeCenter.x + rightEyeCenter.x) / 2, y: (leftEyeCenter.y + rightEyeCenter.y) / 2 };
+  // Perpendicular ("down the face") direction from the eye line, in the
+  // same rotated frame the eye line itself defines — robust to head tilt,
+  // unlike a plain vertical-distance check.
+  const perpX = -dy / eyeDist, perpY = dx / eyeDist;
+  const noseVecX = noseTip.x - midEye.x, noseVecY = noseTip.y - midEye.y;
+  const alongPerp = noseVecX * perpX + noseVecY * perpY; // how far "down the face" the nose sits, in px
+  const alongEyeLine = noseVecX * (dx / eyeDist) + noseVecY * (dy / eyeDist); // lateral offset along the eye line
+  const belowEyes = alongPerp > eyeDist * 0.25 && alongPerp < eyeDist * 3.5;
+  const roughlyCentered = Math.abs(alongEyeLine) < eyeDist * 0.9;
+  return belowEyes && roughlyCentered;
+}
+
+export interface SimilarityTransform {
+  correctionDeg: number; // pass directly to ImageManipulator's rotate() (clockwise-positive) to level the eye line
+  eyeDist: number;
+  midEye: Point;
+}
+
+// The whole transform's rotation+scale is fully determined by the two eye
+// points alone (see this section's own header comment on why a 2-point fit
+// is enough for a similarity transform, and why nose-tip stays a validation
+// signal instead of a third fit point). Returns null only for a degenerate
+// (near-zero-distance) eye pair — deriveEyeNoseAnchors's own null-checks
+// already rule out missing points before this is ever called.
+export function computeSimilarityTransform(anchors: EyeNoseAnchors): SimilarityTransform | null {
+  const { leftEyeCenter, rightEyeCenter } = anchors;
+  const dx = rightEyeCenter.x - leftEyeCenter.x;
+  const dy = rightEyeCenter.y - leftEyeCenter.y;
+  const eyeDist = Math.hypot(dx, dy);
+  if (eyeDist < 2) return null;
+  // atan2(dy,dx) in this y-DOWN pixel coordinate system is the eye line's
+  // own apparent clockwise tilt (e.g. right eye lower than left = positive
+  // angle = photo reads as if a clockwise rotation had been applied to a
+  // level face) — negating it is exactly the correction that levels it.
+  // Confirmed by hand against a concrete example before shipping (see this
+  // module's own verification script, not just this comment) — a sign
+  // error here would silently tilt every aligned photo the wrong way.
+  const tiltDeg = Math.atan2(dy, dx) * 180 / Math.PI;
+  const correctionDeg = -tiltDeg;
+  const midEye: Point = { x: (leftEyeCenter.x + rightEyeCenter.x) / 2, y: (leftEyeCenter.y + rightEyeCenter.y) / 2 };
+  return { correctionDeg, eyeDist, midEye };
+}
+
+// Projects an arbitrary point through the SAME rotation applied to the image
+// content (rotate() is clockwise-positive around the image's own center),
+// re-centering it into a (possibly larger, bounding-box-expanded) output
+// canvas of size newWidth x newHeight. `newWidth`/`newHeight` should be the
+// REAL, MEASURED post-rotation dimensions (read back off the actual
+// ImageManipulator result), not assumed — this function only assumes the
+// rotated content stays centered in whatever canvas the library produces,
+// which is the one piece of rotation-canvas behavior that's essentially
+// universal (bounding-box expansion is symmetric around the rotation
+// center) even when the exact expansion amount isn't independently
+// verifiable from here.
+export function rotatePointAroundCenter(point: Point, originalWidth: number, originalHeight: number, newWidth: number, newHeight: number, correctionDeg: number): Point {
+  const theta = (correctionDeg * Math.PI) / 180;
+  const cos = Math.cos(theta), sin = Math.sin(theta);
+  const relX = point.x - originalWidth / 2;
+  const relY = point.y - originalHeight / 2;
+  const rotX = relX * cos - relY * sin;
+  const rotY = relX * sin + relY * cos;
+  return { x: newWidth / 2 + rotX, y: newHeight / 2 + rotY };
+}
+
+// Crop rect (in the SCALED image's own pixel space) that lands `scaledMidEye`
+// at TARGET_EYE_MID_FRAC of the final ALIGN_OUTPUT_WIDTH x ALIGN_OUTPUT_HEIGHT
+// canvas, clamped so the crop never runs off the scaled image's own bounds.
+// Returns null when the scaled image is smaller than the output canvas in
+// either dimension — cropping can't manufacture pixels that aren't there, so
+// this bails out to the unaligned photo rather than padding with anything
+// synthetic.
+export function computeCropRect(scaledMidEye: Point, scaledWidth: number, scaledHeight: number): { originX: number; originY: number; width: number; height: number } | null {
+  if (scaledWidth < ALIGN_OUTPUT_WIDTH || scaledHeight < ALIGN_OUTPUT_HEIGHT) return null;
+  const idealOriginX = scaledMidEye.x - TARGET_EYE_MID_FRAC.x * ALIGN_OUTPUT_WIDTH;
+  const idealOriginY = scaledMidEye.y - TARGET_EYE_MID_FRAC.y * ALIGN_OUTPUT_HEIGHT;
+  const originX = Math.round(Math.min(Math.max(idealOriginX, 0), scaledWidth - ALIGN_OUTPUT_WIDTH));
+  const originY = Math.round(Math.min(Math.max(idealOriginY, 0), scaledHeight - ALIGN_OUTPUT_HEIGHT));
+  return { originX, originY, width: ALIGN_OUTPUT_WIDTH, height: ALIGN_OUTPUT_HEIGHT };
+}
+
+// The real sanity check Stage 6 asked for: re-detects landmarks on the
+// ALREADY-TRANSFORMED output and checks the eyes actually landed near where
+// the transform was supposed to put them, rather than trusting the transform
+// math blindly. `redetected` comes from running extractEyeNoseAnchors again
+// on the aligned photo. Tolerances are relative to the TARGET inter-eye
+// distance in output pixels (see this section's own constants comment).
+export function checkAlignmentSanity(redetected: EyeNoseAnchors): { ok: boolean; reason?: string; measured: { leftEye: Point; rightEye: Point; eyeDist: number }; expected: { leftEye: Point; rightEye: Point; eyeDist: number } } {
+  const targetEyeDistPx = TARGET_EYE_DIST_FRAC * ALIGN_OUTPUT_WIDTH;
+  const targetMidPx: Point = { x: TARGET_EYE_MID_FRAC.x * ALIGN_OUTPUT_WIDTH, y: TARGET_EYE_MID_FRAC.y * ALIGN_OUTPUT_HEIGHT };
+  const expected = {
+    leftEye: { x: targetMidPx.x - targetEyeDistPx / 2, y: targetMidPx.y },
+    rightEye: { x: targetMidPx.x + targetEyeDistPx / 2, y: targetMidPx.y },
+    eyeDist: targetEyeDistPx,
+  };
+  const { leftEyeCenter, rightEyeCenter } = redetected;
+  const measuredEyeDist = Math.hypot(rightEyeCenter.x - leftEyeCenter.x, rightEyeCenter.y - leftEyeCenter.y);
+  const measured = { leftEye: leftEyeCenter, rightEye: rightEyeCenter, eyeDist: measuredEyeDist };
+
+  const posToleragePx = EYE_POSITION_TOLERANCE_FRAC * targetEyeDistPx;
+  const leftOff = Math.hypot(leftEyeCenter.x - expected.leftEye.x, leftEyeCenter.y - expected.leftEye.y);
+  const rightOff = Math.hypot(rightEyeCenter.x - expected.rightEye.x, rightEyeCenter.y - expected.rightEye.y);
+  const distRatio = measuredEyeDist / targetEyeDistPx;
+
+  if (leftOff > posToleragePx) return { ok: false, reason: `left eye off by ${leftOff.toFixed(1)}px (tolerance ${posToleragePx.toFixed(1)}px)`, measured, expected };
+  if (rightOff > posToleragePx) return { ok: false, reason: `right eye off by ${rightOff.toFixed(1)}px (tolerance ${posToleragePx.toFixed(1)}px)`, measured, expected };
+  if (distRatio < 1 - EYE_DIST_TOLERANCE_FRAC || distRatio > 1 + EYE_DIST_TOLERANCE_FRAC) {
+    return { ok: false, reason: `eye distance ratio ${distRatio.toFixed(2)} outside [${(1 - EYE_DIST_TOLERANCE_FRAC).toFixed(2)}, ${(1 + EYE_DIST_TOLERANCE_FRAC).toFixed(2)}]`, measured, expected };
+  }
+  return { ok: true, measured, expected };
 }

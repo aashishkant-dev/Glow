@@ -66,14 +66,19 @@ import { useCameraDevice, useCameraPermission, useFrameOutput, usePhotoOutput, t
 import { Camera as FaceDetectCamera, useImageFaceDetector, type Face as LiveFace } from 'react-native-vision-camera-face-detector';
 import { runOnJS } from 'react-native-worklets';
 import * as FileSystem from 'expo-file-system/legacy';
+import * as ImageManipulator from 'expo-image-manipulator';
 import { Colors, Fonts } from '../utils/colors';
 import { GlowMark } from './GlowLogo';
 import { SparkleIcon } from './BeautyIcons';
-import { apiScanSkin, SkinScan } from '../api/client';
+import { apiScanSkinStart, apiGetScanJobStatus, ScanJobStage, SkinScan } from '../api/client';
 import { tapLight, tapWarning } from '../utils/haptics';
 import { ScanBracket } from './ScanBracket';
 import { ErrorBoundary } from './ErrorBoundary';
-import { deriveZoneMarkers, type RawFacialPoints, type StoredZoneMarkers, type FaceConfidenceSignals } from '../utils/skinZones';
+import {
+  deriveZoneMarkers, type RawFacialPoints, type StoredZoneMarkers, type FaceConfidenceSignals,
+  extractEyeNoseAnchors, noseSanityGate, computeSimilarityTransform, rotatePointAroundCenter, computeCropRect, checkAlignmentSanity,
+  type SimilarityTransform, ALIGN_OUTPUT_WIDTH, ALIGN_OUTPUT_HEIGHT, TARGET_EYE_DIST_FRAC,
+} from '../utils/skinZones';
 import SkinSegmentationModule from '../../modules/skin-segmentation/src/SkinSegmentationModule';
 import { detectFacesInFrame, type DetectedFace } from '../../modules/mediapipe-face-landmarker/src';
 
@@ -164,11 +169,11 @@ type FaceRegion = { x: number; y: number; width: number; height: number };
 // already-visible "Checking your photo…" step, not per-frame on a live
 // stream, so the ~100–300ms extra cost is invisible while the more precise
 // bounding box directly improves the crop Gemini actually analyzes.
-function detectFaceRegion(detector: ReturnType<typeof useImageFaceDetector>, uri: string, imgWidth: number, imgHeight: number, mirrored: boolean): { faceRegion: FaceRegion | null; noFaceDetected: boolean; zoneMarkers: StoredZoneMarkers | null } {
-  if (Platform.OS === 'web' || !imgWidth || !imgHeight) return { faceRegion: null, noFaceDetected: false, zoneMarkers: null };
+function detectFaceRegion(detector: ReturnType<typeof useImageFaceDetector>, uri: string, imgWidth: number, imgHeight: number, mirrored: boolean): { faceRegion: FaceRegion | null; noFaceDetected: boolean; zoneMarkers: StoredZoneMarkers | null; rawPoints: RawFacialPoints | null } {
+  if (Platform.OS === 'web' || !imgWidth || !imgHeight) return { faceRegion: null, noFaceDetected: false, zoneMarkers: null, rawPoints: null };
   try {
     const faces = detector.detectFaces(uri);
-    if (!faces || faces.length === 0) return { faceRegion: null, noFaceDetected: true, zoneMarkers: null };
+    if (!faces || faces.length === 0) return { faceRegion: null, noFaceDetected: true, zoneMarkers: null, rawPoints: null };
 
     // Largest face wins — guards against a photo/poster in the background
     // being picked over the real subject.
@@ -221,7 +226,7 @@ function detectFaceRegion(detector: ReturnType<typeof useImageFaceDetector>, uri
     const plausible = aspect > 0.45 && aspect < 1.6 && region.width < 0.85;
     if (!plausible) {
       console.warn('[SkinScanCamera] rejected implausible face detection', region);
-      return { faceRegion: null, noFaceDetected: false, zoneMarkers: null };
+      return { faceRegion: null, noFaceDetected: false, zoneMarkers: null, rawPoints: null };
     }
 
     // Same expanded "beauty crop" box as `region` above, just still in
@@ -292,7 +297,7 @@ function detectFaceRegion(detector: ReturnType<typeof useImageFaceDetector>, uri
       console.log('[SkinScanCamera] deriveZoneMarkers result (zones absent here get NO photo marker at all, never a guess)', derived);
     }
 
-    return { faceRegion: region, noFaceDetected: false, zoneMarkers };
+    return { faceRegion: region, noFaceDetected: false, zoneMarkers, rawPoints: points };
   } catch (err) {
     // Web already returned early above, so reaching here means a native
     // build — genuinely not linked (an update from before this module was
@@ -302,7 +307,68 @@ function detectFaceRegion(detector: ReturnType<typeof useImageFaceDetector>, uri
     // indistinguishable from "not linked" with nothing to go on from a bug
     // report alone.
     console.warn('[SkinScanCamera] detectFaces threw', err instanceof Error ? err.message : err);
-    return { faceRegion: null, noFaceDetected: false, zoneMarkers: null };
+    return { faceRegion: null, noFaceDetected: false, zoneMarkers: null, rawPoints: null };
+  }
+}
+
+// Applies a SimilarityTransform (skinZones.ts: level the eye line, scale to
+// the target inter-eye distance, crop the eyes to a fixed canvas position —
+// see that file's own header comment) to one photo, via expo-image-
+// manipulator's rotate/resize/crop — the same already-installed, already-
+// proven-on-device library ImageCropper.tsx uses elsewhere in this app for
+// its own crop tool, no new native dependency.
+//
+// Deliberately TWO manipulate() calls, not one chained pipeline: the crop
+// rect for the second step depends on the REAL, MEASURED post-rotation
+// canvas size (rotatedSaved.width/height below), not an assumed one — see
+// rotatePointAroundCenter's own comment on why trusting an unverified
+// assumption about the library's rotation-canvas-expansion behavior isn't
+// good enough here. Paying for one extra intermediate save/read is a small,
+// bounded cost next to shipping a silently-wrong crop.
+//
+// Returns null on ANY failure (a thrown manipulation call, or the scaled
+// image coming out smaller than the output canvas — computeCropRect's own
+// bail-out) — the caller falls back to the original, unaligned photo rather
+// than ever trying to patch a partial/uncertain result together.
+async function applySimilarityTransform(uri: string, width: number, height: number, transform: SimilarityTransform): Promise<{ uri: string; width: number; height: number; base64: string } | null> {
+  try {
+    // manipulateAsync (the free function), not the newer contextual
+    // ImageManipulator.manipulate(...).renderAsync() API — matching the
+    // exact call shape ImageCropper.tsx already uses elsewhere in this app
+    // for its own crop tool, real proven precedent rather than a fresh,
+    // unverified corner of this library's API surface.
+    const rotated = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ rotate: transform.correctionDeg }],
+      { compress: 0.95, format: ImageManipulator.SaveFormat.JPEG }
+    );
+    const rotW = rotated.width;
+    const rotH = rotated.height;
+    if (!rotW || !rotH) return null;
+
+    const midEyeRotated = rotatePointAroundCenter(transform.midEye, width, height, rotW, rotH, transform.correctionDeg);
+    const targetEyeDistPx = TARGET_EYE_DIST_FRAC * ALIGN_OUTPUT_WIDTH;
+    const scale = targetEyeDistPx / transform.eyeDist;
+    const scaledW = Math.round(rotW * scale);
+    const scaledH = Math.round(rotH * scale);
+    const scaledMidEye = { x: midEyeRotated.x * scale, y: midEyeRotated.y * scale };
+
+    const cropRect = computeCropRect(scaledMidEye, scaledW, scaledH);
+    if (!cropRect) {
+      console.warn('[SkinScanCamera] alignment bailed: scaled image smaller than target output canvas', { scaledW, scaledH, ALIGN_OUTPUT_WIDTH, ALIGN_OUTPUT_HEIGHT });
+      return null;
+    }
+
+    const final = await ImageManipulator.manipulateAsync(
+      rotated.uri,
+      [{ resize: { width: scaledW, height: scaledH } }, { crop: cropRect }],
+      { compress: 0.92, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+    );
+    if (!final.base64) return null;
+    return { uri: final.uri, width: final.width, height: final.height, base64: final.base64 };
+  } catch (err) {
+    console.warn('[SkinScanCamera] applySimilarityTransform failed', err instanceof Error ? err.message : err);
+    return null;
   }
 }
 
@@ -319,7 +385,7 @@ interface Props {
   previousScan?: SkinScan | null;
   // Set only when this capture is an ADDITIONAL angle of an existing scan
   // session (see schema.prisma's SkinScan.parentScanId), never for a
-  // normal new scan — passed straight through to apiScanSkin so the
+  // normal new scan — passed straight through to apiScanSkinStart so the
   // backend skips face-matching (already known) and files this angle
   // under the same profile/session instead of starting a new one.
   parentScanId?: string;
@@ -764,7 +830,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   const [lightingOutput, setLightingOutput] = useState<CameraFrameOutput | null>(null);
 
   const [step, setStep] = useState<Step>('camera');
-  const [shot, setShot] = useState<{ uri: string; base64: string; mimeType: string; faceRegion: FaceRegion | null; zoneMarkers: StoredZoneMarkers | null; skinMask: { base64: string; width: number; height: number } | null } | null>(null);
+  const [shot, setShot] = useState<{ uri: string; base64: string; mimeType: string; faceRegion: FaceRegion | null; zoneMarkers: StoredZoneMarkers | null; skinMask: { base64: string; width: number; height: number } | null; burstCandidates: string[]; aligned: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Which FAMILY of failure `error` belongs to — drives the reviewing-step
   // header/subtitle (see classifyScanError below). null means no submit()
@@ -1044,10 +1110,54 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       // a file — saved to a temp file, then read back as base64 the same way
       // shareLook.ts/exportSkinHistory.ts already do elsewhere in this app,
       // rather than hand-rolling an ArrayBuffer→base64 encoder.
-      photo = await photoOutput.capturePhoto({ flashMode: 'off' }, {});
-      const tempPath = await photo.saveToTemporaryFileAsync();
-      const uri = tempPath.startsWith('file://') ? tempPath : `file://${tempPath}`;
-      const base64 = await FileSystem.readAsStringAsync(uri, { encoding: 'base64' });
+      //
+      // Captures BURST_FRAME_COUNT frames in quick succession under the SAME
+      // lock acquired just above — no re-locking between shots, so these
+      // really are "3 locked-exposure frames," not 3 independently
+      // auto-exposed captures that happen to land close together in time.
+      // The backend (routes/skin.js) scores all of them for sharpness
+      // (src/utils/photoQuality.js, reusing skinHeatmaps.js's own Laplacian
+      // code) and analyzes whichever is actually sharpest — so only the
+      // FIRST frame's file is kept around here and run through the on-device
+      // face-detection/segmentation pipeline below. That's safe even when
+      // the backend ends up picking a LATER frame: zoneMarkers are stored as
+      // 0-1 fractions of the photo (skinZones.ts's deriveZoneMarkers), not
+      // raw pixel coordinates, and all 3 frames share the same locked
+      // framing/exposure/dimensions from a sub-second burst, so the
+      // fractions still line up regardless of which frame wins server-side.
+      // Each Photo is a native Nitro object and is disposed the instant its
+      // base64 has been read out — this function's own header comment
+      // explains why an undisposed Photo left for GC finalization is a real
+      // crash, and that risk only grows by holding 3 of them instead of 1.
+      const BURST_FRAME_COUNT = 3;
+      let primaryUri = '';
+      let primaryMirrored = false;
+      let primaryWidth = 0;
+      let primaryHeight = 0;
+      let primaryOrientation: Photo['orientation'] | undefined;
+      const frameBase64s: string[] = [];
+      // Every frame's own temp-file URI is kept (not just the primary's) —
+      // Stage 6 alignment (below) needs a real URI per frame to re-apply the
+      // SAME computed transform to frames 1/2, not just the primary.
+      const frameUris: string[] = [];
+      for (let i = 0; i < BURST_FRAME_COUNT; i++) {
+        photo = await photoOutput.capturePhoto({ flashMode: 'off' }, {});
+        const tempPath = await photo.saveToTemporaryFileAsync();
+        const frameUri = tempPath.startsWith('file://') ? tempPath : `file://${tempPath}`;
+        const frameBase64 = await FileSystem.readAsStringAsync(frameUri, { encoding: 'base64' });
+        frameBase64s.push(stripDataUrlPrefix(frameBase64));
+        frameUris.push(frameUri);
+        if (i === 0) {
+          primaryUri = frameUri;
+          primaryMirrored = photo.isMirrored;
+          primaryWidth = photo.width;
+          primaryHeight = photo.height;
+          primaryOrientation = photo.orientation;
+        }
+        photo.dispose();
+        photo = null;
+      }
+      const uri = primaryUri;
       // See getImageSize's own comment — this reads the SAME saved file the
       // native detector reads, instead of guessing at photo.width/height's
       // relationship to it.
@@ -1078,15 +1188,15 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       // LEFT_EYE points actually land on in THIS photo — see
       // deriveZoneMarkers' own comment for why that swap can't just be
       // assumed from vision-camera's typical capture defaults.
-      const { faceRegion, noFaceDetected, zoneMarkers } = detectFaceRegion(imageFaceDetector, uri, imgWidth, imgHeight, photo.isMirrored);
+      const { faceRegion, noFaceDetected, zoneMarkers, rawPoints } = detectFaceRegion(imageFaceDetector, uri, imgWidth, imgHeight, primaryMirrored);
       if (__DEV__) {
         console.log('[SkinScanCamera] detectFaceRegion result', {
-          imgWidth, imgHeight, photoWidth: photo.width, photoHeight: photo.height, photoOrientation: photo.orientation,
+          imgWidth, imgHeight, photoWidth: primaryWidth, photoHeight: primaryHeight, photoOrientation: primaryOrientation,
           faceRegion, noFaceDetected, zoneMarkerKeys: zoneMarkers ? Object.keys(zoneMarkers) : null,
         });
       }
       const segmentation = await segmentationPromise;
-      const skinMask = segmentation?.personDetected && segmentation.maskBase64
+      const originalSkinMask = segmentation?.personDetected && segmentation.maskBase64
         ? { base64: segmentation.maskBase64, width: segmentation.maskWidth, height: segmentation.maskHeight }
         : null;
       if (__DEV__) {
@@ -1097,7 +1207,84 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
           hasFaceLandmarks: !!segmentation?.faceLandmarks,
         });
       }
-      const newShot = { uri, base64: stripDataUrlPrefix(base64), mimeType: 'image/jpeg', faceRegion, zoneMarkers, skinMask };
+
+      // Stage 6 — face alignment. Starts from the SAME landmark points
+      // detectFaceRegion just derived (no extra detector call for this
+      // side); every step below is a real, checked guard, not an
+      // optimistic assumption — a miss at any point falls straight through
+      // to the existing unaligned path with a clear console.warn explaining
+      // why, never a silent half-applied transform.
+      let alignedResult: { uri: string; base64: string; faceRegion: FaceRegion | null; zoneMarkers: StoredZoneMarkers | null; burstCandidates: string[] } | null = null;
+      if (!noFaceDetected && rawPoints) {
+        const anchors = extractEyeNoseAnchors(rawPoints, primaryMirrored);
+        const transform = anchors && noseSanityGate(anchors) ? computeSimilarityTransform(anchors) : null;
+        if (!anchors) {
+          if (__DEV__) console.log('[SkinScanCamera] alignment skipped: no usable eye/nose landmarks on this detection');
+        } else if (!noseSanityGate(anchors)) {
+          console.warn('[SkinScanCamera] alignment skipped: noseSanityGate rejected the landmark geometry', anchors);
+        } else if (!transform) {
+          console.warn('[SkinScanCamera] alignment skipped: degenerate eye distance', anchors);
+        } else {
+          const alignedPrimary = await applySimilarityTransform(uri, imgWidth, imgHeight, transform);
+          if (!alignedPrimary) {
+            console.warn('[SkinScanCamera] alignment skipped: applySimilarityTransform failed on primary frame');
+          } else {
+            const redetected = detectFaceRegion(imageFaceDetector, alignedPrimary.uri, alignedPrimary.width, alignedPrimary.height, primaryMirrored);
+            const redetectedAnchors = !redetected.noFaceDetected && redetected.rawPoints ? extractEyeNoseAnchors(redetected.rawPoints, primaryMirrored) : null;
+            const sanity = redetectedAnchors ? checkAlignmentSanity(redetectedAnchors) : null;
+            if (!redetectedAnchors) {
+              console.warn('[SkinScanCamera] alignment sanity check failed: could not re-detect eyes on the aligned photo', { noFaceDetected: redetected.noFaceDetected });
+            } else if (!sanity?.ok) {
+              console.warn('[SkinScanCamera] alignment sanity check failed, discarding transform', sanity?.reason, { measured: sanity?.measured, expected: sanity?.expected });
+            } else {
+              if (__DEV__) console.log('[SkinScanCamera] alignment sanity check PASSED', { measured: sanity.measured, expected: sanity.expected });
+              // Same locked-exposure burst, captured within a sub-second
+              // window (see the capture loop's own comment) — the SAME
+              // transform parameters are reapplied to frames 1/2 rather
+              // than re-deriving landmarks a second and third time. A
+              // secondary frame that individually fails to transform just
+              // falls back to ITS OWN unaligned base64 rather than
+              // failing the whole burst over one frame.
+              const otherAligned = await Promise.all(
+                frameUris.slice(1).map(async (u, idx) => {
+                  const res = await applySimilarityTransform(u, imgWidth, imgHeight, transform);
+                  if (!res) console.warn(`[SkinScanCamera] alignment failed on burst frame ${idx + 1}, using its unaligned capture instead`);
+                  return res?.base64 ?? frameBase64s[idx + 1];
+                })
+              );
+              alignedResult = {
+                uri: alignedPrimary.uri,
+                base64: alignedPrimary.base64,
+                faceRegion: redetected.faceRegion,
+                zoneMarkers: redetected.zoneMarkers,
+                burstCandidates: otherAligned,
+              };
+            }
+          }
+        }
+      }
+
+      // skinMask was computed against the ORIGINAL (unaligned) primary
+      // photo's own pixel geometry — reusing it against an aligned photo
+      // (different rotation/scale/crop) would silently mismatch the mask to
+      // the image it's meant to occlude-check. Rather than also transforming
+      // the mask (real extra complexity for a secondary signal), an aligned
+      // scan sends no mask at all — buildMasks (skinHeatmaps.js) already
+      // has a proven, graceful fallback to ellipse-only occlusion handling
+      // for exactly this "no mask" case, so this costs some occlusion
+      // precision on an aligned scan, never correctness.
+      const finalUri = alignedResult?.uri ?? uri;
+      const finalBase64 = alignedResult?.base64 ?? frameBase64s[0];
+      const finalFaceRegion = alignedResult?.faceRegion ?? faceRegion;
+      const finalZoneMarkers = alignedResult?.zoneMarkers ?? zoneMarkers;
+      const finalSkinMask = alignedResult ? null : originalSkinMask;
+      const finalBurstCandidates = alignedResult?.burstCandidates ?? frameBase64s.slice(1);
+      // alignedResult is only ever set inside the `!noFaceDetected` branch
+      // above, so noFaceDetected itself already reflects the right value in
+      // both the aligned and fallback cases — no separate "final" variant
+      // needed here.
+
+      const newShot = { uri: finalUri, base64: finalBase64, mimeType: 'image/jpeg', faceRegion: finalFaceRegion, zoneMarkers: finalZoneMarkers, skinMask: finalSkinMask, burstCandidates: finalBurstCandidates, aligned: !!alignedResult };
       setShot(newShot);
       setNoFaceWarning(noFaceDetected);
       setDetectingFace(false);
@@ -1132,60 +1319,41 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
     setCapturing(false);
   }
 
-  // The real analysis is one request/response — Gemini doesn't hand back
-  // incremental progress — but showing it as a flat single spinner made the
-  // "actually scan a face" step invisible, like a black box. Staged reveals
-  // on a timer (a standard pattern for AI operations without real granular
-  // progress — the API is one request/response, not a stream, so there's
-  // no real per-stage signal to attach to) mirror what's genuinely
-  // happening in order: the photo really is checked for a face before
-  // tone/type/concerns are ever read from it, and texture/pores/redness/
-  // shine/wrinkles really are what the backend's heatmap engine computes
-  // (see src/utils/skinHeatmaps.js) — that sequencing and vocabulary are
-  // real, it's just the on-screen PACING that's simulated rather than
-  // tied to actual milestones from the API.
-  //
-  // Spread across ~9s (not the old 2.6s) specifically because a real
-  // Gemini call commonly runs several seconds and can run past 30s under
-  // load (see routes/skin.js's own comment on production timings up to
-  // ~36s) — the old 3-stage version topped out at 2.6s and then sat
-  // static on "Writing your results…" for however much longer the real
-  // wait was, which is exactly the "feels frozen" problem being fixed
-  // here. The LAST stage is deliberately sticky (no further timeout) —
-  // once reached, copy stays put until the real response actually lands,
-  // rather than looping or fabricating a further stage with nothing to
-  // legitimately point at.
-  const ANALYZING_STAGES = [
-    'Reading your photo…',
-    'Detecting your face…',
-    'Checking skin tone & hydration…',
-    'Analyzing pores, texture & dryness…',
-    'Checking for redness, dark spots & blemishes…',
-    'Tracing fine lines & wrinkles…',
-    'Writing your personalized recommendations…',
-  ];
-  const [analyzingStage, setAnalyzingStage] = useState(0);
-  useEffect(() => {
-    if (step !== 'analyzing') { setAnalyzingStage(0); return; }
-    const delays = [900, 2000, 3400, 5000, 6600, 8500]; // ms from entering this step to reaching stage i+1
-    const timers = delays.map((ms, i) => setTimeout(() => setAnalyzingStage(i + 1), ms));
-    return () => timers.forEach(clearTimeout);
-  }, [step]);
-  // Real elapsed seconds since entering this step — NOT a fabricated extra
-  // stage (the sticky last stage above is deliberately final; there's no
-  // real per-stage signal past it to attach one to, same reasoning as
-  // ANALYZING_STAGES' own comment). A genuinely slow-but-still-working
-  // request (Gemini's own 25s ceiling, on top of the concurrent upload/
-  // reference-photo-fetch overhead — see routes/skin.js) reads as identical
-  // to a hang once the last stage stops moving; ticking real elapsed time is
-  // an honest "this is still going," not a fake progress claim.
+  // Real backend stage, not a client-side timer guess — set from actual
+  // POST /skin/scan/jobs/:jobId/status polls in submit() below (see
+  // routes/skin.js's runScanPipeline, the one place these are actually
+  // reported from). null before the first successful poll lands. The OLD
+  // version of this file staged a fixed 7-line script on a hardcoded
+  // millisecond schedule ("a standard pattern for AI operations without
+  // real granular progress... it's just the on-screen PACING that's
+  // simulated") — that's exactly what this replaces: the pipeline now has
+  // real, verifiable stage transitions to show instead of a guess.
+  const [scanStage, setScanStage] = useState<ScanJobStage | null>(null);
+  const STAGE_ORDER: ScanJobStage[] = ['scoring_sharpness', 'preparing_photo', 'analyzing', 'saving'];
+  const STAGE_LABELS: Record<ScanJobStage, string> = {
+    scoring_sharpness: 'Checking sharpness…',
+    preparing_photo: 'Preparing your photo…',
+    analyzing: 'Reading your skin…',
+    saving: 'Saving your results…',
+  };
+  const scanStageIndex = scanStage ? STAGE_ORDER.indexOf(scanStage) : -1;
+  // Real elapsed seconds, but scoped to ONLY the 'analyzing' stage (the
+  // Gemini call) — the one stage that's genuinely a single external
+  // request/response with no sub-progress to report, same as the OLD
+  // ticker's own reasoning, just correctly scoped now that the OTHER
+  // stages (sharpness scoring, photo prep, saving) have real signals of
+  // their own instead of sharing this one fallback. A genuinely slow-but-
+  // working Gemini call (its own 25s ceiling, longer under load — see
+  // routes/skin.js) reads as identical to a hang once the label stops
+  // moving; ticking real elapsed time here is an honest "this is still
+  // going," never a fake progress claim.
   const [analyzingElapsedSec, setAnalyzingElapsedSec] = useState(0);
   useEffect(() => {
-    if (step !== 'analyzing') { setAnalyzingElapsedSec(0); return; }
+    if (scanStage !== 'analyzing') { setAnalyzingElapsedSec(0); return; }
     const startedAt = Date.now();
     const id = setInterval(() => setAnalyzingElapsedSec(Math.floor((Date.now() - startedAt) / 1000)), 1000);
     return () => clearInterval(id);
-  }, [step]);
+  }, [scanStage]);
   // Short crossfade (~200ms) between stage labels instead of the text
   // snapping instantly — same short-motion language the rest of the app
   // uses for state changes (e.g. the framing tips above fade the same way).
@@ -1193,7 +1361,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   useEffect(() => {
     analyzingTextFade.setValue(0);
     Animated.timing(analyzingTextFade, { toValue: 1, duration: 200, useNativeDriver: true }).start();
-  }, [analyzingStage, analyzingTextFade]);
+  }, [scanStage, analyzingTextFade]);
 
   // Takes the just-captured shot directly rather than reading it off state —
   // called immediately from shoot() the instant on-device detection confirms
@@ -1207,17 +1375,78 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
     setStep('analyzing');
     setError(null);
     setErrorKind(null);
+    setScanStage(null);
+    // Same overall ceiling the old single-request version enforced via its
+    // own AbortController timeout (see apiScanSkin's own comment on why
+    // 70s, not 60s) — additive to the loading experience here, not a
+    // replacement for it: a scan that's still genuinely processing past
+    // this point surfaces the exact same timeout/error UI it always has,
+    // just reached by a deadline check in the polling loop below instead
+    // of one fetch's own abort signal.
+    const POLL_INTERVAL_MS = 1500;
+    const deadline = Date.now() + 70_000;
     try {
-      const { scan, bookCategory, isNewProfile } = await apiScanSkin({
+      const started = await apiScanSkinStart({
         photoBase64: shotToSubmit.base64,
         mimeType: shotToSubmit.mimeType,
         faceRegion: shotToSubmit.faceRegion || undefined,
         zoneMarkers: shotToSubmit.zoneMarkers || undefined,
         skinMask: shotToSubmit.skinMask || undefined,
+        burstCandidates: shotToSubmit.burstCandidates.length ? shotToSubmit.burstCandidates : undefined,
+        aligned: shotToSubmit.aligned,
         parentScanId,
       });
-      reset();
-      onComplete(scan, bookCategory, isNewProfile);
+
+      // Older backend answered synchronously with the whole scan — nothing
+      // to poll, it's already done. Same completion path as a finished job.
+      if (started.immediate) {
+        reset();
+        onComplete(started.immediate.scan, started.immediate.bookCategory, started.immediate.isNewProfile);
+        return;
+      }
+      const jobId = started.jobId;
+
+      let consecutivePollFailures = 0;
+      for (;;) {
+        if (Date.now() >= deadline) {
+          const e: any = new Error('Connection timed out. Check your internet connection.');
+          e.code = 'TIMEOUT';
+          throw e;
+        }
+        let poll;
+        try {
+          poll = await apiGetScanJobStatus(jobId);
+          consecutivePollFailures = 0;
+        } catch (pollErr: any) {
+          // A single dropped POLL doesn't mean the scan itself failed — the
+          // job keeps running server-side regardless of whether this one
+          // status check made it through. Only give up after several
+          // consecutive misses (a real, sustained connectivity problem,
+          // not one blip), and even then still bounded by the deadline
+          // above, not by this count alone.
+          consecutivePollFailures++;
+          if (consecutivePollFailures >= 4) throw pollErr;
+          await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+          continue;
+        }
+        if (poll.status === 'processing') {
+          setScanStage(poll.stage);
+        } else if (poll.status === 'done') {
+          reset();
+          onComplete(poll.scan, poll.bookCategory, poll.isNewProfile);
+          return;
+        } else {
+          // status === 'error' — a real, terminal failure the backend
+          // discovered INSIDE the job (QC rejection, no face detected,
+          // upload failure, unexpected server error) — same {error, code}
+          // shape classifyScanError below already handles for a direct
+          // transport-level throw, so it's reconstructed as one here too.
+          const e: any = new Error(poll.error);
+          if (poll.code) e.code = poll.code;
+          throw e;
+        }
+        await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+      }
     } catch (err: any) {
       // The raw err.message is ALWAYS logged (for debugging/crash
       // reporting) but only ever reaches the screen through
@@ -1895,23 +2124,30 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
             <SparkleIcon size={40} color={Colors.brand} />
             <ActivityIndicator size="large" color={Colors.brand} style={{ marginTop: 20 }} />
             <Animated.Text style={[styles.analyzingText, { opacity: analyzingTextFade }]}>
-              {ANALYZING_STAGES[analyzingStage]}
+              {scanStage ? STAGE_LABELS[scanStage] : 'Starting your scan…'}
             </Animated.Text>
+            {/* Four rows, one per REAL backend stage (scoring_sharpness ->
+                preparing_photo -> analyzing -> saving — see routes/skin.js's
+                runScanPipeline) — not sub-steps invented inside any one of
+                them. 'analyzing' (the Gemini call) genuinely has no further
+                sub-progress to report, so it stays a single row here, same
+                as every other stage; the elapsed-time fallback below is
+                what covers a long wait WITHIN it, not a fake extra step. */}
             <View style={styles.analyzingSteps}>
-              <AnalyzingStepRow label="Face detected" done={analyzingStage >= 1} />
-              <AnalyzingStepRow label="Tone, type & hydration read" done={analyzingStage >= 3} active={analyzingStage >= 1 && analyzingStage < 3} />
-              <AnalyzingStepRow label="Pores, texture, redness, dark spots & fine lines checked" done={analyzingStage >= 6} active={analyzingStage >= 3 && analyzingStage < 6} />
-              <AnalyzingStepRow label="Personalized recommendations" done={false} active={analyzingStage >= 6} />
+              <AnalyzingStepRow label="Checking sharpness" done={scanStageIndex > 0} active={scanStageIndex === 0} />
+              <AnalyzingStepRow label="Preparing your photo" done={scanStageIndex > 1} active={scanStageIndex === 1} />
+              <AnalyzingStepRow label="Reading your skin" done={scanStageIndex > 2} active={scanStageIndex === 2} />
+              <AnalyzingStepRow label="Saving your results" done={false} active={scanStageIndex === 3} />
             </View>
-            {/* Only past the point the fixed-delay stages above stop moving
-                (analyzingStage reaches its last, sticky index at 8.5s — see
-                ANALYZING_STAGES' own effect) AND only once it's been long
-                enough that a real user would start to wonder — a real,
-                ticking number instead of a static spinner, so a genuinely
-                slow-but-working request (see this effect's own comment on
-                why this can legitimately run past a minute) doesn't read
-                identically to a hang. */}
-            {analyzingStage >= ANALYZING_STAGES.length - 1 && analyzingElapsedSec >= 12 && (
+            {/* Only during the one stage that's genuinely a single opaque
+                external call (Gemini) with nothing further to report, and
+                only once it's run long enough that a real user would start
+                to wonder — a real, ticking number instead of a static
+                spinner, so a genuinely slow-but-working request (see
+                analyzingElapsedSec's own comment on why this can
+                legitimately run past a minute) doesn't read identically to
+                a hang. */}
+            {scanStage === 'analyzing' && analyzingElapsedSec >= 12 && (
               <Text style={styles.analyzingStillWorking}>Still working — a thorough read can take up to a minute ({analyzingElapsedSec}s)…</Text>
             )}
           </View>

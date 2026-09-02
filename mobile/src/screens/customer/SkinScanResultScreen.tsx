@@ -16,7 +16,7 @@
  * (`scan.heatmaps` null) shows no tabs at all — Summary only — rather than
  * four tabs that can only ever say "not assessed."
  */
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -42,8 +42,8 @@ import { CloseCircleIcon, SearchIcon } from '../../components/TabIcons';
 // iOS/Android photo viewers use natively. contentContainerStyle sizes the
 // image at exactly its real aspect ratio (passed in, not re-measured) so
 // zoom math has real dimensions to work from, not a percentage.
-function ZoomablePhotoModal({ visible, photoUrl, overlayUrl, aspect, onClose, onShare }: {
-  visible: boolean; photoUrl: string; overlayUrl?: string | null; aspect: number; onClose: () => void; onShare: () => void;
+function ZoomablePhotoModal({ visible, photoUrl, overlayUrl, overlayLabel, aspect, onClose, onShare }: {
+  visible: boolean; photoUrl: string; overlayUrl?: string | null; overlayLabel?: string | null; aspect: number; onClose: () => void; onShare: () => void;
 }) {
   const insets = useSafeAreaInsets();
   const { width: winW, height: winH } = useWindowDimensions();
@@ -91,7 +91,14 @@ function ZoomablePhotoModal({ visible, photoUrl, overlayUrl, aspect, onClose, on
         <Pressable style={[styles.zoomShareBtn, { top: insets.top + 12 }]} onPress={onShare} hitSlop={10}>
           <Text style={styles.zoomShareBtnText}>↗ Share</Text>
         </Pressable>
-        <Text style={[styles.zoomHint, { bottom: insets.bottom + 16 }]} pointerEvents="none">Pinch to zoom in on any area</Text>
+        {/* Names which concern's detection is actually drawn on the photo.
+            Without this the overlay is unlabeled colour — a user zooming in
+            from the Summary tab (where no single concern is selected) had no
+            way to know what the marks meant, or previously saw no marks at
+            all. */}
+        <Text style={[styles.zoomHint, { bottom: insets.bottom + 16 }]} pointerEvents="none">
+          {overlayLabel ? `Showing: ${overlayLabel} · pinch to zoom` : 'Pinch to zoom in on any area'}
+        </Text>
       </View>
     </Modal>
   );
@@ -252,6 +259,28 @@ export function SkinScanResultScreen() {
   // jump from nothing to something.
   const [photoAspect, setPhotoAspect] = useState(1080 / 1350);
   const [zoomOpen, setZoomOpen] = useState(false);
+
+  // What the magnifier actually draws over the photo. A scan OPENS on the
+  // Summary tab, and this used to pass `undefined` for exactly that case —
+  // so the single most common path (open a scan, immediately tap the
+  // magnifier) zoomed into a bare photo with none of the detection on it,
+  // which read as "the magnifier just makes the face bigger." On Summary it
+  // now falls back to this scan's WORST concern (the one the summary is
+  // really about), and the modal names whichever concern is being shown so
+  // the colour is never unexplained. Only ever a concern that genuinely has
+  // a rendered overlay URL — never a fabricated or empty one.
+  const zoomOverlay = useMemo(() => {
+    const hm = scan.heatmaps;
+    if (!hm) return { overlayUrl: undefined, overlayLabel: undefined };
+    if (activeTab !== 'summary') {
+      const c = hm[activeTab];
+      return c?.url ? { overlayUrl: c.url, overlayLabel: c.tabLabel || c.label } : { overlayUrl: undefined, overlayLabel: undefined };
+    }
+    const worst = Object.values(hm)
+      .filter((c): c is NonNullable<typeof c> => !!c?.url)
+      .sort((a, b) => b.severity - a.severity)[0];
+    return worst ? { overlayUrl: worst.url, overlayLabel: worst.tabLabel || worst.label } : { overlayUrl: undefined, overlayLabel: undefined };
+  }, [scan.heatmaps, activeTab]);
 
   function goBack() {
     if (justScanned) nav.navigate('Home', { screen: 'MySpaceTab' });
@@ -582,7 +611,7 @@ export function SkinScanResultScreen() {
       <ZoomablePhotoModal
         visible={zoomOpen}
         photoUrl={scan.photoUrl}
-        overlayUrl={activeTab !== 'summary' ? scan.heatmaps?.[activeTab]?.url : undefined}
+        {...zoomOverlay}
         aspect={photoAspect}
         onClose={() => setZoomOpen(false)}
         onShare={() => { setZoomOpen(false); shareProgress(); }}

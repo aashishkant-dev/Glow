@@ -352,7 +352,24 @@ export function MySpaceScreen() {
                 <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={{ gap: 10, paddingHorizontal: 20 }}>
                   {history.map(scan => (
                     <Pressable key={scan.id} style={styles.historyTile} onPress={() => { tapLight(); skipNextAutoOpen.current = true; nav.navigate('SkinScanResult', { scan }); }}>
-                      <Image source={{ uri: scan.photoUrl }} style={styles.historyTileImg} contentFit="cover" />
+                      <View style={styles.historyTileImgWrap}>
+                        <Image source={{ uri: scan.photoUrl }} style={styles.historyTileImg} contentFit="cover" />
+                        {/* photoAligned=false means this exact photo didn't
+                            get SkinScanCamera's pose/scale normalization —
+                            pre-alignment history, or a capture whose
+                            alignment attempt bailed (see schema.prisma's
+                            SkinScan.photoAligned). A quiet corner dot, not a
+                            blocking warning: the scan itself is still fully
+                            valid, it just may not line up frame-for-frame
+                            with the rest of this rail the way aligned scans
+                            do against each other. */}
+                        {!scan.photoAligned && (
+                          <View
+                            style={styles.historyTileUnalignedDot}
+                            accessibilityLabel="This photo's framing may differ slightly from your other scans"
+                          />
+                        )}
+                      </View>
                       <Text style={styles.historyTileDate}>{formatRelativeTime(scan.createdAt)}</Text>
                     </Pressable>
                   ))}
@@ -606,7 +623,12 @@ const styles = StyleSheet.create({
   recNote: { fontSize: 12.5, fontFamily: Fonts.regular, color: Colors.secondaryLabel, marginTop: 3, lineHeight: 18 },
 
   historyTile: { width: 90, gap: 6 },
-  historyTileImg: { width: 90, height: 110, borderRadius: 16, backgroundColor: Colors.brandLight },
+  historyTileImgWrap: { width: 90, height: 110, borderRadius: 16, overflow: 'hidden', backgroundColor: Colors.brandLight },
+  historyTileImg: { width: 90, height: 110 },
+  historyTileUnalignedDot: {
+    position: 'absolute', top: 6, right: 6, width: 9, height: 9, borderRadius: 4.5,
+    backgroundColor: Colors.tertiaryLabel, borderWidth: 1.5, borderColor: '#fff',
+  },
   historyTileDate: { fontSize: 11, fontFamily: Fonts.medium, color: Colors.tertiaryLabel, textAlign: 'center' },
 
   reminderRow: {
