@@ -31,7 +31,7 @@ const HEURISTIC_KEY_MAP = { pores: 'pore', wrinkles: 'wrinkle', texture: 'textur
 // skinConcernContent.js, so the copy a user reads is identical regardless
 // of which engine produced the severity number underneath it. `maskUrl` is
 // already the uploaded (our own blob storage) URL by the time this runs.
-function buildConcernRecord(key, { severity, maskUrl, confidence, source, rawScore, uiScore, zoneBreakdown }) {
+function buildConcernRecord(key, { severity, maskUrl, confidence, source, rawScore, uiScore, zoneBreakdown, overlay }) {
   const content = CONCERN_CONTENT[key];
   const band = severityBand(severity);
   const record = {
@@ -55,6 +55,13 @@ function buildConcernRecord(key, { severity, maskUrl, confidence, source, rawSco
     // placed, never a guess — the UI treats an empty array as "no
     // tappable zones for this concern," not an error.
     zoneBreakdown: zoneBreakdown || [],
+    // What the rendered PNG actually contains (skinHeatmaps.js's own
+    // measurement of its output, not a guess): how much of the assessed
+    // area carries visible colour, and for the discrete-finding concerns
+    // (blemishes, dark spots) how many marks were drawn. Optional —
+    // historical records predate it — and what overlayNoteFor below reads
+    // to keep the verdict text honest about an overlay that marks nothing.
+    ...(overlay ? { overlay } : {}),
     ...(rawScore != null ? { rawScore, uiScore } : {}),
   };
   // Validated at the exact point every concern record is generated —
@@ -89,12 +96,12 @@ async function logApiUsage({ endpoint, success, statusCode, errorCode, durationM
 // vendor API call at all. 'not_configured' as the reason isn't a misnomer:
 // its UI copy ("uses our free estimate model, not the full AI Skin
 // Diagnostic") stays accurate — this is simply the only tier there is now.
-async function getConcernAnalysis({ heuristicPixels, heuristicInfo, faceBox, zoneMarkers, userId, segMask }) {
-  return runHeuristicFallback({ heuristicPixels, heuristicInfo, faceBox, zoneMarkers, userId, reason: 'not_configured', segMask });
+async function getConcernAnalysis({ heuristicPixels, heuristicInfo, faceBox, faceBoxSource, zoneMarkers, faceLandmarks, userId, segMask }) {
+  return runHeuristicFallback({ heuristicPixels, heuristicInfo, faceBox, faceBoxSource, zoneMarkers, faceLandmarks, userId, reason: 'not_configured', segMask });
 }
 
-async function runHeuristicFallback({ heuristicPixels, heuristicInfo, faceBox, zoneMarkers, userId, reason, segMask }) {
-  const { concerns } = await generateHeatmaps({ buffer: heuristicPixels, info: heuristicInfo, faceBox, zoneMarkers, segMask }).catch((err) => {
+async function runHeuristicFallback({ heuristicPixels, heuristicInfo, faceBox, faceBoxSource, zoneMarkers, faceLandmarks, userId, reason, segMask }) {
+  const { concerns } = await generateHeatmaps({ buffer: heuristicPixels, info: heuristicInfo, faceBox, faceBoxSource, zoneMarkers, segMask, faceLandmarks }).catch((err) => {
     console.error('[skin] heuristic heatmap generation failed:', err.message);
     return { concerns: {} };
   });
@@ -109,6 +116,7 @@ async function runHeuristicFallback({ heuristicPixels, heuristicInfo, faceBox, z
       confidence: { level: concern.confidence.level, zoneFraction: concern.confidence.zoneFraction, pixelCount: concern.confidence.pixelCount },
       source: 'estimated',
       zoneBreakdown: concern.zoneBreakdown,
+      overlay: concern.overlay,
     });
   }
   // moisture/age_spot/acne now go through the same loop above as every
@@ -162,6 +170,30 @@ function mergeIvyIntoHeatmaps(heatmaps, ivy) {
     applied.push(concernKey);
   }
   return { heatmaps, ivyApplied: applied };
+}
+
+// The one honest sentence for the case the first on-device round hit on
+// Dark Spots: a concern whose verdict says something is there, over an
+// overlay that marks nothing. Two ways that happens, both real —
+//  - Ivy AI scored it from the whole photo (it returns no pixels at all —
+//    see mergeIvyIntoHeatmaps) while our own pixel map found nothing
+//    discrete enough to draw;
+//  - our own heuristic's band cleared "clear" on its p85 but no single
+//    finding passed the size/shape gate the renderer draws from.
+// Either way the user must not be left staring at a blank photo under a
+// "some spots are showing" line and wondering whether the tab even
+// worked. Reads the engine's own `overlay` measurement of the rendered
+// PNG (skinHeatmaps.js), so this can never disagree with what's actually
+// on screen. Historical records without that field get no note — nothing
+// is known about their PNGs, so nothing is claimed.
+function overlayNoteFor(record) {
+  if (!record?.overlay || record.band === 'clear') return null;
+  const { flaggedFraction, findings } = record.overlay;
+  const empty = findings != null ? findings === 0 : flaggedFraction < 0.002;
+  if (!empty) return null;
+  return record.source === 'ivyai'
+    ? 'Ivy AI rated this from the whole photo, but our pixel map found nothing distinct enough to mark on it — nothing is highlighted, not because there is nothing there, but because it could not be pinpointed.'
+    : 'Nothing in this area stood out enough from the surrounding skin to mark on the photo — the reading is real, but no single spot could be pinpointed.';
 }
 
 // Booking-category hand-off is always the same regardless of which analysis
@@ -375,6 +407,37 @@ function sanitizeZoneMarkers(raw) {
   return out;
 }
 
+// Client-computed ML Kit contour points for THIS photo (see mobile's
+// extractFaceLandmarks in skinZones.ts) — 0-1 fractions of the photo, same
+// space as faceBox/zoneMarkers. Purely analysis geometry for
+// skinHeatmaps.js's face mask + eye/brow/lip/nostril exclusions (see
+// exclusionGeometry there); never persisted, never fed to the vision
+// model. Sanitized the same way zoneMarkers is: unknown keys dropped, each
+// point must have finite x/y (clamped to 0-1), each list capped at a sane
+// length so a malformed client can't hand the pixel loop a million points.
+// Returns null when nothing usable was sent — the engine's own geometric
+// fallbacks then apply (older app, web, a detection missing a contour).
+const FACE_LANDMARK_KEYS = ['faceContour', 'leftEye', 'rightEye', 'leftEyebrow', 'rightEyebrow', 'noseBottom', 'upperLipTop', 'lowerLipBottom'];
+function sanitizeFaceLandmarks(raw) {
+  if (!raw || typeof raw !== 'object') return null;
+  const clamp01 = (v) => Math.min(1, Math.max(0, v));
+  const out = {};
+  let any = false;
+  for (const key of FACE_LANDMARK_KEYS) {
+    const pts = raw[key];
+    if (!Array.isArray(pts)) continue;
+    const clean = [];
+    for (const p of pts.slice(0, 64)) {
+      if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' || !Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+      clean.push({ x: clamp01(p.x), y: clamp01(p.y) });
+    }
+    if (clean.length === 0) continue;
+    out[key] = clean;
+    any = true;
+  }
+  return any ? out : null;
+}
+
 // Real, verified pipeline stages (this is what mobile SkinScanCamera.tsx's
 // step indicator now actually maps to, replacing its old client-side timer
 // guesses — see that file's own header comment): scoring_sharpness
@@ -393,7 +456,7 @@ function sanitizeZoneMarkers(raw) {
 // begins — a poll landing right after a report() call is observing a stage
 // that has genuinely already started, never one that's already finished or
 // hasn't begun yet.
-async function runScanPipeline({ userId, photoBase64, burstCandidates, faceRegion, sanitizedZoneMarkers, notes, parentScan, rawSkinMask, aligned }, report) {
+async function runScanPipeline({ userId, photoBase64, burstCandidates, faceRegion, sanitizedZoneMarkers, faceLandmarks, notes, parentScan, rawSkinMask, aligned }, report) {
   try {
     // Burst sharpness selection + captured-file QC — runs on whichever
     // frame(s) actually arrived. With no burstCandidates this still runs
@@ -528,7 +591,13 @@ async function runScanPipeline({ userId, photoBase64, burstCandidates, faceRegio
       heuristicPixels: heatmapPixels,
       heuristicInfo: heatmapInfo,
       faceBox,
+      // 'client' = the expanded ML Kit box the app detected for this photo
+      // (which skinHeatmaps.js's faceRegionMask knows how to un-expand back
+      // to the face oval); 'default' = resolveCropBox's blind centre-crop
+      // guess, where no such un-expansion is meaningful.
+      faceBoxSource: faceRegion && typeof faceRegion === 'object' ? 'client' : 'default',
       zoneMarkers: sanitizedZoneMarkers,
+      faceLandmarks,
       userId,
       segMask,
     });
@@ -660,6 +729,10 @@ async function runScanPipeline({ userId, photoBase64, burstCandidates, faceRegio
     // on a path that already works alone, never a dependency of it.
     const ivy = await ivyPromise;
     const { ivyApplied } = mergeIvyIntoHeatmaps(heatmaps, ivy);
+    for (const key of Object.keys(heatmaps)) {
+      const note = overlayNoteFor(heatmaps[key]);
+      if (note) heatmaps[key] = { ...heatmaps[key], overlayNote: note };
+    }
     if (ivyApplied.length) {
       console.log(`[skin] ivy AI severities applied to: ${ivyApplied.join(', ')} (acne always stays heuristic — vendor has no blemish metric)`);
     }
@@ -732,7 +805,7 @@ router.post(
   authenticate,
   async (req, res) => {
     try {
-      const { photoBase64, burstCandidates: rawBurstCandidates, mimeType = 'image/jpeg', faceRegion, zoneMarkers: rawZoneMarkers, notes, parentScanId, skinMask: rawSkinMask, aligned: rawAligned, async: wantsAsync } = req.body;
+      const { photoBase64, burstCandidates: rawBurstCandidates, mimeType = 'image/jpeg', faceRegion, zoneMarkers: rawZoneMarkers, faceLandmarks: rawFaceLandmarks, notes, parentScanId, skinMask: rawSkinMask, aligned: rawAligned, async: wantsAsync } = req.body;
       // True only when the CLIENT asserts photoBase64 is its own aligned
       // output (SkinScanCamera.tsx's Stage 6 pipeline) — coerced with ===
       // true rather than truthy so a stray non-boolean value can't slip
@@ -787,6 +860,7 @@ router.post(
       // real decode/upload/API cost on a scan that's going to get bounced
       // anyway.
       const sanitizedZoneMarkers = sanitizeZoneMarkers(rawZoneMarkers);
+      const faceLandmarks = sanitizeFaceLandmarks(rawFaceLandmarks);
 
       // A real signal (not a guess) that this specific photo is too
       // occluded/poorly angled/dark to give a confident read on almost
@@ -808,7 +882,7 @@ router.post(
         });
       }
 
-      const pipelineCtx = { userId: req.user.id, photoBase64, burstCandidates, faceRegion, sanitizedZoneMarkers, notes, parentScan, rawSkinMask, aligned };
+      const pipelineCtx = { userId: req.user.id, photoBase64, burstCandidates, faceRegion, sanitizedZoneMarkers, faceLandmarks, notes, parentScan, rawSkinMask, aligned };
 
       // Everything above this point is unavoidably synchronous either way —
       // it's cheap validation that can reject in milliseconds, so there's no

@@ -38,14 +38,14 @@ const { CONCERN_CONTENT } = require('./skinConcernContent');
 // the SAME zoneMarkers data anchors an old-style marker, if either side
 // were still using markers — kept identical on purpose.
 const ZONE_RECTS = {
-  forehead: { x: 0.22, y: 0.02, width: 0.56, height: 0.20 },
-  underEyeL: { x: 0.14, y: 0.26, width: 0.22, height: 0.09 },
-  underEyeR: { x: 0.64, y: 0.26, width: 0.22, height: 0.09 },
-  nose: { x: 0.42, y: 0.32, width: 0.16, height: 0.24 },
-  cheekL: { x: 0.02, y: 0.40, width: 0.26, height: 0.26 },
-  cheekR: { x: 0.72, y: 0.40, width: 0.26, height: 0.26 },
-  chin: { x: 0.36, y: 0.67, width: 0.28, height: 0.13 },
-  jawline: { x: 0.06, y: 0.82, width: 0.88, height: 0.12 },
+  forehead: { x: 0.22, y: 0.22, width: 0.56, height: 0.15 },
+  underEyeL: { x: 0.20, y: 0.49, width: 0.22, height: 0.08 },
+  underEyeR: { x: 0.58, y: 0.49, width: 0.22, height: 0.08 },
+  nose: { x: 0.42, y: 0.46, width: 0.16, height: 0.24 },
+  cheekL: { x: 0.14, y: 0.52, width: 0.26, height: 0.22 },
+  cheekR: { x: 0.60, y: 0.52, width: 0.26, height: 0.22 },
+  chin: { x: 0.36, y: 0.78, width: 0.28, height: 0.08 },
+  jawline: { x: 0.14, y: 0.83, width: 0.72, height: 0.06 },
 };
 const ZONE_KEYS = Object.keys(ZONE_RECTS);
 
@@ -136,6 +136,8 @@ function assessableZoneRects(faceBox, zoneMarkers) {
 // condition. Only computed when both anchors are present; a scan missing
 // either just doesn't get this specific exclusion (a residual gap, not a
 // crash) rather than guessing at a mouth position with no real anchor.
+// Superseded by the real lip contour when the client sends one (see
+// exclusionGeometry below) — this stays as the no-landmark fallback only.
 function mouthExclusionRect(zoneRects) {
   const nose = zoneRects.nose;
   const chin = zoneRects.chin;
@@ -148,58 +150,250 @@ function mouthExclusionRect(zoneRects) {
   return { x: cx - width / 2, y: top, width, height: bottom - top };
 }
 
-// Builds a per-pixel [0,1] mask (Float32Array, row-major, width*height) —
-// the union of every assessable zone's elliptical region — plus the same
-// mask restricted to WRINKLE_ZONES only. `zoneRects` values are already
-// full-photo 0-1 fractions (see assessableZoneRects).
+// ── Landmark-driven face region + exclusion geometry ────────────────────────
 //
-// `segMask` (optional, Float32Array width*height, 0-1, real per-pixel
-// person/skin confidence from modules/skin-segmentation — see that
-// module's iOS Vision-framework / Android ML Kit Selfie Segmentation
-// implementations) is what actually closes the "elliptical zone-based
-// exclusion" gap: the ellipse still decides WHICH named zone a pixel
-// belongs to (segmentation has no concept of "forehead" vs "chin" — only
-// "is this visible skin at all"), but a pixel now only counts as
-// assessable if it's BOTH inside an assessable zone's ellipse AND
-// confidently real skin per the real mask. Multiplied in, not a separate
-// AND/OR branch, so it degrades smoothly at a mask's own soft edges (a
-// hairline, the edge of a hand) instead of a hard cliff. Absent entirely
-// (undefined) on any scan without one — an older client, Android before
-// its own native module exists, or a failed native call — in which case
-// this behaves EXACTLY as before: the ellipse alone decides, no
-// regression for those scans.
-function buildMasks(width, height, zoneRects, segMask) {
+// Found on the first real on-device look at these overlays (see the
+// screenshots that drove this change): the zone ellipses alone were never a
+// hard "this is skin" constraint. Two concrete leaks —
+//   1. Neck/collar: `faceBox` is the client's EXPANDED ML Kit box (bottom
+//      pushed 25% of the face height below the chin, see SkinScanCamera's
+//      detectFaceRegion), so the chin/jawline zones — and, on the
+//      no-landmark proportional fallback, the whole lower band — sat on the
+//      neck. The segmentation mask couldn't catch it either: it is a PERSON
+//      mask (Vision's VNGeneratePersonSegmentationRequest / ML Kit selfie
+//      segmentation), and a neck and a shirt collar are "person" too.
+//   2. Eyes/brows: nothing ever carved the eye itself, the lids, or the
+//      eyebrows out of any zone, so eyelashes/brow hair (dark, high-contrast,
+//      linear) fed every DoG/Laplacian/Sobel detector as if it were skin.
+//
+// The client now sends the actual ML Kit contours for this photo
+// (`faceLandmarks`, 0-1 photo fractions — see mobile's extractFaceLandmarks
+// in skinZones.ts): the face outline polygon becomes a hard face mask, and
+// eye/brow/lip/nostril contours become explicit exclusion ellipses. Every
+// level below has a real fallback for a scan that didn't send it (older
+// app, web, a detection that lacked a given contour), so nothing regresses
+// to "no mask" — it degrades to a geometric estimate instead.
+
+function pointsToPx(points, width, height) {
+  if (!Array.isArray(points)) return [];
+  const out = [];
+  for (const p of points) {
+    if (!p || typeof p.x !== 'number' || typeof p.y !== 'number' || !Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+    out.push({ x: p.x * width, y: p.y * height });
+  }
+  return out;
+}
+
+function bboxOf(pts) {
+  let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+  for (const p of pts) {
+    if (p.x < minX) minX = p.x; if (p.x > maxX) maxX = p.x;
+    if (p.y < minY) minY = p.y; if (p.y > maxY) maxY = p.y;
+  }
+  return { cx: (minX + maxX) / 2, cy: (minY + maxY) / 2, halfW: (maxX - minX) / 2, halfH: (maxY - minY) / 2 };
+}
+
+// Soft ellipse in pixel space: 1 well inside, 0 outside, smooth across the
+// outer (1-edge) fraction of the radius. Same idea as ellipseWeight above,
+// just parameterised by centre/radii instead of a fractional rect.
+function softEllipse(px, py, e, edge) {
+  if (e.rx <= 0 || e.ry <= 0) return 0;
+  const dx = (px - e.cx) / e.rx;
+  const dy = (py - e.cy) / e.ry;
+  const d = Math.sqrt(dx * dx + dy * dy);
+  if (d >= 1) return 0;
+  if (d <= edge) return 1;
+  return 1 - (d - edge) / (1 - edge);
+}
+
+// Even-odd scanline polygon fill — the one place a real outline (the face
+// contour) is turned into a per-pixel mask. Deliberately simple: the face
+// contour is a single convex-ish loop of ~36 points, so no clipping or
+// self-intersection handling is needed.
+function rasterizePolygon(pts, width, height) {
+  const out = new Float32Array(width * height);
+  const n = pts.length;
+  if (n < 3) return out;
+  const xs = [];
+  for (let y = 0; y < height; y++) {
+    xs.length = 0;
+    const sy = y + 0.5;
+    for (let i = 0, j = n - 1; i < n; j = i++) {
+      const a = pts[i], b = pts[j];
+      if ((a.y > sy) !== (b.y > sy)) xs.push(a.x + ((sy - a.y) / (b.y - a.y)) * (b.x - a.x));
+    }
+    if (xs.length < 2) continue;
+    xs.sort((p, q) => p - q);
+    for (let k = 0; k + 1 < xs.length; k += 2) {
+      const x0 = Math.max(0, Math.ceil(xs[k] - 0.5)), x1 = Math.min(width - 1, Math.floor(xs[k + 1] - 0.5));
+      for (let x = x0; x <= x1; x++) out[y * width + x] = 1;
+    }
+  }
+  return out;
+}
+
+// The hard "is this face skin at all" mask every concern is multiplied by.
+// Preference order, most to least real:
+//  - the client's own ML Kit FACE contour for this photo, shrunk 3% toward
+//    its centroid (keeps the mask off the hairline/jaw edge pixels, which
+//    read as strong edges in every detector) and feathered so it fades at
+//    the outline instead of cutting hard;
+//  - an ellipse un-expanded from the client's faceBox (which is ML Kit's
+//    box grown 50% up, 25% down, 25% each side — see detectFaceRegion) back
+//    to roughly the face oval, so the neck below the chin is outside it;
+//  - for a scan with NO client face detection at all (faceBoxSource
+//    'default' — the backend's generous centre-crop guess), the ellipse
+//    inscribed in that guess: the least informed option, but still never a
+//    full-frame rectangle.
+// `segMask` (person segmentation) still multiplies in on top for
+// background/hand/hair-edge suppression — it just isn't asked to know
+// where a neck ends anymore.
+function faceRegionMask(width, height, faceBox, faceBoxSource, landmarks, segMask) {
+  let base;
+  const contour = pointsToPx(landmarks?.faceContour, width, height);
+  if (contour.length >= 8) {
+    let sx = 0, sy = 0;
+    for (const p of contour) { sx += p.x; sy += p.y; }
+    const cx = sx / contour.length, cy = sy / contour.length;
+    const shrunk = contour.map((p) => ({ x: cx + (p.x - cx) * 0.97, y: cy + (p.y - cy) * 0.97 }));
+    base = gaussianApprox(rasterizePolygon(shrunk, width, height), width, height, Math.max(2, Math.round(Math.min(width, height) / 140)));
+  } else {
+    const fb = faceBox;
+    const e = faceBoxSource === 'default'
+      ? { cx: (fb.x + fb.width / 2) * width, cy: (fb.y + fb.height / 2) * height, rx: fb.width * 0.5 * width, ry: fb.height * 0.5 * height }
+      : { cx: (fb.x + fb.width / 2) * width, cy: (fb.y + fb.height * 0.56) * height, rx: fb.width * 0.34 * width, ry: fb.height * 0.31 * height };
+    base = new Float32Array(width * height);
+    for (let y = 0; y < height; y++) for (let x = 0; x < width; x++) base[y * width + x] = softEllipse(x, y, e, 0.9);
+  }
+  if (segMask) for (let i = 0; i < base.length; i++) base[i] *= segMask[i];
+  return base;
+}
+
+// Eye / eyebrow / lip / nostril exclusion ellipses, in pixel space. Two eye
+// variants: `eyeWide` (eye + both lids + the immediate socket — carved out
+// of every skin-surface concern, where lashes, lid creases and socket
+// shadow have no physiological meaning) and `eyeTight` (just the eyeball
+// and lash line — what fine-line detection keeps out, since crow's feet
+// and under-eye lines genuinely live right next to the eye).
+//
+// Fallbacks when a given contour wasn't sent: the eye is placed from the
+// under-eye zone rect (its centre is, by deriveZoneMarkers' own
+// construction, exactly 0.09 face-box heights below the eye centre) and
+// the brow a fixed fraction above that; with no under-eye rect either, a
+// last-resort proportional guess against faceBox. Lips fall back to the
+// nose/chin gap (mouthExclusionRect); nostrils have no sane geometric
+// fallback and are simply not excluded without a contour.
+function exclusionGeometry(width, height, faceBox, zoneRects, landmarks) {
+  const pad = Math.min(width, height) / 220; // ~5px at 1080 — lash/brow hair sticks out past the contour points
+  const eyeWide = [], eyeTight = [], other = [];
+  const fbH = faceBox.height * height, fbW = faceBox.width * width;
+
+  const eyeFromContour = (pts) => {
+    const b = bboxOf(pts);
+    eyeWide.push({ cx: b.cx, cy: b.cy, rx: b.halfW * 1.45 + pad, ry: Math.max(b.halfH * 2.6, b.halfW * 0.8) + pad });
+    eyeTight.push({ cx: b.cx, cy: b.cy, rx: b.halfW * 1.2 + pad, ry: Math.max(b.halfH * 1.9, b.halfW * 0.55) + pad });
+  };
+  const eyeFromRect = (rect) => {
+    const cx = (rect.x + rect.width / 2) * width;
+    const cy = (rect.y + rect.height / 2) * height - fbH * 0.09;
+    const halfW = rect.width * width * 0.42;
+    eyeWide.push({ cx, cy, rx: halfW * 1.45 + pad, ry: fbH * 0.05 + pad });
+    eyeTight.push({ cx, cy, rx: halfW * 1.2 + pad, ry: fbH * 0.035 + pad });
+    other.push({ cx, cy: cy - fbH * 0.055, rx: halfW * 1.5 + pad, ry: fbH * 0.022 + pad }); // brow
+  };
+  const eyeFromProportion = (side) => {
+    const cx = (faceBox.x + faceBox.width * (side === 'L' ? 0.31 : 0.69)) * width;
+    const cy = (faceBox.y + faceBox.height * 0.44) * height;
+    eyeWide.push({ cx, cy, rx: fbW * 0.09 + pad, ry: fbH * 0.05 + pad });
+    eyeTight.push({ cx, cy, rx: fbW * 0.075 + pad, ry: fbH * 0.035 + pad });
+    other.push({ cx, cy: cy - fbH * 0.055, rx: fbW * 0.095 + pad, ry: fbH * 0.022 + pad });
+  };
+
+  for (const [eyeKey, browKey, rectKey, side] of [['leftEye', 'leftEyebrow', 'underEyeL', 'L'], ['rightEye', 'rightEyebrow', 'underEyeR', 'R']]) {
+    const eyePts = pointsToPx(landmarks?.[eyeKey], width, height);
+    if (eyePts.length >= 4) {
+      eyeFromContour(eyePts);
+      const browPts = pointsToPx(landmarks?.[browKey], width, height);
+      if (browPts.length >= 3) {
+        const b = bboxOf(browPts);
+        other.push({ cx: b.cx, cy: b.cy, rx: b.halfW * 1.08 + pad, ry: Math.max(b.halfH * 1.5, b.halfW * 0.28) + pad });
+      } else {
+        const b = bboxOf(eyePts);
+        other.push({ cx: b.cx, cy: b.cy - fbH * 0.055, rx: b.halfW * 1.5 + pad, ry: fbH * 0.022 + pad });
+      }
+    } else if (zoneRects[rectKey]) {
+      eyeFromRect(zoneRects[rectKey]);
+    } else {
+      eyeFromProportion(side);
+    }
+  }
+
+  const lipPts = [...pointsToPx(landmarks?.upperLipTop, width, height), ...pointsToPx(landmarks?.lowerLipBottom, width, height)];
+  if (lipPts.length >= 4) {
+    const b = bboxOf(lipPts);
+    other.push({ cx: b.cx, cy: b.cy, rx: b.halfW * 1.12 + pad, ry: b.halfH * 1.25 + pad });
+  } else {
+    const m = mouthExclusionRect(zoneRects);
+    if (m) other.push({ cx: (m.x + m.width / 2) * width, cy: (m.y + m.height / 2) * height, rx: m.width / 2 * width, ry: m.height / 2 * height });
+  }
+
+  const nosePts = pointsToPx(landmarks?.noseBottom, width, height);
+  if (nosePts.length >= 2) {
+    const b = bboxOf(nosePts);
+    other.push({ cx: b.cx, cy: b.cy, rx: b.halfW * 1.15 + pad, ry: Math.max(b.halfH, 1) * 1.5 + Math.min(width, height) / 90 });
+  }
+
+  return { eyeWide, eyeTight, other };
+}
+
+// Builds the per-pixel [0,1] masks (Float32Array, row-major, width*height)
+// every concern is scored and rendered against:
+//   full    — union of every assessable zone's ellipse, for region concerns
+//   wrinkle — the same restricted to WRINKLE_ZONES
+//   pore    — the same restricted to PORE_ZONES
+// each multiplied by the hard face-region mask (faceRegionMask) and by the
+// exclusion ellipses (exclusionGeometry) — so a pixel only counts if it is
+// inside a named zone AND inside the face outline AND not an eye, brow,
+// lip or nostril AND (when a segmentation mask exists) confidently a
+// person. All multiplicative, so every soft edge blends rather than cuts.
+// `zoneRects` values are already full-photo 0-1 fractions (see
+// assessableZoneRects). Returns the face mask too, so callers can compute
+// "how much of the face did we actually assess."
+function buildMasks(width, height, zoneRects, segMask, geometry = {}) {
+  const { faceBox = { x: 0, y: 0, width: 1, height: 1 }, faceBoxSource = 'client', landmarks = null } = geometry;
   const full = new Float32Array(width * height);
   const wrinkle = new Float32Array(width * height);
   const pore = new Float32Array(width * height);
   const rectList = Object.entries(zoneRects);
   const wrinkleRectList = rectList.filter(([zone]) => WRINKLE_ZONES.includes(zone));
   const poreRectList = rectList.filter(([zone]) => PORE_ZONES.includes(zone));
-  const mouthRect = mouthExclusionRect(zoneRects);
+  const face = faceRegionMask(width, height, faceBox, faceBoxSource, landmarks, segMask);
+  const ex = exclusionGeometry(width, height, faceBox, zoneRects, landmarks);
+  const EDGE = 0.7;
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const i = y * width + x;
-      const seg = segMask ? segMask[i] : 1;
+      const f = face[i];
+      if (f <= 0.001) continue;
       let w = 0;
       for (const [, rect] of rectList) w = Math.max(w, ellipseWeight(x, y, rect, width, height));
-      // Lips read as strongly "red"/high-contrast regardless of actual
-      // skin condition (see mouthExclusionRect's own comment) — carved out
-      // of every general concern (redness/texture/shine all share this
-      // mask), not just redness, since teeth/lip edges are equally
-      // meaningless "texture" and lip shine is equally meaningless
-      // "specular skin highlight."
-      const mouthClear = mouthRect ? 1 - ellipseWeight(x, y, mouthRect, width, height) : 1;
-      w *= mouthClear * seg;
-      full[i] = w;
       let ww = 0;
       for (const [, rect] of wrinkleRectList) ww = Math.max(ww, ellipseWeight(x, y, rect, width, height));
-      wrinkle[i] = ww * seg;
       let wp = 0;
       for (const [, rect] of poreRectList) wp = Math.max(wp, ellipseWeight(x, y, rect, width, height));
-      pore[i] = wp * mouthClear * seg;
+      if (w <= 0 && ww <= 0 && wp <= 0) continue;
+      let cut = 0;
+      for (const e of ex.other) cut = Math.max(cut, softEllipse(x, y, e, EDGE));
+      let cutWide = cut;
+      for (const e of ex.eyeWide) cutWide = Math.max(cutWide, softEllipse(x, y, e, EDGE));
+      let cutTight = cut;
+      for (const e of ex.eyeTight) cutTight = Math.max(cutTight, softEllipse(x, y, e, EDGE));
+      full[i] = w * f * (1 - cutWide);
+      pore[i] = wp * f * (1 - cutWide);
+      wrinkle[i] = ww * f * (1 - cutTight);
     }
   }
-  return { full, wrinkle, pore, assessedZoneCount: rectList.length, totalZoneCount: ZONE_KEYS.length };
+  return { full, wrinkle, pore, face, assessedZoneCount: rectList.length, totalZoneCount: ZONE_KEYS.length };
 }
 
 function toGrayscaleAndLab(buffer, channels, width, height) {
@@ -268,11 +462,11 @@ function zScoreToSeverity(z) {
 // once, place every pixel by where it falls in that sorted order, not its
 // distance from a mean/std the same outliers already skewed. This
 // guarantees a predictable, distribution-shape-independent fraction of the
-// masked region shows SOME color — startPct picked (0.6) so the top ~40%
-// of assessable pixels carry visible alpha, scaling up toward full color
-// for the most-flagged ~10%, verified by actually rendering it (see this
-// file's own git history) rather than assumed from the formula alone.
-function rankToAlpha(raw, mask, threshold, startPct) {
+// masked region shows SOME color, scaling up toward full color for the
+// most-flagged pixels. `gamma` (> 1) bends the ramp so the colour builds
+// slowly through the lower ranks and only saturates near the top — what
+// keeps a region wash reading as a gradient rather than a flat blot.
+function rankToAlpha(raw, mask, threshold, startPct, gamma = 1) {
   const n = raw.length;
   const indices = [];
   for (let i = 0; i < n; i++) { if (mask[i] > threshold) indices.push(i); }
@@ -282,9 +476,111 @@ function rankToAlpha(raw, mask, threshold, startPct) {
   for (let rank = 0; rank < count; rank++) {
     const i = indices[rank];
     const pct = count > 1 ? rank / (count - 1) : 1;
-    alpha[i] = pct <= startPct ? 0 : (pct - startPct) / (1 - startPct);
+    const t = pct <= startPct ? 0 : (pct - startPct) / (1 - startPct);
+    alpha[i] = gamma === 1 ? t : Math.pow(t, gamma);
   }
   return alpha;
+}
+
+// Median + MAD (median absolute deviation) of `values` where mask >
+// threshold — the robust counterpart of maskedStats. Every blob detector
+// here produces a heavily right-skewed response (mostly ~0, a sparse tail
+// of real features), and on such a distribution a mean/std pair is
+// dragged by the very tail it's meant to find, so "2 std above the mean"
+// lands somewhere inside the noise floor. Median/MAD are set by the bulk of
+// ordinary skin instead, which makes "k robust-sigmas above" a real
+// "unlike the surrounding skin" test. Subsampled every 3rd pixel — the
+// estimate only needs to be stable, not exact, and a full sort of a
+// 1.4-megapixel mask is the difference between ~60ms and ~250ms here.
+function robustStats(values, mask, threshold) {
+  const sample = [];
+  for (let i = 0; i < values.length; i += 3) { if (mask[i] > threshold) sample.push(values[i]); }
+  if (sample.length === 0) return { median: 0, mad: 1 };
+  sample.sort((a, b) => a - b);
+  const median = sample[Math.floor(sample.length / 2)];
+  for (let i = 0; i < sample.length; i++) sample[i] = Math.abs(sample[i] - median);
+  sample.sort((a, b) => a - b);
+  // 1.4826 scales MAD to the std of a normal distribution; the floor keeps
+  // a near-constant region (MAD ≈ 0) from turning every tiny ripple into an
+  // "outlier."
+  const mad = Math.max(sample[Math.floor(sample.length / 2)] * 1.4826, 1e-3);
+  return { median, mad };
+}
+
+// Sobel-gradient structure-tensor coherence in [0,1] — 1 = strongly
+// directional local structure (a hair, a line edge), 0 = isotropic (a
+// round blob). Shared by every blob detector below (pores, blemishes,
+// dark spots) as their "is this a dot or a stroke" discriminator — see
+// poreSeverity's own comment for the full reasoning. `smoothRadius` sets
+// the neighbourhood the tensor is averaged over (roughly the feature
+// scale being judged).
+function coherenceMap(src, mask, width, height, smoothRadius) {
+  const gx = new Float32Array(width * height);
+  const gy = new Float32Array(width * height);
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const i = y * width + x;
+      if (mask[i] <= 0.15) continue;
+      gx[i] =
+        -src[i - width - 1] + src[i - width + 1] +
+        -2 * src[i - 1] + 2 * src[i + 1] +
+        -src[i + width - 1] + src[i + width + 1];
+      gy[i] =
+        -src[i - width - 1] - 2 * src[i - width] - src[i - width + 1] +
+        src[i + width - 1] + 2 * src[i + width] + src[i + width + 1];
+    }
+  }
+  const Ixx = new Float32Array(width * height);
+  const Iyy = new Float32Array(width * height);
+  const Ixy = new Float32Array(width * height);
+  for (let i = 0; i < gx.length; i++) {
+    Ixx[i] = gx[i] * gx[i];
+    Iyy[i] = gy[i] * gy[i];
+    Ixy[i] = gx[i] * gy[i];
+  }
+  const Sxx = gaussianApprox(Ixx, width, height, smoothRadius);
+  const Syy = gaussianApprox(Iyy, width, height, smoothRadius);
+  const Sxy = gaussianApprox(Ixy, width, height, smoothRadius);
+  const out = new Float32Array(width * height);
+  for (let i = 0; i < out.length; i++) {
+    const trace = Sxx[i] + Syy[i];
+    out[i] = trace > 1e-6 ? Math.sqrt((Sxx[i] - Syy[i]) ** 2 + 4 * Sxy[i] * Sxy[i]) / trace : 0;
+  }
+  return out;
+}
+
+// Connected components (4-connectivity) of `binary` (Float32Array, >0 =
+// set), restricted to `mask`. Returns one entry per component with its
+// pixel indices, area, bounding box and the mean of `strength` over it.
+// Used by the dark-spot and blemish detectors to turn a per-pixel outlier
+// map into discrete "here is a spot" findings — with a real size/shape
+// gate, so a lone noisy pixel or a long thin hair can't count as one.
+function connectedComponents(binary, mask, strength, width, height) {
+  const label = new Int32Array(width * height); // 0 = unvisited
+  const comps = [];
+  const stack = [];
+  for (let s = 0; s < binary.length; s++) {
+    if (binary[s] <= 0 || mask[s] <= 0.15 || label[s]) continue;
+    const id = comps.length + 1;
+    const pixels = [];
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity, sum = 0;
+    stack.push(s); label[s] = id;
+    while (stack.length) {
+      const i = stack.pop();
+      pixels.push(i);
+      sum += strength[i];
+      const x = i % width, y = (i - x) / width;
+      if (x < minX) minX = x; if (x > maxX) maxX = x; if (y < minY) minY = y; if (y > maxY) maxY = y;
+      const nb = [i - 1, i + 1, i - width, i + width];
+      if (x === 0) nb[0] = -1; if (x === width - 1) nb[1] = -1; if (y === 0) nb[2] = -1; if (y === height - 1) nb[3] = -1;
+      for (const j of nb) {
+        if (j < 0 || label[j] || binary[j] <= 0 || mask[j] <= 0.15) continue;
+        label[j] = id; stack.push(j);
+      }
+    }
+    comps.push({ pixels, area: pixels.length, minX, maxX, minY, maxY, strength: sum / pixels.length });
+  }
+  return comps;
 }
 
 // ---- Per-concern severity maps (Float32Array, width*height, [0,1]) -------
@@ -560,55 +856,105 @@ function drynessSeverity(gray, mask, width, height) {
     flake[i] = Math.max(0, small[i] - large[i]);
   }
   const { mean, std } = maskedStats(flake, mask, 0.15);
-  const out = new Float32Array(width * height);
+  const severity = new Float32Array(width * height);
   for (let i = 0; i < flake.length; i++) {
     if (mask[i] <= 0.15) continue;
-    out[i] = zScoreToSeverity((flake[i] - mean) / std);
+    severity[i] = zScoreToSeverity((flake[i] - mean) / std);
   }
-  return out;
+  // Rank-based, like redness/texture, but starting higher up the
+  // distribution (top ~22% rather than top 40%): flaking is a sparse
+  // finding, and a wash that always tints 40% of the face read as a
+  // blotchy "your skin is dry everywhere" no matter what the photo showed.
+  const alpha = rankToAlpha(flake, mask, 0.15, 0.78, 1.3);
+  return { severity, alpha };
 }
 
-// Dark spots: a medium-scale difference-of-Gaussians, same principle as
-// poreSeverity/drynessSeverity/blemishSeverity above (small blur stays
+// Dark spots: a medium-scale difference-of-Gaussians (small blur stays
 // close to a spot's own value; large blur dilutes it against the broader
-// surrounding skin, so the gap peaks at spot-sized dark patches) — NOT a
-// single blur compared against the raw pixel value, which was this
-// function's first version and a real, caught bug: at the CENTER of any
-// patch larger than that one blur radius, a single blur over a
-// homogeneously-dark area returns ≈ the same dark value as the raw pixel
-// there, collapsing the "darker than surroundings" signal to ~0 exactly
-// where it should be strongest (confirmed by actually running it against a
-// synthetic dark patch and watching the reported severity come back 0).
-// Two radii — one small enough to stay inside a realistic spot, one large
-// enough to reach past it into normal skin — fixes that the same way it
-// already works for every other DoG-based concern here. Boosted where the
-// patch ALSO reads more yellow/brown than this photo's own average (Lab
-// b*, the yellow-blue axis — orthogonal to the a* red-green axis
-// rednessSeverity/blemishSeverity use): meant to separate an actual
-// pigmented spot from an ordinary shadow (under the nose, along the jaw)
-// that's dark for a purely geometric reason — a shadow reads closer to
-// neutral/bluish in b*, a spot reads warmer. A soft multiplier, not a hard
-// gate: an honest, imperfect heuristic, not a claim it reliably tells
-// pigment apart from shadow in every lighting condition. Full mask, same
-// reasoning as drynessSeverity above.
+// surrounding skin, so the gap peaks at spot-sized dark patches — see this
+// function's own history for why a single blur against the raw pixel was
+// a real, caught bug), boosted where the patch ALSO reads more yellow/
+// brown than this photo's own average (Lab b* — a shadow reads closer to
+// neutral/bluish, a pigmented spot warmer; a soft multiplier, not a hard
+// gate), and down-weighted where the local structure is strongly
+// directional (a stray hair lying across the cheek is exactly as "small
+// and dark" as a spot, but it is a stroke, not a dot).
+//
+// Scored against MEDIAN/MAD rather than mean/std (see robustStats) — this
+// is the direct fix for the "Dark Spots tab is blank" report: on a real
+// photo the response is ~0 almost everywhere with a sparse tail of real
+// spots, and mean/std computed over THAT is pulled up by the tail until
+// even a clearly visible mole sat under the 0.5-std deadzone. Against the
+// robust baseline the same mole reads as many sigmas out, which is what it
+// actually is.
+//
+// Returns discrete `spots` (connected components of the outlier map that
+// pass a size/shape gate) alongside the per-pixel maps — the overlay draws
+// those, not a wash, because "a dark spot" is a thing with an outline, and
+// a wash of the raw response reads as generic mottling.
 function ageSpotSeverity(gray, labB, mask, width, height) {
-  const small = gaussianApprox(gray, width, height, 3);
-  const large = gaussianApprox(gray, width, height, 14);
+  const small = gaussianApprox(gray, width, height, 2);
+  const large = gaussianApprox(gray, width, height, 12);
   const { mean: meanB, std: stdB } = maskedStats(labB, mask, 0.15);
+  const coherence = coherenceMap(gray, mask, width, height, 3);
+  // SIGNED response (positive = darker than its surroundings, negative =
+  // lighter), not clamped at zero before the statistics: a clamped map is
+  // zero on more than half the face, which puts its median AND its MAD at
+  // zero and turns every faintly-dark pixel into an infinite outlier (the
+  // first version of this did exactly that and flagged sixty "spots" on a
+  // cheek with a handful of freckles). The signed map is roughly symmetric
+  // around ordinary skin, so median/MAD describe ordinary skin.
   const raw = new Float32Array(width * height);
   for (let i = 0; i < raw.length; i++) {
     if (mask[i] <= 0.15) continue;
-    const localDark = Math.max(0, large[i] - small[i]);
-    const brownBoost = 1 + Math.max(0, (labB[i] - meanB) / stdB) * 0.5;
-    raw[i] = localDark * brownBoost;
+    const signed = (large[i] - small[i]) * (1 - 0.8 * coherence[i]);
+    const brownBoost = signed > 0 ? 1 + Math.max(0, (labB[i] - meanB) / stdB) * 0.5 : 1;
+    raw[i] = signed * brownBoost;
   }
-  const { mean, std } = maskedStats(raw, mask, 0.15);
-  const out = new Float32Array(width * height);
+  const { median, mad } = robustStats(raw, mask, 0.15);
+  const severity = new Float32Array(width * height);
+  const rz = new Float32Array(width * height);
+  const candidate = new Float32Array(width * height);
   for (let i = 0; i < raw.length; i++) {
     if (mask[i] <= 0.15) continue;
-    out[i] = zScoreToSeverity((raw[i] - mean) / std);
+    const z = (raw[i] - median) / mad;
+    rz[i] = z;
+    // 2.5..8 robust sigmas → 0..1: a spot has to be well clear of ordinary
+    // skin variation before it scores at all, then saturates at "unmistakable."
+    severity[i] = Math.min(1, Math.max(0, (z - 2.5) / 5.5));
+    if (z >= 4) candidate[i] = 1;
   }
-  return out;
+  const minDim = Math.min(width, height);
+  const minArea = Math.round((minDim / 180) ** 2);           // ~36px² at 1080: a ~6px spot
+  let maskArea = 0;
+  for (let i = 0; i < mask.length; i++) { if (mask[i] > 0.15) maskArea++; }
+  const maxArea = Math.max(minArea * 4, Math.round(maskArea * 0.012)); // bigger than this is a shadow, not a spot
+  const spots = connectedComponents(candidate, mask, rz, width, height).filter((c) => {
+    if (c.area < minArea || c.area > maxArea) return false;
+    const bw = c.maxX - c.minX + 1, bh = c.maxY - c.minY + 1;
+    const aspect = Math.max(bw, bh) / Math.max(1, Math.min(bw, bh));
+    if (aspect > 3.2) return false;                           // a stroke (hair, crease shadow), not a spot
+    if (c.area < 0.3 * bw * bh) return false;                 // too sparse to be one solid patch
+    return true;
+  });
+  return { severity, spots, score: findingsScore(spots, maskArea, 14) };
+}
+
+// Summary severity for a discrete-finding concern. The p85-of-severity
+// summary every region concern uses is the wrong shape here: on a face
+// with three moles, 85% of the assessed pixels are ordinary skin, so p85
+// says "clear" no matter how prominent those three are; on a face with
+// freckled cheeks it says "notable" for what is mostly one uniform
+// pattern. What a person actually reads off the photo is HOW MANY marks
+// were found and HOW MUCH area they cover — so that is what's scored:
+// `typicalCount` findings, or 2% of the face in area, reads as 1.0.
+function findingsScore(spots, maskArea, typicalCount) {
+  if (!spots.length || !maskArea) return 0;
+  let area = 0;
+  for (const s of spots) area += s.area;
+  const byCount = Math.min(1, spots.length / typicalCount);
+  const byArea = Math.min(1, (area / maskArea) / 0.02);
+  return Math.min(1, byCount * 0.7 + byArea * 0.3);
 }
 
 // Blemishes: small RED blobs — the same difference-of-Gaussians +
@@ -627,68 +973,79 @@ function ageSpotSeverity(gray, labB, mask, width, height) {
 // is the intended split between "your skin looks flushed" and "you have an
 // active blemish." The coherence term down-weights a linear red feature
 // (a scratch, a visible vein) the same way it down-weights hair for pores.
-function blemishSeverity(labA, mask, width, height) {
+//
+// Same robust median/MAD scoring and discrete-finding output as
+// ageSpotSeverity above: the first on-device look at this concern showed a
+// scatter of tiny pink specks (every pixel a hair above a skewed mean),
+// which read as noise, not "these are your blemishes." A blemish is a
+// discrete thing; the overlay now marks each one it actually finds.
+function blemishSeverity(labA, gray, mask, width, height) {
   const small = gaussianApprox(labA, width, height, 2);
   const large = gaussianApprox(labA, width, height, 8);
-  const bump = new Float32Array(width * height);
-  for (let i = 0; i < bump.length; i++) {
-    if (mask[i] <= 0.15) continue;
-    bump[i] = Math.max(0, small[i] - large[i]);
-  }
-
-  const gx = new Float32Array(width * height);
-  const gy = new Float32Array(width * height);
-  for (let y = 1; y < height - 1; y++) {
-    for (let x = 1; x < width - 1; x++) {
-      const i = y * width + x;
-      if (mask[i] <= 0.15) continue;
-      gx[i] =
-        -labA[i - width - 1] + labA[i - width + 1] +
-        -2 * labA[i - 1] + 2 * labA[i + 1] +
-        -labA[i + width - 1] + labA[i + width + 1];
-      gy[i] =
-        -labA[i - width - 1] - 2 * labA[i - width] - labA[i - width + 1] +
-        labA[i + width - 1] + 2 * labA[i + width] + labA[i + width + 1];
-    }
-  }
-  const Ixx = new Float32Array(width * height);
-  const Iyy = new Float32Array(width * height);
-  const Ixy = new Float32Array(width * height);
-  for (let i = 0; i < gx.length; i++) {
-    Ixx[i] = gx[i] * gx[i];
-    Iyy[i] = gy[i] * gy[i];
-    Ixy[i] = gx[i] * gy[i];
-  }
-  const Sxx = gaussianApprox(Ixx, width, height, 3);
-  const Syy = gaussianApprox(Iyy, width, height, 3);
-  const Sxy = gaussianApprox(Ixy, width, height, 3);
-
+  const coherence = coherenceMap(labA, mask, width, height, 3);
+  // Signed for the same statistical reason as ageSpotSeverity above.
   const raw = new Float32Array(width * height);
   for (let i = 0; i < raw.length; i++) {
     if (mask[i] <= 0.15) continue;
-    const trace = Sxx[i] + Syy[i];
-    const coherence = trace > 1e-6 ? Math.sqrt((Sxx[i] - Syy[i]) ** 2 + 4 * Sxy[i] * Sxy[i]) / trace : 0;
-    raw[i] = bump[i] * (1 - coherence);
+    raw[i] = (small[i] - large[i]) * (1 - coherence[i]);
   }
-
-  const { mean, std } = maskedStats(raw, mask, 0.15);
-  const out = new Float32Array(width * height);
+  // A freckle or mole on warm-toned skin reads slightly redder than its
+  // surroundings in a* too, so on the a* channel alone it is
+  // indistinguishable from a small pimple — the first run marked a
+  // freckled cheek as a breakout. The physiological difference is
+  // luminance: an inflamed blemish is red at about the same brightness as
+  // the skin around it (or lighter), while pigment is DARKER. So the same
+  // dark-blob response ageSpotSeverity uses is computed here on gray and
+  // used as a veto — a red blob that is also a dark blob is a spot, not a
+  // blemish, and goes to that tab instead.
+  const smallG = gaussianApprox(gray, width, height, 2);
+  const largeG = gaussianApprox(gray, width, height, 8);
+  const dark = new Float32Array(width * height);
+  for (let i = 0; i < dark.length; i++) { if (mask[i] > 0.15) dark[i] = largeG[i] - smallG[i]; }
+  const darkStats = robustStats(dark, mask, 0.15);
+  const { median, mad } = robustStats(raw, mask, 0.15);
+  const severity = new Float32Array(width * height);
+  const rz = new Float32Array(width * height);
+  const candidate = new Float32Array(width * height);
   for (let i = 0; i < raw.length; i++) {
     if (mask[i] <= 0.15) continue;
-    out[i] = zScoreToSeverity((raw[i] - mean) / std);
+    const darkZ = Math.max(0, (dark[i] - darkStats.median) / darkStats.mad);
+    const z = (raw[i] - median) / mad - 0.6 * darkZ;
+    rz[i] = z;
+    severity[i] = Math.min(1, Math.max(0, (z - 2.5) / 5.5));
+    if (z >= 4.5 && darkZ < 3) candidate[i] = 1;
   }
-  return out;
+  const minDim = Math.min(width, height);
+  const minArea = Math.round((minDim / 200) ** 2);
+  let maskArea = 0;
+  for (let i = 0; i < mask.length; i++) { if (mask[i] > 0.15) maskArea++; }
+  const maxArea = Math.max(minArea * 4, Math.round(maskArea * 0.008));
+  const spots = connectedComponents(candidate, mask, rz, width, height).filter((c) => {
+    if (c.area < minArea || c.area > maxArea) return false;
+    const bw = c.maxX - c.minX + 1, bh = c.maxY - c.minY + 1;
+    if (Math.max(bw, bh) / Math.max(1, Math.min(bw, bh)) > 2.6) return false;
+    return c.area >= 0.3 * bw * bh;
+  });
+  return { severity, spots, score: findingsScore(spots, maskArea, 12) };
 }
 
+// One calm family, on brand: the app's own rose/coral/gold (see mobile
+// utils/colors.ts — brand #D97A91, brandDeep #A34D63, gold #D4AF37) for
+// the "warm" concerns, muted mocha for pigment (the one colour a dark
+// spot should be), and two quiet cool complements (lilac for lines, a
+// dusty blue for dryness — the near-universal "hydration" cue) so seven
+// concerns still tell apart at a glance. Saturation deliberately pulled
+// back from the first version's pure red/orange: these are informative
+// tints laid over a face, not alarm colours.
 const CONCERN_COLORS = {
-  redness: [217, 92, 92],
-  texture: [201, 150, 90],
-  pores: [140, 120, 100],
-  shine: [230, 200, 90],
-  wrinkles: [150, 110, 190],
-  moisture: [150, 170, 195],
-  age_spot: [143, 103, 62],
-  acne: [196, 68, 110],
+  redness: [222, 108, 118],
+  texture: [204, 158, 96],
+  pores: [138, 104, 118],
+  shine: [212, 175, 55],
+  wrinkles: [150, 122, 180],
+  moisture: [140, 162, 198],
+  age_spot: [146, 100, 74],
+  acne: [186, 70, 116],
 };
 
 // A PLAIN MEAN across the whole assessable region was tried first and
@@ -826,19 +1183,17 @@ const CONCERN_META = {
   },
 };
 
-// Renders one concern's severity map as a transparent RGBA buffer — color
-// is fixed per concern, alpha = mask * severity (scaled to a legible max),
-// so zero-severity / unmasked pixels are fully transparent and only
-// genuinely flagged, assessable skin shows color. This is the hard
-// constraint that replaces "marker inside bounding box": alpha is
-// mathematically zero everywhere mask is zero, so occluded/background/hair
-// pixels cannot show color regardless of what the severity computation
-// above did.
-function renderOverlayRgba(width, height, severity, mask, colorRgb) {
-  const MAX_ALPHA = 200; // out of 255 — never fully opaque, base photo stays visible through it
+// Renders one concern's alpha map as a transparent RGBA buffer — color is
+// fixed per concern, alpha = mask * value (scaled to a legible max), so
+// zero-value / unmasked pixels are fully transparent and only genuinely
+// flagged, assessable skin shows color. This is the hard constraint that
+// replaces "marker inside bounding box": alpha is mathematically zero
+// everywhere mask is zero, so occluded/background/neck/eye pixels cannot
+// show color regardless of what the detector above did.
+function renderOverlayRgba(width, height, value, mask, colorRgb, maxAlpha) {
   const out = Buffer.alloc(width * height * 4);
   for (let i = 0; i < width * height; i++) {
-    const a = Math.round(Math.min(1, severity[i] * mask[i]) * MAX_ALPHA);
+    const a = Math.round(Math.min(1, value[i] * mask[i]) * maxAlpha);
     const o = i * 4;
     out[o] = colorRgb[0];
     out[o + 1] = colorRgb[1];
@@ -850,17 +1205,18 @@ function renderOverlayRgba(width, height, severity, mask, colorRgb) {
 
 // ── Concern-appropriate overlay styles ──────────────────────────────────────
 // A single flat wash is the right depiction for a concern that genuinely IS
-// a region (redness spreads across an area), but it misrepresents the two
-// concerns whose underlying signal is not region-shaped at all: fine lines
-// are CURVES (Sobel ridges along a crease) and pores are POINTS (isotropic
-// dark blobs). Rendering all three identically threw away geometry the
-// detectors had already computed. Each style below draws from that same
-// already-computed signal — no new detection, just an honest depiction of
-// what was actually found.
+// a region (redness spreads across an area), but it misrepresents concerns
+// whose underlying signal is not region-shaped: fine lines are CURVES
+// (Sobel ridges along a crease), pores are POINTS (isotropic dark blobs),
+// and blemishes / dark spots are discrete FINDINGS with an outline. Each
+// style below draws from that same already-computed signal — no new
+// detection, just an honest depiction of what was actually found.
 const OVERLAY_STYLE = {
-  redness: 'wash', texture: 'wash', shine: 'wash', moisture: 'wash', age_spot: 'wash', acne: 'wash',
+  redness: 'wash', texture: 'wash', shine: 'wash', moisture: 'wash',
   wrinkles: 'lines',
   pores: 'stipple',
+  acne: 'markers',
+  age_spot: 'spots',
 };
 
 // Fine lines: thin traced contours instead of a fuzzy band. Non-maximum
@@ -872,12 +1228,12 @@ const OVERLAY_STYLE = {
 // the actual line. Widened by exactly one pixel afterwards so a 1px trace
 // stays visible once the PNG is scaled down into a phone-sized photo view.
 function renderTracedLinesRgba(width, height, alpha, mask, gx, gy, colorRgb) {
-  const MAX_ALPHA = 220;
+  const MAX_ALPHA = 200;
   const keep = new Float32Array(width * height);
   for (let y = 1; y < height - 1; y++) {
     for (let x = 1; x < width - 1; x++) {
       const i = y * width + x;
-      if (mask[i] <= 0.15 || alpha[i] <= 0.06) continue;
+      if (mask[i] <= 0.15 || alpha[i] <= 0.2) continue;
       // Step one pixel along the gradient (perpendicular to the crease) in
       // both directions and keep only a local maximum — the crest itself.
       const g = Math.hypot(gx[i], gy[i]);
@@ -904,27 +1260,48 @@ function renderTracedLinesRgba(width, height, alpha, mask, gx, gy, colorRgb) {
       out[o] = colorRgb[0];
       out[o + 1] = colorRgb[1];
       out[o + 2] = colorRgb[2];
-      out[o + 3] = Math.round(Math.min(1, v) * MAX_ALPHA);
+      out[o + 3] = Math.round(Math.min(1, v * mask[i]) * MAX_ALPHA);
     }
   }
   return out;
 }
 
+// Soft filled disc stamped into an accumulation map — full strength at the
+// centre, smoothstep falloff to nothing at the rim, so marks read as dots,
+// never squares. Shared by the stipple/marker/spot renderers below.
+function stampDisc(acc, width, height, cx, cy, radius, strength) {
+  const R = Math.ceil(radius);
+  for (let dy = -R; dy <= R; dy++) {
+    for (let dx = -R; dx <= R; dx++) {
+      const d = Math.hypot(dx, dy) / radius;
+      if (d > 1) continue;
+      const yy = cy + dy, xx = cx + dx;
+      if (yy < 0 || yy >= height || xx < 0 || xx >= width) continue;
+      const t = 1 - d;
+      const fall = t * t * (3 - 2 * t);
+      const j = yy * width + xx;
+      acc[j] = Math.max(acc[j], strength * fall);
+    }
+  }
+}
+
 // Pores: discrete dots at the actual detected blob centres, not a wash —
 // a pore is a point feature, and a continuous tint over the T-zone claims
 // a spread the detector never found. Keeps only local maxima of the same
-// blob response poresSeverity already computed (dark AND isotropic, i.e.
-// low structure-tensor coherence), then stamps a small soft disc at each,
-// so what's drawn is one mark per detected pore.
+// blob response poreSeverity already computed (dark AND isotropic, i.e.
+// low structure-tensor coherence) above a real alpha floor, then stamps a
+// small soft disc at each. The floor and the local-maximum radius were
+// both raised after the first on-device look: every faint above-median
+// pixel got a dot, which read as "sand on the cheeks," not pores.
 function renderStippleRgba(width, height, alpha, mask, colorRgb) {
-  const MAX_ALPHA = 215;
-  const R = Math.max(2, Math.round(Math.min(width, height) / 380)); // ~3px at 1080x1350
+  const MAX_ALPHA = 185;
+  const R = Math.max(2.5, Math.min(width, height) / 250); // ~4.3px at 1080
+  const NB = 4; // local-maximum search radius
   const acc = new Float32Array(width * height);
-  const NB = 2; // local-maximum search radius
   for (let y = NB; y < height - NB; y++) {
     for (let x = NB; x < width - NB; x++) {
       const i = y * width + x;
-      if (mask[i] <= 0.15 || alpha[i] <= 0.10) continue;
+      if (mask[i] <= 0.15 || alpha[i] <= 0.4) continue;
       let isMax = true;
       for (let dy = -NB; dy <= NB && isMax; dy++) {
         for (let dx = -NB; dx <= NB; dx++) {
@@ -933,38 +1310,71 @@ function renderStippleRgba(width, height, alpha, mask, colorRgb) {
         }
       }
       if (!isMax) continue;
-      // Soft radial disc — full strength at the centre, tapering to nothing
-      // at the rim, so the marks read as dots rather than hard squares.
-      for (let dy = -R; dy <= R; dy++) {
-        for (let dx = -R; dx <= R; dx++) {
-          const d = Math.hypot(dx, dy);
-          if (d > R) continue;
-          const yy = y + dy, xx = x + dx;
-          if (yy < 0 || yy >= height || xx < 0 || xx >= width) continue;
-          const j = yy * width + xx;
-          acc[j] = Math.max(acc[j], alpha[i] * (1 - d / (R + 1)));
-        }
-      }
+      stampDisc(acc, width, height, x, y, R, 0.55 + 0.45 * alpha[i]);
     }
   }
-  const out = Buffer.alloc(width * height * 4);
-  for (let i = 0; i < width * height; i++) {
-    const o = i * 4;
-    out[o] = colorRgb[0];
-    out[o + 1] = colorRgb[1];
-    out[o + 2] = colorRgb[2];
-    out[o + 3] = Math.round(Math.min(1, acc[i]) * MAX_ALPHA);
-  }
-  return out;
+  return renderOverlayRgba(width, height, acc, mask, colorRgb, MAX_ALPHA);
 }
 
-// Region concerns: the existing wash, with the alpha map softened first so
-// a blotch fades out at its edges instead of ending on a hard pixel border.
-// Blur runs on ALPHA only (never on severity), so the reported score/band
-// are bit-for-bit unchanged — this is purely how the region is drawn.
-function renderWashRgba(width, height, alpha, mask, colorRgb) {
-  const feathered = gaussianApprox(alpha, width, height, Math.max(2, Math.round(Math.min(width, height) / 260)));
-  return renderOverlayRgba(width, height, feathered, mask, colorRgb);
+// Blemishes: one consistently-sized soft marker per detected blemish
+// (blemishSeverity's `spots`), strongest first, capped so a face with a
+// real breakout reads as "these are the flagged spots" rather than a
+// scatter. Markers closer than ~1.6 radii to a stronger one are merged
+// into it — two adjacent findings become one mark, not a pink cluster.
+function renderMarkersRgba(width, height, spots, mask, colorRgb) {
+  const MAX_ALPHA = 190;
+  const R = Math.max(5, Math.min(width, height) / 95); // ~11px at 1080
+  const MAX_MARKERS = 40;
+  const ordered = [...spots].sort((a, b) => b.strength - a.strength);
+  const placed = [];
+  for (const s of ordered) {
+    if (placed.length >= MAX_MARKERS) break;
+    const cx = (s.minX + s.maxX) / 2, cy = (s.minY + s.maxY) / 2;
+    if (placed.some((p) => Math.hypot(p.cx - cx, p.cy - cy) < R * 1.6)) continue;
+    placed.push({ cx, cy, strength: s.strength });
+  }
+  const acc = new Float32Array(width * height);
+  for (const p of placed) {
+    const strength = 0.7 + 0.3 * Math.min(1, (p.strength - 3.5) / 4);
+    stampDisc(acc, width, height, Math.round(p.cx), Math.round(p.cy), R, strength);
+  }
+  return { rgba: renderOverlayRgba(width, height, acc, mask, colorRgb, MAX_ALPHA), count: placed.length };
+}
+
+// Dark spots: each detected component is painted as its own soft patch —
+// its real outline, grown by a couple of pixels and feathered, at an
+// alpha set by how far outside ordinary skin it read. Shape comes from the
+// detector, not a fixed disc, because pigment patches genuinely vary in
+// size; the feather is what keeps them from looking like stickers.
+function renderSpotsRgba(width, height, spots, mask, colorRgb) {
+  const MAX_ALPHA = 175;
+  const acc = new Float32Array(width * height);
+  for (const s of spots) {
+    const strength = 0.6 + 0.4 * Math.min(1, (s.strength - 3) / 5);
+    for (const i of s.pixels) acc[i] = Math.max(acc[i], strength);
+  }
+  const grown = gaussianApprox(acc, width, height, Math.max(1, Math.round(Math.min(width, height) / 360)));
+  // Blur lowers the peak; renormalise so a patch's centre keeps its
+  // intended strength while its edge fades out.
+  for (let i = 0; i < grown.length; i++) grown[i] = Math.min(1, grown[i] * 1.6);
+  return { rgba: renderOverlayRgba(width, height, grown, mask, colorRgb, MAX_ALPHA), count: spots.length };
+}
+
+// Region concerns: the wash, with the alpha map softened first so a blotch
+// fades out at its edges instead of ending on a hard pixel border. Blur
+// runs on ALPHA only (never on severity), so the reported score/band are
+// bit-for-bit unchanged — this is purely how the region is drawn. The
+// radius is ~2.5x the first version's (which looked feathered on paper and
+// hard-cut on a phone), and the whole wash is scaled by the concern's own
+// overall read (`intensity`, from its p85 severity) so a "clear" face
+// gets a faint, informative tint rather than the same full-strength
+// blotches a "notable" one does.
+function renderWashRgba(width, height, alpha, mask, colorRgb, intensity = 1) {
+  const MAX_ALPHA = 150;
+  const feathered = gaussianApprox(alpha, width, height, Math.max(3, Math.round(Math.min(width, height) / 110)));
+  const scale = 0.45 + 0.55 * Math.min(1, intensity / 0.5);
+  for (let i = 0; i < feathered.length; i++) feathered[i] *= scale;
+  return renderOverlayRgba(width, height, feathered, mask, colorRgb, MAX_ALPHA);
 }
 
 // Which zones actually matter for each concern's own confidence read — the
@@ -1060,44 +1470,50 @@ function concernConfidence(concern, mask, zoneRects, width, height) {
 // overlay lines up pixel-for-pixel with photoUrl with zero client-side
 // coordinate translation. `faceBox`/`zoneMarkers` are the same values
 // already computed/persisted for this scan (resolveCropBox / sanitized
-// client zoneMarkers).
+// client zoneMarkers). `faceBoxSource` is 'client' when faceBox came from
+// the client's real detection (the expanded ML Kit box) or 'default' for
+// the backend's centre-crop guess — faceRegionMask un-expands the former
+// and can't the latter. `faceLandmarks` (optional) is the client's
+// sanitized ML Kit contour set for this photo — see exclusionGeometry.
 //
 // Returns { concerns: { redness, texture, pores, shine, wrinkles, moisture,
 // age_spot, acne }, assessedZoneCount, totalZoneCount }. Each concern value
-// is either null —
-// no assessable pixels at all for it (heavy occlusion/extreme pose, or none
-// of its required zones were assessable) — or { url is NOT set here (the
-// route uploads the PNG and fills this in), png (Buffer), label,
-// gradientLabels, severity (0-1, the SAME z-score-derived scale and
+// is either null — no assessable pixels at all for it (heavy occlusion/
+// extreme pose, or none of its required zones were assessable) — or { url
+// is NOT set here (the route uploads the PNG and fills this in), png
+// (Buffer), label, gradientLabels, severity (0-1, the SAME scale and
 // clear/mild/moderate/notable band thresholds across every concern — see
 // severityBand — so "worst first" ordering across concerns is comparing
-// like with like, not five different scales), severityScore (0-100, same
-// value rescaled for display), band, verdict, education, tips,
-// confidence: { level: 'low'|'medium'|'high', zoneFraction, pixelCount } }.
-// A null entry means "exclude this concern entirely" (occlusion as a
-// first-class outcome, per the product spec), never "render it anyway from
-// a guess."
-async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers, segMask }) {
+// like with like), severityScore (0-100), band, verdict, education, tips,
+// confidence: { level, zoneFraction, pixelCount }, zoneBreakdown,
+// overlay: { flaggedFraction, findings } — how much of the assessed area
+// actually carries visible colour in the rendered PNG, and (for the
+// discrete-finding concerns) how many marks were drawn, so a caller can
+// tell "we looked and found nothing to highlight" apart from "we didn't
+// look" without decoding the PNG }. A null entry means "exclude this
+// concern entirely" (occlusion as a first-class outcome, per the product
+// spec), never "render it anyway from a guess."
+async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers, segMask, faceLandmarks = null, faceBoxSource = 'client' }) {
   const sharp = require('sharp');
   const { width, height, channels } = info;
   const zoneRects = assessableZoneRects(faceBox, zoneMarkers);
-  const { full: fullMask, wrinkle: wrinkleMask, pore: poreMask, assessedZoneCount } = buildMasks(width, height, zoneRects, segMask);
+  const { full: fullMask, wrinkle: wrinkleMask, pore: poreMask, assessedZoneCount } =
+    buildMasks(width, height, zoneRects, segMask, { faceBox, faceBoxSource, landmarks: faceLandmarks });
   const { gray, labA, labB } = toGrayscaleAndLab(buffer, channels, width, height);
 
-  // `alpha` is the map the PNG overlay actually renders from — a separate,
-  // more visually-generous, percentile-rank-based curve (rankToAlpha) than `severity`, which
-  // still alone drives the reported score/band/verdict text. Defaults to
-  // `severity` itself when a concern doesn't pass one (shine/moisture/
-  // age_spot/acne below still call their own *Severity() functions
-  // unchanged, returning a single Float32Array) — same rendering behavior
-  // those four already had, untouched. Only redness/texture/pores/wrinkles
-  // (the concerns actually verified end-to-end this round — see this
-  // file's own git history) pass a real, separate alpha map.
-  async function describe(concern, severity, mask, alpha = severity, geom = null) {
-    let any = false;
-    for (let i = 0; i < mask.length; i++) { if (mask[i] > 0.15) { any = true; break; } }
+  // `alpha` is the map a wash/line/stipple overlay renders from — a
+  // separate, more visually-generous, percentile-rank-based curve
+  // (rankToAlpha) than `severity`, which alone drives the reported
+  // score/band/verdict text. `spots` (blemishes, dark spots) are discrete
+  // findings the marker/spot renderers draw instead of any per-pixel map.
+  async function describe(concern, severity, mask, { alpha = severity, geom = null, spots = null, score = null } = {}) {
+    let any = false, maskedCount = 0;
+    for (let i = 0; i < mask.length; i++) { if (mask[i] > 0.15) { any = true; maskedCount++; } }
     if (!any) return null;
-    const p85 = percentileSeverityWhereMasked(severity, mask, 0.15, 0.85);
+    // Region concerns summarise as the 85th percentile of per-pixel
+    // severity; discrete-finding concerns pass their own findings-based
+    // score instead (see findingsScore) — same 0-1 scale and bands.
+    const p85 = score != null ? score : percentileSeverityWhereMasked(severity, mask, 0.15, 0.85);
     const band = severityBand(p85);
     // moisture/age_spot/acne have no CONCERN_META entry (that content was
     // never duplicated here — see CONCERN_CONTENT in skinConcernContent.js,
@@ -1115,13 +1531,20 @@ async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers, segMask })
     const style = OVERLAY_STYLE[concern] || 'wash';
     const color = CONCERN_COLORS[concern];
     let rgba;
+    let findings = null;
     if (style === 'lines' && geom?.gx && geom?.gy) {
       rgba = renderTracedLinesRgba(width, height, alpha, mask, geom.gx, geom.gy, color);
     } else if (style === 'stipple') {
       rgba = renderStippleRgba(width, height, alpha, mask, color);
+    } else if (style === 'markers' && spots) {
+      ({ rgba, count: findings } = renderMarkersRgba(width, height, spots, mask, color));
+    } else if (style === 'spots' && spots) {
+      ({ rgba, count: findings } = renderSpotsRgba(width, height, spots, mask, color));
     } else {
-      rgba = renderWashRgba(width, height, alpha, mask, color);
+      rgba = renderWashRgba(width, height, alpha, mask, color, p85);
     }
+    let flagged = 0;
+    for (let i = 3; i < rgba.length; i += 4) { if (rgba[i] > 24) flagged++; }
     const png = await sharp(rgba, { raw: { width, height, channels: 4 } }).png().toBuffer();
     return {
       png,
@@ -1135,6 +1558,7 @@ async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers, segMask })
       tips: meta.tips,
       confidence: concernConfidence(concern, mask, zoneRects, width, height),
       zoneBreakdown: zoneBreakdownFor(concern, severity, zoneRects, width, height),
+      overlay: { flaggedFraction: maskedCount ? flagged / maskedCount : 0, findings },
     };
   }
 
@@ -1142,16 +1566,19 @@ async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers, segMask })
   const textureMaps = textureSeverity(gray, fullMask, width, height);
   const poresMaps = poreSeverity(gray, poreMask, width, height);
   const wrinklesMaps = wrinkleSeverity(gray, wrinkleMask, width, height);
+  const moistureMaps = drynessSeverity(gray, fullMask, width, height);
+  const ageSpotMaps = ageSpotSeverity(gray, labB, fullMask, width, height);
+  const acneMaps = blemishSeverity(labA, gray, fullMask, width, height);
 
   const [redness, texture, pores, shine, wrinkles, moisture, age_spot, acne] = await Promise.all([
-    describe('redness', rednessMaps.severity, fullMask, rednessMaps.alpha),
-    describe('texture', textureMaps.severity, fullMask, textureMaps.alpha),
-    describe('pores', poresMaps.severity, poreMask, poresMaps.alpha),
+    describe('redness', rednessMaps.severity, fullMask, { alpha: rednessMaps.alpha }),
+    describe('texture', textureMaps.severity, fullMask, { alpha: textureMaps.alpha }),
+    describe('pores', poresMaps.severity, poreMask, { alpha: poresMaps.alpha }),
     describe('shine', shineSeverity(gray, fullMask), fullMask),
-    describe('wrinkles', wrinklesMaps.severity, wrinkleMask, wrinklesMaps.alpha, { gx: wrinklesMaps.gx, gy: wrinklesMaps.gy }),
-    describe('moisture', drynessSeverity(gray, fullMask, width, height), fullMask),
-    describe('age_spot', ageSpotSeverity(gray, labB, fullMask, width, height), fullMask),
-    describe('acne', blemishSeverity(labA, fullMask, width, height), fullMask),
+    describe('wrinkles', wrinklesMaps.severity, wrinkleMask, { alpha: wrinklesMaps.alpha, geom: { gx: wrinklesMaps.gx, gy: wrinklesMaps.gy } }),
+    describe('moisture', moistureMaps.severity, fullMask, { alpha: moistureMaps.alpha }),
+    describe('age_spot', ageSpotMaps.severity, fullMask, { spots: ageSpotMaps.spots, score: ageSpotMaps.score }),
+    describe('acne', acneMaps.severity, fullMask, { spots: acneMaps.spots, score: acneMaps.score }),
   ]);
 
   return { concerns: { redness, texture, pores, shine, wrinkles, moisture, age_spot, acne }, assessedZoneCount, totalZoneCount: ZONE_KEYS.length };
