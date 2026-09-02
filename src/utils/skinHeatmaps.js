@@ -1558,7 +1558,20 @@ async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers, segMask, f
       tips: meta.tips,
       confidence: concernConfidence(concern, mask, zoneRects, width, height),
       zoneBreakdown: zoneBreakdownFor(concern, severity, zoneRects, width, height),
-      overlay: { flaggedFraction: maskedCount ? flagged / maskedCount : 0, findings },
+      overlay: {
+        flaggedFraction: maskedCount ? flagged / maskedCount : 0,
+        findings,
+        // Where the discrete findings are (blemishes/dark spots only) — the
+        // same components the renderer drew, as 0-1 photo fractions with a
+        // radius, so a client can point at them (a highlight, a pulse, a
+        // callout) without decoding the PNG. Strongest first, capped.
+        ...(spots ? { points: [...spots].sort((a, b) => b.strength - a.strength).slice(0, 40).map((s) => ({
+          x: (s.minX + s.maxX) / 2 / width,
+          y: (s.minY + s.maxY) / 2 / height,
+          r: Math.max(s.maxX - s.minX, s.maxY - s.minY, 2) / 2 / width,
+          strength: Number(s.strength.toFixed(2)),
+        })) } : {}),
+      },
     };
   }
 
