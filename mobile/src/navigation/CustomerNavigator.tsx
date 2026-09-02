@@ -268,16 +268,19 @@ function HomeTabs() {
           ),
         }}
       />
-      {/* "Space", not "My Space" — every other label in this bar is one
-          word (Home/Explore/Saved/Profile); a two-word label would be the
-          only one, and at 5 tabs the extra width is genuinely tight on
-          narrower devices. "My Space" is still the feature's full name
-          everywhere else (MySpaceScreen's own header, etc). */}
+      {/* "Scan" — the tab is what you DO here (the screen opens straight
+          into the camera), one word like every other label in this bar
+          (Home/Explore/Saved/Profile). "My Space" stays the feature's full
+          name everywhere else (MySpaceScreen's own header, share-card
+          kickers, reminders). The route key is still MySpaceTab on purpose:
+          deep links, notification taps (utils/notifications.ts) and
+          persisted navigation state all navigate by that key, so renaming
+          it is a behaviour change, not a label change. */}
       <Tab.Screen
         name="MySpaceTab"
         component={MySpaceScreen}
         options={{
-          tabBarLabel: 'Space',
+          tabBarLabel: 'Scan',
           tabBarIcon: ({ focused }) => (
             <TabPill focused={focused}><ScanFaceIcon size={22} color={focused ? ACTIVE : INACTIVE} filled={focused} /></TabPill>
           ),

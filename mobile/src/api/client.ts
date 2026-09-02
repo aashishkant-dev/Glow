@@ -1457,6 +1457,14 @@ export interface SkinHeatmapConcern {
   // photo never reads as "the tab didn't work." See routes/skin.js's
   // overlayNoteFor. Absent on historical records.
   overlayNote?: string;
+  // The engine's own measurement of the rendered overlay PNG (absent on
+  // historical records): how much of the assessed area carries visible
+  // colour, how many discrete findings were drawn (blemishes/dark spots;
+  // null for wash/line/stipple concerns), and — for those two — where they
+  // are, as 0-1 photo fractions with a radius, strongest first. `points`
+  // is what a finding-anchored animation/callout should use; it is the
+  // exact set the PNG shows, never a client-side guess.
+  overlay?: { flaggedFraction: number; findings: number | null; points?: { x: number; y: number; r: number; strength: number }[] };
   education: string;
   // 2-4 short, actionable tips (ingredient categories, not specific SKUs —
   // there's no product catalog to link yet).

@@ -1780,12 +1780,21 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // is already used elsewhere in this app for pass/success states
   // (trustGreen/onlineGreen) and is genuinely distinguishable from both.
   const GATE_COLOR: Record<Gate, string> = { red: Colors.systemRed, amber: Colors.systemOrange, green: Colors.systemGreen };
-  // __DEV__-only live readout of exactly what each gate is seeing —
-  // requested explicitly: a way to visually confirm on-device that these
-  // are real, moving numbers, not a static/fake state. Off in production
-  // builds (wrapped in the same __DEV__ check used for the console logging
-  // elsewhere in this file).
-  const debugBox = __DEV__ ? liveBox : null;
+  // Live readout of exactly what each gate is seeing — requested
+  // explicitly: a way to visually confirm on-device that these are real,
+  // moving numbers, not a static/fake state. Always on in dev builds; in a
+  // TestFlight/production build it is hidden until the pill row is
+  // long-pressed (~1.5s), because "the Lighting pill doesn't work" reported
+  // from a TestFlight build is otherwise undiagnosable: this readout is
+  // the ONLY thing that can tell "the luma worklet never fires" (avgLuma
+  // shows NO SAMPLE) apart from "it fires and the thresholds are wrong"
+  // (real numbers that never cross a boundary), or "ML Kit never returns a
+  // live face" (box: none) from "it does and the size/offset gate rejects
+  // it". Previously it was also gated on a live face existing at all,
+  // which hid it in exactly the failure case it exists to explain.
+  const [diagnosticsVisible, setDiagnosticsVisible] = useState(false);
+  const showDiagnostics = __DEV__ || diagnosticsVisible;
+  const debugBox = liveBox;
 
   return (
     <Modal visible={visible} animationType="slide" onRequestClose={handleClose} statusBarTranslucent>
@@ -1913,13 +1922,13 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
                 feed instead of taken on faith — move your face / tilt your
                 head / cover the lens and watch these change live. Never
                 present in a production build. */}
-            {debugBox && (
+            {showDiagnostics && (
               <View style={styles.debugBox} pointerEvents="none">
                 <Text style={styles.debugText}>
                   position={positionGate}(raw {rawPositionGate}) size={sizeRatio.toFixed(2)} offX={centerOffsetX.toFixed(2)} offY={centerOffsetY.toFixed(2)}
                   {'\n'}angle={angleGate}(raw {rawAngleGate}) pitch={pitchAngle?.toFixed(1) ?? '—'} roll={rollAngle?.toFixed(1) ?? '—'} yaw={yawAngle?.toFixed(1) ?? '—'}
                   {'\n'}lighting={lightingGate}(raw {rawLightingGate}) avgLuma={lightingSample?.avgLuma.toFixed(1) ?? (lightingGraceElapsed ? 'NO SAMPLE — worklet not firing?' : 'sampling…')} darkFrac={lightingSample?.darkFraction.toFixed(2) ?? '—'} brightFrac={lightingSample?.brightFraction.toFixed(2) ?? '—'} exposureBias={exposureBias.toFixed(2)}
-                  {'\n'}box: x={debugBox.x.toFixed(0)} y={debugBox.y.toFixed(0)} w={debugBox.width.toFixed(0)} h={debugBox.height.toFixed(0)}
+                  {'\n'}{debugBox ? `box: x=${debugBox.x.toFixed(0)} y=${debugBox.y.toFixed(0)} w=${debugBox.width.toFixed(0)} h=${debugBox.height.toFixed(0)}` : 'box: none — no live face from ML Kit'} faces={liveFaces.length}
                 </Text>
               </View>
             )}
@@ -1929,7 +1938,10 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
                 check (no trained model needed, matching how Sephora/Perfect
                 Corp/Haut.AI/Revieve all gate capture). Capture only unlocks
                 once every pill is green; see isReady above. */}
-            <View style={[styles.pillRow, { top: insets.top + 58 }]} pointerEvents="none">
+            {/* Long-press (not a tap — nothing here should feel like a
+                button) toggles the diagnostics readout above in release
+                builds; see showDiagnostics. */}
+            <Pressable style={[styles.pillRow, { top: insets.top + 58 }]} onLongPress={() => setDiagnosticsVisible((v) => !v)} delayLongPress={1500}>
               <View style={[styles.pill, { backgroundColor: GATE_COLOR[lightingGate] }]}>
                 <Text style={styles.pillText}>Lighting</Text>
                 <Text style={styles.pillStatusText} numberOfLines={1}>{lightingReason}</Text>
@@ -1942,7 +1954,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
                 <Text style={styles.pillText}>Position</Text>
                 <Text style={styles.pillStatusText} numberOfLines={1}>{positionReason}</Text>
               </View>
-            </View>
+            </Pressable>
 
             <View style={[styles.topBar, { top: insets.top + 10 }]}>
               <Pressable style={styles.roundBtn} onPress={handleClose} hitSlop={10}>
