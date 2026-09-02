@@ -94,6 +94,20 @@ const corsOptions = {
 app.options('*', cors(corsOptions)); // handle preflight for all routes
 app.use(cors(corsOptions));
 
+// Route-specific override for the 3-frame burst upload (see
+// SkinScanCamera.tsx's shoot() / routes/skin.js's POST /scan): worst case is
+// 1 primary photo + 2 burst candidates, each individually capped at 8MB
+// base64 in routes/skin.js's own validation, so up to ~24MB base64 of image
+// data alone plus JSON structure/other fields (zoneMarkers, skinMask) —
+// comfortably over the app-wide 15mb default below. Mounted BEFORE that
+// global parser so it runs first for this exact path; body-parser marks
+// req._body once it has parsed a request, so the global express.json() just
+// passes through for this route instead of trying (and failing, since the
+// stream is already consumed) to parse it a second time. Scoped to this one
+// route deliberately — no other endpoint needs a bigger body budget, and
+// raising the app-wide default would widen every route's memory-pressure/
+// DoS surface for no real benefit.
+app.use('/skin/scan', express.json({ limit: '30mb' }));
 app.use(express.json({ limit: '15mb' }));
 
 app.use((_req, res, next) => {

@@ -901,6 +901,20 @@ model SkinScan {
   profileId       String
   profile         SkinProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
   photoUrl        String
+  // True when photoUrl is the CLIENT-ALIGNED frame — pose/scale-normalized
+  // by SkinScanCamera.tsx's similarity-transform pipeline (eye centers
+  // mapped to a fixed target position/distance) before upload, and verified
+  // there via a redetect-and-check sanity gate before being trusted. Every
+  // aligned photo across every scan shares that same fixed target, so two
+  // scans with photoAligned=true are framed consistently against each other
+  // with zero extra work — that's what makes a before/after comparison in
+  // My Space actually comparable instead of two arbitrarily-framed photos.
+  // False (the default) for every scan before this existed, AND for any
+  // scan where alignment was attempted but bailed (degenerate geometry, a
+  // failed sanity check, a transform error) and fell back to the raw,
+  // unaligned frame — the UI must not silently present that photo as
+  // consistent with the rest of a profile's aligned history.
+  photoAligned    Boolean  @default(false)
   skinTone        SkinTone
   skinType        SkinType
   concerns        String[] @default([])

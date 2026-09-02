@@ -9,6 +9,9 @@ const { authenticate } = require('../middleware/auth');
 const { analyzeSkin } = require('../utils/skinAnalysis');
 const { analyzeWithGemini } = require('../utils/geminiSkinAnalysis');
 const { generateHeatmaps } = require('../utils/skinHeatmaps');
+const { pickSharpest, qcCheck } = require('../utils/photoQuality');
+const { setJob, getJob } = require('../utils/scanJobs');
+const { analyzeWithIvyAi } = require('../utils/ivyAiClient');
 const { CONCERN_CONTENT, severityBand, buildVerdict, CONCERN_RECORD_SCHEMA_VERSION, validateConcernRecord } = require('../utils/skinConcernContent');
 
 const router = express.Router();
@@ -86,12 +89,12 @@ async function logApiUsage({ endpoint, success, statusCode, errorCode, durationM
 // vendor API call at all. 'not_configured' as the reason isn't a misnomer:
 // its UI copy ("uses our free estimate model, not the full AI Skin
 // Diagnostic") stays accurate — this is simply the only tier there is now.
-async function getConcernAnalysis({ heuristicPixels, heuristicInfo, faceBox, zoneMarkers, userId }) {
-  return runHeuristicFallback({ heuristicPixels, heuristicInfo, faceBox, zoneMarkers, userId, reason: 'not_configured' });
+async function getConcernAnalysis({ heuristicPixels, heuristicInfo, faceBox, zoneMarkers, userId, segMask }) {
+  return runHeuristicFallback({ heuristicPixels, heuristicInfo, faceBox, zoneMarkers, userId, reason: 'not_configured', segMask });
 }
 
-async function runHeuristicFallback({ heuristicPixels, heuristicInfo, faceBox, zoneMarkers, userId, reason }) {
-  const { concerns } = await generateHeatmaps({ buffer: heuristicPixels, info: heuristicInfo, faceBox, zoneMarkers }).catch((err) => {
+async function runHeuristicFallback({ heuristicPixels, heuristicInfo, faceBox, zoneMarkers, userId, reason, segMask }) {
+  const { concerns } = await generateHeatmaps({ buffer: heuristicPixels, info: heuristicInfo, faceBox, zoneMarkers, segMask }).catch((err) => {
     console.error('[skin] heuristic heatmap generation failed:', err.message);
     return { concerns: {} };
   });
@@ -115,6 +118,52 @@ async function runHeuristicFallback({ heuristicPixels, heuristicInfo, faceBox, z
   return { heatmaps, heatmapSource: 'estimated', heatmapSourceReason: reason };
 }
 
+// Stage 7 — fold a real Ivy AI vendor read into the heuristic's records.
+//
+// Ivy returns SCORES ONLY, no pixel data of any kind, so it can never
+// replace the overlay: every concern keeps the heuristic engine's own
+// rendered PNG for localisation ("where on the face"), and Ivy supplies the
+// authoritative severity ("how bad"). That split is the honest one — a
+// licensed vision model is a better judge of degree than our pixel maths,
+// but it literally cannot tell us where, having returned no map.
+//
+// 'acne' is deliberately never overridden: Ivy has no blemish metric at all
+// (confirmed in their docs AND in every live response during Part A), so
+// blemishes stay 100% heuristic rather than being silently dropped or
+// faked from an unrelated metric.
+//
+// Only concerns the heuristic actually assessed get overridden — a concern
+// the heuristic returned null for (occluded, not assessable) STAYS null.
+// Ivy has no idea which parts of the face were visible to us, so letting it
+// resurrect a concern we couldn't see would reintroduce exactly the
+// "confident number over an unassessable area" problem this app has
+// repeatedly refused to ship.
+function mergeIvyIntoHeatmaps(heatmaps, ivy) {
+  if (!ivy?.severities) return { heatmaps, ivyApplied: [] };
+  const applied = [];
+  for (const [concernKey, severity] of Object.entries(ivy.severities)) {
+    const record = heatmaps[concernKey];
+    if (!record) continue; // not assessed by us — see comment above
+    const band = severityBand(severity);
+    heatmaps[concernKey] = {
+      ...record,
+      severity,
+      severityScore: Math.round(severity * 100),
+      band,
+      // Rebuilt, not left stale: the old verdict sentence was written for
+      // the heuristic's band and would contradict the new one otherwise.
+      verdict: buildVerdict(concernKey, band, record.zoneBreakdown),
+      source: 'ivyai',
+      // The vendor publishes no per-concern confidence, so this reflects
+      // "a licensed vision model produced this", not a precision claim —
+      // same reasoning the old perfectcorp path used.
+      confidence: { level: 'high' },
+    };
+    applied.push(concernKey);
+  }
+  return { heatmaps, ivyApplied: applied };
+}
+
 // Booking-category hand-off is always the same regardless of which analysis
 // path produced the result — it doesn't need AI to decide.
 const BOOK_CATEGORY = 'Facials & Skin';
@@ -134,6 +183,7 @@ function serializeScan(s) {
     // angles point back to, never itself pointing forward).
     parentScanId: s.parentScanId ?? null,
     photoUrl: s.photoUrl,
+    photoAligned: s.photoAligned,
     skinTone: s.skinTone,
     skinType: s.skinType,
     concerns: s.concerns,
@@ -325,14 +375,392 @@ function sanitizeZoneMarkers(raw) {
   return out;
 }
 
+// Real, verified pipeline stages (this is what mobile SkinScanCamera.tsx's
+// step indicator now actually maps to, replacing its old client-side timer
+// guesses — see that file's own header comment): scoring_sharpness
+// (pickSharpest+qcCheck) -> preparing_photo (decode/crop/resize + optional
+// segMask decode) -> analyzing (the Gemini call, running concurrently with
+// the heuristic heatmap engine and the blob upload — Gemini is the one
+// genuinely non-subdividable stage: a single external request/response with
+// no streaming/partial-progress signal, which is why the client's elapsed-
+// time ticker is scoped to exactly this stage) -> saving (the DB
+// transaction). Used by BOTH the legacy synchronous response (an older
+// client that never sends `async: true` gets the exact same single 201/
+// 4xx/5xx response it always has — this function's return value IS that
+// response) and the new polling job path (GET /scan/jobs/:jobId/status
+// below), so the two paths can never drift on what actually happens.
+// `report(stage)` fires at the START of each real stage, before its work
+// begins — a poll landing right after a report() call is observing a stage
+// that has genuinely already started, never one that's already finished or
+// hasn't begun yet.
+async function runScanPipeline({ userId, photoBase64, burstCandidates, faceRegion, sanitizedZoneMarkers, notes, parentScan, rawSkinMask, aligned }, report) {
+  try {
+    // Burst sharpness selection + captured-file QC — runs on whichever
+    // frame(s) actually arrived. With no burstCandidates this still runs
+    // pickSharpest over a single-element array (cheap: one decode+score,
+    // same cost the old code paid implicitly via the metadata() call
+    // below) so the SAME qcCheck gate applies uniformly to old and new
+    // clients rather than only to burst uploads.
+    report('scoring_sharpness');
+    const allCandidates = [photoBase64, ...burstCandidates];
+    const { bestIndex, scores } = await pickSharpest(sharp, allCandidates);
+    const selectedBase64 = allCandidates[bestIndex];
+    const bestScore = scores[bestIndex];
+    const qcFailure = qcCheck(bestScore.sharpness, bestScore.brightness);
+    if (qcFailure) {
+      const messages = {
+        too_dark: "That photo came out too dark to analyze — try again somewhere with more even, direct light.",
+        too_bright: "That photo came out overexposed — try again out of direct light or flash glare.",
+        too_blurry: "That photo came out too blurry to analyze — hold steady and try again.",
+      };
+      return { ok: false, status: 400, body: { error: messages[qcFailure] || 'Photo quality was too low to analyze. Please try again.', reason: qcFailure } };
+    }
+
+    report('preparing_photo');
+    const buf = Buffer.from(selectedBase64, 'base64');
+    const base = sharp(buf).rotate(); // auto-orient from EXIF before anything else touches pixel coordinates
+    const meta = await base.metadata();
+    if (!meta.width || !meta.height) return { ok: false, status: 400, body: { error: 'Could not read image' } };
+
+    // meta.width/height are the STORED pixel dimensions — sharp's
+    // .metadata() reads them straight off the file, before the .rotate()
+    // queued above actually runs. For EXIF orientation 5-8 (a 90°/270°
+    // rotation — common on phone selfies depending how the phone was
+    // held), the pipeline's REAL output ends up with width and height
+    // swapped from what metadata() just reported. Confirmed directly:
+    // extracting a box sized against the un-swapped dimensions against
+    // that rotated pipeline throws libvips' "extract_area: bad extract
+    // area" — exactly the error hit in production. expo-camera's old
+    // capture path apparently never produced this orientation tag;
+    // vision-camera's does, which is why this only surfaced after that
+    // migration.
+    const swapsDimensions = meta.orientation >= 5 && meta.orientation <= 8;
+    const imgWidth = swapsDimensions ? meta.height : meta.width;
+    const imgHeight = swapsDimensions ? meta.width : meta.height;
+
+    const { pixelBox, faceBox } = resolveCropBox(faceRegion, imgWidth, imgHeight);
+
+    // Three forks of the same decoded pipeline — a small raw-pixel crop
+    // for the free heuristic, a full-size JPEG for storage/history
+    // display (users pinch-zoom this), and a smaller one specifically
+    // for the Gemini call — sharp's .clone() lets all three draw from
+    // the one decode instead of re-parsing the buffer multiple times.
+    // Independent clones, so run them concurrently rather than one after
+    // another.
+    //
+    // The Gemini-sized copy exists because the ORIGINAL code sent the
+    // exact same full 1080x1350 buffer to Gemini as gets stored for
+    // on-screen zoom — real, unnecessary payload + processing time for
+    // an API call, confirmed against production logs to be the dominant
+    // cost in a request that measured 35.9s even AFTER geminiSkinAnalysis
+    // .js's own 25s internal timeout, and 59.9s (client-canceled) on
+    // another. 900x1125 is a real reduction (roughly 40% fewer pixels
+    // than 1080x1350) while staying comfortably above what a vision
+    // model's own internal tiling actually uses per image regardless of
+    // input size — more pixels past that point cost transfer/processing
+    // time without adding analysis fidelity.
+    // heatmapPixels: raw RGB at the EXACT SAME resize params as storedBuf
+    // (not just the same target numbers — .resize(fit:'inside') rarely
+    // lands on exactly 1080x1350, see storedBuf's own history of that
+    // exact mismatch breaking marker alignment) so generateHeatmaps'
+    // output lines up pixel-for-pixel with photoUrl with zero client-side
+    // coordinate translation, the same guarantee faceBox already gives
+    // the old marker system.
+    const [{ data: rawPixels, info: rawInfo }, storedBuf, geminiBuf, { data: heatmapPixels, info: heatmapInfo }] = await Promise.all([
+      base.clone().extract(pixelBox).resize(40, 40, { fit: 'fill' }).removeAlpha().raw().toBuffer({ resolveWithObject: true }),
+      base.clone().resize(1080, 1350, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer(),
+      base.clone().resize(900, 1125, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer(),
+      base.clone().resize(1080, 1350, { fit: 'inside', withoutEnlargement: true }).removeAlpha().raw().toBuffer({ resolveWithObject: true }),
+    ]);
+    const geminiB64 = geminiBuf.toString('base64');
+
+    // Fired off here, not awaited until it's actually needed below (right
+    // before the scan is saved) — the upload has zero dependency on the
+    // face-match/Gemini work that follows, so there's no reason to pay
+    // its network time SEQUENTIALLY on top of the several-second Gemini
+    // call. Starting it now lets it run concurrently, hidden behind that
+    // larger wait, instead of adding on top of it. Awaiting it later, at
+    // the exact point its result is used, keeps every existing error-
+    // handling behavior identical to before — only the START time moved.
+    const uploadPromise = uploadFile(`skin-scans/${userId}-${Date.now()}.jpg`, storedBuf, 'image/jpeg');
+
+    // Real per-pixel segmentation confidence from modules/skin-segmentation
+    // (mobile) — optional (undefined on Android before its own native
+    // module exists, an older client, or a failed native call: same
+    // graceful "no regression" fallback buildMasks itself already
+    // implements for an absent segMask — see that function's own
+    // comment). Decoded and resized here, once, to EXACTLY heatmapInfo's
+    // own width/height — the same canonical resolution gray/labA/labB
+    // (toGrayscaleAndLab, skinHeatmaps.js) are built at from
+    // heuristicPixels — so a mask pixel and a photo pixel share the same
+    // index with zero coordinate math needed downstream, the same
+    // guarantee heatmapPixels/storedBuf already share via identical
+    // resize params (see this file's own comment on that pairing).
+    let segMask;
+    if (rawSkinMask && typeof rawSkinMask === 'object' && typeof rawSkinMask.base64 === 'string' && rawSkinMask.base64) {
+      try {
+        const maskBuf = Buffer.from(rawSkinMask.base64, 'base64');
+        const { data: maskRaw } = await sharp(maskBuf)
+          .resize(heatmapInfo.width, heatmapInfo.height, { fit: 'fill' })
+          .grayscale()
+          .raw()
+          .toBuffer({ resolveWithObject: true });
+        segMask = new Float32Array(maskRaw.length);
+        for (let i = 0; i < maskRaw.length; i++) segMask[i] = maskRaw[i] / 255;
+      } catch (err) {
+        // Never fails the scan over a bad/corrupt mask upload — same
+        // "degrade to the existing ellipse-only behavior" fallback as
+        // simply not sending one.
+        console.error('[skin] could not decode skinMask, falling back to ellipse-only occlusion:', err.message);
+        segMask = undefined;
+      }
+    }
+
+    // Also fired off here rather than after the Gemini call, now that
+    // Perfect Corp (the one thing that used to force this to wait for a
+    // live public photoUrl — src_file_url — before it could even start)
+    // is gone. getConcernAnalysis only ever needs heatmapPixels/
+    // heatmapInfo, both already available above — it has no dependency on
+    // Gemini's result or on uploadPromise, so it now runs concurrently
+    // with both instead of serialized after them. Awaited later, at the
+    // exact point its result is used, same pattern as uploadPromise above.
+    const concernAnalysisPromise = getConcernAnalysis({
+      heuristicPixels: heatmapPixels,
+      heuristicInfo: heatmapInfo,
+      faceBox,
+      zoneMarkers: sanitizedZoneMarkers,
+      userId,
+      segMask,
+    });
+
+    // Stage 7: started HERE, concurrently with the Gemini call and the
+    // heuristic engine below — never sequentially after them. Part A's real
+    // measurements are why: Ivy runs 21.7–25.1s (median 23.7s), and the
+    // existing pipeline already takes ~29s end-to-end, so chaining them
+    // would put a typical scan at ~53s against the client's 70s ceiling —
+    // barely any headroom on a slow connection. Run concurrently it hides
+    // almost entirely inside the wait that already exists.
+    // Awaited far below, at the exact point its result is used.
+    const ivyPromise = process.env.IVYAI_API_KEY
+      ? analyzeWithIvyAi(geminiB64).catch(() => null)
+      : Promise.resolve(null);
+
+    // Gathers this account's other profiles' reference photos up front —
+    // pure data fetching, no API call yet (see gatherProfileCandidates).
+    const { profiles, referenceProfiles } = await gatherProfileCandidates(userId);
+
+    // Real vision-model analysis when GEMINI_API_KEY is configured, with
+    // the free pixel-math heuristic (skinAnalysis.js) as a fallback
+    // — both on any Gemini error (bad key, network, rate limit) and when
+    // the key simply isn't set, so this route works either way. A face
+    // Gemini can't find is the one case that should NOT silently fall
+    // back to the heuristic (which has no way to know a face is even
+    // present) — that's real, actionable feedback for the user to retake
+    // the photo, so it becomes a 400 instead.
+    //
+    // ONE Gemini call handles both face-matching (which profile this is)
+    // AND the skin analysis — folded together specifically because two
+    // separate calls per scan was doubling how often the free tier's
+    // per-minute quota got hit, and every 429 silently fell back to the
+    // zero-detail heuristic (no zone notes → no zone markers on the
+    // result photo, no progressNote). One call halves that exposure.
+    report('analyzing');
+    let result;
+    let analysisSource = 'heuristic';
+    let profileId = null;
+    let isNewProfile = false;
+    try {
+      const gemini = await analyzeWithGemini(geminiB64, {
+        referenceProfiles: referenceProfiles.map(r => ({
+          photoBase64: r.photoBase64, daysAgo: r.daysAgo, skinTone: r.skinTone, skinType: r.skinType, concerns: r.concerns, trend: r.trend,
+        })),
+      });
+      if (gemini) {
+        if (!gemini.faceDetected) {
+          console.log(`[skin] Gemini rejected scan from user ${userId}: no face detected`);
+          return { ok: false, status: 400, body: { error: 'We couldn\'t clearly see a face in that photo. Try again with good lighting, centered in the oval.', code: 'NO_FACE_DETECTED' } };
+        }
+        analysisSource = 'gemini';
+        result = {
+          skinTone: gemini.skinTone,
+          skinType: gemini.skinType,
+          concerns: gemini.concerns,
+          summary: gemini.summary,
+          progressNote: gemini.progressNote ?? null,
+          hydrationLevel: gemini.hydrationLevel || '',
+          // 8-zone breakdown — how many of these end up non-empty tracks
+          // how much this particular photo actually showed, not a fixed
+          // count (see geminiSkinAnalysis.js's prompt). Old scans in the
+          // DB only ever have the coarser tZone/cheeks/underEye shape;
+          // the mobile client falls back to rendering that shape when the
+          // 8 keys below are all absent (see skinZones.ts).
+          zoneNotes: {
+            forehead: gemini.foreheadNote || '',
+            nose: gemini.noseNote || '',
+            chin: gemini.chinNote || '',
+            cheekL: gemini.cheekLNote || '',
+            cheekR: gemini.cheekRNote || '',
+            underEyeL: gemini.underEyeLNote || '',
+            underEyeR: gemini.underEyeRNote || '',
+            jawline: gemini.jawlineNote || '',
+          },
+          recommendations: gemini.recommendations,
+          bookCategory: BOOK_CATEGORY,
+        };
+
+        if (gemini.matchedProfileIndex != null && (gemini.matchConfidence === 'HIGH' || gemini.matchConfidence === 'MEDIUM')) {
+          profileId = referenceProfiles[gemini.matchedProfileIndex - 1].profile.id;
+        } else if (profiles.length > 0) {
+          // Gemini was actually consulted and confidently found no match
+          // among existing profiles — a different person just used this
+          // account for the first time.
+          isNewProfile = true;
+        }
+        // else: profiles.length === 0 (account's first-ever scan) — profileId
+        // stays null, "You" gets created below. Not a "new profile" event.
+      }
+    } catch (err) {
+      console.error('Gemini skin analysis failed, falling back to free heuristic:', err.message);
+    }
+    if (!result) {
+      result = analyzeSkin({ buffer: rawPixels, channels: rawInfo.channels });
+      // Gemini unavailable/errored — can't tell people apart right now, so
+      // default to the account's original profile rather than
+      // fragmenting history into a new profile on every single scan.
+      if (profiles.length > 0) profileId = profiles[0].id;
+    }
+
+    // Multi-angle scan: which profile this belongs to is already known
+    // (the parent scan already went through real face-matching) — an
+    // explicit "this is another angle of THAT session" beats re-running
+    // face-match against this angle's own photo, which could disagree
+    // with itself on a side profile Gemini reads as a different person.
+    // Overrides whatever the analysis above computed; the skin
+    // tone/type/concerns/heatmaps for THIS photo are untouched — only
+    // which profile/history it files under changes.
+    if (parentScan) {
+      profileId = parentScan.profileId;
+      isNewProfile = false;
+    }
+
+    const uploaded = await uploadPromise;
+    if (!uploaded?.url) return { ok: false, status: 500, body: { error: 'Photo upload failed. Please try again.' } };
+
+    // Started concurrently with the Gemini call and the upload above (see
+    // concernAnalysisPromise's own comment) — just picking up the result
+    // here. The heuristic engine never rejects on image quality the way
+    // the old Perfect Corp Deep Scan path did — every concern it can't
+    // assess just comes back null, labeled 'estimated' with a specific
+    // reason, never a 400.
+    const { heatmaps, heatmapSource, heatmapSourceReason } = await concernAnalysisPromise;
+
+    // Stage 7 merge — see mergeIvyIntoHeatmaps. A null here (no key, vendor
+    // refusal, timeout, quota) leaves every heuristic record exactly as it
+    // was, which is the whole point: the vendor is an enhancement layered
+    // on a path that already works alone, never a dependency of it.
+    const ivy = await ivyPromise;
+    const { ivyApplied } = mergeIvyIntoHeatmaps(heatmaps, ivy);
+    if (ivyApplied.length) {
+      console.log(`[skin] ivy AI severities applied to: ${ivyApplied.join(', ')} (acne always stays heuristic — vendor has no blemish metric)`);
+    }
+
+    report('saving');
+    const scan = await prisma.$transaction(async (tx) => {
+      // A new profile is only ever actually created here — once a scan is
+      // definitely being saved under it — never speculatively during the
+      // face-match step above.
+      if (!profileId) {
+        const label = isNewProfile ? `Profile ${profiles.length + 1}` : 'You';
+        const profile = await tx.skinProfile.create({ data: { userId, label } });
+        profileId = profile.id;
+      }
+
+      const created = await tx.skinScan.create({
+        data: {
+          userId,
+          profileId,
+          photoUrl: uploaded.url,
+          photoAligned: aligned,
+          skinTone: result.skinTone,
+          skinType: result.skinType,
+          concerns: result.concerns,
+          summary: result.summary || '',
+          progressNote: result.progressNote ?? null,
+          hydrationLevel: result.hydrationLevel || '',
+          zoneNotes: result.zoneNotes || {},
+          faceBox,
+          zoneMarkers: sanitizedZoneMarkers,
+          heatmaps: Object.values(heatmaps).some(Boolean) ? heatmaps : null,
+          heatmapSource,
+          heatmapSourceReason,
+          recommendations: result.recommendations,
+          notes: notes || '',
+          parentScanId: parentScan ? parentScan.id : null,
+        },
+      });
+
+      // Keep the user's "current known" tone/type in sync with their most
+      // recent scan, so anything elsewhere in the app that already reads
+      // User.skinTone/skinType (profile display, future matching) reflects
+      // it automatically without those call sites needing to change.
+      // Deliberately always the LAST scanner's reading, on whichever
+      // profile — a genuinely shaky spot on a shared account, but no
+      // worse than before this feature existed (there was only ever one
+      // tone/type on the User row regardless of who scanned).
+      await tx.user.update({
+        where: { id: userId },
+        data: { skinTone: result.skinTone, skinType: result.skinType },
+      });
+
+      return created;
+    });
+
+    console.log(`[skin] scan ${scan.id} for user ${userId} (profile ${scan.profileId}${isNewProfile ? ', new' : ''}) served by: ${analysisSource}`);
+    return { ok: true, body: { scan: serializeScan(scan), bookCategory: result.bookCategory, isNewProfile } };
+  } catch (err) {
+    // Mirrors the route handler's own top-level catch — this is now the
+    // ONLY place that logic lives, shared by both the synchronous and
+    // polling paths, so they can never drift on what an unexpected failure
+    // looks like to the client.
+    console.error('runScanPipeline error:', err);
+    return { ok: false, status: 500, body: { error: 'Server error' } };
+  }
+}
+
 router.post(
   '/scan',
   authenticate,
   async (req, res) => {
     try {
-      const { photoBase64, mimeType = 'image/jpeg', faceRegion, zoneMarkers: rawZoneMarkers, notes, parentScanId } = req.body;
+      const { photoBase64, burstCandidates: rawBurstCandidates, mimeType = 'image/jpeg', faceRegion, zoneMarkers: rawZoneMarkers, notes, parentScanId, skinMask: rawSkinMask, aligned: rawAligned, async: wantsAsync } = req.body;
+      // True only when the CLIENT asserts photoBase64 is its own aligned
+      // output (SkinScanCamera.tsx's Stage 6 pipeline) — coerced with ===
+      // true rather than truthy so a stray non-boolean value can't slip
+      // through as aligned. See schema.prisma's SkinScan.photoAligned for
+      // why this matters for My Space's before/after history.
+      const aligned = rawAligned === true;
       if (!photoBase64) return res.status(400).json({ error: 'photoBase64 required' });
       if (photoBase64.length > 8_000_000) return res.status(413).json({ error: 'Image too large. Maximum 6 MB.' });
+
+      // burstCandidates is OPTIONAL and additive — an older client that only
+      // ever sends photoBase64 (no burstCandidates field at all) hits
+      // exactly the pre-existing single-photo path below unchanged. Only a
+      // client that opts into the new 3-locked-frame capture (see
+      // SkinScanCamera.tsx's shoot()) sends this, and even then it's capped
+      // and validated defensively rather than trusted as already-correct.
+      // Capped at 2 (not more) — matches the REAL design exactly: 1 primary
+      // frame (photoBase64) + 2 additional locked-exposure frames = 3 total
+      // (see SkinScanCamera.tsx's shoot(), BURST_FRAME_COUNT = 3). Capping
+      // here at the real expected count, not a larger defensive-sounding
+      // number, keeps the worst-case request body bounded — see app.js's
+      // own comment on the route-specific JSON size limit this exact cap
+      // was sized against.
+      const burstCandidates = Array.isArray(rawBurstCandidates)
+        ? rawBurstCandidates.filter((c) => typeof c === 'string' && c.length > 0).slice(0, 2)
+        : [];
+      for (const c of burstCandidates) {
+        if (c.length > 8_000_000) return res.status(413).json({ error: 'Image too large. Maximum 6 MB.' });
+      }
       if (notes && notes.length > 300) return res.status(400).json({ error: 'Notes must be 300 characters or fewer' });
       if (!process.env.BLOB_READ_WRITE_TOKEN) {
         return res.status(500).json({ error: 'File storage is not configured. Contact support.' });
@@ -380,254 +808,74 @@ router.post(
         });
       }
 
-      const buf = Buffer.from(photoBase64, 'base64');
-      const base = sharp(buf).rotate(); // auto-orient from EXIF before anything else touches pixel coordinates
-      const meta = await base.metadata();
-      if (!meta.width || !meta.height) return res.status(400).json({ error: 'Could not read image' });
+      const pipelineCtx = { userId: req.user.id, photoBase64, burstCandidates, faceRegion, sanitizedZoneMarkers, notes, parentScan, rawSkinMask, aligned };
 
-      // meta.width/height are the STORED pixel dimensions — sharp's
-      // .metadata() reads them straight off the file, before the .rotate()
-      // queued above actually runs. For EXIF orientation 5-8 (a 90°/270°
-      // rotation — common on phone selfies depending how the phone was
-      // held), the pipeline's REAL output ends up with width and height
-      // swapped from what metadata() just reported. Confirmed directly:
-      // extracting a box sized against the un-swapped dimensions against
-      // that rotated pipeline throws libvips' "extract_area: bad extract
-      // area" — exactly the error hit in production. expo-camera's old
-      // capture path apparently never produced this orientation tag;
-      // vision-camera's does, which is why this only surfaced after that
-      // migration.
-      const swapsDimensions = meta.orientation >= 5 && meta.orientation <= 8;
-      const imgWidth = swapsDimensions ? meta.height : meta.width;
-      const imgHeight = swapsDimensions ? meta.width : meta.height;
-
-      const { pixelBox, faceBox } = resolveCropBox(faceRegion, imgWidth, imgHeight);
-
-      // Three forks of the same decoded pipeline — a small raw-pixel crop
-      // for the free heuristic, a full-size JPEG for storage/history
-      // display (users pinch-zoom this), and a smaller one specifically
-      // for the Gemini call — sharp's .clone() lets all three draw from
-      // the one decode instead of re-parsing the buffer multiple times.
-      // Independent clones, so run them concurrently rather than one after
-      // another.
+      // Everything above this point is unavoidably synchronous either way —
+      // it's cheap validation that can reject in milliseconds, so there's no
+      // reason to make even a NEW client wait a poll round-trip just to
+      // find out its request was malformed. Only real, potentially slow
+      // pipeline work (sharpness scoring onward, inside runScanPipeline)
+      // goes through the job/polling path below.
       //
-      // The Gemini-sized copy exists because the ORIGINAL code sent the
-      // exact same full 1080x1350 buffer to Gemini as gets stored for
-      // on-screen zoom — real, unnecessary payload + processing time for
-      // an API call, confirmed against production logs to be the dominant
-      // cost in a request that measured 35.9s even AFTER geminiSkinAnalysis
-      // .js's own 25s internal timeout, and 59.9s (client-canceled) on
-      // another. 900x1125 is a real reduction (roughly 40% fewer pixels
-      // than 1080x1350) while staying comfortably above what a vision
-      // model's own internal tiling actually uses per image regardless of
-      // input size — more pixels past that point cost transfer/processing
-      // time without adding analysis fidelity.
-      // heatmapPixels: raw RGB at the EXACT SAME resize params as storedBuf
-      // (not just the same target numbers — .resize(fit:'inside') rarely
-      // lands on exactly 1080x1350, see storedBuf's own history of that
-      // exact mismatch breaking marker alignment) so generateHeatmaps'
-      // output lines up pixel-for-pixel with photoUrl with zero client-side
-      // coordinate translation, the same guarantee faceBox already gives
-      // the old marker system.
-      const [{ data: rawPixels, info: rawInfo }, storedBuf, geminiBuf, { data: heatmapPixels, info: heatmapInfo }] = await Promise.all([
-        base.clone().extract(pixelBox).resize(40, 40, { fit: 'fill' }).removeAlpha().raw().toBuffer({ resolveWithObject: true }),
-        base.clone().resize(1080, 1350, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 82 }).toBuffer(),
-        base.clone().resize(900, 1125, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer(),
-        base.clone().resize(1080, 1350, { fit: 'inside', withoutEnlargement: true }).removeAlpha().raw().toBuffer({ resolveWithObject: true }),
-      ]);
-      const geminiB64 = geminiBuf.toString('base64');
-
-      // Fired off here, not awaited until it's actually needed below (right
-      // before the scan is saved) — the upload has zero dependency on the
-      // face-match/Gemini work that follows, so there's no reason to pay
-      // its network time SEQUENTIALLY on top of the several-second Gemini
-      // call. Starting it now lets it run concurrently, hidden behind that
-      // larger wait, instead of adding on top of it. Awaiting it later, at
-      // the exact point its result is used, keeps every existing error-
-      // handling behavior identical to before — only the START time moved.
-      const uploadPromise = uploadFile(`skin-scans/${req.user.id}-${Date.now()}.jpg`, storedBuf, 'image/jpeg');
-
-      // Also fired off here rather than after the Gemini call, now that
-      // Perfect Corp (the one thing that used to force this to wait for a
-      // live public photoUrl — src_file_url — before it could even start)
-      // is gone. getConcernAnalysis only ever needs heatmapPixels/
-      // heatmapInfo, both already available above — it has no dependency on
-      // Gemini's result or on uploadPromise, so it now runs concurrently
-      // with both instead of serialized after them. Awaited later, at the
-      // exact point its result is used, same pattern as uploadPromise above.
-      const concernAnalysisPromise = getConcernAnalysis({
-        heuristicPixels: heatmapPixels,
-        heuristicInfo: heatmapInfo,
-        faceBox,
-        zoneMarkers: sanitizedZoneMarkers,
-        userId: req.user.id,
-      });
-
-      // Gathers this account's other profiles' reference photos up front —
-      // pure data fetching, no API call yet (see gatherProfileCandidates).
-      const { profiles, referenceProfiles } = await gatherProfileCandidates(req.user.id);
-
-      // Real vision-model analysis when GEMINI_API_KEY is configured, with
-      // the free pixel-math heuristic (skinAnalysis.js) as a fallback
-      // — both on any Gemini error (bad key, network, rate limit) and when
-      // the key simply isn't set, so this route works either way. A face
-      // Gemini can't find is the one case that should NOT silently fall
-      // back to the heuristic (which has no way to know a face is even
-      // present) — that's real, actionable feedback for the user to retake
-      // the photo, so it becomes a 400 instead.
-      //
-      // ONE Gemini call handles both face-matching (which profile this is)
-      // AND the skin analysis — folded together specifically because two
-      // separate calls per scan was doubling how often the free tier's
-      // per-minute quota got hit, and every 429 silently fell back to the
-      // zero-detail heuristic (no zone notes → no zone markers on the
-      // result photo, no progressNote). One call halves that exposure.
-      let result;
-      let analysisSource = 'heuristic';
-      let profileId = null;
-      let isNewProfile = false;
-      try {
-        const gemini = await analyzeWithGemini(geminiB64, {
-          referenceProfiles: referenceProfiles.map(r => ({
-            photoBase64: r.photoBase64, daysAgo: r.daysAgo, skinTone: r.skinTone, skinType: r.skinType, concerns: r.concerns, trend: r.trend,
-          })),
-        });
-        if (gemini) {
-          if (!gemini.faceDetected) {
-            console.log(`[skin] Gemini rejected scan from user ${req.user.id}: no face detected`);
-            return res.status(400).json({ error: 'We couldn\'t clearly see a face in that photo. Try again with good lighting, centered in the oval.', code: 'NO_FACE_DETECTED' });
-          }
-          analysisSource = 'gemini';
-          result = {
-            skinTone: gemini.skinTone,
-            skinType: gemini.skinType,
-            concerns: gemini.concerns,
-            summary: gemini.summary,
-            progressNote: gemini.progressNote ?? null,
-            hydrationLevel: gemini.hydrationLevel || '',
-            // 8-zone breakdown — how many of these end up non-empty tracks
-            // how much this particular photo actually showed, not a fixed
-            // count (see geminiSkinAnalysis.js's prompt). Old scans in the
-            // DB only ever have the coarser tZone/cheeks/underEye shape;
-            // the mobile client falls back to rendering that shape when the
-            // 8 keys below are all absent (see skinZones.ts).
-            zoneNotes: {
-              forehead: gemini.foreheadNote || '',
-              nose: gemini.noseNote || '',
-              chin: gemini.chinNote || '',
-              cheekL: gemini.cheekLNote || '',
-              cheekR: gemini.cheekRNote || '',
-              underEyeL: gemini.underEyeLNote || '',
-              underEyeR: gemini.underEyeRNote || '',
-              jawline: gemini.jawlineNote || '',
-            },
-            recommendations: gemini.recommendations,
-            bookCategory: BOOK_CATEGORY,
-          };
-
-          if (gemini.matchedProfileIndex != null && (gemini.matchConfidence === 'HIGH' || gemini.matchConfidence === 'MEDIUM')) {
-            profileId = referenceProfiles[gemini.matchedProfileIndex - 1].profile.id;
-          } else if (profiles.length > 0) {
-            // Gemini was actually consulted and confidently found no match
-            // among existing profiles — a different person just used this
-            // account for the first time.
-            isNewProfile = true;
-          }
-          // else: profiles.length === 0 (account's first-ever scan) — profileId
-          // stays null, "You" gets created below. Not a "new profile" event.
-        }
-      } catch (err) {
-        console.error('Gemini skin analysis failed, falling back to free heuristic:', err.message);
-      }
-      if (!result) {
-        result = analyzeSkin({ buffer: rawPixels, channels: rawInfo.channels });
-        // Gemini unavailable/errored — can't tell people apart right now, so
-        // default to the account's original profile rather than
-        // fragmenting history into a new profile on every single scan.
-        if (profiles.length > 0) profileId = profiles[0].id;
+      // `async: true` is how the updated mobile client opts into the new
+      // polling contract (see mobile/src/api/client.ts's apiScanSkin) — an
+      // older client that never sends this flag hits the exact same single-
+      // request/single-response 201 (or 4xx/5xx) behavior this route has
+      // always had, byte-for-byte, via the plain `await` branch below.
+      // That's what keeps this change purely additive instead of breaking
+      // every already-installed app version that predates it.
+      if (wantsAsync === true) {
+        const jobId = crypto.randomUUID();
+        await setJob(jobId, req.user.id, { status: 'processing', stage: 'scoring_sharpness' });
+        res.status(202).json({ jobId });
+        runScanPipeline(pipelineCtx, (stage) => { setJob(jobId, req.user.id, { status: 'processing', stage }).catch(() => {}); })
+          .then((result) => {
+            if (result.ok) return setJob(jobId, req.user.id, { status: 'done', ...result.body });
+            return setJob(jobId, req.user.id, { status: 'error', httpStatus: result.status, ...result.body });
+          })
+          .catch((err) => {
+            console.error('POST /skin/scan (async) unexpected pipeline error:', err);
+            setJob(jobId, req.user.id, { status: 'error', httpStatus: 500, error: 'Server error' }).catch(() => {});
+          });
+        return;
       }
 
-      // Multi-angle scan: which profile this belongs to is already known
-      // (the parent scan already went through real face-matching) — an
-      // explicit "this is another angle of THAT session" beats re-running
-      // face-match against this angle's own photo, which could disagree
-      // with itself on a side profile Gemini reads as a different person.
-      // Overrides whatever the analysis above computed; the skin
-      // tone/type/concerns/heatmaps for THIS photo are untouched — only
-      // which profile/history it files under changes.
-      if (parentScan) {
-        profileId = parentScan.profileId;
-        isNewProfile = false;
-      }
-
-      const uploaded = await uploadPromise;
-      if (!uploaded?.url) return res.status(500).json({ error: 'Photo upload failed. Please try again.' });
-
-      // Started concurrently with the Gemini call and the upload above (see
-      // concernAnalysisPromise's own comment) — just picking up the result
-      // here. The heuristic engine never rejects on image quality the way
-      // the old Perfect Corp Deep Scan path did — every concern it can't
-      // assess just comes back null, labeled 'estimated' with a specific
-      // reason, never a 400.
-      const { heatmaps, heatmapSource, heatmapSourceReason } = await concernAnalysisPromise;
-
-      const scan = await prisma.$transaction(async (tx) => {
-        // A new profile is only ever actually created here — once a scan is
-        // definitely being saved under it — never speculatively during the
-        // face-match step above.
-        if (!profileId) {
-          const label = isNewProfile ? `Profile ${profiles.length + 1}` : 'You';
-          const profile = await tx.skinProfile.create({ data: { userId: req.user.id, label } });
-          profileId = profile.id;
-        }
-
-        const created = await tx.skinScan.create({
-          data: {
-            userId: req.user.id,
-            profileId,
-            photoUrl: uploaded.url,
-            skinTone: result.skinTone,
-            skinType: result.skinType,
-            concerns: result.concerns,
-            summary: result.summary || '',
-            progressNote: result.progressNote ?? null,
-            hydrationLevel: result.hydrationLevel || '',
-            zoneNotes: result.zoneNotes || {},
-            faceBox,
-            zoneMarkers: sanitizedZoneMarkers,
-            heatmaps: Object.values(heatmaps).some(Boolean) ? heatmaps : null,
-            heatmapSource,
-            heatmapSourceReason,
-            recommendations: result.recommendations,
-            notes: notes || '',
-            parentScanId: parentScan ? parentScan.id : null,
-          },
-        });
-
-        // Keep the user's "current known" tone/type in sync with their most
-        // recent scan, so anything elsewhere in the app that already reads
-        // User.skinTone/skinType (profile display, future matching) reflects
-        // it automatically without those call sites needing to change.
-        // Deliberately always the LAST scanner's reading, on whichever
-        // profile — a genuinely shaky spot on a shared account, but no
-        // worse than before this feature existed (there was only ever one
-        // tone/type on the User row regardless of who scanned).
-        await tx.user.update({
-          where: { id: req.user.id },
-          data: { skinTone: result.skinTone, skinType: result.skinType },
-        });
-
-        return created;
-      });
-
-      console.log(`[skin] scan ${scan.id} for user ${req.user.id} (profile ${scan.profileId}${isNewProfile ? ', new' : ''}) served by: ${analysisSource}`);
-      res.status(201).json({
-        scan: serializeScan(scan),
-        bookCategory: result.bookCategory,
-        isNewProfile,
-      });
+      const result = await runScanPipeline(pipelineCtx, () => {});
+      if (!result.ok) return res.status(result.status).json(result.body);
+      return res.status(201).json(result.body);
     } catch (err) {
       console.error('POST /skin/scan error:', err);
+      res.status(500).json({ error: 'Server error' });
+    }
+  }
+);
+
+// Polling status for the async path above (see `wantsAsync` in POST /scan).
+// Always answers 200 with a `status` field — a still-processing OR a FAILED
+// job both come back as a normal 200 with status:'processing'/'error', not
+// an HTTP-level 4xx/5xx, because a job failure is a real, meaningful STATE
+// of the resource being polled, not a failure of the poll request itself
+// (which client.ts's request() would otherwise treat as transient and
+// retry). Only a genuinely unknown/expired/not-yours jobId is a real 404 —
+// there the poll request itself failed to find its target.
+router.get(
+  '/scan/jobs/:jobId/status',
+  authenticate,
+  async (req, res) => {
+    try {
+      const job = await getJob(req.params.jobId);
+      if (!job || job.userId !== req.user.id) {
+        return res.status(404).json({ error: 'Scan job not found or expired.' });
+      }
+      if (job.status === 'done') {
+        return res.json({ status: 'done', scan: job.scan, bookCategory: job.bookCategory, isNewProfile: job.isNewProfile });
+      }
+      if (job.status === 'error') {
+        return res.json({ status: 'error', error: job.error, code: job.code });
+      }
+      return res.json({ status: 'processing', stage: job.stage });
+    } catch (err) {
+      console.error('GET /skin/scan/jobs/:jobId/status error:', err);
       res.status(500).json({ error: 'Server error' });
     }
   }

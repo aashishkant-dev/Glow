@@ -152,7 +152,23 @@ function mouthExclusionRect(zoneRects) {
 // the union of every assessable zone's elliptical region — plus the same
 // mask restricted to WRINKLE_ZONES only. `zoneRects` values are already
 // full-photo 0-1 fractions (see assessableZoneRects).
-function buildMasks(width, height, zoneRects) {
+//
+// `segMask` (optional, Float32Array width*height, 0-1, real per-pixel
+// person/skin confidence from modules/skin-segmentation — see that
+// module's iOS Vision-framework / Android ML Kit Selfie Segmentation
+// implementations) is what actually closes the "elliptical zone-based
+// exclusion" gap: the ellipse still decides WHICH named zone a pixel
+// belongs to (segmentation has no concept of "forehead" vs "chin" — only
+// "is this visible skin at all"), but a pixel now only counts as
+// assessable if it's BOTH inside an assessable zone's ellipse AND
+// confidently real skin per the real mask. Multiplied in, not a separate
+// AND/OR branch, so it degrades smoothly at a mask's own soft edges (a
+// hairline, the edge of a hand) instead of a hard cliff. Absent entirely
+// (undefined) on any scan without one — an older client, Android before
+// its own native module exists, or a failed native call — in which case
+// this behaves EXACTLY as before: the ellipse alone decides, no
+// regression for those scans.
+function buildMasks(width, height, zoneRects, segMask) {
   const full = new Float32Array(width * height);
   const wrinkle = new Float32Array(width * height);
   const pore = new Float32Array(width * height);
@@ -163,6 +179,7 @@ function buildMasks(width, height, zoneRects) {
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const i = y * width + x;
+      const seg = segMask ? segMask[i] : 1;
       let w = 0;
       for (const [, rect] of rectList) w = Math.max(w, ellipseWeight(x, y, rect, width, height));
       // Lips read as strongly "red"/high-contrast regardless of actual
@@ -172,14 +189,14 @@ function buildMasks(width, height, zoneRects) {
       // meaningless "texture" and lip shine is equally meaningless
       // "specular skin highlight."
       const mouthClear = mouthRect ? 1 - ellipseWeight(x, y, mouthRect, width, height) : 1;
-      w *= mouthClear;
+      w *= mouthClear * seg;
       full[i] = w;
       let ww = 0;
       for (const [, rect] of wrinkleRectList) ww = Math.max(ww, ellipseWeight(x, y, rect, width, height));
-      wrinkle[i] = ww;
+      wrinkle[i] = ww * seg;
       let wp = 0;
       for (const [, rect] of poreRectList) wp = Math.max(wp, ellipseWeight(x, y, rect, width, height));
-      pore[i] = wp * mouthClear;
+      pore[i] = wp * mouthClear * seg;
     }
   }
   return { full, wrinkle, pore, assessedZoneCount: rectList.length, totalZoneCount: ZONE_KEYS.length };
@@ -226,12 +243,48 @@ function maskedStats(values, mask, threshold) {
 // extreme outlier pixels don't wash out the rest of the scale, and a
 // deadzone below 0.5 std keeps completely ordinary variation from painting
 // as "flagged" at all (an evenly-lit, textbook-clear patch of skin should
-// render as fully transparent, not a faint tint).
+// render as fully transparent, not a faint tint). This is the SCORING
+// curve — feeds the reported severity/band/verdict text (via
+// percentileSeverityWhereMasked's p85) — deliberately conservative so
+// "clear"/"mild" language stays honest.
 function zScoreToSeverity(z) {
   const DEADZONE = 0.5;
   const CEIL = 2.5;
   if (z <= DEADZONE) return 0;
   return Math.min(1, (z - DEADZONE) / (CEIL - DEADZONE));
+}
+
+// Percentile-RANK based alpha for the VISUAL overlay — never used for
+// severity/band/verdict (that stays on zScoreToSeverity above, unchanged).
+// NOT a z-score deadzone, on purpose: tried that first (DEADZONE=0, i.e.
+// "any above-average pixel gets some alpha") and tested it against a real
+// photo through the real pipeline — coverage barely moved (redness stayed
+// at ~1% of masked pixels). That means these metrics (Laplacian magnitude,
+// DoG blob response, Sobel magnitude, Lab a*) are heavily RIGHT-SKEWED in
+// practice, not roughly normal — a few strong outlier pixels (real edges,
+// real texture) pull the MEAN well above the MEDIAN, so "above the mean"
+// is still a small minority of pixels, not roughly half. A rank-based
+// mapping sidesteps that entirely: sort the masked region's raw values
+// once, place every pixel by where it falls in that sorted order, not its
+// distance from a mean/std the same outliers already skewed. This
+// guarantees a predictable, distribution-shape-independent fraction of the
+// masked region shows SOME color — startPct picked (0.6) so the top ~40%
+// of assessable pixels carry visible alpha, scaling up toward full color
+// for the most-flagged ~10%, verified by actually rendering it (see this
+// file's own git history) rather than assumed from the formula alone.
+function rankToAlpha(raw, mask, threshold, startPct) {
+  const n = raw.length;
+  const indices = [];
+  for (let i = 0; i < n; i++) { if (mask[i] > threshold) indices.push(i); }
+  indices.sort((a, b) => raw[a] - raw[b]);
+  const alpha = new Float32Array(n);
+  const count = indices.length;
+  for (let rank = 0; rank < count; rank++) {
+    const i = indices[rank];
+    const pct = count > 1 ? rank / (count - 1) : 1;
+    alpha[i] = pct <= startPct ? 0 : (pct - startPct) / (1 - startPct);
+  }
+  return alpha;
 }
 
 // ---- Per-concern severity maps (Float32Array, width*height, [0,1]) -------
@@ -243,12 +296,13 @@ function zScoreToSeverity(z) {
 // not an absolute a* number picked for one tone.
 function rednessSeverity(labA, mask) {
   const { mean, std } = maskedStats(labA, mask, 0.15);
-  const out = new Float32Array(labA.length);
+  const severity = new Float32Array(labA.length);
   for (let i = 0; i < labA.length; i++) {
     if (mask[i] <= 0.15) continue;
-    out[i] = zScoreToSeverity((labA[i] - mean) / std);
+    severity[i] = zScoreToSeverity((labA[i] - mean) / std);
   }
-  return out;
+  const alpha = rankToAlpha(labA, mask, 0.15, 0.6);
+  return { severity, alpha };
 }
 
 // Texture/pores: local contrast via a discrete Laplacian (high-frequency
@@ -256,25 +310,39 @@ function rednessSeverity(labA, mask) {
 // Laplacian magnitude = fine detail (pores, texture); scored relative to
 // this photo's own average detail level so photo sharpness/compression
 // doesn't shift the whole scale.
-function textureSeverity(gray, mask, width, height) {
+// Discrete Laplacian magnitude, |4*center - 4 neighbors| — extracted as its
+// own function (unchanged math, just pulled out of textureSeverity below)
+// specifically so photoQuality.js's burst-sharpness scoring can reuse the
+// exact same real, already-proven kernel rather than a second hand-rolled
+// copy. `mask` is optional (defaults to "every pixel counts") — sharpness
+// scoring runs on a raw candidate frame before any face/zone geometry
+// exists at all, so it has no mask to restrict to; textureSeverity below
+// still always passes its own real zone mask, unaffected by this default.
+function laplacianMagnitude(gray, width, height, mask) {
   const lap = new Float32Array(width * height);
   for (let y = 1; y < height - 1; y++) {
     for (let x = 1; x < width - 1; x++) {
       const i = y * width + x;
-      if (mask[i] <= 0.15) continue;
+      if (mask && mask[i] <= 0.15) continue;
       const v =
         4 * gray[i] -
         gray[i - 1] - gray[i + 1] - gray[i - width] - gray[i + width];
       lap[i] = Math.abs(v);
     }
   }
+  return lap;
+}
+
+function textureSeverity(gray, mask, width, height) {
+  const lap = laplacianMagnitude(gray, width, height, mask);
   const { mean, std } = maskedStats(lap, mask, 0.15);
-  const out = new Float32Array(width * height);
+  const severity = new Float32Array(width * height);
   for (let i = 0; i < lap.length; i++) {
     if (mask[i] <= 0.15) continue;
-    out[i] = zScoreToSeverity((lap[i] - mean) / std);
+    severity[i] = zScoreToSeverity((lap[i] - mean) / std);
   }
-  return out;
+  const alpha = rankToAlpha(lap, mask, 0.15, 0.6);
+  return { severity, alpha };
 }
 
 // Shine/dryness proxy: specular-highlight detection — the exact same
@@ -301,6 +369,8 @@ function shineSeverity(gray, mask) {
 // picking up every edge on the face (hairline, glasses, jaw contour).
 function wrinkleSeverity(gray, wrinkleMask, width, height) {
   const mag = new Float32Array(width * height);
+  const gxOut = new Float32Array(width * height);
+  const gyOut = new Float32Array(width * height);
   for (let y = 1; y < height - 1; y++) {
     for (let x = 1; x < width - 1; x++) {
       const i = y * width + x;
@@ -313,15 +383,23 @@ function wrinkleSeverity(gray, wrinkleMask, width, height) {
         -gray[i - width - 1] - 2 * gray[i - width] - gray[i - width + 1] +
         gray[i + width - 1] + 2 * gray[i + width] + gray[i + width + 1];
       mag[i] = Math.sqrt(gx * gx + gy * gy);
+      gxOut[i] = gx;
+      gyOut[i] = gy;
     }
   }
   const { mean, std } = maskedStats(mag, wrinkleMask, 0.15);
-  const out = new Float32Array(width * height);
+  const severity = new Float32Array(width * height);
   for (let i = 0; i < mag.length; i++) {
     if (wrinkleMask[i] <= 0.15) continue;
-    out[i] = zScoreToSeverity((mag[i] - mean) / std);
+    severity[i] = zScoreToSeverity((mag[i] - mean) / std);
   }
-  return out;
+  const alpha = rankToAlpha(mag, wrinkleMask, 0.15, 0.6);
+  // gx/gy are returned (not discarded) so renderTracedLinesRgba can run
+  // non-max suppression along the real gradient direction — thinning the
+  // band this function produces into the actual crease line. Nothing about
+  // severity/alpha changed; these are the same intermediates as before,
+  // just no longer thrown away.
+  return { severity, alpha, gx: gxOut, gy: gyOut };
 }
 
 // Separable box blur, run 3x — a standard cheap approximation of a Gaussian
@@ -429,12 +507,13 @@ function poreSeverity(gray, poreMask, width, height) {
   }
 
   const { mean, std } = maskedStats(raw, poreMask, 0.15);
-  const out = new Float32Array(width * height);
+  const severity = new Float32Array(width * height);
   for (let i = 0; i < raw.length; i++) {
     if (poreMask[i] <= 0.15) continue;
-    out[i] = zScoreToSeverity((raw[i] - mean) / std);
+    severity[i] = zScoreToSeverity((raw[i] - mean) / std);
   }
-  return out;
+  const alpha = rankToAlpha(raw, poreMask, 0.15, 0.6);
+  return { severity, alpha };
 }
 
 // Dryness/flaking: small BRIGHT dips against slightly larger surroundings —
@@ -769,6 +848,125 @@ function renderOverlayRgba(width, height, severity, mask, colorRgb) {
   return out;
 }
 
+// ── Concern-appropriate overlay styles ──────────────────────────────────────
+// A single flat wash is the right depiction for a concern that genuinely IS
+// a region (redness spreads across an area), but it misrepresents the two
+// concerns whose underlying signal is not region-shaped at all: fine lines
+// are CURVES (Sobel ridges along a crease) and pores are POINTS (isotropic
+// dark blobs). Rendering all three identically threw away geometry the
+// detectors had already computed. Each style below draws from that same
+// already-computed signal — no new detection, just an honest depiction of
+// what was actually found.
+const OVERLAY_STYLE = {
+  redness: 'wash', texture: 'wash', shine: 'wash', moisture: 'wash', age_spot: 'wash', acne: 'wash',
+  wrinkles: 'lines',
+  pores: 'stipple',
+};
+
+// Fine lines: thin traced contours instead of a fuzzy band. Non-maximum
+// suppression along the LOCAL GRADIENT DIRECTION (the missing step called
+// out in wrinkleSeverity's own comment — "no non-max suppression, so this
+// reads as 'where the strongest edges are', not perfectly thinned
+// single-pixel lines") keeps a pixel only where it is the ridge crest
+// across the crease, thinning a several-pixel-wide gradient band down to
+// the actual line. Widened by exactly one pixel afterwards so a 1px trace
+// stays visible once the PNG is scaled down into a phone-sized photo view.
+function renderTracedLinesRgba(width, height, alpha, mask, gx, gy, colorRgb) {
+  const MAX_ALPHA = 220;
+  const keep = new Float32Array(width * height);
+  for (let y = 1; y < height - 1; y++) {
+    for (let x = 1; x < width - 1; x++) {
+      const i = y * width + x;
+      if (mask[i] <= 0.15 || alpha[i] <= 0.06) continue;
+      // Step one pixel along the gradient (perpendicular to the crease) in
+      // both directions and keep only a local maximum — the crest itself.
+      const g = Math.hypot(gx[i], gy[i]);
+      if (g < 1e-6) continue;
+      const sx = Math.round(gx[i] / g);
+      const sy = Math.round(gy[i] / g);
+      const a1 = alpha[i + sy * width + sx];
+      const a2 = alpha[i - sy * width - sx];
+      if (alpha[i] >= a1 && alpha[i] >= a2) keep[i] = alpha[i];
+    }
+  }
+  const out = Buffer.alloc(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const i = y * width + x;
+      // 1px dilation: a crest pixel paints itself and its 4-neighbours, so
+      // the trace survives the downscale to screen size.
+      let v = keep[i];
+      if (x > 0) v = Math.max(v, keep[i - 1] * 0.75);
+      if (x < width - 1) v = Math.max(v, keep[i + 1] * 0.75);
+      if (y > 0) v = Math.max(v, keep[i - width] * 0.75);
+      if (y < height - 1) v = Math.max(v, keep[i + width] * 0.75);
+      const o = i * 4;
+      out[o] = colorRgb[0];
+      out[o + 1] = colorRgb[1];
+      out[o + 2] = colorRgb[2];
+      out[o + 3] = Math.round(Math.min(1, v) * MAX_ALPHA);
+    }
+  }
+  return out;
+}
+
+// Pores: discrete dots at the actual detected blob centres, not a wash —
+// a pore is a point feature, and a continuous tint over the T-zone claims
+// a spread the detector never found. Keeps only local maxima of the same
+// blob response poresSeverity already computed (dark AND isotropic, i.e.
+// low structure-tensor coherence), then stamps a small soft disc at each,
+// so what's drawn is one mark per detected pore.
+function renderStippleRgba(width, height, alpha, mask, colorRgb) {
+  const MAX_ALPHA = 215;
+  const R = Math.max(2, Math.round(Math.min(width, height) / 380)); // ~3px at 1080x1350
+  const acc = new Float32Array(width * height);
+  const NB = 2; // local-maximum search radius
+  for (let y = NB; y < height - NB; y++) {
+    for (let x = NB; x < width - NB; x++) {
+      const i = y * width + x;
+      if (mask[i] <= 0.15 || alpha[i] <= 0.10) continue;
+      let isMax = true;
+      for (let dy = -NB; dy <= NB && isMax; dy++) {
+        for (let dx = -NB; dx <= NB; dx++) {
+          if (!dx && !dy) continue;
+          if (alpha[(y + dy) * width + (x + dx)] > alpha[i]) { isMax = false; break; }
+        }
+      }
+      if (!isMax) continue;
+      // Soft radial disc — full strength at the centre, tapering to nothing
+      // at the rim, so the marks read as dots rather than hard squares.
+      for (let dy = -R; dy <= R; dy++) {
+        for (let dx = -R; dx <= R; dx++) {
+          const d = Math.hypot(dx, dy);
+          if (d > R) continue;
+          const yy = y + dy, xx = x + dx;
+          if (yy < 0 || yy >= height || xx < 0 || xx >= width) continue;
+          const j = yy * width + xx;
+          acc[j] = Math.max(acc[j], alpha[i] * (1 - d / (R + 1)));
+        }
+      }
+    }
+  }
+  const out = Buffer.alloc(width * height * 4);
+  for (let i = 0; i < width * height; i++) {
+    const o = i * 4;
+    out[o] = colorRgb[0];
+    out[o + 1] = colorRgb[1];
+    out[o + 2] = colorRgb[2];
+    out[o + 3] = Math.round(Math.min(1, acc[i]) * MAX_ALPHA);
+  }
+  return out;
+}
+
+// Region concerns: the existing wash, with the alpha map softened first so
+// a blotch fades out at its edges instead of ending on a hard pixel border.
+// Blur runs on ALPHA only (never on severity), so the reported score/band
+// are bit-for-bit unchanged — this is purely how the region is drawn.
+function renderWashRgba(width, height, alpha, mask, colorRgb) {
+  const feathered = gaussianApprox(alpha, width, height, Math.max(2, Math.round(Math.min(width, height) / 260)));
+  return renderOverlayRgba(width, height, feathered, mask, colorRgb);
+}
+
 // Which zones actually matter for each concern's own confidence read — the
 // same lists that already restrict wrinkles/pores spatially (WRINKLE_ZONES/
 // PORE_ZONES); redness/texture/shine/moisture/age_spot/acne use the full
@@ -879,14 +1077,23 @@ function concernConfidence(concern, mask, zoneRects, width, height) {
 // A null entry means "exclude this concern entirely" (occlusion as a
 // first-class outcome, per the product spec), never "render it anyway from
 // a guess."
-async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers }) {
+async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers, segMask }) {
   const sharp = require('sharp');
   const { width, height, channels } = info;
   const zoneRects = assessableZoneRects(faceBox, zoneMarkers);
-  const { full: fullMask, wrinkle: wrinkleMask, pore: poreMask, assessedZoneCount } = buildMasks(width, height, zoneRects);
+  const { full: fullMask, wrinkle: wrinkleMask, pore: poreMask, assessedZoneCount } = buildMasks(width, height, zoneRects, segMask);
   const { gray, labA, labB } = toGrayscaleAndLab(buffer, channels, width, height);
 
-  async function describe(concern, severity, mask) {
+  // `alpha` is the map the PNG overlay actually renders from — a separate,
+  // more visually-generous, percentile-rank-based curve (rankToAlpha) than `severity`, which
+  // still alone drives the reported score/band/verdict text. Defaults to
+  // `severity` itself when a concern doesn't pass one (shine/moisture/
+  // age_spot/acne below still call their own *Severity() functions
+  // unchanged, returning a single Float32Array) — same rendering behavior
+  // those four already had, untouched. Only redness/texture/pores/wrinkles
+  // (the concerns actually verified end-to-end this round — see this
+  // file's own git history) pass a real, separate alpha map.
+  async function describe(concern, severity, mask, alpha = severity, geom = null) {
     let any = false;
     for (let i = 0; i < mask.length; i++) { if (mask[i] > 0.15) { any = true; break; } }
     if (!any) return null;
@@ -901,7 +1108,20 @@ async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers }) {
     // code while adding these three). Falls back to CONCERN_CONTENT so
     // `meta` is never undefined for the new concerns.
     const meta = CONCERN_META[concern] || CONCERN_CONTENT[concern];
-    const rgba = renderOverlayRgba(width, height, severity, mask, CONCERN_COLORS[concern]);
+    // Style per concern-shape, not one treatment for all — see OVERLAY_STYLE.
+    // 'lines' needs the real gradient direction to thin against; without it
+    // (a caller that didn't pass geom) it falls back to the wash rather than
+    // silently drawing something geometrically wrong.
+    const style = OVERLAY_STYLE[concern] || 'wash';
+    const color = CONCERN_COLORS[concern];
+    let rgba;
+    if (style === 'lines' && geom?.gx && geom?.gy) {
+      rgba = renderTracedLinesRgba(width, height, alpha, mask, geom.gx, geom.gy, color);
+    } else if (style === 'stipple') {
+      rgba = renderStippleRgba(width, height, alpha, mask, color);
+    } else {
+      rgba = renderWashRgba(width, height, alpha, mask, color);
+    }
     const png = await sharp(rgba, { raw: { width, height, channels: 4 } }).png().toBuffer();
     return {
       png,
@@ -918,12 +1138,17 @@ async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers }) {
     };
   }
 
+  const rednessMaps = rednessSeverity(labA, fullMask);
+  const textureMaps = textureSeverity(gray, fullMask, width, height);
+  const poresMaps = poreSeverity(gray, poreMask, width, height);
+  const wrinklesMaps = wrinkleSeverity(gray, wrinkleMask, width, height);
+
   const [redness, texture, pores, shine, wrinkles, moisture, age_spot, acne] = await Promise.all([
-    describe('redness', rednessSeverity(labA, fullMask), fullMask),
-    describe('texture', textureSeverity(gray, fullMask, width, height), fullMask),
-    describe('pores', poreSeverity(gray, poreMask, width, height), poreMask),
+    describe('redness', rednessMaps.severity, fullMask, rednessMaps.alpha),
+    describe('texture', textureMaps.severity, fullMask, textureMaps.alpha),
+    describe('pores', poresMaps.severity, poreMask, poresMaps.alpha),
     describe('shine', shineSeverity(gray, fullMask), fullMask),
-    describe('wrinkles', wrinkleSeverity(gray, wrinkleMask, width, height), wrinkleMask),
+    describe('wrinkles', wrinklesMaps.severity, wrinkleMask, wrinklesMaps.alpha, { gx: wrinklesMaps.gx, gy: wrinklesMaps.gy }),
     describe('moisture', drynessSeverity(gray, fullMask, width, height), fullMask),
     describe('age_spot', ageSpotSeverity(gray, labB, fullMask, width, height), fullMask),
     describe('acne', blemishSeverity(labA, fullMask, width, height), fullMask),
@@ -932,4 +1157,4 @@ async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers }) {
   return { concerns: { redness, texture, pores, shine, wrinkles, moisture, age_spot, acne }, assessedZoneCount, totalZoneCount: ZONE_KEYS.length };
 }
 
-module.exports = { generateHeatmaps, ZONE_KEYS, WRINKLE_ZONES, PORE_ZONES, CONCERN_META, assessableZoneRects, buildMasks };
+module.exports = { generateHeatmaps, ZONE_KEYS, WRINKLE_ZONES, PORE_ZONES, CONCERN_META, assessableZoneRects, buildMasks, laplacianMagnitude };

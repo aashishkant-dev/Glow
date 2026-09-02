@@ -195,7 +195,7 @@ function buildVerdict(key, band, zoneBreakdown) {
 // client can detect, not silent corruption.
 const CONCERN_RECORD_SCHEMA_VERSION = 1;
 const VALID_BANDS = new Set(['clear', 'mild', 'moderate', 'notable']);
-const VALID_SOURCES = new Set(['estimated', 'perfectcorp']); // 'perfectcorp' kept valid for reading pre-removal historical scans only — nothing writes it anymore
+const VALID_SOURCES = new Set(['estimated', 'perfectcorp', 'ivyai']); // 'perfectcorp' kept valid for reading pre-removal historical scans only — nothing writes it anymore
 
 // Returns an array of human-readable problems, empty when the record is
 // valid. Called at the ONE place every concern record is actually built
