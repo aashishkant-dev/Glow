@@ -339,6 +339,13 @@ export function ConcernDetailCard({ concernKey, concern, onViewRecommendations, 
           {concern.confidence.level === 'low' && (
             <Text style={detailStyles.confidenceNote}>Based on limited visibility in this area — retake with it clearly in frame for a fuller read.</Text>
           )}
+          {/* A verdict above "clear" over an overlay that marks nothing
+              (see SkinHeatmapConcern.overlayNote) must say so, in words,
+              right here — otherwise the blank photo above reads as a
+              broken tab, not an honest "couldn't pinpoint it." */}
+          {!!concern.overlayNote && (
+            <Text style={detailStyles.confidenceNote}>{concern.overlayNote}</Text>
+          )}
           {/* Tap-to-highlight: real per-zone severity (skinHeatmaps.js),
               worst-first — tapping a chip spotlights that exact region on
               the photo above (dims the rest) instead of the old marker

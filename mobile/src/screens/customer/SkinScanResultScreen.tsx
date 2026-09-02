@@ -332,6 +332,18 @@ export function SkinScanResultScreen() {
       heatmap: activeConcern
         ? { url: activeConcern.url, label: activeConcern.label, verdict: activeConcern.verdict, band: activeConcern.band }
         : undefined,
+      // The full reading, every concern in the app's fixed tab order —
+      // unassessed ones included as such (band null), so the Report card
+      // can never quietly imply "fine" for an area this scan didn't see.
+      report: scan.heatmaps
+        ? {
+            date: new Date(scan.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }).toUpperCase(),
+            rows: CONCERN_ORDER.map(({ key, label }) => {
+              const c = scan.heatmaps?.[key];
+              return { key, label, band: c?.band ?? null, severityScore: c?.severityScore ?? 0 };
+            }),
+          }
+        : undefined,
     });
   }
 

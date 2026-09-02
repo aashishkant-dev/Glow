@@ -7,14 +7,20 @@
  * card — a purpose-built composition, never a screenshot of the live app
  * screen (no status bar, no nav chrome, no debug overlay ever enters it).
  *
- * Two layout variants (Photo / Stat), switchable before sharing, so a
- * repeat poster isn't stuck with one rigid template — same ShareCardSpec
- * data, different composition. Both render at CARD_W×CARD_H points; on any
- * modern (3x-scale) phone that alone lands react-native-view-shot's default
- * "device scale" capture at or above 1080px wide with NO resize step —
- * deliberately not asking it to resize up OR down after the fact, since a
- * resize (either direction) is what risks softening text/edges after
- * Instagram's own re-compression, not the source render itself.
+ * Layout variants (Photo / Stat, plus Heatmap when sharing one concern and
+ * Report when the scan has per-concern data), switchable before sharing,
+ * so a repeat poster isn't stuck with one rigid template — same
+ * ShareCardSpec data, different composition. All render at CARD_W×CARD_H
+ * points on screen. Export resolution: on iOS the capture asks
+ * react-native-view-shot for EXPORT_PT_W×EXPORT_PT_H points, which its
+ * native side satisfies by RE-RENDERING the view hierarchy into a context
+ * of that size at device scale (drawViewHierarchyInRect into the requested
+ * rect — checked in its RNViewShot.mm, not assumed), so text and vector
+ * edges come out genuinely sharp at 2160×2700 on a 3x phone rather than
+ * upscaled. Android's implementation only Bitmap.createScaledBitmap()s the
+ * screen-size capture (checked in its ViewShot.java), which would soften
+ * it, so there the capture stays at native device scale (≥1080px wide on
+ * any modern 3x phone at CARD_W) with no resize at all.
  */
 import React, { useRef, useState } from 'react';
 import { ActivityIndicator, Alert, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
@@ -60,6 +66,14 @@ export interface ShareCardSpec {
   // just repeating the verdict as text. Its presence is what makes the
   // Heatmap variant pill appear at all (see ShareCardModal).
   heatmap?: { url: string; label: string; verdict: string; band: 'clear' | 'mild' | 'moderate' | 'notable' };
+  // Present for skin-scan shares that have per-concern data at all — every
+  // concern this scan assessed (and, honestly, the ones it couldn't), so
+  // the Report variant can lay the whole reading out on one card rather
+  // than one concern at a time. Same records the results screen renders.
+  report?: {
+    date: string;
+    rows: { key: string; label: string; band: 'clear' | 'mild' | 'moderate' | 'notable' | null; severityScore: number }[];
+  };
 }
 
 interface Props {
@@ -143,8 +157,18 @@ async function downloadLocalFile(uri: string) {
   Alert.alert('Saved', 'The card was saved to your photos.');
 }
 
+// Export size in POINTS — see the file header for why this only applies on
+// iOS (a real re-render there, a blurry upscale on Android). 4:5, same
+// ratio as CARD_W/CARD_H, so nothing is stretched.
+const EXPORT_PT_W = 720;
+const EXPORT_PT_H = 900;
+
 async function captureCard(shotRef: React.RefObject<any>): Promise<string> {
-  const uri = await captureRef(shotRef, { format: 'png', quality: 0.95 });
+  const uri = await captureRef(shotRef, {
+    format: 'png',
+    quality: 1,
+    ...(Platform.OS === 'ios' ? { width: EXPORT_PT_W, height: EXPORT_PT_H } : {}),
+  });
   // Native returns a cache-file path already shareable as-is; web returns a
   // data: URI, which both shareLocalFile and downloadLocalFile's fetch()-to-
   // Blob paths also handle fine — same call either way.
@@ -297,6 +321,81 @@ const hmStyles = StyleSheet.create({
   topBadgeText: { color: '#fff', fontSize: 9.5, fontFamily: Fonts.bold, letterSpacing: 0.6 },
 });
 
+const BAND_LABEL: Record<'clear' | 'mild' | 'moderate' | 'notable', string> = {
+  clear: 'Clear', mild: 'Mild', moderate: 'Moderate', notable: 'Notable',
+};
+
+// Report variant — the whole reading on one card: portrait up top, then
+// one row per concern with its band and a severity bar, for someone who
+// wants to save (or send a dermatologist) their entire result rather than
+// brag about one metric. Renders every concern in the app's fixed order,
+// including the ones this scan couldn't assess (shown as such, never
+// omitted — a missing row would read as "fine" when it means "not seen").
+// Bars use the same 0-100 severityScore and band colours the results
+// screen does — this is the same data composed differently, not a second
+// interpretation of it.
+function ReportCard({ card, width, height }: { card: ShareCardSpec; width: number; height: number }) {
+  const report = card.report!;
+  const photoH = height * 0.44;
+  return (
+    <View style={{ width, height, backgroundColor: Colors.brandDeep }}>
+      <LinearGradient colors={[Colors.brandDeep, '#7A3A4E']} locations={[0, 1]} style={StyleSheet.absoluteFill} />
+      <View style={{ height: photoH, overflow: 'hidden' }}>
+        <Image source={{ uri: card.photoUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
+        <LinearGradient
+          colors={['rgba(18,9,12,0.35)', 'transparent', 'transparent', Colors.brandDeep]}
+          locations={[0, 0.25, 0.7, 1]}
+          style={StyleSheet.absoluteFill}
+        />
+        <View style={pcStyles.brandRow}>
+          <GlowMark size={14} petal="rgba(255,255,255,0.88)" petalInner="rgba(255,255,255,0.42)" core={Colors.gold} />
+          <Text style={pcStyles.brandText}>Glow</Text>
+        </View>
+        <View style={rpStyles.dateBadge}><Text style={rpStyles.dateText}>{report.date}</Text></View>
+      </View>
+      <View style={rpStyles.body}>
+        <Text style={rpStyles.kicker} numberOfLines={1}>MY SPACE · FULL SKIN REPORT</Text>
+        <Text style={rpStyles.title} numberOfLines={1}>{card.title}</Text>
+        <View style={rpStyles.rows}>
+          {report.rows.map((r) => (
+            <View key={r.key} style={rpStyles.row}>
+              <Text style={rpStyles.rowLabel} numberOfLines={1}>{r.label}</Text>
+              <View style={rpStyles.track}>
+                {r.band && <View style={[rpStyles.fill, { width: `${Math.max(4, Math.min(100, r.severityScore))}%`, backgroundColor: BAND_COLOR[r.band] }]} />}
+              </View>
+              <View style={rpStyles.bandCell}>
+                {r.band
+                  ? <><View style={[hmStyles.bandDot, { backgroundColor: BAND_COLOR[r.band] }]} /><Text style={rpStyles.bandText}>{BAND_LABEL[r.band]}</Text></>
+                  : <Text style={rpStyles.bandTextDim}>Not assessed</Text>}
+              </View>
+            </View>
+          ))}
+        </View>
+        {!!card.subtitle && <Text style={rpStyles.footnote} numberOfLines={2}>{card.subtitle}</Text>}
+      </View>
+    </View>
+  );
+}
+
+const rpStyles = StyleSheet.create({
+  dateBadge: { position: 'absolute', top: 20, right: 20, backgroundColor: 'rgba(0,0,0,0.45)', borderRadius: 100, paddingHorizontal: 10, paddingVertical: 6 },
+  dateText: { color: '#fff', fontSize: 9.5, fontFamily: Fonts.bold, letterSpacing: 0.6 },
+  body: { flex: 1, paddingHorizontal: 22, paddingTop: 6, paddingBottom: 18 },
+  kicker: { color: Colors.brandAccent, fontSize: 10.5, fontFamily: Fonts.bold, letterSpacing: 1.8, marginBottom: 6 },
+  title: { color: '#fff', fontSize: 21, fontFamily: Fonts.display, letterSpacing: -0.3, lineHeight: 25, marginBottom: 10 },
+  rows: { gap: 7 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  rowLabel: { width: 96, color: 'rgba(255,255,255,0.92)', fontSize: 11.5, fontFamily: Fonts.semibold },
+  // A soft filled track, not a hairline — survives social re-compression
+  // the same way the chips' solid fills do.
+  track: { flex: 1, height: 6, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.18)', overflow: 'hidden' },
+  fill: { height: 6, borderRadius: 3 },
+  bandCell: { width: 78, flexDirection: 'row', alignItems: 'center', gap: 5, justifyContent: 'flex-end' },
+  bandText: { color: '#fff', fontSize: 10.5, fontFamily: Fonts.semibold },
+  bandTextDim: { color: 'rgba(255,255,255,0.5)', fontSize: 10, fontFamily: Fonts.medium },
+  footnote: { color: 'rgba(255,255,255,0.72)', fontSize: 11, fontFamily: Fonts.displayItalic, lineHeight: 15, marginTop: 'auto' },
+});
+
 // Stat variant — a warm gradient "poster" instead of a full-bleed photo: a
 // smaller circular portrait as one element among several, big centered
 // serif headline as the actual focus. Reads more like a shareable
@@ -372,6 +471,9 @@ const scStyles = StyleSheet.create({
   chipText: { color: '#fff', fontSize: 11.5, fontFamily: Fonts.medium },
 });
 
+type Variant = 'photo' | 'stat' | 'heatmap' | 'report';
+const VARIANT_LABEL: Record<Variant, string> = { photo: 'Photo', stat: 'Stat', heatmap: 'Heatmap', report: 'Report' };
+
 export function ShareCardModal({ visible, card, onClose }: Props) {
   const insets = useSafeAreaInsets();
   const { width: winW } = useWindowDimensions();
@@ -383,7 +485,7 @@ export function ShareCardModal({ visible, card, onClose }: Props) {
   // back to 'photo' otherwise, unchanged from before. Resets whenever a
   // different card is opened (a fresh `card` object identity each time
   // shareProgress()/openHeatmapShare() is called).
-  const [variant, setVariant] = useState<'photo' | 'stat' | 'heatmap'>(card?.heatmap ? 'heatmap' : 'photo');
+  const [variant, setVariant] = useState<Variant>(card?.heatmap ? 'heatmap' : 'photo');
   const prevCardRef = useRef(card);
   if (card !== prevCardRef.current) {
     prevCardRef.current = card;
@@ -446,9 +548,9 @@ export function ShareCardModal({ visible, card, onClose }: Props) {
             not the Summary tab) — never a pill that would render nothing
             or crash. */}
         <View style={styles.variantRow}>
-          {(['photo', 'stat', ...(card.heatmap ? ['heatmap'] : [])] as ('photo' | 'stat' | 'heatmap')[]).map(v => (
+          {(['photo', 'stat', ...(card.heatmap ? ['heatmap'] : []), ...(card.report ? ['report'] : [])] as Variant[]).map(v => (
             <Pressable key={v} onPress={() => setVariant(v)} style={[styles.variantPill, variant === v && styles.variantPillActive]}>
-              <Text style={[styles.variantPillText, variant === v && styles.variantPillTextActive]}>{v === 'photo' ? 'Photo' : v === 'stat' ? 'Stat' : 'Heatmap'}</Text>
+              <Text style={[styles.variantPillText, variant === v && styles.variantPillTextActive]}>{VARIANT_LABEL[v]}</Text>
             </Pressable>
           ))}
         </View>
@@ -477,6 +579,8 @@ export function ShareCardModal({ visible, card, onClose }: Props) {
                   crash HeatmapCard's non-null assertion. */}
               {variant === 'heatmap' && card.heatmap
                 ? <HeatmapCard card={card} width={CARD_W} height={CARD_H} />
+                : variant === 'report' && card.report
+                ? <ReportCard card={card} width={CARD_W} height={CARD_H} />
                 : variant === 'stat'
                 ? <StatCard card={card} width={CARD_W} height={CARD_H} />
                 : <PhotoCard card={card} width={CARD_W} height={CARD_H} />}

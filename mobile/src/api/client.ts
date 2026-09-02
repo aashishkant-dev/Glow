@@ -1450,6 +1450,13 @@ export interface SkinHeatmapConcern {
   severityScore: number;
   band: 'clear' | 'mild' | 'moderate' | 'notable';
   verdict: string;
+  // Present only when the verdict says something is there but the rendered
+  // overlay marks nothing (e.g. Ivy AI scored Dark Spots from the whole
+  // photo while our pixel map found nothing distinct enough to draw) — the
+  // honest one-liner the detail card shows under the verdict so a blank
+  // photo never reads as "the tab didn't work." See routes/skin.js's
+  // overlayNoteFor. Absent on historical records.
+  overlayNote?: string;
   education: string;
   // 2-4 short, actionable tips (ingredient categories, not specific SKUs —
   // there's no product catalog to link yet).
@@ -1635,6 +1642,13 @@ export function apiScanSkin(payload: {
   // ellipse-only occlusion handling with no regression when this is absent
   // (see skinHeatmaps.js's buildMasks own comment on that fallback).
   skinMask?: { base64: string; width: number; height: number };
+  // The same ML Kit detection's raw contours (face outline, eyes, brows,
+  // nose base, lips — 0-1 fractions of the photo), for the backend's hard
+  // face mask and eye/brow/lip/nostril exclusions — see skinZones.ts's
+  // extractFaceLandmarks. Optional: omitted on web / when detection
+  // returned no contours; the backend then falls back to geometry derived
+  // from faceRegion/zoneMarkers.
+  faceLandmarks?: import('../utils/skinZones').FaceLandmarkPayload;
   // Up to 3 additional locked-exposure frames from the same burst as
   // photoBase64 (see SkinScanCamera's shoot()) — the backend scores all of
   // them plus photoBase64 for sharpness (src/utils/photoQuality.js) and

@@ -76,6 +76,7 @@ import { ScanBracket } from './ScanBracket';
 import { ErrorBoundary } from './ErrorBoundary';
 import {
   deriveZoneMarkers, type RawFacialPoints, type StoredZoneMarkers, type FaceConfidenceSignals,
+  extractFaceLandmarks, type FaceLandmarkPayload,
   extractEyeNoseAnchors, noseSanityGate, computeSimilarityTransform, rotatePointAroundCenter, computeCropRect, checkAlignmentSanity,
   type SimilarityTransform, ALIGN_OUTPUT_WIDTH, ALIGN_OUTPUT_HEIGHT, TARGET_EYE_DIST_FRAC,
 } from '../utils/skinZones';
@@ -169,11 +170,11 @@ type FaceRegion = { x: number; y: number; width: number; height: number };
 // already-visible "Checking your photo…" step, not per-frame on a live
 // stream, so the ~100–300ms extra cost is invisible while the more precise
 // bounding box directly improves the crop Gemini actually analyzes.
-function detectFaceRegion(detector: ReturnType<typeof useImageFaceDetector>, uri: string, imgWidth: number, imgHeight: number, mirrored: boolean): { faceRegion: FaceRegion | null; noFaceDetected: boolean; zoneMarkers: StoredZoneMarkers | null; rawPoints: RawFacialPoints | null } {
-  if (Platform.OS === 'web' || !imgWidth || !imgHeight) return { faceRegion: null, noFaceDetected: false, zoneMarkers: null, rawPoints: null };
+function detectFaceRegion(detector: ReturnType<typeof useImageFaceDetector>, uri: string, imgWidth: number, imgHeight: number, mirrored: boolean): { faceRegion: FaceRegion | null; noFaceDetected: boolean; zoneMarkers: StoredZoneMarkers | null; rawPoints: RawFacialPoints | null; faceLandmarks: FaceLandmarkPayload | null } {
+  if (Platform.OS === 'web' || !imgWidth || !imgHeight) return { faceRegion: null, noFaceDetected: false, zoneMarkers: null, rawPoints: null, faceLandmarks: null };
   try {
     const faces = detector.detectFaces(uri);
-    if (!faces || faces.length === 0) return { faceRegion: null, noFaceDetected: true, zoneMarkers: null, rawPoints: null };
+    if (!faces || faces.length === 0) return { faceRegion: null, noFaceDetected: true, zoneMarkers: null, rawPoints: null, faceLandmarks: null };
 
     // Largest face wins — guards against a photo/poster in the background
     // being picked over the real subject.
@@ -226,7 +227,7 @@ function detectFaceRegion(detector: ReturnType<typeof useImageFaceDetector>, uri
     const plausible = aspect > 0.45 && aspect < 1.6 && region.width < 0.85;
     if (!plausible) {
       console.warn('[SkinScanCamera] rejected implausible face detection', region);
-      return { faceRegion: null, noFaceDetected: false, zoneMarkers: null, rawPoints: null };
+      return { faceRegion: null, noFaceDetected: false, zoneMarkers: null, rawPoints: null, faceLandmarks: null };
     }
 
     // Same expanded "beauty crop" box as `region` above, just still in
@@ -297,7 +298,10 @@ function detectFaceRegion(detector: ReturnType<typeof useImageFaceDetector>, uri
       console.log('[SkinScanCamera] deriveZoneMarkers result (zones absent here get NO photo marker at all, never a guess)', derived);
     }
 
-    return { faceRegion: region, noFaceDetected: false, zoneMarkers, rawPoints: points };
+    // The same detection's raw contours, for the backend's face-outline
+    // mask and eye/brow/lip/nostril exclusions — see extractFaceLandmarks.
+    const faceLandmarks = extractFaceLandmarks(face.contours as Record<string, { x: number; y: number }[] | undefined> | undefined, imgWidth, imgHeight);
+    return { faceRegion: region, noFaceDetected: false, zoneMarkers, rawPoints: points, faceLandmarks };
   } catch (err) {
     // Web already returned early above, so reaching here means a native
     // build — genuinely not linked (an update from before this module was
@@ -307,7 +311,7 @@ function detectFaceRegion(detector: ReturnType<typeof useImageFaceDetector>, uri
     // indistinguishable from "not linked" with nothing to go on from a bug
     // report alone.
     console.warn('[SkinScanCamera] detectFaces threw', err instanceof Error ? err.message : err);
-    return { faceRegion: null, noFaceDetected: false, zoneMarkers: null, rawPoints: null };
+    return { faceRegion: null, noFaceDetected: false, zoneMarkers: null, rawPoints: null, faceLandmarks: null };
   }
 }
 
@@ -830,7 +834,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   const [lightingOutput, setLightingOutput] = useState<CameraFrameOutput | null>(null);
 
   const [step, setStep] = useState<Step>('camera');
-  const [shot, setShot] = useState<{ uri: string; base64: string; mimeType: string; faceRegion: FaceRegion | null; zoneMarkers: StoredZoneMarkers | null; skinMask: { base64: string; width: number; height: number } | null; burstCandidates: string[]; aligned: boolean } | null>(null);
+  const [shot, setShot] = useState<{ uri: string; base64: string; mimeType: string; faceRegion: FaceRegion | null; zoneMarkers: StoredZoneMarkers | null; faceLandmarks: FaceLandmarkPayload | null; skinMask: { base64: string; width: number; height: number } | null; burstCandidates: string[]; aligned: boolean } | null>(null);
   const [error, setError] = useState<string | null>(null);
   // Which FAMILY of failure `error` belongs to — drives the reviewing-step
   // header/subtitle (see classifyScanError below). null means no submit()
@@ -1188,11 +1192,12 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       // LEFT_EYE points actually land on in THIS photo — see
       // deriveZoneMarkers' own comment for why that swap can't just be
       // assumed from vision-camera's typical capture defaults.
-      const { faceRegion, noFaceDetected, zoneMarkers, rawPoints } = detectFaceRegion(imageFaceDetector, uri, imgWidth, imgHeight, primaryMirrored);
+      const { faceRegion, noFaceDetected, zoneMarkers, rawPoints, faceLandmarks } = detectFaceRegion(imageFaceDetector, uri, imgWidth, imgHeight, primaryMirrored);
       if (__DEV__) {
         console.log('[SkinScanCamera] detectFaceRegion result', {
           imgWidth, imgHeight, photoWidth: primaryWidth, photoHeight: primaryHeight, photoOrientation: primaryOrientation,
           faceRegion, noFaceDetected, zoneMarkerKeys: zoneMarkers ? Object.keys(zoneMarkers) : null,
+          faceLandmarkKeys: faceLandmarks ? Object.keys(faceLandmarks).filter((k) => (faceLandmarks as any)[k]?.length) : null,
         });
       }
       const segmentation = await segmentationPromise;
@@ -1214,7 +1219,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       // optimistic assumption — a miss at any point falls straight through
       // to the existing unaligned path with a clear console.warn explaining
       // why, never a silent half-applied transform.
-      let alignedResult: { uri: string; base64: string; faceRegion: FaceRegion | null; zoneMarkers: StoredZoneMarkers | null; burstCandidates: string[] } | null = null;
+      let alignedResult: { uri: string; base64: string; faceRegion: FaceRegion | null; zoneMarkers: StoredZoneMarkers | null; faceLandmarks: FaceLandmarkPayload | null; burstCandidates: string[] } | null = null;
       if (!noFaceDetected && rawPoints) {
         const anchors = extractEyeNoseAnchors(rawPoints, primaryMirrored);
         const transform = anchors && noseSanityGate(anchors) ? computeSimilarityTransform(anchors) : null;
@@ -1257,6 +1262,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
                 base64: alignedPrimary.base64,
                 faceRegion: redetected.faceRegion,
                 zoneMarkers: redetected.zoneMarkers,
+                faceLandmarks: redetected.faceLandmarks,
                 burstCandidates: otherAligned,
               };
             }
@@ -1277,6 +1283,9 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       const finalBase64 = alignedResult?.base64 ?? frameBase64s[0];
       const finalFaceRegion = alignedResult?.faceRegion ?? faceRegion;
       const finalZoneMarkers = alignedResult?.zoneMarkers ?? zoneMarkers;
+      // Same rule as zoneMarkers: an aligned photo's contours come from the
+      // re-detection ON that aligned photo, never the original's.
+      const finalFaceLandmarks = alignedResult ? alignedResult.faceLandmarks : faceLandmarks;
       const finalSkinMask = alignedResult ? null : originalSkinMask;
       const finalBurstCandidates = alignedResult?.burstCandidates ?? frameBase64s.slice(1);
       // alignedResult is only ever set inside the `!noFaceDetected` branch
@@ -1284,7 +1293,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       // both the aligned and fallback cases — no separate "final" variant
       // needed here.
 
-      const newShot = { uri: finalUri, base64: finalBase64, mimeType: 'image/jpeg', faceRegion: finalFaceRegion, zoneMarkers: finalZoneMarkers, skinMask: finalSkinMask, burstCandidates: finalBurstCandidates, aligned: !!alignedResult };
+      const newShot = { uri: finalUri, base64: finalBase64, mimeType: 'image/jpeg', faceRegion: finalFaceRegion, zoneMarkers: finalZoneMarkers, faceLandmarks: finalFaceLandmarks, skinMask: finalSkinMask, burstCandidates: finalBurstCandidates, aligned: !!alignedResult };
       setShot(newShot);
       setNoFaceWarning(noFaceDetected);
       setDetectingFace(false);
@@ -1391,6 +1400,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
         mimeType: shotToSubmit.mimeType,
         faceRegion: shotToSubmit.faceRegion || undefined,
         zoneMarkers: shotToSubmit.zoneMarkers || undefined,
+        faceLandmarks: shotToSubmit.faceLandmarks || undefined,
         skinMask: shotToSubmit.skinMask || undefined,
         burstCandidates: shotToSubmit.burstCandidates.length ? shotToSubmit.burstCandidates : undefined,
         aligned: shotToSubmit.aligned,

@@ -31,15 +31,28 @@ export type ZoneKey = 'forehead' | 'nose' | 'chin' | 'cheekL' | 'cheekR' | 'unde
 // by hand, same convention as DEFAULT_REGION/DEFAULT_FACE_BOX already used
 // across the JS/TS boundary) — the exact width/height a zone gets here is
 // also the shape of its heatmap mask region server-side.
+//
+// Re-laid-out after the first real on-device look at the heatmaps: these
+// fractions are of the EXPANDED face box detectFaceRegion actually sends
+// (ML Kit's box grown 50% upward, 25% downward, 25% each side — see
+// SkinScanCamera.tsx), and the previous values were laid out as if the box
+// were the tight face. On the real box that put the "under-eye" band on
+// the eyes themselves, the cheeks half outside the face, and the chin/
+// jawline band on the neck — exactly the eyelid/neck leaks in the
+// screenshots. Measured against a real photo's expanded box: brows sit at
+// ~0.38 of its height, eye centres ~0.44, nose tip ~0.63, mouth ~0.74, chin
+// ~0.86; the face itself spans ~0.17–0.83 of its width. Every rect below
+// is placed off those, and the mouth (0.70–0.78) stays in the gap between
+// nose and chin that the backend's mouthExclusionRect fallback relies on.
 export const ZONE_RECTS: Record<ZoneKey, FaceBox> = {
-  forehead:   { x: 0.22, y: 0.02, width: 0.56, height: 0.20 },
-  underEyeL:  { x: 0.14, y: 0.26, width: 0.22, height: 0.09 },
-  underEyeR:  { x: 0.64, y: 0.26, width: 0.22, height: 0.09 },
-  nose:       { x: 0.42, y: 0.32, width: 0.16, height: 0.24 },
-  cheekL:     { x: 0.02, y: 0.40, width: 0.26, height: 0.26 },
-  cheekR:     { x: 0.72, y: 0.40, width: 0.26, height: 0.26 },
-  chin:       { x: 0.36, y: 0.67, width: 0.28, height: 0.13 },
-  jawline:    { x: 0.06, y: 0.82, width: 0.88, height: 0.12 },
+  forehead:   { x: 0.22, y: 0.22, width: 0.56, height: 0.15 },
+  underEyeL:  { x: 0.20, y: 0.49, width: 0.22, height: 0.08 },
+  underEyeR:  { x: 0.58, y: 0.49, width: 0.22, height: 0.08 },
+  nose:       { x: 0.42, y: 0.46, width: 0.16, height: 0.24 },
+  cheekL:     { x: 0.14, y: 0.52, width: 0.26, height: 0.22 },
+  cheekR:     { x: 0.60, y: 0.52, width: 0.26, height: 0.22 },
+  chin:       { x: 0.36, y: 0.78, width: 0.28, height: 0.08 },
+  jawline:    { x: 0.14, y: 0.83, width: 0.72, height: 0.06 },
 };
 
 // ---- Landmark-derived zone positions -------------------------------------
@@ -213,11 +226,18 @@ export function deriveZoneMarkers(points: RawFacialPoints, faceBoxPx: FaceBox, i
     const browCentroid = centroid([...(points.leftEyebrowTop || []), ...(points.rightEyebrowTop || [])]);
     if (browCentroid) set('forehead', { x: browCentroid.x, y: browCentroid.y - faceBoxPx.height * 0.16 });
 
-    const chinCentroid = bottomCentroid(points.faceContour || [], 0.12)
+    // bottomCentroid lands ON the chin's lowest edge; a rect centred there
+    // hangs half off the face onto the neck (seen on device — the chin
+    // blob below the jaw). Lifted by half the rect's own height so its
+    // bottom edge, not its centre, sits at the chin. Same for the jawline.
+    const chinLift = ZONE_RECTS.chin.height * faceBoxPx.height * 0.5;
+    const jawLift = ZONE_RECTS.jawline.height * faceBoxPx.height * 0.5;
+    const chinBottom = bottomCentroid(points.faceContour || [], 0.12)
       ?? (points.mouthBottom ? { x: points.mouthBottom.x, y: points.mouthBottom.y + faceBoxPx.height * 0.14 } : null);
-    set('chin', chinCentroid);
+    set('chin', chinBottom ? { x: chinBottom.x, y: chinBottom.y - chinLift } : null);
 
-    set('jawline', bottomCentroid(points.faceContour || [], 0.28));
+    const jawBottom = bottomCentroid(points.faceContour || [], 0.28);
+    set('jawline', jawBottom ? { x: jawBottom.x, y: jawBottom.y - jawLift } : null);
   }
 
   const noseCentroid = centroid([...(points.noseBridge || []), ...(points.noseBottom || [])]);
@@ -254,6 +274,63 @@ export function deriveZoneMarkers(points: RawFacialPoints, faceBoxPx: FaceBox, i
   }
 
   return out;
+}
+
+// ---- Raw contour payload for the backend's face/exclusion masks -----------
+//
+// The zone rects above say WHERE each named region is; they say nothing
+// about where the face ENDS or where the eyes/brows/lips/nostrils are —
+// and nothing server-side could, from rects alone. The first real
+// on-device heatmaps showed the cost: blemish marks on a shirt collar,
+// dryness "found" along the eyebrows, redness on the eyelids. So the
+// actual ML Kit contours are now sent alongside (0-1 fractions of the
+// photo, same space as faceRegion/zoneMarkers) and skinHeatmaps.js turns
+// them into a hard face-outline mask plus eye/brow/lip/nostril exclusions
+// (see exclusionGeometry there). Left/right naming is ML Kit's own
+// subject-relative convention, deliberately NOT swapped here — every use
+// of these on the backend is symmetric (an exclusion is an exclusion
+// whichever eye it is), so a swap would be pure risk for no gain.
+// Any contour ML Kit didn't return is simply omitted; the backend has a
+// geometric fallback for each.
+export interface FaceLandmarkPayload {
+  faceContour?: Point[];
+  leftEye?: Point[];
+  rightEye?: Point[];
+  leftEyebrow?: Point[];
+  rightEyebrow?: Point[];
+  noseBottom?: Point[];
+  upperLipTop?: Point[];
+  lowerLipBottom?: Point[];
+}
+
+// `contours` is ML Kit's Face.contours object as react-native-vision-
+// camera-face-detector exposes it (FACE, LEFT_EYE, LEFT_EYEBROW_TOP, ...).
+// Returns null when nothing usable is present so the caller sends nothing
+// rather than an empty object.
+export function extractFaceLandmarks(contours: Record<string, Point[] | undefined> | undefined, imgWidth: number, imgHeight: number): FaceLandmarkPayload | null {
+  if (!contours || imgWidth <= 0 || imgHeight <= 0) return null;
+  const norm = (pts: (Point[] | undefined)[]): Point[] | undefined => {
+    const out: Point[] = [];
+    for (const list of pts) {
+      for (const p of list || []) {
+        if (typeof p?.x !== 'number' || typeof p?.y !== 'number' || !Number.isFinite(p.x) || !Number.isFinite(p.y)) continue;
+        out.push({ x: p.x / imgWidth, y: p.y / imgHeight });
+      }
+    }
+    return out.length ? out : undefined;
+  };
+  const payload: FaceLandmarkPayload = {
+    faceContour: norm([contours.FACE]),
+    leftEye: norm([contours.LEFT_EYE]),
+    rightEye: norm([contours.RIGHT_EYE]),
+    leftEyebrow: norm([contours.LEFT_EYEBROW_TOP, contours.LEFT_EYEBROW_BOTTOM]),
+    rightEyebrow: norm([contours.RIGHT_EYEBROW_TOP, contours.RIGHT_EYEBROW_BOTTOM]),
+    noseBottom: norm([contours.NOSE_BOTTOM]),
+    upperLipTop: norm([contours.UPPER_LIP_TOP]),
+    lowerLipBottom: norm([contours.LOWER_LIP_BOTTOM]),
+  };
+  const any = Object.values(payload).some((v) => v && v.length);
+  return any ? payload : null;
 }
 
 // ---- Face alignment (Stage 6) ---------------------------------------------
