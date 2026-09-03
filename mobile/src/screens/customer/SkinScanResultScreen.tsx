@@ -382,7 +382,7 @@ export function SkinScanResultScreen() {
               if (width && height) setPhotoAspect(width / height);
             }}
           />
-          <ConcernHeatmapOverlay activeTab={activeTab} heatmaps={scan.heatmaps} highlightedZoneRect={highlightedZoneRect} />
+          <ConcernHeatmapOverlay activeTab={activeTab} heatmaps={scan.heatmaps} highlightedZoneRect={highlightedZoneRect} justScanned={justScanned} />
           <LinearGradient colors={['rgba(0,0,0,0.35)', 'transparent']} style={styles.photoTopGradient} pointerEvents="none" />
           <Pressable style={[styles.floatBack, { top: insets.top + 8 }]} onPress={goBack} hitSlop={12}>
             <Text style={styles.floatBackText}>‹</Text>

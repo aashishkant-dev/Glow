@@ -26,8 +26,9 @@
  *   scan has no assessable pixels for, an explicit "not assessed" state
  *   instead of guessing.
  */
-import React, { useEffect, useRef } from 'react';
-import { Animated, Pressable, StyleSheet, Text, View } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { Animated, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { ConcernSweepReveal } from './ConcernSweepReveal';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
 import { Colors, Fonts } from '../utils/colors';
@@ -93,18 +94,82 @@ function ZoneHighlightMask({ zoneRect }: { zoneRect: FaceBox }) {
 // spotlight (ZoneHighlightMask) stacked on top when a specific zone is
 // selected. Nothing renders for 'summary' or a concern this scan has no
 // data for. Fades in (~200ms) rather than popping in on every tab switch.
-export function ConcernHeatmapOverlay({ activeTab, heatmaps, highlightedZoneRect }: { activeTab: ConcernTab; heatmaps: Heatmaps; highlightedZoneRect?: FaceBox | null }) {
+// Skia runs the sweep reveal on native only. On web it would need
+// CanvasKit's WASM binary loaded and served (this app really does ship a web
+// build — see package.json's build:web/deploy), so web keeps the original
+// opacity fade rather than risking a blank overlay on a platform the
+// animation was never the point for. Same fallback covers the (unlikely)
+// case of a native build where Skia isn't linked: SWEEP_ENABLED is the one
+// switch, and the static <Image> path below is untouched underneath it.
+const SWEEP_ENABLED = Platform.OS !== 'web';
+
+export function ConcernHeatmapOverlay({ activeTab, heatmaps, highlightedZoneRect, justScanned }: { activeTab: ConcernTab; heatmaps: Heatmaps; highlightedZoneRect?: FaceBox | null; justScanned?: boolean }) {
   const concern = activeTab === 'summary' ? undefined : heatmaps?.[activeTab];
   const opacity = useRef(new Animated.Value(0)).current;
+  // Real laid-out pixel size of the photo box. Skia needs concrete numbers —
+  // it cannot lay out from percentage strings the way the RN views here do —
+  // and this is measured from the same absolutely-filled box the static
+  // overlay occupies, so the two are guaranteed to describe the same frame.
+  const [size, setSize] = useState<{ width: number; height: number } | null>(null);
+
+  // The sweep only replaces the fade once it can actually run: native, and a
+  // measured box to draw into. Until then (first layout pass) the fade still
+  // does its job, so there is never a frame with no overlay at all.
+  const sweeping = SWEEP_ENABLED && !!size && size.width > 0 && size.height > 0;
+
   useEffect(() => {
     opacity.setValue(0);
     if (concern) Animated.timing(opacity, { toValue: 1, duration: 200, useNativeDriver: true }).start();
   }, [concern?.url, opacity]);
 
-  if (!concern) return null;
+  // Summary tab has no concern overlay at all, so normally there is nothing
+  // to draw. The one exception is a scan that JUST completed: that is the
+  // moment the result first appears, and it gets the scanner line on its own
+  // over the bare photo (no reveal — nothing to reveal — and no pings, see
+  // ConcernSweepReveal's `url` note). Only while justScanned, so re-opening
+  // an old scan from history doesn't pretend to be analysing it again.
+  if (!concern) {
+    if (activeTab !== 'summary' || !justScanned || !SWEEP_ENABLED) return null;
+    // The measuring View renders unconditionally here — gating IT on
+    // `sweeping` would deadlock, since `sweeping` only becomes true once this
+    // View's own onLayout has reported a size. Only the Skia child waits.
+    return (
+      <View
+        style={StyleSheet.absoluteFill}
+        pointerEvents="none"
+        onLayout={(e) => {
+          const { width, height } = e.nativeEvent.layout;
+          setSize((prev) => (prev && prev.width === width && prev.height === height ? prev : { width, height }));
+        }}
+      >
+        {sweeping && <ConcernSweepReveal width={size.width} height={size.height} />}
+      </View>
+    );
+  }
   return (
-    <Animated.View style={[StyleSheet.absoluteFill, { opacity }]} pointerEvents="none">
-      <Image source={{ uri: concern.url }} style={StyleSheet.absoluteFill} contentFit="cover" />
+    <Animated.View
+      style={[StyleSheet.absoluteFill, { opacity }]}
+      pointerEvents="none"
+      onLayout={(e) => {
+        const { width, height } = e.nativeEvent.layout;
+        setSize((prev) => (prev && prev.width === width && prev.height === height ? prev : { width, height }));
+      }}
+    >
+      {sweeping ? (
+        // Keyed on the overlay URL so a tab switch REMOUNTS this: that is
+        // what makes the sweep play exactly once per tab open, and it also
+        // resets the per-finding hooks cleanly when the number of points
+        // changes between concerns.
+        <ConcernSweepReveal
+          key={concern.url}
+          url={concern.url}
+          points={concern.overlay?.points}
+          width={size.width}
+          height={size.height}
+        />
+      ) : (
+        <Image source={{ uri: concern.url }} style={StyleSheet.absoluteFill} contentFit="cover" />
+      )}
       {!!highlightedZoneRect && <ZoneHighlightMask zoneRect={highlightedZoneRect} />}
     </Animated.View>
   );
