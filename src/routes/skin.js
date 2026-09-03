@@ -610,6 +610,7 @@ async function runScanPipeline({ userId, photoBase64, burstCandidates, faceRegio
     // barely any headroom on a slow connection. Run concurrently it hides
     // almost entirely inside the wait that already exists.
     // Awaited far below, at the exact point its result is used.
+    const ivyStartedAt = Date.now();
     const ivyPromise = process.env.IVYAI_API_KEY
       ? analyzeWithIvyAi(geminiB64).catch(() => null)
       : Promise.resolve(null);
@@ -727,7 +728,33 @@ async function runScanPipeline({ userId, photoBase64, burstCandidates, faceRegio
     // refusal, timeout, quota) leaves every heuristic record exactly as it
     // was, which is the whole point: the vendor is an enhancement layered
     // on a path that already works alone, never a dependency of it.
-    const ivy = await ivyPromise;
+    // Bounded await, not a bare one. Ivy is explicitly an enhancement layered
+    // on a path that already works without it — but a plain `await` made it a
+    // hard dependency on the vendor's LATENCY even though it isn't one on the
+    // vendor's RESULT: everything else on this scan is finished by the time
+    // we get here, so a hung Ivy call held a completed scan hostage for the
+    // remainder of its timeout while the user watched a spinner.
+    //
+    // By this point Ivy has already been running for the whole pipeline
+    // (~29s in production), which is comfortably past its measured p100 of
+    // 25.1s. So anything still outstanding here is hung, not slow, and gets
+    // a short grace rather than the rest of its budget. Losing the race is
+    // exactly equivalent to the vendor returning null, which this path
+    // already handles as a normal outcome (no key / refusal / quota all land
+    // there too) — so a slow vendor degrades to "no vendor data" instead of
+    // to a slow scan. The underlying request is left to its own timeout and
+    // its result ignored; ivyPromise already has a .catch so abandoning it
+    // can never surface as an unhandled rejection.
+    const IVY_RESIDUAL_GRACE_MS = 4000;
+    let ivyTimer;
+    const ivy = await Promise.race([
+      ivyPromise,
+      new Promise((resolve) => { ivyTimer = setTimeout(() => resolve(null), IVY_RESIDUAL_GRACE_MS); }),
+    ]);
+    clearTimeout(ivyTimer);
+    if (!ivy) {
+      console.log(`[skin] ivy AI produced no usable result after ${Date.now() - ivyStartedAt}ms (no key, refusal, quota, timeout, or residual-grace cutoff) — heuristic severities kept as-is`);
+    }
     const { ivyApplied } = mergeIvyIntoHeatmaps(heatmaps, ivy);
     for (const key of Object.keys(heatmaps)) {
       const note = overlayNoteFor(heatmaps[key]);

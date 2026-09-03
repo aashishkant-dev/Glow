@@ -45,7 +45,15 @@ const METRIC_TO_CONCERN = {
  * own. A vendor problem must degrade to "no vendor data", never break a scan.
  * @returns {Promise<{severities: Record<string, number>, overallHealthScore: number|null, cosmeticSkinType: string|null, scanId: string|null}|null>}
  */
-async function analyzeWithIvyAi(photoBase64, { timeoutMs = 40000 } = {}) {
+// 30s, not the original 40s. The measured spread is 21.7-25.1s wall across 9
+// real calls (see this file's header), so 40s sat ~15s above the slowest call
+// ever observed — that headroom bought nothing and cost real time whenever
+// the vendor hung, because the scan pipeline blocks on this result. 30s is
+// ~20% above the observed p100, which covers a genuinely slow-but-working
+// call while cutting the worst case. The caller additionally refuses to wait
+// the full budget if the rest of the pipeline has already finished — see
+// IVY_RESIDUAL_GRACE_MS in routes/skin.js.
+async function analyzeWithIvyAi(photoBase64, { timeoutMs = 30000 } = {}) {
   const key = process.env.IVYAI_API_KEY;
   if (!key) return null;
 
