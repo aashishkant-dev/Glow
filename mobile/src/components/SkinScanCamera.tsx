@@ -2045,6 +2045,131 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // live face" (box: none) from "it does and the size/offset gate rejects
   // it". Previously it was also gated on a live face existing at all,
   // which hid it in exactly the failure case it exists to explain.
+  // --- Tap-a-pill coaching -------------------------------------------------
+  // Distinct from the long-press diagnostics below, and deliberately so: that
+  // readout is a developer tool (raw avgLuma, gate names, box coords) and is
+  // useless to — and faintly alarming for — an actual user. This is the
+  // user-facing half: tap any pill and get told what to physically DO about
+  // it right now.
+  //
+  // It derives entirely from the gate state already computed above
+  // (lightingGate/angleGate/positionGate plus the same lightingSample and
+  // sizeRatio those gates read). No second opinion, no re-derived thresholds
+  // — the whole "pill colour and pill text disagree" class of bug this file
+  // has already been bitten by comes from exactly that, so the advice is
+  // keyed off the same values that coloured the pill the user just tapped.
+  const [coachGate, setCoachGate] = useState<'lighting' | 'angle' | 'position' | null>(null);
+  // Auto-dismisses so it can't sit on top of the viewfinder while someone is
+  // trying to frame a shot — the pill is always still there to tap again.
+  useEffect(() => {
+    if (!coachGate) return;
+    const id = setTimeout(() => setCoachGate(null), 5000);
+    return () => clearTimeout(id);
+  }, [coachGate]);
+  // Deliberately NOT cleared when the gate turns green. coachContent has a
+  // real positive branch for every green state, so a card left open while the
+  // user fixes the problem flips from "It's too dark in here" to "Lighting
+  // looks good" in place — which is better feedback than vanishing, and
+  // confirms the thing they just did actually worked. The 5s timer above
+  // still takes it away on its own.
+
+  // Specific > generic, always. Each branch names the actual condition the
+  // gate detected rather than falling back to one catch-all sentence: a
+  // backlit frame and a dim room both fail the Lighting gate, but the fix for
+  // one ("turn around") is the opposite of the fix for the other ("find more
+  // light"), so a single "improve your lighting" line would be useless
+  // exactly when it matters most. Branch order matches lightingReason's, so
+  // the headline can never contradict the status text on the pill itself.
+  function coachContent(which: 'lighting' | 'angle' | 'position'): { title: string; tips: string[] } {
+    if (which === 'lighting') {
+      if (lightingSample == null) {
+        return lightingGraceElapsed
+          ? { title: 'Lighting looks fine', tips: ['Nothing to fix here — go ahead and take the shot.'] }
+          : { title: 'Checking the light…', tips: ['Give it a second while the camera reads the room.'] };
+      }
+      const { avgLuma, darkFraction, brightFraction } = lightingSample;
+      if (lightingGate === 'green') {
+        return { title: 'Lighting looks good', tips: ['Even, natural light — this is what the scan wants.'] };
+      }
+      if (brightFraction >= 0.25) {
+        return {
+          title: 'The light is behind you',
+          tips: [
+            'Turn around so the window or lamp is in front of your face.',
+            'A bright background makes your skin come out dark and washed out.',
+          ],
+        };
+      }
+      if (avgLuma < 55) {
+        return {
+          title: "It's too dark in here",
+          tips: [
+            'Move somewhere brighter — near a window works best.',
+            'Or turn on a light and face towards it, not away.',
+          ],
+        };
+      }
+      if (avgLuma > 215) {
+        return {
+          title: "There's too much glare",
+          tips: [
+            'Step out of direct sun or move away from the lamp.',
+            'Soft, indirect daylight gives the most accurate reading.',
+          ],
+        };
+      }
+      if (darkFraction >= 0.35) {
+        return {
+          title: 'Shadows across your face',
+          tips: [
+            'Face your light source straight on.',
+            'Overhead light alone casts shadows under the eyes and nose.',
+          ],
+        };
+      }
+      return { title: 'Lighting needs a tweak', tips: ['Try facing a window, with nothing bright behind you.'] };
+    }
+
+    if (which === 'angle') {
+      if (angleGate === 'green') {
+        return { title: 'Head angle is good', tips: ['Straight on to the camera — hold it there.'] };
+      }
+      if (maxTilt == null) {
+        return { title: 'Look at the camera', tips: ["Face the lens straight on so your whole face is visible."] };
+      }
+      return {
+        title: angleGate === 'amber' ? 'Almost straight' : 'Straighten your head',
+        tips: [
+          'Keep your chin level — not tipped up or down.',
+          'Hold the phone at eye height rather than below your face.',
+        ],
+      };
+    }
+
+    if (positionGate === 'green') {
+      return { title: 'Framing is good', tips: ['Your face is filling the oval nicely — hold still.'] };
+    }
+    if (!liveBox) {
+      return {
+        title: 'Face not detected yet',
+        tips: ['Bring your whole face into the oval.', 'Push hair back off your forehead and cheeks.'],
+      };
+    }
+    if (sizeRatio < 0.75) {
+      return {
+        title: 'Move a bit closer',
+        tips: [
+          'Bring the phone nearer until your face fills the oval.',
+          'A small face in frame means less detail to read.',
+        ],
+      };
+    }
+    return {
+      title: 'Centre your face',
+      tips: ['Line your face up inside the oval guide.', 'Keep the phone straight on, not off to one side.'],
+    };
+  }
+
   const [diagnosticsVisible, setDiagnosticsVisible] = useState(false);
   const showDiagnostics = __DEV__ || diagnosticsVisible;
   const debugBox = liveBox;
@@ -2191,23 +2316,59 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
                 check (no trained model needed, matching how Sephora/Perfect
                 Corp/Haut.AI/Revieve all gate capture). Capture only unlocks
                 once every pill is green; see isReady above. */}
-            {/* Long-press (not a tap — nothing here should feel like a
-                button) toggles the diagnostics readout above in release
-                builds; see showDiagnostics. */}
-            <Pressable style={[styles.pillRow, { top: insets.top + 58 }]} onLongPress={() => setDiagnosticsVisible((v) => !v)} delayLongPress={1500}>
-              <View style={[styles.pill, { backgroundColor: GATE_COLOR[lightingGate] }]}>
-                <Text style={styles.pillText}>Lighting</Text>
-                <Text style={styles.pillStatusText} numberOfLines={1}>{lightingReason}</Text>
-              </View>
-              <View style={[styles.pill, { backgroundColor: GATE_COLOR[angleGate] }]}>
-                <Text style={styles.pillText}>Look Straight</Text>
-                <Text style={styles.pillStatusText} numberOfLines={1}>{angleReason}</Text>
-              </View>
-              <View style={[styles.pill, { backgroundColor: GATE_COLOR[positionGate] }]}>
-                <Text style={styles.pillText}>Position</Text>
-                <Text style={styles.pillStatusText} numberOfLines={1}>{positionReason}</Text>
-              </View>
-            </Pressable>
+            {/* TAP a pill for plain-language coaching on how to fix that
+                specific gate (see coachContent); LONG-press any of them for
+                the developer diagnostics readout above. Both gestures live on
+                every pill rather than tap-on-pill / long-press-on-row,
+                because an inner Pressable swallows the touch before the outer
+                one ever sees it — putting the long-press only on the row
+                would have silently killed the diagnostic the moment the pills
+                themselves became tappable. */}
+            <View style={[styles.pillRow, { top: insets.top + 58 }]}>
+              {([
+                ['lighting', 'Lighting', lightingGate, lightingReason],
+                ['angle', 'Look Straight', angleGate, angleReason],
+                ['position', 'Position', positionGate, positionReason],
+              ] as const).map(([key, label, gate, reason]) => (
+                <Pressable
+                  key={key}
+                  style={[styles.pill, { backgroundColor: GATE_COLOR[gate] }, coachGate === key && styles.pillActive]}
+                  onPress={() => { tapLight(); setCoachGate((prev) => (prev === key ? null : key)); }}
+                  onLongPress={() => setDiagnosticsVisible((v) => !v)}
+                  delayLongPress={1500}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${label}: ${reason}. Tap for help.`}
+                >
+                  <Text style={styles.pillText}>{label}</Text>
+                  <Text style={styles.pillStatusText} numberOfLines={1}>{reason}</Text>
+                </Pressable>
+              ))}
+            </View>
+
+            {/* The coaching card itself. Sits directly under the pill it
+                belongs to, dismisses on tap, and auto-hides — see coachGate.
+                Deliberately plain language with no numbers in it at all:
+                the whole point is that this is the opposite of the
+                diagnostics box. */}
+            {coachGate && (() => {
+              const c = coachContent(coachGate);
+              return (
+                <Pressable
+                  style={[styles.coachCard, { top: insets.top + 108 }]}
+                  onPress={() => setCoachGate(null)}
+                  accessibilityRole="button"
+                  accessibilityLabel={`${c.title}. ${c.tips.join(' ')} Tap to dismiss.`}
+                >
+                  <Text style={styles.coachTitle}>{c.title}</Text>
+                  {c.tips.map((tip) => (
+                    <View key={tip} style={styles.coachTipRow}>
+                      <Text style={styles.coachBullet}>•</Text>
+                      <Text style={styles.coachTip}>{tip}</Text>
+                    </View>
+                  ))}
+                </Pressable>
+              );
+            })()}
 
             <View style={[styles.topBar, { top: insets.top + 10 }]}>
               <Pressable style={styles.roundBtn} onPress={handleClose} hitSlop={10}>
@@ -2464,6 +2625,21 @@ const styles = StyleSheet.create({
   // category label (Lighting/Look Straight/Position) with no text
   // explaining what was wrong or how to fix it before capture.
   pillStatusText: { color: 'rgba(255,255,255,0.92)', fontSize: 9.5, fontFamily: Fonts.medium, marginTop: 1 },
+  // Brighter ring on the pill whose coaching card is currently open, so it's
+  // obvious which of the three the advice belongs to.
+  pillActive: { borderColor: '#fff', borderWidth: 1.5 },
+  coachCard: {
+    position: 'absolute', left: 20, right: 20, zIndex: 3,
+    backgroundColor: 'rgba(0,0,0,0.82)', borderRadius: 14,
+    paddingHorizontal: 14, paddingVertical: 12,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.16)',
+    shadowColor: '#000', shadowOffset: { width: 0, height: 4 }, shadowOpacity: 0.3, shadowRadius: 8,
+    elevation: 6,
+  },
+  coachTitle: { color: '#fff', fontSize: 14, fontFamily: Fonts.semibold, marginBottom: 6 },
+  coachTipRow: { flexDirection: 'row', gap: 6, marginTop: 2 },
+  coachBullet: { color: 'rgba(255,255,255,0.55)', fontSize: 12.5, lineHeight: 18 },
+  coachTip: { flex: 1, color: 'rgba(255,255,255,0.88)', fontSize: 12.5, fontFamily: Fonts.regular, lineHeight: 18 },
   topBar: {
     position: 'absolute', left: 16, right: 16, zIndex: 2,
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
