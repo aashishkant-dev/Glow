@@ -396,6 +396,128 @@ function buildMasks(width, height, zoneRects, segMask, geometry = {}) {
   return { full, wrinkle, pore, face, assessedZoneCount: rectList.length, totalZoneCount: ZONE_KEYS.length };
 }
 
+// ── Skin-vs-hair refinement ─────────────────────────────────────────────────
+// The face mask (faceRegionMask) is pure geometry: an ML Kit face-oval
+// contour, or an ellipse. Neither knows where hair is, and the person
+// segmentation multiplied on top cannot help either — Apple's
+// VNGeneratePersonSegmentationRequest segments PERSON from background, and
+// hair is part of a person. So every stage of that chain happily includes a
+// fringe, a strand across the cheek, a sideburn, a beard, and the neck.
+//
+// That single gap is behind several separate reported problems: heatmaps
+// bleeding into hair, blemish markers landing on hair/eyebrows/beard, and
+// Fine Lines tracing a beard as creases (its own gate sweep showed the
+// threshold could not fix that — the input was wrong, not the rendering).
+//
+// This adds the missing step: decide per pixel whether it actually looks
+// like THIS person's skin.
+//
+// Self-calibrating on purpose, and this is the part that matters most. A
+// fixed "skin colour" range, or any rule shaped like "dark means hair",
+// would fail hardest on exactly the users it must not fail on — deep skin
+// tones, where skin is legitimately darker than a light-skinned person's
+// hair. Instead the photo's own mid-face is sampled to learn what this
+// subject's skin looks like right now, under this lighting, and everything
+// is judged relative to that. A deep-tone face therefore gets a deep-tone
+// reference, and its skin stays skin.
+//
+// Median and MAD rather than mean and standard deviation: the sample region
+// can legitimately contain a mole, a nostril edge or a specular highlight,
+// and those are exactly the outliers that would drag a mean estimator off.
+function medianOf(values) {
+  if (!values.length) return 0;
+  const s = Float64Array.from(values).sort();
+  const m = s.length >> 1;
+  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
+}
+
+function madOf(values, med) {
+  if (!values.length) return 1;
+  const dev = new Array(values.length);
+  for (let i = 0; i < values.length; i++) dev[i] = Math.abs(values[i] - med);
+  // 1.4826 makes MAD a consistent estimator of sigma for normal data.
+  return Math.max(1e-3, medianOf(dev) * 1.4826);
+}
+
+function skinLikelihood(gray, labA, labB, faceMask, faceBox, width, height) {
+  const out = new Float32Array(width * height);
+
+  // Core sample region: the mid-face band. In faceBox fractions this is
+  // roughly nose + upper cheeks — below the hairline and brows, above the
+  // moustache/beard, inside the temples. Derived from the box's own
+  // construction (detectFaceRegion expands ML Kit's tight box by -0.25w /
+  // -0.5h / +0.25w / +0.25h), so the tight face occupies x 0.167-0.833 and
+  // y 0.286-0.857 of faceBox; this samples the middle of that.
+  const x0 = Math.max(0, Math.round((faceBox.x + faceBox.width * 0.36) * width));
+  const x1 = Math.min(width - 1, Math.round((faceBox.x + faceBox.width * 0.64) * width));
+  const y0 = Math.max(0, Math.round((faceBox.y + faceBox.height * 0.49) * height));
+  const y1 = Math.min(height - 1, Math.round((faceBox.y + faceBox.height * 0.64) * height));
+
+  const sL = [], sA = [], sB = [];
+  for (let y = y0; y <= y1; y++) {
+    for (let x = x0; x <= x1; x++) {
+      const i = y * width + x;
+      if (faceMask[i] <= 0.4) continue;
+      sL.push(gray[i]); sA.push(labA[i]); sB.push(labB[i]);
+    }
+  }
+  // Too small a sample to model anything — leave the mask untouched rather
+  // than filter against a guess. Failing open is right here: the geometry
+  // mask alone is the behaviour that already shipped.
+  if (sL.length < 200) { out.fill(1); return { weights: out, calibrated: false }; }
+
+  const lMed = medianOf(sL), aMed = medianOf(sA), bMed = medianOf(sB);
+  const lMad = madOf(sL, lMed), aMad = madOf(sA, aMed), bMad = madOf(sB, bMed);
+
+  // Colour and brightness alone are NOT enough, and this was verified rather
+  // than assumed: rendering the weights over a real bearded face showed
+  // background, sweater, lips, eyes and eyebrows all correctly rejected while
+  // the beard and the hair stayed classified as skin. Mid-brown hair under
+  // warm light simply is not far enough from warm skin on either axis.
+  //
+  // What DOES separate them is structure. Hair is dense, strongly oriented
+  // high-frequency detail: every gradient along a strand points the same way,
+  // so the structure tensor's eigenvalues are lopsided (coherence near 1).
+  // Skin — even textured skin — is comparatively isotropic. This is the same
+  // signal poreSeverity already uses to tell stubble from pores, reused here
+  // at the mask level where it can protect every concern at once instead of
+  // one.
+  const coh = coherenceMap(gray, faceMask, width, height, 2);
+
+  for (let i = 0; i < out.length; i++) {
+    if (faceMask[i] <= 0.001) { out[i] = 0; continue; }
+    // Only DARKER-than-skin counts. A specular highlight is much brighter
+    // than the median and is still skin; hair is essentially never brighter
+    // than the face it sits on in a selfie.
+    const darker = Math.max(0, (lMed - gray[i]) / lMad);
+    const da = (labA[i] - aMed) / aMad;
+    const db = (labB[i] - bMed) / bMad;
+    const chroma = Math.sqrt(da * da + db * db);
+
+    // Both terms have a dead zone before they contribute at all, so ordinary
+    // shading across a cheek (which is darker but the same hue) and ordinary
+    // colour variation (which is the same brightness) are both free.
+    const darkP = Math.min(1, Math.max(0, (darker - 2.6) / 3.4));
+    const chromaP = Math.min(1, Math.max(0, (chroma - 2.6) / 3.4));
+
+    // Needs to be meaningfully off on both axes, or extreme on one. Shadowed
+    // skin trips only darkness; a blemish or a dark spot trips only chroma
+    // and is dark by a little — neither alone is enough to be erased, which
+    // matters because dark spots are a concern this app must still detect.
+    // Directional AND at all darker than the surrounding skin. Both halves
+    // are required: a bright specular streak can be directional without being
+    // hair, and a shadow can be darker without being directional. Hair is
+    // reliably both. The darkness half needs only a gentle push (0.5 MAD)
+    // because it is qualifying the texture term, not carrying the decision.
+    const hairP = Math.min(1, Math.max(0, (coh[i] - 0.42) / 0.34))
+                * Math.min(1, Math.max(0, (darker - 0.5) / 2.0));
+
+    const rejection = Math.min(1, 0.62 * darkP + 0.62 * chromaP + 0.95 * hairP);
+    out[i] = 1 - rejection;
+  }
+  return { weights: out, calibrated: true };
+}
+
 function toGrayscaleAndLab(buffer, channels, width, height) {
   const n = width * height;
   const gray = new Float32Array(n);
@@ -1535,9 +1657,27 @@ async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers, segMask, f
   const sharp = require('sharp');
   const { width, height, channels } = info;
   const zoneRects = assessableZoneRects(faceBox, zoneMarkers);
-  const { full: fullMask, wrinkle: wrinkleMask, pore: poreMask, assessedZoneCount } =
+  const { full: fullMask, wrinkle: wrinkleMask, pore: poreMask, face: faceMask, assessedZoneCount } =
     buildMasks(width, height, zoneRects, segMask, { faceBox, faceBoxSource, landmarks: faceLandmarks });
   const { gray, labA, labB } = toGrayscaleAndLab(buffer, channels, width, height);
+
+  // Multiply the skin-likelihood weights into every analysis mask, so hair,
+  // beard, brow hair and anything else inside the face oval that simply is
+  // not this person's skin stops being measured as skin. Applied to all three
+  // masks (not just `full`) because the same contamination reaches each of
+  // them: pores read stubble as pores, wrinkles trace a beard as creases.
+  //
+  // Runs here rather than inside buildMasks because it needs the Lab channels
+  // above, which are decoded after the geometry masks are built.
+  const skin = skinLikelihood(gray, labA, labB, faceMask, faceBox, width, height);
+  if (skin.calibrated) {
+    for (let i = 0; i < fullMask.length; i++) {
+      const w = skin.weights[i];
+      fullMask[i] *= w;
+      wrinkleMask[i] *= w;
+      poreMask[i] *= w;
+    }
+  }
 
   // `alpha` is the map a wash/line/stipple overlay renders from — a
   // separate, more visually-generous, percentile-rank-based curve
@@ -1670,4 +1810,4 @@ async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers, segMask, f
   return { concerns: { redness, texture, pores, shine, wrinkles, moisture, age_spot, acne }, assessedZoneCount, totalZoneCount: ZONE_KEYS.length };
 }
 
-module.exports = { generateHeatmaps, ZONE_KEYS, WRINKLE_ZONES, PORE_ZONES, CONCERN_META, assessableZoneRects, buildMasks, laplacianMagnitude };
+module.exports = { generateHeatmaps, skinLikelihood, toGrayscaleAndLab, ZONE_KEYS, WRINKLE_ZONES, PORE_ZONES, CONCERN_META, assessableZoneRects, buildMasks, laplacianMagnitude };
