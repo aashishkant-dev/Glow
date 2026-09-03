@@ -134,22 +134,54 @@ function getImageSize(uri: string): Promise<{ width: number; height: number }> {
 // class as the captured Photo needed a fix for (see shoot()'s try/finally),
 // just firing many times a second instead of once per capture, and real
 // wasted native-object-construction overhead on top of that.
-// runLandmarks/runContours: off by default in this library — switched on
-// here to get ML Kit's real per-photo geometry (10 landmarks + face-oval/
-// eyebrow/eye/nose/lip contours) for placing zone markers on the actual
-// detected features (see deriveZoneMarkers in skinZones.ts) instead of a
-// fixed proportion-of-face-box estimate. No new dependency: this is the
-// same ML Kit wrapper already installed and patched for the live preview.
-// runClassifications: also off by default — switched on to get
-// leftEyeOpenProbability/rightEyeOpenProbability, the only real per-feature
+// TWO detectors over the same still photo, not one configured for all three
+// jobs at once. Google's face-detection docs are explicit that these are
+// mutually exclusive configurations, not additive flags: "You can configure
+// the face detector to use either face contour detection or classification
+// and landmark detection, but not both."
+// (developers.google.com/ml-kit/vision/face-detection/android, "Tips to
+// improve real-time performance"). This file previously set
+// runLandmarks + runContours + runClassifications all true on ONE detector,
+// which maps straight through to landmarkMode/.all + contourMode/.all +
+// classificationMode/.all on the native MLKitFaceDetection options object
+// (confirmed by reading this library's own ML+FaceDetectorOptions.swift, not
+// assumed) — precisely the combination the docs rule out. ML Kit doesn't
+// throw on it; it just resolves the conflict internally, so the failure mode
+// is SILENT: `face.landmarks?.LEFT_CHEEK` and the eye-open probabilities can
+// simply come back undefined, and every consumer of them degrades to a
+// guessed/blind fallback (see deriveZoneMarkers) while looking like the
+// feature is working. That is exactly the shape of the reported "markers all
+// over the place" symptom, so this is a real documented mismatch, not a
+// style cleanup.
+//
+// Splitting into two passes keeps BOTH signals at full strength while making
+// each detector's own config individually valid per those docs. The cost is
+// one extra detection on a single still image during the already-visible
+// "Checking your photo…" step — the same reasoning detectFaceRegion's own
+// comment already uses to justify 'accurate' over 'fast' here (~100–300ms,
+// invisible, no live-frame budget to blow). Deliberately NOT applied to the
+// live preview detector, which stays contour/landmark/classification-free
+// and 'fast' per the same docs' real-time guidance.
+//
+// Both are stable module-level constants for the reason the comment above
+// explains — useImageFaceDetector memoizes on options IDENTITY.
+//
+// Contours: face-oval/eyebrow/eye/nose/lip outlines. Load-bearing for the
+// backend's face-outline mask and eye/brow/lip exclusions
+// (extractFaceLandmarks) plus 7 of the 10 RawFacialPoints fields.
+const CONTOUR_FACE_DETECTOR_OPTIONS = { performanceMode: 'accurate' as const, runContours: true };
+// Landmarks + classifications: the LEFT_CHEEK/RIGHT_CHEEK/MOUTH_BOTTOM
+// points (no contour equivalent exists for the cheeks) and
+// leftEyeOpenProbability/rightEyeOpenProbability — the only real per-feature
 // confidence signal this detector exposes. deriveZoneMarkers uses it (along
 // with the always-present pitchAngle) to refuse to place an under-eye/
 // forehead/chin/jawline marker it can't actually trust, instead of
 // forwarding whatever point ML Kit hands back regardless of whether that
 // feature is actually visible (a cap brim, hair, a hand) — see that
 // function's own comment for why "the array had points in it" was never a
-// real confidence check.
-const IMAGE_FACE_DETECTOR_OPTIONS = { performanceMode: 'accurate' as const, runLandmarks: true, runContours: true, runClassifications: true };
+// real confidence check. Grouped together in ONE detector because the docs
+// treat "classification and landmark detection" as a single valid mode.
+const LANDMARK_FACE_DETECTOR_OPTIONS = { performanceMode: 'accurate' as const, runLandmarks: true, runClassifications: true };
 
 type FaceRegion = { x: number; y: number; width: number; height: number };
 
@@ -170,15 +202,49 @@ type FaceRegion = { x: number; y: number; width: number; height: number };
 // already-visible "Checking your photo…" step, not per-frame on a live
 // stream, so the ~100–300ms extra cost is invisible while the more precise
 // bounding box directly improves the crop Gemini actually analyzes.
-function detectFaceRegion(detector: ReturnType<typeof useImageFaceDetector>, uri: string, imgWidth: number, imgHeight: number, mirrored: boolean): { faceRegion: FaceRegion | null; noFaceDetected: boolean; zoneMarkers: StoredZoneMarkers | null; rawPoints: RawFacialPoints | null; faceLandmarks: FaceLandmarkPayload | null } {
+function detectFaceRegion(
+  contourDetector: ReturnType<typeof useImageFaceDetector>,
+  landmarkDetector: ReturnType<typeof useImageFaceDetector>,
+  uri: string,
+  imgWidth: number,
+  imgHeight: number,
+  mirrored: boolean,
+): { faceRegion: FaceRegion | null; noFaceDetected: boolean; zoneMarkers: StoredZoneMarkers | null; rawPoints: RawFacialPoints | null; faceLandmarks: FaceLandmarkPayload | null } {
   if (Platform.OS === 'web' || !imgWidth || !imgHeight) return { faceRegion: null, noFaceDetected: false, zoneMarkers: null, rawPoints: null, faceLandmarks: null };
   try {
-    const faces = detector.detectFaces(uri);
+    const faces = contourDetector.detectFaces(uri);
     if (!faces || faces.length === 0) return { faceRegion: null, noFaceDetected: true, zoneMarkers: null, rawPoints: null, faceLandmarks: null };
 
     // Largest face wins — guards against a photo/poster in the background
     // being picked over the real subject.
     const face = faces.reduce((biggest, f) => (f.bounds.width * f.bounds.height > biggest.bounds.width * biggest.bounds.height ? f : biggest), faces[0]);
+
+    // Second, landmark/classification-mode pass over the SAME file — see
+    // LANDMARK_FACE_DETECTOR_OPTIONS for why this can't just be three extra
+    // flags on the detector above. Same largest-face rule, so on any photo
+    // with one real subject both passes resolve to the same person.
+    //
+    // Wrapped in its own try/catch: this pass supplies ONLY the three
+    // cheek/mouth points and the eye-open probabilities, every one of which
+    // is already an optional field that deriveZoneMarkers degrades
+    // gracefully without (RawFacialPoints/FaceConfidenceSignals both declare
+    // them optional, and Face.landmarks is optional in this library's own
+    // types). So if this pass throws or finds nothing, the contour-derived
+    // geometry above — the load-bearing part, and the entire face mask —
+    // still goes through intact, rather than one optional extra collapsing
+    // the whole detection into a false "no face detected" retake prompt.
+    let landmarkFace: (typeof faces)[number] | null = null;
+    try {
+      const landmarkFaces = landmarkDetector.detectFaces(uri);
+      if (landmarkFaces && landmarkFaces.length > 0) {
+        landmarkFace = landmarkFaces.reduce(
+          (biggest, f) => (f.bounds.width * f.bounds.height > biggest.bounds.width * biggest.bounds.height ? f : biggest),
+          landmarkFaces[0],
+        );
+      }
+    } catch (err) {
+      console.warn('[SkinScanCamera] landmark/classification pass failed; continuing with contour geometry only', err instanceof Error ? err.message : err);
+    }
     const { x: left, y: top, width, height } = face.bounds;
 
     // ML Kit's box is tight — roughly eyebrows-to-chin — so it's expanded
@@ -244,14 +310,39 @@ function detectFaceRegion(detector: ReturnType<typeof useImageFaceDetector>, uri
       noseBottom: face.contours?.NOSE_BOTTOM,
       leftEye: face.contours?.LEFT_EYE,
       rightEye: face.contours?.RIGHT_EYE,
-      leftCheek: face.landmarks?.LEFT_CHEEK,
-      rightCheek: face.landmarks?.RIGHT_CHEEK,
-      mouthBottom: face.landmarks?.MOUTH_BOTTOM,
+      // From the landmark/classification pass, not the contour one — ML Kit
+      // populates `landmarks` only for a detector in landmark mode, and this
+      // file's contour detector deliberately isn't (see the two option
+      // constants at module scope). `landmarkFace` is null whenever that
+      // pass found nothing or threw, and all three of these are optional on
+      // RawFacialPoints, so that reads through as "these zones had no
+      // trustworthy points" — the same honest-miss path a genuinely occluded
+      // cheek already takes — instead of a crash or a silent bad guess.
+      leftCheek: landmarkFace?.landmarks?.LEFT_CHEEK,
+      rightCheek: landmarkFace?.landmarks?.RIGHT_CHEEK,
+      mouthBottom: landmarkFace?.landmarks?.MOUTH_BOTTOM,
     };
     const signals: FaceConfidenceSignals = {
+      // pitchAngle is non-optional on every Face regardless of mode, so it
+      // comes from the contour pass (the one guaranteed to have produced
+      // `face`). The eye-open probabilities are classification-mode-only and
+      // optional, so they come from the second pass and stay undefined if it
+      // didn't run.
+      //
+      // Be aware of what that fallback actually does: deriveZoneMarkers
+      // reads these as `?? 1` (skinZones.ts:265) — i.e. a MISSING probability
+      // is treated as a fully-open eye and the under-eye marker gets placed
+      // unguarded. That's fail-OPEN, not fail-safe. Left as-is deliberately:
+      // it is the exact behaviour that already applied whenever ML Kit
+      // omitted these values, so nothing here regresses, and the pitch gate
+      // still independently drops these zones on a tilted head. Worth
+      // revisiting as its own change if the diagnostic readout ever shows
+      // this second pass failing in the field — but that would be a
+      // threshold/policy decision on real evidence, not a drive-by here.
+
       pitchAngle: face.pitchAngle,
-      leftEyeOpenProbability: face.leftEyeOpenProbability,
-      rightEyeOpenProbability: face.rightEyeOpenProbability,
+      leftEyeOpenProbability: landmarkFace?.leftEyeOpenProbability,
+      rightEyeOpenProbability: landmarkFace?.rightEyeOpenProbability,
     };
     const derived = deriveZoneMarkers(points, faceBoxPx, imgWidth, imgHeight, mirrored, signals);
     // Always the real object ML Kit's landmark pass produced for THIS
@@ -373,6 +464,68 @@ async function applySimilarityTransform(uri: string, width: number, height: numb
   } catch (err) {
     console.warn('[SkinScanCamera] applySimilarityTransform failed', err instanceof Error ? err.message : err);
     return null;
+  }
+}
+
+// Ceiling on what a captured frame is worth UPLOADING at. The backend
+// (routes/skin.js) resizes every frame it receives to fit inside 1080x1350
+// for storage + the heatmap engine, and 900x1125 for the Gemini call,
+// before a single pixel is analyzed — every pixel above this is bytes the
+// phone spends uploading and the server spends parsing, then discards.
+//
+// That waste is not free here: a modern front camera's full-res JPEG is
+// ~2.5-3.5MB, ~4.5MB once base64'd into JSON, and the unaligned path sends
+// THREE of them (primary + 2 burst candidates) in one request body. On a
+// real cellular uplink that is tens of seconds of upload BEFORE the scan
+// pipeline starts — and that time is spent inside submit()'s own overall
+// scan deadline, so a slow-but-perfectly-working connection surfaces to the
+// user as "Connection issue — check your network and try again" on a scan
+// that never actually failed. (The ALIGNED path never had this problem: its
+// output is already a 720x900 canvas — see ALIGN_OUTPUT_WIDTH — which is
+// why this only ever bit scans where alignment bailed out.)
+const UPLOAD_MAX_WIDTH = 1080;
+const UPLOAD_MAX_HEIGHT = 1350;
+
+// Re-encodes one captured frame down to the size the backend actually
+// keeps. Coordinates are safe across this: faceRegion/zoneMarkers/
+// faceLandmarks are all stored as 0-1 FRACTIONS of the photo (see
+// skinZones.ts), so a pure uniform scale leaves every one of them valid.
+//
+// Orientation is the one thing that could silently break, and it's guarded
+// rather than assumed: those fractions are measured in the EXIF-APPLIED
+// (display) space — RNImage.getSize + ML Kit both report it that way, and
+// the backend's own swapsDimensions handling exists precisely to line its
+// crop box up with that same space. manipulateAsync bakes the rotation into
+// the pixels, so its output IS that display space (orientation 1), which is
+// consistent. If it ever comes back with the portrait/landscape sense
+// flipped from what we detected against, the transform was not what we
+// expect and the frame is uploaded unmodified instead — correctness over
+// bandwidth. Any failure falls back the same way.
+async function downscaleForUpload(uri: string, width: number, height: number): Promise<string> {
+  const readOriginal = async () => stripDataUrlPrefix(await FileSystem.readAsStringAsync(uri, { encoding: 'base64' }));
+  try {
+    if (!width || !height) return await readOriginal();
+    const scale = Math.min(UPLOAD_MAX_WIDTH / width, UPLOAD_MAX_HEIGHT / height, 1);
+    const actions: ImageManipulator.Action[] = scale < 1
+      ? [{ resize: { width: Math.round(width * scale), height: Math.round(height * scale) } }]
+      : [];
+    // compress 0.9, not the 0.82 the backend re-encodes storage at — this
+    // is the copy the analysis reads, so it should not carry two rounds of
+    // aggressive JPEG loss into the tone/texture heuristics.
+    const out = await ImageManipulator.manipulateAsync(
+      uri,
+      actions,
+      { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+    );
+    if (!out.base64) return await readOriginal();
+    if ((out.width > out.height) !== (width > height)) {
+      console.warn('[SkinScanCamera] upload downscale flipped orientation, sending the original frame instead', { width, height, outWidth: out.width, outHeight: out.height });
+      return await readOriginal();
+    }
+    return stripDataUrlPrefix(out.base64);
+  } catch (err) {
+    console.warn('[SkinScanCamera] upload downscale failed, sending the original frame instead', err instanceof Error ? err.message : err);
+    return await readOriginal();
   }
 }
 
@@ -790,7 +943,12 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // Static-image detector for the captured photo (detectFaceRegion) — a
   // separate instance from the live camera's own detection, tuned for
   // accuracy over speed since it only ever runs once per scan.
-  const imageFaceDetector = useImageFaceDetector(IMAGE_FACE_DETECTOR_OPTIONS);
+  // Two detectors, two documented-valid configs — see the option constants
+  // at module scope for why one detector can't do both jobs. Both are hooks,
+  // so both must be created here in the component body (unconditionally, in
+  // a stable order) and passed down into detectFaceRegion.
+  const contourFaceDetector = useImageFaceDetector(CONTOUR_FACE_DETECTOR_OPTIONS);
+  const landmarkFaceDetector = useImageFaceDetector(LANDMARK_FACE_DETECTOR_OPTIONS);
   const cameraRef = useRef<CameraRef>(null);
   const [cameraReady, setCameraReady] = useState(false);
   const [capturing, setCapturing] = useState(false);
@@ -841,7 +999,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // failure happened (either nothing's wrong yet, or this is the separate
   // on-device noFaceWarning path, which never touches error/errorKind at
   // all — see shoot()).
-  const [errorKind, setErrorKind] = useState<'network' | 'face' | 'server' | null>(null);
+  const [errorKind, setErrorKind] = useState<'network' | 'face' | 'server' | 'slow' | null>(null);
   // A failed capture (bad temp-file write, unreadable file, etc.) used to
   // just console.error and silently reset back to a tappable shutter —
   // nothing on screen ever showed anything went wrong, which is exactly
@@ -1139,17 +1297,19 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       let primaryWidth = 0;
       let primaryHeight = 0;
       let primaryOrientation: Photo['orientation'] | undefined;
-      const frameBase64s: string[] = [];
       // Every frame's own temp-file URI is kept (not just the primary's) —
       // Stage 6 alignment (below) needs a real URI per frame to re-apply the
       // SAME computed transform to frames 1/2, not just the primary.
+      // Base64 is deliberately NOT read here any more: it's only ever needed
+      // for the upload, and reading it now would mean holding three ~4.5MB
+      // strings in JS memory for a scan whose aligned path throws all three
+      // away. uploadBase64() below produces it once, on demand, already
+      // downscaled to what the backend actually keeps.
       const frameUris: string[] = [];
       for (let i = 0; i < BURST_FRAME_COUNT; i++) {
         photo = await photoOutput.capturePhoto({ flashMode: 'off' }, {});
         const tempPath = await photo.saveToTemporaryFileAsync();
         const frameUri = tempPath.startsWith('file://') ? tempPath : `file://${tempPath}`;
-        const frameBase64 = await FileSystem.readAsStringAsync(frameUri, { encoding: 'base64' });
-        frameBase64s.push(stripDataUrlPrefix(frameBase64));
         frameUris.push(frameUri);
         if (i === 0) {
           primaryUri = frameUri;
@@ -1166,6 +1326,20 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       // native detector reads, instead of guessing at photo.width/height's
       // relationship to it.
       const { width: imgWidth, height: imgHeight } = await getImageSize(uri);
+
+      // Memoized per frame URI — the aligned path can ask for the same
+      // fallback frame twice, and re-encoding a JPEG is real device work.
+      // All three frames come from one locked burst on one camera, so they
+      // share imgWidth/imgHeight; measuring each separately would be three
+      // more file reads for the same numbers.
+      const uploadBase64Cache = new Map<string, string>();
+      const uploadBase64 = async (frameUri: string): Promise<string> => {
+        const cached = uploadBase64Cache.get(frameUri);
+        if (cached) return cached;
+        const b64 = await downscaleForUpload(frameUri, imgWidth, imgHeight);
+        uploadBase64Cache.set(frameUri, b64);
+        return b64;
+      };
 
       // Fired here, not awaited until right before newShot is built below —
       // same "start early, await late" pattern the backend's own
@@ -1192,7 +1366,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       // LEFT_EYE points actually land on in THIS photo — see
       // deriveZoneMarkers' own comment for why that swap can't just be
       // assumed from vision-camera's typical capture defaults.
-      const { faceRegion, noFaceDetected, zoneMarkers, rawPoints, faceLandmarks } = detectFaceRegion(imageFaceDetector, uri, imgWidth, imgHeight, primaryMirrored);
+      const { faceRegion, noFaceDetected, zoneMarkers, rawPoints, faceLandmarks } = detectFaceRegion(contourFaceDetector, landmarkFaceDetector, uri, imgWidth, imgHeight, primaryMirrored);
       if (__DEV__) {
         console.log('[SkinScanCamera] detectFaceRegion result', {
           imgWidth, imgHeight, photoWidth: primaryWidth, photoHeight: primaryHeight, photoOrientation: primaryOrientation,
@@ -1234,7 +1408,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
           if (!alignedPrimary) {
             console.warn('[SkinScanCamera] alignment skipped: applySimilarityTransform failed on primary frame');
           } else {
-            const redetected = detectFaceRegion(imageFaceDetector, alignedPrimary.uri, alignedPrimary.width, alignedPrimary.height, primaryMirrored);
+            const redetected = detectFaceRegion(contourFaceDetector, landmarkFaceDetector, alignedPrimary.uri, alignedPrimary.width, alignedPrimary.height, primaryMirrored);
             const redetectedAnchors = !redetected.noFaceDetected && redetected.rawPoints ? extractEyeNoseAnchors(redetected.rawPoints, primaryMirrored) : null;
             const sanity = redetectedAnchors ? checkAlignmentSanity(redetectedAnchors) : null;
             if (!redetectedAnchors) {
@@ -1254,7 +1428,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
                 frameUris.slice(1).map(async (u, idx) => {
                   const res = await applySimilarityTransform(u, imgWidth, imgHeight, transform);
                   if (!res) console.warn(`[SkinScanCamera] alignment failed on burst frame ${idx + 1}, using its unaligned capture instead`);
-                  return res?.base64 ?? frameBase64s[idx + 1];
+                  return res?.base64 ?? await uploadBase64(u);
                 })
               );
               alignedResult = {
@@ -1280,14 +1454,14 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       // for exactly this "no mask" case, so this costs some occlusion
       // precision on an aligned scan, never correctness.
       const finalUri = alignedResult?.uri ?? uri;
-      const finalBase64 = alignedResult?.base64 ?? frameBase64s[0];
+      const finalBase64 = alignedResult?.base64 ?? await uploadBase64(frameUris[0]);
       const finalFaceRegion = alignedResult?.faceRegion ?? faceRegion;
       const finalZoneMarkers = alignedResult?.zoneMarkers ?? zoneMarkers;
       // Same rule as zoneMarkers: an aligned photo's contours come from the
       // re-detection ON that aligned photo, never the original's.
       const finalFaceLandmarks = alignedResult ? alignedResult.faceLandmarks : faceLandmarks;
       const finalSkinMask = alignedResult ? null : originalSkinMask;
-      const finalBurstCandidates = alignedResult?.burstCandidates ?? frameBase64s.slice(1);
+      const finalBurstCandidates = alignedResult?.burstCandidates ?? await Promise.all(frameUris.slice(1).map(uploadBase64));
       // alignedResult is only ever set inside the `!noFaceDetected` branch
       // above, so noFaceDetected itself already reflects the right value in
       // both the aligned and fallback cases — no separate "final" variant
@@ -1385,15 +1559,37 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
     setError(null);
     setErrorKind(null);
     setScanStage(null);
-    // Same overall ceiling the old single-request version enforced via its
-    // own AbortController timeout (see apiScanSkin's own comment on why
-    // 70s, not 60s) — additive to the loading experience here, not a
-    // replacement for it: a scan that's still genuinely processing past
-    // this point surfaces the exact same timeout/error UI it always has,
-    // just reached by a deadline check in the polling loop below instead
-    // of one fetch's own abort signal.
+    // Ceiling on the SERVER-SIDE job, measured from the moment the backend
+    // accepted it — deliberately NOT from here. It used to start before the
+    // upload, which meant the request body's own transfer time was silently
+    // spent out of the analysis budget: a big upload on a slow uplink could
+    // burn most of the 70s and then time out a scan that was processing
+    // perfectly normally, reporting it to the user as a network problem.
+    // (The upload itself is still bounded — apiScanSkinStart carries its own
+    // 70s request timeout — so nothing here can hang forever.)
+    // 90s, not 70s: production has been observed at ~36-60s for the Gemini
+    // stage alone under load (see routes/skin.js), and the cost asymmetry is
+    // lopsided — a few extra seconds of waiting on a scan that IS coming
+    // back beats throwing away a completed analysis the user already posed
+    // for.
     const POLL_INTERVAL_MS = 1500;
-    const deadline = Date.now() + 70_000;
+    const JOB_DEADLINE_MS = 90_000;
+    let deadline = Date.now() + JOB_DEADLINE_MS;
+    // Logged on EVERY failure below (not just in __DEV__ — a release-build
+    // bug report is exactly when this is needed): how big the request body
+    // actually was, and how long each phase took. "Scanning says internet
+    // error" is otherwise indistinguishable between a slow upload, a slow
+    // job, and a genuinely dropped connection, and only the first of those
+    // is fixed by making the payload smaller.
+    const submitStartedAt = Date.now();
+    let uploadFinishedAt = 0;
+    // A local, not the scanStage STATE — this catch block closes over the
+    // render that created this submit(), so reading state here would report
+    // whatever it was before polling started, never the stage it died on.
+    let lastStage: ScanJobStage | null = null;
+    const payloadKB = Math.round(
+      (shotToSubmit.base64.length + shotToSubmit.burstCandidates.reduce((n, b) => n + b.length, 0) + (shotToSubmit.skinMask?.base64.length ?? 0)) * 0.75 / 1024
+    );
     try {
       const started = await apiScanSkinStart({
         photoBase64: shotToSubmit.base64,
@@ -1415,13 +1611,31 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
         return;
       }
       const jobId = started.jobId;
+      uploadFinishedAt = Date.now();
+      // The job exists now — start its clock here, discarding however long
+      // the upload took (see JOB_DEADLINE_MS above).
+      deadline = Date.now() + JOB_DEADLINE_MS;
 
       let consecutivePollFailures = 0;
+      let deadlinePassed = false;
       for (;;) {
         if (Date.now() >= deadline) {
-          const e: any = new Error('Connection timed out. Check your internet connection.');
-          e.code = 'TIMEOUT';
-          throw e;
+          // One last look before giving up: the job may well have finished
+          // in the gap since the previous poll, and a finished scan is
+          // already saved server-side — failing the user out of a result
+          // that exists is the worst possible outcome here. Only a second
+          // consecutive expiry (i.e. this final check also came back
+          // 'processing') is treated as a real timeout.
+          if (deadlinePassed) {
+            // Its OWN code, not the transport-level 'TIMEOUT' client.ts
+            // raises: the server accepted this job and may well still be
+            // finishing it, so telling the user to check their network
+            // (the old copy) points them at something that isn't broken.
+            const e: any = new Error('The scan is taking longer than usual.');
+            e.code = 'SCAN_TIMEOUT';
+            throw e;
+          }
+          deadlinePassed = true;
         }
         let poll;
         try {
@@ -1440,6 +1654,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
           continue;
         }
         if (poll.status === 'processing') {
+          lastStage = poll.stage;
           setScanStage(poll.stage);
         } else if (poll.status === 'done') {
           reset();
@@ -1466,7 +1681,14 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       // Expo/NativeResponse.swift:63)" straight into the UI, mislabeled
       // under the on-device "couldn't see a face" copy even though it was a
       // network-layer failure with nothing to do with face detection.
-      console.error('[SkinScanCamera] scan failed', err);
+      console.error('[SkinScanCamera] scan failed', err, {
+        code: err?.code,
+        payloadKB,
+        aligned: shotToSubmit.aligned,
+        uploadSec: uploadFinishedAt ? Math.round((uploadFinishedAt - submitStartedAt) / 100) / 10 : null,
+        totalSec: Math.round((Date.now() - submitStartedAt) / 100) / 10,
+        lastStage,
+      });
       const { kind, message } = classifyScanError(err);
       setErrorKind(kind);
       setError(message);
@@ -1482,8 +1704,15 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // (or guess at) the shape of err.message itself — an err with no
   // recognized code is treated as an opaque server/unknown failure, not
   // shown to the user verbatim, regardless of what it actually says.
-  function classifyScanError(err: any): { kind: 'network' | 'face' | 'server'; message: string } {
+  function classifyScanError(err: any): { kind: 'network' | 'face' | 'server' | 'slow'; message: string } {
     const code = err?.code;
+    // Raised only by the polling loop above, and only after the backend
+    // already accepted the job — a genuinely different situation from a
+    // request that never landed, and the scan may be saved by the time the
+    // user reads this.
+    if (code === 'SCAN_TIMEOUT') {
+      return { kind: 'slow', message: 'That scan is taking longer than usual. Check the Scan tab in a moment — it may have finished on its own.' };
+    }
     if (code === 'TIMEOUT' || code === 'NETWORK_ERROR') {
       return { kind: 'network', message: 'Connection issue — check your network and try again.' };
     }
@@ -1744,28 +1973,52 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   const AUTO_CAPTURE_HOLD_MS = 1500;
   const autoCaptureIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [autoCaptureRemainingMs, setAutoCaptureRemainingMs] = useState<number | null>(null);
+  // Always points at the CURRENT render's shoot(). `shoot` is a plain
+  // function declaration, so it's a brand-new closure every render, and the
+  // countdown interval below would otherwise fire whichever one existed when
+  // the interval was created ~1.5s earlier. That mattered for one specific
+  // value it closes over: shoot() early-returns on `!cameraReady` (with a
+  // tapWarning and nothing else). `cameraReady` is set by the Camera's
+  // onPreviewStarted and is NOT one of this effect's deps, so if it flipped
+  // true after the countdown started, the interval fired a stale shoot()
+  // still holding cameraReady === false — which silently did nothing and
+  // presented exactly as "auto-capture is broken." Reading through a ref at
+  // FIRE time instead of capture time fixes that without making the effect
+  // depend on a function identity that changes every render (which would
+  // restart the countdown constantly and mean it never reached zero).
+  const shootRef = useRef(shoot);
+  shootRef.current = shoot;
   useEffect(() => {
     const clear = () => {
       if (autoCaptureIntervalRef.current) { clearInterval(autoCaptureIntervalRef.current); autoCaptureIntervalRef.current = null; }
       setAutoCaptureRemainingMs(null);
     };
-    if (step !== 'camera' || !visible || capturing || !isReady) { clear(); return; }
-    // Already counting down from an earlier tick where isReady was also
-    // true — don't restart the clock just because this effect re-ran.
-    if (autoCaptureIntervalRef.current) return;
+    // `cameraReady` is a real gate here, not just a shoot() concern: starting
+    // a visible "capturing in 3…" countdown before the preview has even
+    // started would be a countdown that can't fire. Now that it's a dep, the
+    // countdown also restarts cleanly if readiness ever flips.
+    if (step !== 'camera' || !visible || capturing || !isReady || !cameraReady) { clear(); return; }
     const startedAt = Date.now();
     setAutoCaptureRemainingMs(AUTO_CAPTURE_HOLD_MS);
     autoCaptureIntervalRef.current = setInterval(() => {
       const remaining = AUTO_CAPTURE_HOLD_MS - (Date.now() - startedAt);
       if (remaining <= 0) {
         clear();
-        shoot();
+        shootRef.current();
         return;
       }
       setAutoCaptureRemainingMs(remaining);
     }, 100);
     return clear;
-  }, [isReady, step, visible, capturing]);
+    // Removed from here: an `if (autoCaptureIntervalRef.current) return;`
+    // guard that claimed to stop the clock restarting when the effect re-ran.
+    // It was dead code — React runs an effect's cleanup (`clear`, which nulls
+    // that very ref) BEFORE re-running the effect, so the ref is always null
+    // by the time the body reads it. Deleted rather than left in place
+    // looking load-bearing; the real behaviour is and always was "any change
+    // to one of these deps restarts the 1.5s hold," which is correct, since
+    // each of them genuinely invalidates an in-flight countdown.
+  }, [isReady, step, visible, capturing, cameraReady]);
 
   const ringBox = ringGeometry(winW, winH, liveBox);
   const ringColor = positionGate === 'green' ? Colors.brand : positionGate === 'amber' ? Colors.systemOrange : 'rgba(255,255,255,0.8)';
@@ -2073,12 +2326,14 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
                   <Text style={styles.reviewTitle}>
                     {detectingFace ? 'Checking your photo…'
                       : errorKind === 'network' ? 'Connection issue'
+                      : errorKind === 'slow' ? 'Still processing'
                       : errorKind === 'server' ? 'Something went wrong'
                       : "Let's try that again"}
                   </Text>
                   <Text style={styles.reviewSubtitle}>
                     {detectingFace ? 'One second.'
                       : errorKind === 'network' ? 'Check your network and try again.'
+                      : errorKind === 'slow' ? 'This one is taking longer than usual — it may still finish and show up in your scans.'
                       : errorKind === 'server' ? "That scan didn't go through. Try again in a moment."
                       : "We couldn't clearly see a face in this one."}
                   </Text>
