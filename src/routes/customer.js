@@ -61,7 +61,12 @@ const hasRealCoords = (lat, lng) => lat != null && lng != null && (lat !== 0 || 
 // anyone" so an on-demand request never comes up empty just because no one
 // has filled in their specialties yet). Used by POST /bookings' autoMatch
 // path — see the comment there for why this exists.
-async function findNearestQualifiedProvider(serviceType, lookId, lat, lng) {
+// excludeUserId: the requester's own id. An artist can now browse and book
+// like any client, so without this an on-demand ("book now") request could
+// silently auto-match the booker to THEMSELVES — the one self-booking path
+// that no amount of UI hiding would have caught, since the user never picks
+// the artist here. Skipped entirely when null (every pre-existing caller).
+async function findNearestQualifiedProvider(serviceType, lookId, lat, lng, excludeUserId = null) {
   if (!hasRealCoords(lat, lng)) return null;
   const radiusKm = parseFloat(process.env.NEARBY_RADIUS_KM) || 15;
 
@@ -73,7 +78,10 @@ async function findNearestQualifiedProvider(serviceType, lookId, lat, lng) {
 
   const capability = new Map(profiles.map(p => [p.userId, p]));
   const providerUsers = await prisma.user.findMany({
-    where: { id: { in: profiles.map(p => p.userId) }, role: 'Provider' },
+    where: {
+      id: { in: profiles.map(p => p.userId).filter(uid => uid !== excludeUserId) },
+      role: 'Provider',
+    },
     select: { id: true, lat: true, lng: true },
   });
 
@@ -107,7 +115,9 @@ async function notifyNearbyProviders(booking, lat, lng, io) {
 
   const providerUsers = await prisma.user.findMany({
     where: {
-      id:            { in: userIds },
+      // Never broadcast a job to the artist who booked it — an artist booking
+      // into the open pool would otherwise get pushed their own request.
+      id:            { in: userIds.filter(uid => uid !== booking.customerId) },
       role:          'Provider',
       expoPushToken: { not: '' },
     },
@@ -207,7 +217,7 @@ function formatBooking(b) {
 router.get(
   '/providers/available',
   authenticate,
-  requireRole('CUSTOMER'),
+  requireRole('CUSTOMER', 'Provider'),
   async (req, res) => {
     try {
       const cacheKey = 'providers:available';
@@ -293,7 +303,7 @@ router.get(
 router.post(
   '/bookings',
   authenticate,
-  requireRole('CUSTOMER'),
+  requireRole('CUSTOMER', 'Provider'),
   [
     // `services[]` is the current shape (multi-service). `serviceType`+`hours`
     // is the legacy single-service shape, still accepted so an app build in
@@ -359,6 +369,13 @@ router.post(
         if (typeof providerId !== 'string' || !/^c[a-z0-9]{20,}$/.test(providerId)) {
           return res.status(400).json({ error: 'Invalid providerId' });
         }
+        // An artist can browse and book like any client, so "book yourself" is
+        // now actually reachable and has to be refused explicitly. Checked here,
+        // before the approval lookup, because an approved artist would sail
+        // straight past that check on their own id.
+        if (providerId === req.user.id) {
+          return res.status(400).json({ error: 'You can’t book your own service.' });
+        }
         // Only an admin-approved Provider can be requested directly. Prevents booking
         // (and the job flash/notification) reaching an unverified Provider.
         const reqProfile = await prisma.providerProfile.findUnique({
@@ -398,6 +415,7 @@ router.post(
           providerLookId,
           latCoord,
           lngCoord,
+          req.user.id,
         );
         if (!match) {
           return res.status(404).json({ error: 'No available artists nearby right now. Try browsing artists instead.' });
@@ -517,6 +535,7 @@ router.post(
       // No phone push here — they're actively in the app creating it.
       notify({
         userId: req.user.id,
+        audience: 'CLIENT',
         type: 'booking',
         title: 'Booking confirmed',
         body: 'Your booking request was created.',
@@ -536,6 +555,7 @@ router.post(
         }
         notify({
           userId: resolvedProviderId,
+          audience: 'ARTIST',
           type: 'request',
           title: `New booking assigned — $${booking.price}`,
           body: `${booking.serviceType} · ${booking.hours}h · ${booking.address || 'Your area'}`,
@@ -560,7 +580,7 @@ router.post(
 router.get(
   '/providers/nearby',
   authenticate,
-  requireRole('CUSTOMER', 'SALON'),
+  requireRole('CUSTOMER', 'SALON', 'Provider'),
   async (req, res) => {
     try {
       // Use the customer's real query coords; fall back to the region centre only
@@ -649,7 +669,7 @@ router.get(
 router.get(
   '/providers/:id/public',
   authenticate,
-  requireRole('CUSTOMER', 'SALON'),
+  requireRole('CUSTOMER', 'SALON', 'Provider'),
   async (req, res) => {
     try {
       const { id } = req.params;
@@ -841,7 +861,7 @@ function isValidLookKey(key) {
 router.post(
   '/providers/:id/looks/:lookKey/like',
   authenticate,
-  requireRole('CUSTOMER', 'SALON'),
+  requireRole('CUSTOMER', 'SALON', 'Provider'),
   async (req, res) => {
     try {
       const { id, lookKey } = req.params;
@@ -868,7 +888,7 @@ router.post(
 router.delete(
   '/providers/:id/looks/:lookKey/like',
   authenticate,
-  requireRole('CUSTOMER', 'SALON'),
+  requireRole('CUSTOMER', 'SALON', 'Provider'),
   async (req, res) => {
     try {
       const { id, lookKey } = req.params;
@@ -892,7 +912,7 @@ router.delete(
 router.get(
   '/bookings/my',
   authenticate,
-  requireRole('CUSTOMER'),
+  requireRole('CUSTOMER', 'Provider'),
   async (req, res) => {
     try {
       const VALID_STATUSES = ['REQUESTED', 'ACCEPTED', 'STARTED', 'COMPLETED', 'CANCELLED'];
@@ -937,7 +957,7 @@ router.get(
 router.post(
   '/bookings/:id/reassign',
   authenticate,
-  requireRole('CUSTOMER'),
+  requireRole('CUSTOMER', 'Provider'),
   async (req, res) => {
     try {
       if (!req.user.phoneVerified) {
@@ -947,6 +967,11 @@ router.post(
       const { providerId } = req.body;
       if (!providerId || typeof providerId !== 'string' || providerId.length < 20) {
         return res.status(400).json({ error: 'A valid providerId is required.' });
+      }
+      // Same self-booking refusal as POST /bookings — reassign is the other
+      // route that lets a client name an artist directly.
+      if (providerId === req.user.id) {
+        return res.status(400).json({ error: 'You can’t book your own service.' });
       }
 
       const booking = await prisma.booking.findUnique({ where: { id: bookingId } });
@@ -983,6 +1008,7 @@ router.post(
       }
       notify({
         userId: providerId,
+        audience: 'ARTIST',
         type: 'request',
         title: 'New booking request',
         body: `${booking.serviceType} · ${booking.hours}h · ${booking.address || 'Your area'}`,
@@ -1004,7 +1030,7 @@ router.post(
 router.get(
   '/bookings/:id/tracking',
   authenticate,
-  requireRole('CUSTOMER'),
+  requireRole('CUSTOMER', 'Provider'),
   async (req, res) => {
     try {
       const booking = await prisma.booking.findFirst({
@@ -1078,11 +1104,18 @@ router.get(
     try {
       const { id } = req.params;
 
-      // A Provider may view a booking only if it's THEIRS, or an unassigned general
-      // request (providerId null). They must NOT see a REQUESTED booking dedicated to
-      // another Provider. Customers may view only their own bookings.
+      // A Provider may view a booking if it's THEIRS to perform, an unassigned
+      // general request (providerId null), or one THEY THEMSELVES BOOKED as a
+      // client. They must NOT see a REQUESTED booking dedicated to another
+      // Provider. Customers may view only their own bookings.
+      //
+      // That third clause is not cosmetic: this branch keys off role, not off
+      // the booking, so before it existed an artist opening a booking they had
+      // made as a client fell into the Provider branch, matched neither arm,
+      // and got a flat 404 on their own booking. It would have broken even
+      // with every requireRole guard removed.
       const where = req.user.role === 'Provider'
-        ? { id, OR: [{ providerId: req.user.id }, { providerId: null, status: 'REQUESTED' }] }
+        ? { id, OR: [{ providerId: req.user.id }, { customerId: req.user.id }, { providerId: null, status: 'REQUESTED' }] }
         : { id, customerId: req.user.id };
 
       const cacheKey = `bookings:${id}:${req.user.id}`;
@@ -1150,7 +1183,7 @@ router.post(
   authenticate,
   // SALON clients book like CUSTOMERs but were blocked from rating their Provider
   // (403 → "submit rating broken"). Allow both client roles.
-  requireRole('CUSTOMER', 'SALON'),
+  requireRole('CUSTOMER', 'SALON', 'Provider'),
   [
     body('bookingId').notEmpty().withMessage('bookingId is required'),
     body('rating').isInt({ min: 1, max: 5 }).withMessage('rating must be an integer between 1 and 5'),
@@ -1220,6 +1253,7 @@ router.post(
 
       notify({
         userId: booking.providerId,
+        audience: 'ARTIST',
         type: 'rating',
         title: `You received a ${rating}-star rating!`,
         body: `Your new average is ${newRating} ★`,
@@ -1239,7 +1273,7 @@ router.post(
 router.patch(
   '/bookings/:id/cancel',
   authenticate,
-  requireRole('CUSTOMER'),
+  requireRole('CUSTOMER', 'Provider'),
   async (req, res) => {
     try {
       const { id } = req.params;
@@ -1274,6 +1308,7 @@ router.patch(
         });
         notify({
           userId: booking.provider.id,
+          audience: 'ARTIST',
           type: 'cancelled',
           title: 'Booking Cancelled',
           body: `${req.user.name} has cancelled their booking.`,
@@ -1763,13 +1798,35 @@ router.delete(
 // Durable notification history for the signed-in user (any role). The app merges
 // this with live socket events so the bell shows the full timeline even after the
 // app was closed when an event fired.
+//
+// ?audience=CLIENT|ARTIST narrows to one perspective. This only became
+// meaningful once an artist account could ALSO book as a client, so both
+// perspectives can now land in a single user's bell — see Notification.audience.
+//
+// Null handling is deliberate and load-bearing: rows written before that column
+// existed have audience = null, and there is no way to reconstruct their
+// perspective after the fact. A filtered read therefore matches
+// `audience IN (<requested>, null)`, NOT `audience = <requested>` — otherwise
+// switching to either tab would hide a user's entire pre-existing notification
+// history and read as data loss. Same reason unreadCount is computed over the
+// rows actually returned: the badge must agree with what the list shows.
 router.get(
   '/notifications',
   authenticate,
   async (req, res) => {
     try {
+      const { audience } = req.query;
+      if (audience !== undefined && audience !== 'CLIENT' && audience !== 'ARTIST') {
+        return res.status(400).json({ error: 'audience must be CLIENT or ARTIST' });
+      }
+
       const items = await prisma.notification.findMany({
-        where:   { userId: req.user.id },
+        where: {
+          userId: req.user.id,
+          // Unfiltered (no ?audience) still returns everything, so existing app
+          // builds that don't send the param are completely unaffected.
+          ...(audience ? { OR: [{ audience }, { audience: null }] } : {}),
+        },
         orderBy: { createdAt: 'desc' },
         take:    100,
       });
@@ -1859,7 +1916,7 @@ router.get(
 router.post(
   '/tip/:bookingId/confirm',
   authenticate,
-  requireRole('CUSTOMER'),
+  requireRole('CUSTOMER', 'Provider'),
   async (req, res) => {
     try {
       const booking = await prisma.booking.findFirst({
@@ -1880,6 +1937,7 @@ router.post(
       if (booking.providerId) {
         notify({
           userId: booking.providerId,
+          audience: 'ARTIST',
           type: 'tip',
           title: 'You received a tip!',
           body: `$${toNum(booking.tipAmount)} tip added to your earnings.`,
@@ -1898,7 +1956,7 @@ router.post(
 router.post(
   '/tip/:bookingId',
   authenticate,
-  requireRole('CUSTOMER'),
+  requireRole('CUSTOMER', 'Provider'),
   async (_req, res) => {
     res.status(503).json({ error: 'Tips not available yet' });
   }

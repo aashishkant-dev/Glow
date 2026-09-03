@@ -279,6 +279,11 @@ router.get(
       // the chosen Provider's Requests inbox.
       const poolWhere = {
         status: 'REQUESTED',
+        // An artist can now book as a client too, so their own request would
+        // otherwise show up in their own Find Jobs list — and POST
+        // /jobs/:id/accept would have happily let them accept it, since that
+        // route only ever checked providerId/openToPool.
+        customerId: { not: req.user.id },
         OR: [
           { providerId: null },
           { openToPool: true },
@@ -520,6 +525,7 @@ router.post(
         // Notify the client their Provider declined — they should choose another.
         notify({
           userId: booking.customerId,
+          audience: 'CLIENT',
           type: 'cancelled',
           title: 'Your Provider is unavailable',
           body: reasonRaw
@@ -561,6 +567,15 @@ router.post(
       // these as open, but every accept attempt from a different Provider always
       // 403'd here regardless of openToPool, a permanent dead end that looked
       // like "I can see jobs but can't accept them."
+      // Refused at the accept itself, not just filtered out of the Find Jobs
+      // list above: that filter is display-only, and a stale client list or a
+      // direct API call would otherwise let an artist accept their own
+      // booking and end up as both sides of it (same reasoning as the radius
+      // check below, which had exactly this bypass).
+      if (targetBooking.customerId === req.user.id) {
+        return res.status(400).json({ error: 'You can’t accept your own booking.' });
+      }
+
       if (targetBooking.providerId && targetBooking.providerId !== req.user.id && !targetBooking.openToPool) {
         return res.status(403).json({ error: 'This booking was requested for a different Provider.' });
       }
@@ -706,6 +721,7 @@ router.post(
 
       notify({
         userId: booking.customerId,
+        audience: 'CLIENT',
         type: 'accepted',
         title: 'Provider Accepted Your Booking',
         body: `${req.user.name} has accepted your booking and is on the way!`,
@@ -763,6 +779,7 @@ router.post(
 
       notify({
         userId: booking.customerId,
+        audience: 'CLIENT',
         type: 'enroute',
         title: 'Your Provider is on the way!',
         body: `${req.user.name} is heading to you now.`,
@@ -819,6 +836,7 @@ router.post(
 
       notify({
         userId: booking.customerId,
+        audience: 'CLIENT',
         type: 'started',
         title: 'Service has started',
         body: `${req.user.name} has begun your care session.`,
@@ -883,6 +901,7 @@ router.post(
 
       notify({
         userId: booking.customerId,
+        audience: 'CLIENT',
         type: 'rating',
         title: 'Service completed',
         body: `${req.user.name} has finished your care session. Please leave a rating!`,

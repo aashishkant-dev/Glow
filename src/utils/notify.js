@@ -13,6 +13,11 @@ const { pushTo } = require('./push');
  * @param {object}   opts
  * @param {string}   opts.userId     recipient User.id
  * @param {string}   opts.type       booking | message | rating | request | job | approved | tip | cancelled
+ * @param {string}  [opts.audience] 'CLIENT' | 'ARTIST' — which hat the RECIPIENT
+ *   was wearing for this event. Required in practice for anything booking-related
+ *   now that one account can both book and be booked; omit only for events that
+ *   genuinely have no perspective. Omitting it stores null, which filtered reads
+ *   deliberately show in EVERY tab rather than hiding (see GET /notifications).
  * @param {string}   opts.title      notification title
  * @param {string}  [opts.body]      notification body
  * @param {string}  [opts.bookingId] related booking, for deep-linking
@@ -21,12 +26,12 @@ const { pushTo } = require('./push');
  * @param {boolean} [opts.push=true] set false to persist only (no phone push)
  */
 async function notify(opts) {
-  const { userId, type = 'booking', title, body = '', bookingId, channelId = 'default', push = true } = opts;
+  const { userId, type = 'booking', title, body = '', bookingId, audience = null, channelId = 'default', push = true } = opts;
   if (!userId || !title) return;
 
   // Persist (best-effort — never block the request on a notification write).
   await prisma.notification
-    .create({ data: { userId, type, title, body, bookingId: bookingId ?? null } })
+    .create({ data: { userId, type, title, body, bookingId: bookingId ?? null, audience } })
     .catch((e) => console.error('[notify] persist failed:', e?.message));
 
   if (!push) return;

@@ -516,20 +516,30 @@ export function apiSavePushToken(pushToken: string) {
   return request<{ message: string }>('PATCH', '/profile/push-token', { pushToken });
 }
 
+export type NotificationAudience = 'CLIENT' | 'ARTIST';
+
 export interface ServerNotification {
   id: string;
   type: string;
   title: string;
   body: string;
   bookingId: string | null;
+  // Which hat the recipient was wearing: 'CLIENT' (a booking they made) vs
+  // 'ARTIST' (a job they're performing). Null on every row written before the
+  // column existed — genuinely unknown, not a bug, and shown in every tab
+  // rather than hidden. See the server's GET /notifications.
+  audience: NotificationAudience | null;
   read: boolean;
   createdAt: string;
 }
 
 // Durable notification history. Merged with live socket events client-side so the
 // list is complete even for events that fired while the app was closed.
-export function apiGetNotifications() {
-  return request<{ notifications: ServerNotification[]; unreadCount: number }>('GET', '/notifications');
+export function apiGetNotifications(audience?: NotificationAudience) {
+  return request<{ notifications: ServerNotification[]; unreadCount: number }>(
+    'GET',
+    audience ? `/notifications?audience=${audience}` : '/notifications',
+  );
 }
 
 export function apiMarkNotificationsRead() {

@@ -18,6 +18,12 @@ interface StoredNotification {
   type?: 'message' | 'booking' | 'approved' | 'rating' | 'job' | 'request'
     | 'accepted' | 'enroute' | 'started' | 'cancelled' | 'tip';
   bookingId?: string;
+  // 'CLIENT' = something happened to a booking this user MADE; 'ARTIST' =
+  // something happened to a job they're PERFORMING. Only meaningful for an
+  // account that does both. Undefined for locally-generated rows (socket
+  // banners) and for server rows predating the column — NotificationsScreen
+  // shows those in every tab rather than hiding them.
+  audience?: 'CLIENT' | 'ARTIST';
   senderName?: string; // for message rows — used by NotificationsScreen to open chat
   // Set only for a LIVE pre-booking inquiry message (the socket payload
   // carries it) — lets a fresh banner deep-link to the exact thread. A
@@ -126,6 +132,7 @@ export function ChatUnreadProvider({ children }: { children: React.ReactNode }) 
           body: n.body,
           type: (n.type as StoredNotification['type']) ?? 'booking',
           bookingId: n.bookingId ?? undefined,
+          audience: n.audience ?? undefined,
           read: n.read,
           createdAt: n.createdAt,
         }));

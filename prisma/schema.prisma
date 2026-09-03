@@ -649,6 +649,20 @@ model Notification {
   userId    String
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   type      String   @default("booking")  // booking | message | rating | request | job | approved | tip
+  // Which hat the RECIPIENT was wearing for this event: 'CLIENT' (something
+  // happened to a booking they made) or 'ARTIST' (something happened to a job
+  // they're performing). `type` alone can't express this — 'booking',
+  // 'rating' and 'cancelled' are all written from both sides — and it only
+  // became a real distinction once an artist account could also book as a
+  // client (both perspectives then land in one user's bell).
+  //
+  // Nullable ON PURPOSE, and it is NOT a "we forgot to set it" marker: every
+  // Notification row written before this column existed is legitimately
+  // unclassifiable after the fact, so null means "unknown perspective" and
+  // filtered reads must SHOW those rows in every tab rather than hiding a
+  // user's entire notification history behind a filter that didn't exist
+  // when it was created. See GET /notifications.
+  audience  String?
   title     String
   body      String   @default("")
   bookingId String?
@@ -657,6 +671,7 @@ model Notification {
 
   @@index([userId, createdAt(sort: Desc)])
   @@index([userId, read])
+  @@index([userId, audience, createdAt(sort: Desc)])  // per-perspective bell
   @@index([bookingId])                              // link notifications to a booking
   @@index([createdAt(sort: Desc)])                  // retention cleanup: delete where createdAt < cutoff
 }

@@ -1,4 +1,4 @@
-import React, { useCallback } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import {
   FlatList,
   Pressable,
@@ -58,6 +58,20 @@ export function NotificationsScreen() {
   const { user } = useAuth();
   const isProvider = user?.role === 'Provider';
 
+  // Perspective filter. Only an artist can be on both sides of the app, so
+  // this control is shown to them alone — a plain customer has exactly one
+  // perspective and a two-tab filter over one category is just noise.
+  const [perspective, setPerspective] = useState<'ALL' | 'CLIENT' | 'ARTIST'>('ALL');
+  const visibleNotifications = useMemo(() => {
+    if (!isProvider || perspective === 'ALL') return notifications;
+    // A row with NO audience is always shown, in both tabs. Those are rows
+    // written before the column existed (unknowable perspective now) plus
+    // locally-generated socket banners. Hiding them would make an artist's
+    // entire notification history vanish the moment they touched this filter,
+    // which reads as data loss — the server applies the same rule.
+    return notifications.filter(n => n.audience == null || n.audience === perspective);
+  }, [notifications, perspective, isProvider]);
+
   // Refetch server history every time the screen gains focus (the provider only
   // hydrates once at sign-in, so without this the list went stale), then mark read.
   useFocusEffect(useCallback(() => {
@@ -111,7 +125,14 @@ export function NotificationsScreen() {
     try {
       const { booking } = await apiGetBooking(item.bookingId);
       const activeStatuses = ['REQUESTED', 'ACCEPTED', 'ON_MY_WAY', 'STARTED'];
-      if (isProvider) {
+      // Route on the notification's PERSPECTIVE, not just the account's role.
+      // An artist who books someone else gets client-side notifications about
+      // that booking, and this used to send every one of them to JobDetail —
+      // the artist-side screen for a job they perform — because isProvider was
+      // the only thing consulted. Falls back to the old role-only behaviour
+      // whenever audience is absent, so nothing changes for existing rows.
+      const asClient = item.audience === 'CLIENT' || (!isProvider && item.audience == null);
+      if (isProvider && !asClient) {
         nav.navigate('JobDetail', { job: booking });
       } else if (activeStatuses.includes(booking.status)) {
         nav.navigate('Tracking', {
@@ -158,16 +179,42 @@ export function NotificationsScreen() {
         <View style={{ width: 44 }} />
       </View>
 
+      {isProvider && (
+        <View style={styles.segment}>
+          {([
+            ['ALL', 'All'],
+            ['CLIENT', 'As a client'],
+            ['ARTIST', 'As an artist'],
+          ] as const).map(([value, label]) => (
+            <Pressable
+              key={value}
+              onPress={() => setPerspective(value)}
+              style={[styles.segmentBtn, perspective === value && styles.segmentBtnActive]}
+            >
+              <Text style={[styles.segmentText, perspective === value && styles.segmentTextActive]}>{label}</Text>
+            </Pressable>
+          ))}
+        </View>
+      )}
+
       <FlatList
-        data={notifications}
+        data={visibleNotifications}
         keyExtractor={i => i.id}
         renderItem={renderItem}
-        contentContainerStyle={notifications.length === 0 ? styles.empty : { paddingBottom: 24 }}
+        contentContainerStyle={visibleNotifications.length === 0 ? styles.empty : { paddingBottom: 24 }}
         ListEmptyComponent={
           <View style={styles.emptyInner}>
             <View style={styles.emptyIconWrap}><BellIcon size={40} color={Colors.brand} /></View>
-            <Text style={styles.emptyTitle}>No notifications yet</Text>
-            <Text style={styles.emptySub}>Booking updates and messages will appear here</Text>
+            <Text style={styles.emptyTitle}>
+              {perspective === 'CLIENT' ? 'Nothing from your bookings yet'
+                : perspective === 'ARTIST' ? 'Nothing from your jobs yet'
+                : 'No notifications yet'}
+            </Text>
+            <Text style={styles.emptySub}>
+              {perspective === 'CLIENT' ? 'Updates about services you book will appear here'
+                : perspective === 'ARTIST' ? 'Requests and updates about jobs you take will appear here'
+                : 'Booking updates and messages will appear here'}
+            </Text>
           </View>
         }
       />
@@ -180,6 +227,11 @@ const styles = StyleSheet.create({
   header:      { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 16, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.systemGray5 },
   back:        { width: 44, height: 44, alignItems: 'flex-start', justifyContent: 'center' },
   headerTitle: { fontSize: 17, fontWeight: '700', color: Colors.label },
+  segment:     { flexDirection: 'row', gap: 6, paddingHorizontal: 16, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: Colors.systemGray6 },
+  segmentBtn:  { flex: 1, paddingVertical: 7, borderRadius: 8, alignItems: 'center', backgroundColor: Colors.systemGray6 },
+  segmentBtnActive: { backgroundColor: Colors.brand },
+  segmentText: { fontSize: 13, fontWeight: '600', color: Colors.secondaryLabel },
+  segmentTextActive: { color: '#fff' },
   item:        { flexDirection: 'row', alignItems: 'flex-start', padding: 16, borderBottomWidth: 1, borderBottomColor: Colors.systemGray6, gap: 12 },
   unread:      { backgroundColor: Colors.brandLight },
   icon:        { width: 40, height: 40, borderRadius: 20, alignItems: 'center', justifyContent: 'center' },

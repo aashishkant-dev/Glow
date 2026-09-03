@@ -14,7 +14,7 @@ import {
   TextInput,
   View,
 } from 'react-native';
-import { ArrowBackIcon, CameraIcon, CheckCircleIcon, PersonIcon, StarIcon } from '../../components/TabIcons';
+import { ArrowBackIcon, CameraIcon, CheckCircleIcon, PersonIcon, SearchIcon, StarIcon } from '../../components/TabIcons';
 import { MapIcon, LocationIcon, CalendarSVGIcon } from '../../components/TabIcons';
 import { NoteIcon, EarningsIcon, BellIcon, HelpIcon, InstagramIcon } from '../../components/CareIcons';
 import {
@@ -1449,6 +1449,63 @@ export function ProfileScreen() {
                     ? `${docCount} document${docCount !== 1 ? 's' : ''} uploaded`
                     : 'Upload police check, certificates & more'}
                 </Text>
+              </View>
+              <View style={styles.navCardChevron}>
+                <Text style={styles.navCardChevronText}>›</Text>
+              </View>
+            </Pressable>
+          </View>
+        )}
+
+        {/* ── Book a service (Provider) — Account sub-tab. ──────────────────
+             The ONLY entry point an artist has into the client-side browse/
+             book flow. Deliberately one nav row and not a tab or a "switch to
+             customer mode" toggle: an artist booking someone else is an
+             occasional errand, not a second identity, and the whole point of
+             the design is that they never leave their own account to do it —
+             dashboard, portfolio, bookings and earnings all stay exactly
+             where they are behind this push.
+
+             These routes are registered in ProviderNavigator's stack (see the
+             import block there), so this pushes the same ExploreScreen a
+             customer uses, not an artist-specific copy.
+
+             Nothing about this is public: no badge, no profile field, no
+             signal to other users that an artist also books. It's a
+             self-serve convenience.
+
+             "Bookings" here means bookings THEY MADE AS A CLIENT — a
+             different list from Requests/My Jobs in the tab bar, which are
+             jobs they perform. Both labels say so explicitly rather than both
+             being called "bookings," which is exactly the confusion this
+             split is meant to avoid. ── */}
+        {isProvider && providerProfileTab === 'account' && (
+          <View style={styles.sectionWrapTight}>
+            <Pressable
+              style={({ pressed }) => [styles.navCard, pressed && { opacity: 0.85 }]}
+              onPress={() => nav.navigate('Explore')}
+            >
+              <View style={[styles.navCardIcon, { backgroundColor: '#FCECEF', borderColor: '#F2E7E7' }]}>
+                <SearchIcon size={22} color="#C4667E" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.navCardTitle}>Book a Service</Text>
+                <Text style={styles.navCardSub}>Browse and book other artists as a client</Text>
+              </View>
+              <View style={styles.navCardChevron}>
+                <Text style={styles.navCardChevronText}>›</Text>
+              </View>
+            </Pressable>
+            <Pressable
+              style={({ pressed }) => [styles.navCard, pressed && { opacity: 0.85 }]}
+              onPress={() => nav.navigate('Bookings')}
+            >
+              <View style={[styles.navCardIcon, { backgroundColor: '#FCECEF', borderColor: '#F2E7E7' }]}>
+                <CalendarSVGIcon size={22} color="#C4667E" />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.navCardTitle}>My Bookings as a Client</Text>
+                <Text style={styles.navCardSub}>Services you booked — separate from your jobs</Text>
               </View>
               <View style={styles.navCardChevron}>
                 <Text style={styles.navCardChevronText}>›</Text>

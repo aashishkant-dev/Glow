@@ -21,13 +21,40 @@ import { RequestsHubScreen } from '../screens/provider/RequestsHubScreen';
 import { PostsScreen } from '../screens/provider/PostsScreen';
 import { ProviderLooksScreen } from '../screens/provider/ProviderLooksScreen';
 import { requestsBadge } from '../utils/providerBadges';
+// Client-side ("book a service as a customer") screens, reused verbatim.
+// An artist is still a person who books other artists, so this stack exists
+// purely to give them a reachable path to the SAME screens a customer uses —
+// no artist-specific copies, no new screens, and no "mode" state: the artist
+// never leaves ProviderNavigator, so their dashboard/portfolio/earnings stay
+// exactly where they were the whole time.
+//
+// This is the pattern HomeCareNavigator already established for the SALON
+// role, which mounts CreateBookingScreen/BookingsScreen/BookingDetailScreen
+// from this same directory — customer screens were already proven to work
+// mounted outside CustomerNavigator, and they carry no role logic of their
+// own (verified: zero role checks across screens/customer/).
+//
+// Every one of these screens has a `canGoBack() ? goBack() : navigate('Home')`
+// fallback. 'Home' does NOT exist in this navigator — but that branch is
+// unreachable here, because these are only ever PUSHED onto this stack (from
+// the Profile entry point), so canGoBack() is always true. Deliberately not
+// aliasing a 'Home' route to ProviderTabs: that would push a second copy of
+// the tab navigator onto the stack.
+import { ExploreScreen } from '../screens/customer/ExploreScreen';
+import { ProviderPublicProfileScreen } from '../screens/customer/ProviderPublicProfileScreen';
+import { CreateBookingScreen } from '../screens/customer/CreateBookingScreen';
+import { BookingsScreen } from '../screens/customer/BookingsScreen';
+import { BookingDetailScreen } from '../screens/customer/BookingDetailScreen';
+import { TrackingScreen } from '../screens/customer/TrackingScreen';
+import { PostDetailScreen } from '../screens/customer/PostDetailScreen';
+import { ReelsScreen } from '../screens/customer/ReelsScreen';
 import { HelpScreen } from '../screens/shared/HelpScreen';
 import { ProfileScreen } from '../screens/shared/ProfileScreen';
 import { ChatScreen } from '../screens/shared/ChatScreen';
 import { InquiriesScreen } from '../screens/shared/InquiriesScreen';
 import { NotificationsScreen } from '../screens/shared/NotificationsScreen';
 import { Colors } from '../utils/colors';
-import { Booking, apiNearbyJobs, apiMyJobs, apiGetRequests } from '../api/client';
+import { Booking, Post, apiNearbyJobs, apiMyJobs, apiGetRequests } from '../api/client';
 import { getSocket, joinBookingRoom, joinUserRoom } from '../utils/socket';
 import { HomeIcon, CameraIcon, PersonIcon } from '../components/TabIcons';
 import { BellIcon } from '../components/CareIcons';
@@ -76,6 +103,20 @@ export type PROVIDERStackParams = {
     | { bookingId: string; otherUserId?: undefined; otherName?: string; otherPhotoUrl?: string; otherRole?: string }
     | { bookingId?: undefined; otherUserId: string; otherName?: string; otherPhotoUrl?: string; otherRole?: string };
   Inquiries: undefined;
+
+  // ── Book-as-a-client routes ────────────────────────────────────────────
+  // Param types copied EXACTLY from CustomerStackParams (and CustomerTabParams
+  // for Explore, which is a tab there and a pushed screen here) — these mount
+  // the very same screen components, so any drift between the two lists would
+  // be a real type lie about what those screens receive.
+  Explore: { openSearch?: boolean } | undefined;
+  NewBooking: { reassignBookingId?: string; serviceType?: string; bookingMode?: string; providerId?: string; _t?: number } | undefined;
+  Bookings: undefined;
+  BookingDetail: { booking: Booking };
+  Tracking: { bookingId: string; bookingLocation?: { lat: number; lng: number } };
+  ProviderPublicProfile: { providerId: string; providerName?: string; fromBooking?: boolean };
+  PostDetail: { post: Post };
+  Reels: { posts: Post[]; startIndex?: number };
 };
 
 const Tab = createBottomTabNavigator();
@@ -564,6 +605,19 @@ export function ProviderNavigator() {
       <Stack.Screen name="Chat" component={ChatScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Inquiries" component={InquiriesScreen} options={{ headerShown: false }} />
       <Stack.Screen name="Notifications" component={NotificationsScreen} options={{ headerShown: false }} />
+
+      {/* ── Book-as-a-client stack (see the import block above) ──────────────
+          Entered from the "Book a service" row in Profile -> Account. Route
+          names match CustomerNavigator's exactly, which is what lets these
+          screens navigate between themselves unmodified. */}
+      <Stack.Screen name="Explore" component={ExploreScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="ProviderPublicProfile" component={ProviderPublicProfileScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="NewBooking" component={CreateBookingScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Bookings" component={BookingsScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="BookingDetail" component={BookingDetailScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Tracking" component={TrackingScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="PostDetail" component={PostDetailScreen} options={{ headerShown: false }} />
+      <Stack.Screen name="Reels" component={ReelsScreen} options={{ headerShown: false, animation: 'fade' }} />
     </Stack.Navigator>
   );
 }
