@@ -1966,6 +1966,25 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // absent face always wins (nothing else is assessable yet), then
   // whichever gate is worst, in the order a person would naturally fix
   // them — get in frame, then find good light, then straighten up.
+  // Full-sentence instructions for the in-frame overlay, as opposed to
+  // captureHint's terse one-liner under the shutter. Same gates, same
+  // priority order (frame, then light, then angle) — deliberately a
+  // re-phrasing of one source of truth and not a second decision, so the
+  // sentence in the middle of the oval can never contradict the pills or the
+  // line under the shutter. Fuller wording earns its space here because this
+  // is now the most prominent text on the screen: "Move closer" is fine
+  // beside a status pill, but the thing a user reads while actually looking
+  // at themselves should say what to do and why it helps.
+  const centerGuidance = !liveBox ? 'Line your face up with the oval'
+    : positionGate !== 'green'
+      ? (sizeRatio < 0.75 ? 'Move a little closer' : 'Line your face up with the oval')
+    : lightingGate !== 'green'
+      ? (lightingSample && lightingSample.brightFraction >= 0.25 ? 'Turn to face the light'
+        : lightingSample && lightingSample.avgLuma > 215 ? 'Move out of the direct light'
+        : 'Move to a brighter area')
+    : angleGate !== 'green' ? 'Keep your head straight and level'
+    : 'Hold still';
+
   const captureHint = positionGate !== 'green' ? positionReason
     : lightingGate !== 'green' ? lightingReason
     : angleGate !== 'green' ? angleReason
@@ -2315,6 +2334,30 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
                 pulse={!isReady}
               />
             </Animated.View>
+            {/* In-frame guidance, anchored to the SAME ringBox the bracket
+                above uses so it tracks the tracked face rather than sitting
+                at a fixed screen position while the oval moves out from
+                under it. This is the most-read text on the capture screen:
+                someone framing a selfie is looking at their own face, not at
+                a caption under the shutter, so the instruction belongs where
+                their eyes already are. The pills keep the per-gate detail;
+                this says the single most useful next action.
+
+                Countdown gets a large numeral in the middle of the oval
+                rather than only the small line under the shutter — an
+                auto-capture that fires with no visible, unmissable count
+                reads as the camera going off by itself. */}
+            <View pointerEvents="none" style={[styles.ovalOverlay, ringBox]}>
+              <Text style={styles.ovalGuidanceText} numberOfLines={2}>
+                {!cameraReady ? 'Camera warming up…'
+                  : autoCaptureRemainingMs != null ? 'Taking photo in'
+                  : centerGuidance}
+              </Text>
+              {autoCaptureRemainingMs != null && (
+                <Text style={styles.ovalCountdown}>{Math.ceil(autoCaptureRemainingMs / 1000)}</Text>
+              )}
+            </View>
+
             <Animated.View pointerEvents="none" style={[StyleSheet.absoluteFill, { backgroundColor: '#fff', opacity: flashAnim }]} />
 
             {/* Dev-only: the exact numbers driving all three gates, so this
@@ -2626,6 +2669,22 @@ const styles = StyleSheet.create({
   // tracking, otherwise the fixed guide-oval size from ringGeometry) —
   // position: 'absolute' is the only fixed part here.
   ringWrap: { position: 'absolute' },
+  // Same geometry as ringWrap (both take ringBox) — the guidance sits inside
+  // the oval, pushed down from its top edge so it clears the bracket corners
+  // and lands on the forehead rather than across the eyes.
+  ovalOverlay: { position: 'absolute', alignItems: 'center', paddingTop: '14%', paddingHorizontal: 18 },
+  ovalGuidanceText: {
+    color: '#fff', fontSize: 17, fontFamily: Fonts.semibold, textAlign: 'center', lineHeight: 23,
+    // Shadow rather than a plate behind the text: a solid background box over
+    // a live face is exactly the kind of scrim that caused visible artifacts
+    // before (see ringGeometry's comment), and this has to stay legible over
+    // both a bright forehead and a dark room.
+    textShadowColor: 'rgba(0,0,0,0.55)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 6,
+  },
+  ovalCountdown: {
+    color: '#fff', fontSize: 72, fontFamily: Fonts.semibold, textAlign: 'center', marginTop: 6,
+    textShadowColor: 'rgba(0,0,0,0.5)', textShadowOffset: { width: 0, height: 2 }, textShadowRadius: 10,
+  },
   debugBox: {
     position: 'absolute', left: 12, right: 12, bottom: 190,
     backgroundColor: 'rgba(0,0,0,0.6)', borderRadius: 8, padding: 8,

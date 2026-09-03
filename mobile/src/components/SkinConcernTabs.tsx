@@ -175,6 +175,106 @@ export function ConcernHeatmapOverlay({ activeTab, heatmaps, highlightedZoneRect
   );
 }
 
+// Per-concern overlay colour, mirroring CONCERN_COLORS in the backend's
+// skinHeatmaps.js EXACTLY (rgb triples, same keys modulo this file's
+// singular naming: pore->pores, wrinkle->wrinkles). A legend that doesn't
+// match the ink actually laid on the photo is worse than no legend, so if
+// those server colours ever change, these must change with them.
+const OVERLAY_RGB: Record<SkinHeatmapConcernKey, string> = {
+  redness: '222,108,118',
+  texture: '204,158,96',
+  pore: '138,104,118',
+  wrinkle: '150,122,180',
+  moisture: '140,162,198',
+  age_spot: '146,100,74',
+  acne: '186,70,116',
+};
+
+// What the two ends of the scale MEAN for this specific concern. Generic
+// "high / low" would be close to useless: the overlay's strong end means
+// "more visible pores" on one tab and "drier" on another, and a user reading
+// a coloured wash on their own face has no way to know which without being
+// told. Phrased per concern for that reason.
+const LEGEND_ENDS: Record<SkinHeatmapConcernKey, [string, string]> = {
+  pore: ['More visible pores', 'Fewer pores'],
+  moisture: ['Driest areas', 'Well hydrated'],
+  wrinkle: ['Deeper lines', 'Fine lines'],
+  acne: ['More blemishes', 'Clear skin'],
+  texture: ['Most uneven', 'Smooth'],
+  age_spot: ['Darkest spots', 'Even tone'],
+  redness: ['Most redness', 'Calm skin'],
+};
+
+// The vertical colour scale down the right edge of the photo on a concern
+// tab. The overlay itself is drawn at an alpha proportional to severity over
+// one flat per-concern colour, so the honest legend for it is that same
+// colour ramped from faint to full — NOT a rainbow, which would imply
+// hue-coded categories the overlay does not actually encode.
+export function ConcernOverlayLegend({ concernKey }: { concernKey: SkinHeatmapConcernKey }) {
+  const rgb = OVERLAY_RGB[concernKey];
+  const [strong, weak] = LEGEND_ENDS[concernKey];
+  if (!rgb) return null;
+  return (
+    <View style={legendStyles.wrap} pointerEvents="none">
+      <Text style={legendStyles.label} numberOfLines={2}>{strong}</Text>
+      <LinearGradient
+        colors={[`rgba(${rgb},0.95)`, `rgba(${rgb},0.45)`, `rgba(${rgb},0.08)`]}
+        style={legendStyles.bar}
+      />
+      <Text style={legendStyles.label} numberOfLines={2}>{weak}</Text>
+    </View>
+  );
+}
+
+const legendStyles = StyleSheet.create({
+  wrap: {
+    position: 'absolute', right: 10, top: '14%', bottom: '14%',
+    alignItems: 'center', justifyContent: 'center', gap: 6, width: 74,
+  },
+  bar: { flex: 1, width: 10, borderRadius: 5, borderWidth: StyleSheet.hairlineWidth, borderColor: 'rgba(255,255,255,0.45)' },
+  // Shadowed text, no plate — same reasoning as the capture screen's
+  // in-frame guidance: a solid box over the photo hides the very skin the
+  // legend is describing.
+  label: {
+    color: '#fff', fontSize: 9.5, fontFamily: Fonts.semibold, textAlign: 'center', lineHeight: 12,
+    textShadowColor: 'rgba(0,0,0,0.75)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 3,
+  },
+});
+
+// Legend for the Summary tab's own severity icons. Without it the three
+// states are just coloured dots the user has to infer — and "green means
+// good" is an assumption, not something the screen ever actually says.
+export function SeverityKey() {
+  const rows: { band: SkinHeatmapConcern['band']; text: string }[] = [
+    { band: 'notable', text: 'Worth focusing on — the clearest signal in this photo.' },
+    { band: 'moderate', text: 'Worth watching — present, but moderate.' },
+    { band: 'mild', text: 'Mild — showing up a little.' },
+    { band: 'clear', text: 'Doing well — minimal to none found.' },
+  ];
+  return (
+    <View style={keyStyles.wrap}>
+      <Text style={keyStyles.title}>What the colours mean</Text>
+      {rows.map((r) => (
+        <View key={r.band} style={keyStyles.row}>
+          <View style={[keyStyles.dot, { backgroundColor: BAND_COLOR[r.band] }]} />
+          <Text style={keyStyles.text}>{r.text}</Text>
+        </View>
+      ))}
+    </View>
+  );
+}
+
+const keyStyles = StyleSheet.create({
+  wrap: {
+    backgroundColor: Colors.surfaceCream, borderRadius: 12,
+    paddingHorizontal: 14, paddingVertical: 12, marginTop: 14, gap: 7,
+  },
+  title: { fontSize: 12, fontFamily: Fonts.semibold, color: Colors.label, marginBottom: 2 },
+  row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  dot: { width: 8, height: 8, borderRadius: 4 },
+  text: { flex: 1, fontSize: 12, fontFamily: Fonts.regular, color: Colors.secondaryLabel, lineHeight: 16 },
+});
+
 export function ConcernTabBar({ activeTab, onSelect, heatmaps }: { activeTab: ConcernTab; onSelect: (tab: ConcernTab) => void; heatmaps: Heatmaps }) {
   return (
     <View style={tabStyles.row}>

@@ -26,7 +26,7 @@ import { Colors, Fonts } from '../../utils/colors';
 import { apiDeleteSkinScan, apiGetScanAngles, SkinScan } from '../../api/client';
 import { tapLight, confirmAction } from '../../utils/haptics';
 import { NearbyArtistRow } from '../../components/NearbyArtistRow';
-import { ConcernHeatmapOverlay, ConcernTabBar, ConcernDetailCard, CONCERN_ORDER, ConcernTab } from '../../components/SkinConcernTabs';
+import { ConcernHeatmapOverlay, ConcernTabBar, ConcernDetailCard, ConcernOverlayLegend, SeverityKey, CONCERN_ORDER, ConcernTab } from '../../components/SkinConcernTabs';
 import { resolveZoneRect, ZoneKey, FaceBox } from '../../utils/skinZones';
 import { ShareCardModal, ShareCardSpec } from '../../components/ShareCardModal';
 import { SkinScanCamera } from '../../components/SkinScanCamera';
@@ -383,6 +383,14 @@ export function SkinScanResultScreen() {
             }}
           />
           <ConcernHeatmapOverlay activeTab={activeTab} heatmaps={scan.heatmaps} highlightedZoneRect={highlightedZoneRect} justScanned={justScanned} />
+          {/* Colour scale for whatever overlay is currently drawn. Gated on
+              the concern having a real rendered overlay URL, not merely on a
+              concern tab being selected: a tab whose overlay is absent (not
+              assessed in this photo) shows no ink, and a legend explaining
+              ink that isn't there would be inventing a reading. */}
+          {activeTab !== 'summary' && !!scan.heatmaps?.[activeTab]?.url && (
+            <ConcernOverlayLegend concernKey={activeTab} />
+          )}
           <LinearGradient colors={['rgba(0,0,0,0.35)', 'transparent']} style={styles.photoTopGradient} pointerEvents="none" />
           <Pressable style={[styles.floatBack, { top: insets.top + 8 }]} onPress={goBack} hitSlop={12}>
             <Text style={styles.floatBackText}>‹</Text>
@@ -537,6 +545,9 @@ export function SkinScanResultScreen() {
                         />
                       );
                     })}
+                  {/* Explains the dot colours in the rows directly above —
+                      inside the same block so it can't outlive them. */}
+                  <SeverityKey />
                 </View>
               )}
 
