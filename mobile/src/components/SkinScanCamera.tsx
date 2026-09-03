@@ -202,6 +202,22 @@ type FaceRegion = { x: number; y: number; width: number; height: number };
 // already-visible "Checking your photo…" step, not per-frame on a live
 // stream, so the ~100–300ms extra cost is invisible while the more precise
 // bounding box directly improves the crop Gemini actually analyzes.
+// `skipLandmarkPass` exists purely as a cost control, and it is safe for
+// exactly one caller: the post-alignment sanity re-check below, which uses
+// the result ONLY to call extractEyeNoseAnchors. That function reads
+// leftEye / rightEye / noseBottom / noseBridge and nothing else (verified in
+// skinZones.ts) — all four are contour fields, so the landmark/classification
+// pass contributes literally nothing to it.
+//
+// This matters because the two-detector split (see the option constants
+// above) doubled the cost of every detectFaceRegion call, and this function
+// runs TWICE per capture on the happy path — once on the captured frame, once
+// on the aligned one. That took a capture from 2 ML Kit 'accurate' passes to
+// 4, on a screen whose analysis time has already been a real, reported
+// complaint. Skipping the pass that the re-check cannot use takes it back to
+// 3, with no behavioural change: the caller that needs cheeks/mouth/eye-open
+// (the primary detection, which builds zoneMarkers and faceLandmarks) still
+// runs both.
 function detectFaceRegion(
   contourDetector: ReturnType<typeof useImageFaceDetector>,
   landmarkDetector: ReturnType<typeof useImageFaceDetector>,
@@ -209,6 +225,7 @@ function detectFaceRegion(
   imgWidth: number,
   imgHeight: number,
   mirrored: boolean,
+  skipLandmarkPass = false,
 ): { faceRegion: FaceRegion | null; noFaceDetected: boolean; zoneMarkers: StoredZoneMarkers | null; rawPoints: RawFacialPoints | null; faceLandmarks: FaceLandmarkPayload | null } {
   if (Platform.OS === 'web' || !imgWidth || !imgHeight) return { faceRegion: null, noFaceDetected: false, zoneMarkers: null, rawPoints: null, faceLandmarks: null };
   try {
@@ -234,16 +251,18 @@ function detectFaceRegion(
     // still goes through intact, rather than one optional extra collapsing
     // the whole detection into a false "no face detected" retake prompt.
     let landmarkFace: (typeof faces)[number] | null = null;
-    try {
-      const landmarkFaces = landmarkDetector.detectFaces(uri);
-      if (landmarkFaces && landmarkFaces.length > 0) {
-        landmarkFace = landmarkFaces.reduce(
-          (biggest, f) => (f.bounds.width * f.bounds.height > biggest.bounds.width * biggest.bounds.height ? f : biggest),
-          landmarkFaces[0],
-        );
+    if (!skipLandmarkPass) {
+      try {
+        const landmarkFaces = landmarkDetector.detectFaces(uri);
+        if (landmarkFaces && landmarkFaces.length > 0) {
+          landmarkFace = landmarkFaces.reduce(
+            (biggest, f) => (f.bounds.width * f.bounds.height > biggest.bounds.width * biggest.bounds.height ? f : biggest),
+            landmarkFaces[0],
+          );
+        }
+      } catch (err) {
+        console.warn('[SkinScanCamera] landmark/classification pass failed; continuing with contour geometry only', err instanceof Error ? err.message : err);
       }
-    } catch (err) {
-      console.warn('[SkinScanCamera] landmark/classification pass failed; continuing with contour geometry only', err instanceof Error ? err.message : err);
     }
     const { x: left, y: top, width, height } = face.bounds;
 
@@ -1408,7 +1427,10 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
           if (!alignedPrimary) {
             console.warn('[SkinScanCamera] alignment skipped: applySimilarityTransform failed on primary frame');
           } else {
-            const redetected = detectFaceRegion(contourFaceDetector, landmarkFaceDetector, alignedPrimary.uri, alignedPrimary.width, alignedPrimary.height, primaryMirrored);
+            // skipLandmarkPass: this result feeds extractEyeNoseAnchors and nothing
+            // else, and that reads only contour fields — see detectFaceRegion's
+            // own note. Saves one full 'accurate' ML Kit pass per capture.
+            const redetected = detectFaceRegion(contourFaceDetector, landmarkFaceDetector, alignedPrimary.uri, alignedPrimary.width, alignedPrimary.height, primaryMirrored, true);
             const redetectedAnchors = !redetected.noFaceDetected && redetected.rawPoints ? extractEyeNoseAnchors(redetected.rawPoints, primaryMirrored) : null;
             const sanity = redetectedAnchors ? checkAlignmentSanity(redetectedAnchors) : null;
             if (!redetectedAnchors) {
