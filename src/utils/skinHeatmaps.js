@@ -1227,13 +1227,31 @@ const OVERLAY_STYLE = {
 // across the crease, thinning a several-pixel-wide gradient band down to
 // the actual line. Widened by exactly one pixel afterwards so a 1px trace
 // stays visible once the PNG is scaled down into a phone-sized photo view.
+// Minimum ridge strength for a pixel to be traced as a line at all.
+//
+// Left at 0.2 deliberately, after sweeping it against a real bearded face:
+// 0.2 -> 45.0% of the assessed area painted, 0.35 -> 38.9%, 0.5 -> 32.1%,
+// 0.65 -> 24.7%. Even the most aggressive gate leaves a quarter of the face
+// covered in "fine lines" ink on a man in his twenties with essentially no
+// wrinkles, while a gate that high would start erasing genuine lines on
+// someone who does have them.
+//
+// That curve is the actual finding: this is NOT a rendering-threshold
+// problem, so raising the gate would have been a cosmetic change that traded
+// real sensitivity for a slightly less embarrassing number. Facial hair is
+// dense high-frequency ridge structure, WRINKLE_ZONES covers the nasolabial
+// area, and the face mask does not exclude hair — so a beard is being traced
+// as creases. The fix belongs in the mask, alongside the hair-bleed work,
+// not here.
+const LINE_GATE = 0.2;
+
 function renderTracedLinesRgba(width, height, alpha, mask, gx, gy, colorRgb) {
   const MAX_ALPHA = 200;
   const keep = new Float32Array(width * height);
   for (let y = 1; y < height - 1; y++) {
     for (let x = 1; x < width - 1; x++) {
       const i = y * width + x;
-      if (mask[i] <= 0.15 || alpha[i] <= 0.2) continue;
+      if (mask[i] <= 0.15 || alpha[i] <= LINE_GATE) continue;
       // Step one pixel along the gradient (perpendicular to the crease) in
       // both directions and keep only a local maximum — the crest itself.
       const g = Math.hypot(gx[i], gy[i]);
@@ -1369,11 +1387,31 @@ function renderSpotsRgba(width, height, spots, mask, colorRgb) {
 // overall read (`intensity`, from its p85 severity) so a "clear" face
 // gets a faint, informative tint rather than the same full-strength
 // blotches a "notable" one does.
+// Below this normalised severity a pixel gets NO ink at all, and everything
+// above is rescaled to use the full alpha range.
+//
+// Without a floor, renderOverlayRgba gives every pixel with any non-zero
+// severity a proportional alpha, and the gaussian feather below spreads each
+// hot pixel over a ~10px radius — so an almost-clear face came back with a
+// faint haze over most of it. Measured on a real face: Fine Lines painted
+// 45% of the assessed area at band 'mild', Redness 23%. That is what makes
+// the overlay read as a smudge rather than a measurement, and it is why a
+// genuinely affected area doesn't stand out — it is competing with noise
+// rendered in the same colour.
+//
+// A knee, not a hard cut: values above the floor are remapped to 0..1 rather
+// than clipped, so the boundary of a real region still fades naturally
+// instead of gaining a hard outline.
+const WASH_FLOOR = 0.35;
+
 function renderWashRgba(width, height, alpha, mask, colorRgb, intensity = 1) {
   const MAX_ALPHA = 150;
   const feathered = gaussianApprox(alpha, width, height, Math.max(3, Math.round(Math.min(width, height) / 110)));
   const scale = 0.45 + 0.55 * Math.min(1, intensity / 0.5);
-  for (let i = 0; i < feathered.length; i++) feathered[i] *= scale;
+  for (let i = 0; i < feathered.length; i++) {
+    const v = feathered[i] * scale;
+    feathered[i] = v <= WASH_FLOOR ? 0 : (v - WASH_FLOOR) / (1 - WASH_FLOOR);
+  }
   return renderOverlayRgba(width, height, feathered, mask, colorRgb, MAX_ALPHA);
 }
 

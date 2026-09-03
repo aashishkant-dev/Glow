@@ -214,14 +214,29 @@ function PhotoCard({ card, width, height }: { card: ShareCardSpec; width: number
     <View style={{ width, height, backgroundColor: Colors.brandDeep }}>
       <Image source={{ uri: card.photoUrl }} style={StyleSheet.absoluteFill} contentFit="cover" />
       <FaceGlow faceBox={card.faceBox} width={width} height={height} />
-      {/* Four stops, not three — holds the top half of the photo genuinely
-          bright (the actual subject stays visible, not just implied under a
-          flat scrim) and concentrates the darkening into the bottom third
-          where the text needs it, instead of a uniform gradient dimming
-          the whole frame evenly. */}
+      {/* Six stops, and the extra two are not decoration — they fix a visible
+          seam. The previous ramp held pure transparent all the way to 0.45
+          and then began darkening immediately, so the gradient's SLOPE jumped
+          from zero to steep at one line. Human vision reads that kind of
+          C1 discontinuity as an edge (a Mach band) even though the colour
+          itself is continuous, and on a portrait it landed as a hard
+          horizontal band straight across the subject's chin — reported as the
+          share card looking "weird".
+          Easing in through two very low-alpha stops removes the kink: the
+          darkening now starts earlier and almost imperceptibly, then builds.
+          Same design intent as before (top of the photo genuinely bright,
+          darkness concentrated where the text sits) — the endpoints are
+          unchanged, only the approach into them. */}
       <LinearGradient
-        colors={['transparent', 'transparent', 'rgba(18,9,12,0.58)', 'rgba(14,7,10,0.95)']}
-        locations={[0, 0.45, 0.72, 1]}
+        colors={[
+          'transparent',
+          'transparent',
+          'rgba(18,9,12,0.06)',
+          'rgba(18,9,12,0.22)',
+          'rgba(18,9,12,0.62)',
+          'rgba(14,7,10,0.95)',
+        ]}
+        locations={[0, 0.30, 0.46, 0.60, 0.78, 1]}
         style={StyleSheet.absoluteFill}
       />
       <View style={pcStyles.brandRow}>
