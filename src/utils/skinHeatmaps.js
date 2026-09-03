@@ -1532,7 +1532,36 @@ async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers, segMask, f
     const color = CONCERN_COLORS[concern];
     let rgba;
     let findings = null;
-    if (style === 'lines' && geom?.gx && geom?.gy) {
+
+    // A concern this photo found nothing meaningful for draws NOTHING.
+    //
+    // This is the single biggest credibility gap against the reference
+    // implementations, and it was measurable rather than a matter of taste:
+    // on a real test face this engine was painting 20.7% of the assessed
+    // area for Uneven Texture and 15.7% for Pores while its OWN band for
+    // both was 'clear', and 45% for Fine Lines at 'mild'. renderOverlayRgba
+    // has no floor — every pixel with any non-zero severity gets alpha
+    // proportional to it — so a perfectly clear face still came back
+    // smeared in colour, and a wash that is always present cannot mean
+    // anything when it IS present.
+    //
+    // Region-shaped styles only (wash / stipple / lines). Discrete findings
+    // are deliberately exempt: 'markers' and 'spots' already draw at real
+    // detected components and nowhere else, so a single genuine mole on
+    // otherwise clear skin should still be shown rather than suppressed for
+    // being the only thing there.
+    //
+    // The tab is not left unexplained — overlayNoteFor (routes/skin.js)
+    // already exists for exactly the "verdict says something, overlay marks
+    // nothing" case, and the verdict/education/tips all still render. This
+    // is the same "not assessed beats a wrong answer" stance the rest of
+    // this file takes, applied to the picture instead of the text.
+    const REGION_STYLES = new Set(['wash', 'stipple', 'lines']);
+    const suppressOverlay = band === 'clear' && REGION_STYLES.has(style);
+
+    if (suppressOverlay) {
+      rgba = null;
+    } else if (style === 'lines' && geom?.gx && geom?.gy) {
       rgba = renderTracedLinesRgba(width, height, alpha, mask, geom.gx, geom.gy, color);
     } else if (style === 'stipple') {
       rgba = renderStippleRgba(width, height, alpha, mask, color);
@@ -1544,8 +1573,14 @@ async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers, segMask, f
       rgba = renderWashRgba(width, height, alpha, mask, color, p85);
     }
     let flagged = 0;
-    for (let i = 3; i < rgba.length; i += 4) { if (rgba[i] > 24) flagged++; }
-    const png = await sharp(rgba, { raw: { width, height, channels: 4 } }).png().toBuffer();
+    if (rgba) for (let i = 3; i < rgba.length; i += 4) { if (rgba[i] > 24) flagged++; }
+    // png null (not a fully-transparent PNG) when suppressed: routes/skin.js
+    // only uploads and sets a url when png is present, and the client already
+    // treats a concern with no url as "no overlay to show" — the same state a
+    // concern that genuinely could not be assessed lands in. Encoding and
+    // uploading a blank image instead would cost a real upload per clear
+    // concern and give the client a url that renders nothing.
+    const png = rgba ? await sharp(rgba, { raw: { width, height, channels: 4 } }).png().toBuffer() : null;
     return {
       png,
       label: meta.label,

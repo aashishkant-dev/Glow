@@ -109,10 +109,24 @@ async function runHeuristicFallback({ heuristicPixels, heuristicInfo, faceBox, f
   for (const [oldKey, mappedKey] of Object.entries(HEURISTIC_KEY_MAP)) {
     const concern = concerns[oldKey];
     if (!concern) { heatmaps[mappedKey] = null; continue; }
-    const up = await uploadFile(`skin-scans/${userId}-${Date.now()}-${mappedKey}.png`, concern.png, 'image/png');
-    if (!up?.url) { heatmaps[mappedKey] = null; continue; }
+    // concern.png is deliberately null when the engine suppressed a
+    // region overlay for a 'clear' concern (see skinHeatmaps.js) — there is
+    // nothing to upload, but the concern itself was still fully assessed and
+    // MUST keep its record: its verdict, education, tips, confidence and
+    // zone breakdown are exactly what the tab shows when there is no ink.
+    // Collapsing it to null here (the pre-existing "upload failed" path)
+    // would have deleted a successfully-analysed concern from the results
+    // entirely, turning a deliberate "nothing to draw" into a missing tab.
+    let maskUrl = null;
+    if (concern.png) {
+      const up = await uploadFile(`skin-scans/${userId}-${Date.now()}-${mappedKey}.png`, concern.png, 'image/png');
+      // A real upload FAILURE still drops the record, unchanged from before —
+      // that is a genuine error, not a deliberate absence.
+      if (!up?.url) { heatmaps[mappedKey] = null; continue; }
+      maskUrl = up.url;
+    }
     heatmaps[mappedKey] = buildConcernRecord(mappedKey, {
-      severity: concern.severity, maskUrl: up.url,
+      severity: concern.severity, maskUrl,
       confidence: { level: concern.confidence.level, zoneFraction: concern.confidence.zoneFraction, pixelCount: concern.confidence.pixelCount },
       source: 'estimated',
       zoneBreakdown: concern.zoneBreakdown,
