@@ -1425,7 +1425,12 @@ export interface SkinRecommendation {
 // This app's 7 skin-concern tab keys — 'pore'/'wrinkle'/'acne' etc., not
 // 'pores'/'wrinkles' (a naming convention this product settled on early on
 // and every layer, mobile and backend, still matches).
-export type SkinHeatmapConcernKey = 'pore' | 'moisture' | 'wrinkle' | 'acne' | 'texture' | 'age_spot' | 'redness';
+// The last three are VENDOR-MEASURED ONLY: Ivy AI scores them, this app's own
+// pixel engine does not measure them at all, and they carry no overlay (see
+// the backend's VENDOR_ONLY_CONCERNS). They are absent from `heatmaps`
+// entirely whenever the vendor didn't return them, which is why every
+// consumer must already tolerate a missing key.
+export type SkinHeatmapConcernKey = 'pore' | 'moisture' | 'wrinkle' | 'acne' | 'texture' | 'age_spot' | 'redness' | 'firmness' | 'dark_circles' | 'eye_bags';
 
 // One concern's full read — see src/utils/skinConcernContent.js for where
 // label/verdict/education/tips come from (shared, severity-banded copy —

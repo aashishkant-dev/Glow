@@ -51,11 +51,21 @@ const METRIC_TO_CONCERN = {
   // Newly mapped: Glow computes a 'shine' concern the vendor has a direct
   // equivalent for and this never read. Costs nothing — same response.
   shine: ['oiliness'],
-  // Deliberately unmapped, not forgotten: firmness, darkCircles and eyeBags
-  // have no Glow concern to merge into, and inventing one from a vendor score
-  // with no pixel evidence behind it is exactly what this pipeline refuses to
-  // do elsewhere. acne likewise has NO vendor metric at all (confirmed in
-  // both their docs and every live response) and stays heuristic-only.
+  // Vendor-only concerns: this engine measures none of these from the photo,
+  // so there is no heuristic severity to merge with and no overlay to draw.
+  // They are still real measurements the vendor performed and we paid for, so
+  // they are surfaced as their own scored readings rather than discarded —
+  // see CONCERN_CONTENT's note on why they carry a score but no map. They
+  // only reach the UI when the vendor actually returned them.
+  firmness: ['firmness'],
+  dark_circles: ['darkCircles'],
+  // 'radiance' and 'aging' were seen live but are NOT mapped anywhere: the
+  // vendor documents neither, so what they actually measure is a guess, and
+  // guessing which concern a score belongs to is how you end up showing
+  // someone a confident reading of the wrong thing.
+  eye_bags: ['eyeBags'],
+  // acne has NO vendor metric at all (confirmed in both their docs and every
+  // live response) and stays heuristic-only.
   // NOTE: no acne/blemish metric exists in Ivy's output at all — confirmed
   // in both their docs and every live response. 'acne' is deliberately
   // absent here and stays on the heuristic engine; see mergeIvyIntoHeatmaps.

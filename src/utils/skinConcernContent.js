@@ -123,6 +123,73 @@ const CONCERN_CONTENT = {
       notable: 'Noticeable dryness is flagged across a larger area of your skin today.',
     },
   },
+  // ── Vendor-measured only ──────────────────────────────────────────────
+  // These three come from Ivy AI's facial analysis and have NO heuristic
+  // pixel path behind them: this engine measures none of firmness, dark
+  // circles or eye bags from the photo itself. That has two consequences,
+  // both deliberate.
+  //
+  // They carry no overlay. A heatmap says "it is HERE", and we have no
+  // per-pixel evidence for where firmness is lacking — drawing one would be
+  // inventing a location. The score, the verdict and the advice are all real
+  // vendor output, so those are shown; the picture is not faked to match.
+  //
+  // And they only appear at all when the vendor actually returned them (see
+  // buildVendorOnlyConcerns in routes/skin.js). A permanently-empty tab that
+  // always reads "not assessed" is worse than no tab.
+  firmness: {
+    label: 'Firmness',
+    tabLabel: 'Firmness',
+    gradientLabels: { high: 'Less Firm', low: 'Firm' },
+    education: "Firmness describes how well skin springs back — it comes from collagen and elastin in the deeper layers. It softens naturally with age, and sun exposure accelerates it more than anything else. This reading comes from the facial-analysis model rather than this app's own pixel measurements, so it is reported as a score without a map.",
+    tips: [
+      'Daily broad-spectrum SPF does more for long-term firmness than any firming cream — UV breaks down collagen directly.',
+      'Retinoids are the best-evidenced topical for supporting collagen over months, not days.',
+      'Peptides and vitamin C both support the collagen pathway and layer well under sunscreen.',
+    ],
+    verdict: {
+      clear: 'Your skin reads firm and springy in this photo.',
+      mild: 'Firmness reads slightly softer than ideal, which is very common and gradual.',
+      moderate: 'Some loss of firmness shows in this reading.',
+      notable: 'This reading suggests a noticeable loss of firmness.',
+    },
+  },
+  dark_circles: {
+    label: 'Dark Circles',
+    tabLabel: 'Dark Circles',
+    gradientLabels: { high: 'Pronounced', low: 'Bright' },
+    education: "Dark circles under the eyes come from a mix of causes — thin under-eye skin showing the vessels beneath, pigmentation, shadowing from the eye socket's own shape, and fluid or fatigue. Because the causes look similar in a photo but respond to completely different things, this is a score rather than a mapped area.",
+    tips: [
+      'Sleep and hydration genuinely move the fluid-and-fatigue component; they do nothing for the pigment or structural kind.',
+      'Vitamin K, caffeine and niacinamide eye products target the vascular look specifically.',
+      'Sunscreen around the eyes helps if pigmentation is part of the cause.',
+      'If circles are lifelong and run in your family, they are likely structural — makeup will do more than skincare.',
+    ],
+    verdict: {
+      clear: 'Your under-eye area reads bright, with no notable darkness.',
+      mild: 'A little under-eye shadowing shows in this reading.',
+      moderate: 'Moderate dark circles show under your eyes in this photo.',
+      notable: 'Pronounced dark circles are flagged in this reading.',
+    },
+  },
+  eye_bags: {
+    label: 'Puffiness',
+    tabLabel: 'Puffiness',
+    gradientLabels: { high: 'Puffy', low: 'Smooth' },
+    education: "Under-eye puffiness is usually fluid that has settled overnight, though it can also be the fat pad beneath the eye becoming more visible over time. The fluid kind changes through the day and responds to salt, sleep and position; the structural kind does not. This is a vendor score, not a mapped region.",
+    tips: [
+      'Puffiness that is worst on waking and settles within a few hours is fluid — sleeping with your head slightly raised genuinely helps.',
+      'Something cold in the morning (a chilled spoon, a metal roller) constricts vessels and reduces it short-term.',
+      'Lowering evening salt and alcohol makes a visible difference for the fluid kind.',
+      'Puffiness that never changes through the day is structural, and skincare will not shift it.',
+    ],
+    verdict: {
+      clear: 'No notable puffiness reads under your eyes.',
+      mild: 'A little under-eye puffiness shows in this reading.',
+      moderate: 'Moderate puffiness shows under your eyes in this photo.',
+      notable: 'Pronounced under-eye puffiness is flagged in this reading.',
+    },
+  },
   acne: {
     label: 'Blemishes',
     tabLabel: 'Blemishes',

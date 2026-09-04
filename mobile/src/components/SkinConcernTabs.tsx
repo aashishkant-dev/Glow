@@ -49,7 +49,28 @@ export const CONCERN_ORDER: { key: SkinHeatmapConcernKey; label: string }[] = [
   { key: 'texture', label: 'Uneven Texture' },
   { key: 'age_spot', label: 'Dark Spots' },
   { key: 'redness', label: 'Redness' },
+  // Vendor-measured only — no overlay, and absent from `heatmaps` entirely
+  // unless Ivy AI actually returned them. Listed last because a concern with
+  // no picture is a weaker tab than one with a map, not because it matters
+  // less.
+  { key: 'firmness', label: 'Firmness' },
+  { key: 'dark_circles', label: 'Dark Circles' },
+  { key: 'eye_bags', label: 'Puffiness' },
 ];
+
+// The three above are the ONLY concerns allowed to disappear from the tab bar.
+// That is a deliberate exception to the rule below it, not an oversight.
+//
+// For the seven pixel-measured concerns, "not assessed" is real information
+// about the PHOTO — we tried and this image couldn't support it — so their
+// tab stays put and says so. For these three we never measure anything
+// ourselves; their absence means an optional vendor didn't answer (no key,
+// quota, timeout, refusal), which says nothing whatsoever about the user's
+// skin. A permanently dimmed "Firmness — not assessed" tab on every scan
+// would be reporting our billing status as if it were a skin finding.
+export const VENDOR_ONLY_CONCERNS: ReadonlySet<SkinHeatmapConcernKey> = new Set([
+  'firmness', 'dark_circles', 'eye_bags',
+]);
 
 type Heatmaps = Partial<Record<SkinHeatmapConcernKey, SkinHeatmapConcern>> | null;
 
@@ -180,7 +201,10 @@ export function ConcernHeatmapOverlay({ activeTab, heatmaps, highlightedZoneRect
 // singular naming: pore->pores, wrinkle->wrinkles). A legend that doesn't
 // match the ink actually laid on the photo is worse than no legend, so if
 // those server colours ever change, these must change with them.
-const OVERLAY_RGB: Record<SkinHeatmapConcernKey, string> = {
+// Only the seven pixel-measured concerns appear here. The vendor-only three
+// never render an overlay, so they have no colour and no legend — the legend
+// is gated on a real overlay url anyway, so a missing entry can't be reached.
+const OVERLAY_RGB: Partial<Record<SkinHeatmapConcernKey, string>> = {
   redness: '222,108,118',
   texture: '204,158,96',
   pore: '138,104,118',
@@ -195,7 +219,7 @@ const OVERLAY_RGB: Record<SkinHeatmapConcernKey, string> = {
 // "more visible pores" on one tab and "drier" on another, and a user reading
 // a coloured wash on their own face has no way to know which without being
 // told. Phrased per concern for that reason.
-const LEGEND_ENDS: Record<SkinHeatmapConcernKey, [string, string]> = {
+const LEGEND_ENDS: Partial<Record<SkinHeatmapConcernKey, [string, string]>> = {
   pore: ['More visible pores', 'Fewer pores'],
   moisture: ['Driest areas', 'Well hydrated'],
   wrinkle: ['Deeper lines', 'Fine lines'],
@@ -212,8 +236,12 @@ const LEGEND_ENDS: Record<SkinHeatmapConcernKey, [string, string]> = {
 // hue-coded categories the overlay does not actually encode.
 export function ConcernOverlayLegend({ concernKey }: { concernKey: SkinHeatmapConcernKey }) {
   const rgb = OVERLAY_RGB[concernKey];
-  const [strong, weak] = LEGEND_ENDS[concernKey];
-  if (!rgb) return null;
+  const ends = LEGEND_ENDS[concernKey];
+  // Both are absent for the vendor-only concerns, which never draw an overlay
+  // — guard before destructuring rather than after, or a missing entry is a
+  // crash instead of a skipped legend.
+  if (!rgb || !ends) return null;
+  const [strong, weak] = ends;
   return (
     <View style={legendStyles.wrap} pointerEvents="none">
       <Text style={legendStyles.label} numberOfLines={2}>{strong}</Text>
@@ -281,12 +309,13 @@ export function ConcernTabBar({ activeTab, onSelect, heatmaps }: { activeTab: Co
       <Pressable onPress={() => onSelect('summary')} style={[tabStyles.pill, activeTab === 'summary' && tabStyles.pillActive]}>
         <Text style={[tabStyles.pillText, activeTab === 'summary' && tabStyles.pillTextActive]}>Summary</Text>
       </Pressable>
-      {CONCERN_ORDER.map(({ key, label }) => {
-        // Every concern always gets a tab, whether or not this particular
-        // scan could assess it — a scan-to-scan disappearing/reappearing
-        // tab set would be more confusing than one tab occasionally
-        // opening to a clearly-labeled "not assessed" state (see
-        // ConcernDetailCard below).
+      {CONCERN_ORDER.filter(({ key }) => !VENDOR_ONLY_CONCERNS.has(key) || !!heatmaps?.[key]).map(({ key, label }) => {
+        // Every PIXEL-measured concern always gets a tab, whether or not this
+        // particular scan could assess it — a scan-to-scan disappearing/
+        // reappearing tab set would be more confusing than one tab
+        // occasionally opening to a clearly-labeled "not assessed" state (see
+        // ConcernDetailCard below). The vendor-only three are filtered above
+        // instead; see VENDOR_ONLY_CONCERNS for why they are the exception.
         const assessed = !!heatmaps?.[key];
         const active = activeTab === key;
         return (

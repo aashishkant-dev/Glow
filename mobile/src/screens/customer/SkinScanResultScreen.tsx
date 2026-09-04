@@ -26,7 +26,7 @@ import { Colors, Fonts } from '../../utils/colors';
 import { apiDeleteSkinScan, apiGetScanAngles, SkinScan } from '../../api/client';
 import { tapLight, confirmAction } from '../../utils/haptics';
 import { NearbyArtistRow } from '../../components/NearbyArtistRow';
-import { ConcernHeatmapOverlay, ConcernTabBar, ConcernDetailCard, ConcernOverlayLegend, SeverityKey, CONCERN_ORDER, ConcernTab } from '../../components/SkinConcernTabs';
+import { ConcernHeatmapOverlay, ConcernTabBar, ConcernDetailCard, ConcernOverlayLegend, SeverityKey, CONCERN_ORDER, VENDOR_ONLY_CONCERNS, ConcernTab } from '../../components/SkinConcernTabs';
 import { resolveZoneRect, ZoneKey, FaceBox } from '../../utils/skinZones';
 import { ShareCardModal, ShareCardSpec } from '../../components/ShareCardModal';
 import { SkinScanCamera } from '../../components/SkinScanCamera';
@@ -525,6 +525,12 @@ export function SkinScanResultScreen() {
                 <View style={styles.zoneSection}>
                   <Text style={styles.zoneHint}>Tap a row, or a tab above, to see it broken down</Text>
                   {[...CONCERN_ORDER]
+                    // Same exception the tab bar makes: a vendor-only concern
+                    // the vendor didn't return is omitted rather than listed
+                    // as "Not assessed in this photo" — which would be a
+                    // false statement about the photo, since we never measure
+                    // these from pixels at all. See VENDOR_ONLY_CONCERNS.
+                    .filter(({ key }) => !VENDOR_ONLY_CONCERNS.has(key) || !!scan.heatmaps?.[key])
                     .sort((a, b) => {
                       const ca = scan.heatmaps?.[a.key];
                       const cb = scan.heatmaps?.[b.key];

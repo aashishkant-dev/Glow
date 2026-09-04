@@ -770,6 +770,36 @@ async function runScanPipeline({ userId, photoBase64, burstCandidates, faceRegio
       console.log(`[skin] ivy AI produced no usable result after ${Date.now() - ivyStartedAt}ms (no key, refusal, quota, timeout, or residual-grace cutoff) — heuristic severities kept as-is`);
     }
     const { ivyApplied } = mergeIvyIntoHeatmaps(heatmaps, ivy);
+
+    // Vendor-only concerns: firmness, dark circles and under-eye puffiness.
+    // This engine measures none of them from pixels, so mergeIvyIntoHeatmaps
+    // skips them (no existing record to merge into) and they would otherwise
+    // be silently dropped — real measurements the vendor performed, and that
+    // we paid a metered call for, thrown away.
+    //
+    // Added here as first-class records with a score, verdict, education and
+    // tips, but deliberately `url: null` — no overlay. A heatmap asserts
+    // "it is HERE", and there is no per-pixel evidence for where firmness is
+    // lacking; the client already renders a concern with no url as "no
+    // overlay to show". Real numbers, honest picture.
+    //
+    // Only created when the vendor actually returned that metric. A tab that
+    // is permanently "not assessed" because no key is configured, or because
+    // the call timed out, is worse than no tab.
+    const VENDOR_ONLY_CONCERNS = ['firmness', 'dark_circles', 'eye_bags'];
+    for (const key of VENDOR_ONLY_CONCERNS) {
+      const severity = ivy?.severities?.[key];
+      if (typeof severity !== 'number' || Number.isNaN(severity)) continue;
+      heatmaps[key] = buildConcernRecord(key, {
+        severity,
+        maskUrl: null,
+        confidence: { level: 'vendor', zoneFraction: null, pixelCount: null },
+        source: 'ivyai',
+        zoneBreakdown: [],
+        overlay: { flaggedFraction: 0, findings: null },
+      });
+      ivyApplied.push(key);
+    }
     for (const key of Object.keys(heatmaps)) {
       const note = overlayNoteFor(heatmaps[key]);
       if (note) heatmaps[key] = { ...heatmaps[key], overlayNote: note };
