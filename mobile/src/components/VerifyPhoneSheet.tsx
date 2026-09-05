@@ -35,16 +35,46 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
   const [loading, setLoading] = useState(false);
   const [otpSent, setOtpSent] = useState(false);
   const inputRefs = useRef<(TextInput | null)[]>([]);
+  const phoneRef = useRef<TextInput | null>(null);
   const resendCooldown = useCountdown();
 
+  // Only a genuine FIRST open resets the flow. Re-opening after an accidental
+  // dismissal used to blow away a code that had already been texted and drop
+  // the user back at phone entry, with no way to type the code they were
+  // holding — the reported "OTP screen arrives, I go back, and it asks for my
+  // number again". The sheet is now non-dismissible while in flight (see
+  // GlowSheet's `dismissible`), and this no longer discards a live OTP even
+  // if it does close.
+  const startedRef = useRef(false);
   useEffect(() => {
-    if (visible) {
-      setStage(needsPhone ? 'phone' : 'otp');
-      setDigits(Array(OTP_LENGTH).fill(''));
-      setOtpSent(false);
-      if (!needsPhone) sendOtp();
-    }
+    if (!visible) return;
+    if (startedRef.current) return;   // already mid-flow — keep the sent code
+    startedRef.current = true;
+    setStage(needsPhone ? 'phone' : 'otp');
+    setDigits(Array(OTP_LENGTH).fill(''));
+    setOtpSent(false);
+    if (!needsPhone) sendOtp();
   }, [visible]);
+
+  // Reset only once the flow is genuinely over (sheet closed by success or by
+  // the explicit Cancel), so the NEXT booking starts clean.
+  useEffect(() => {
+    if (!visible) startedRef.current = false;
+  }, [visible]);
+
+  // Focus the field the current stage actually wants. Nothing did this before,
+  // so the keyboard never opened on its own and every stage began with the
+  // user hunting for a target — on a sheet where a mis-tap dismissed the flow.
+  // The delay lets the sheet's 320ms open animation settle; focusing mid-
+  // transform is unreliable on both platforms.
+  useEffect(() => {
+    if (!visible) return;
+    const id = setTimeout(() => {
+      if (stage === 'phone') phoneRef.current?.focus();
+      else inputRefs.current[0]?.focus();
+    }, 380);
+    return () => clearTimeout(id);
+  }, [visible, stage]);
 
   function getE164() {
     const d = phone.replace(/\D/g, '');
@@ -106,8 +136,23 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
   }
 
   return (
-    <GlowSheet visible={visible} onClose={onClose}>
+    // dismissible={false}: the backdrop covers the whole screen behind the
+    // sheet, so with the keyboard up a mis-tap toward an input was landing on
+    // it and killing the flow. There is now an explicit, visible way out
+    // instead (below) — which there previously was not at all.
+    <GlowSheet visible={visible} onClose={onClose} dismissible={false}>
       <View style={styles.body}>
+        {/* The sheet had NO close control of any kind, so the only ways out
+            were the backdrop and the Android back button — both of which
+            silently destroyed the flow, and both of which are now disabled
+            (dismissible={false}). Going BACK from the code step to phone entry
+            is already handled by the "Change number" link further down, so
+            this is deliberately just Cancel rather than a second copy of it. */}
+        <View style={styles.sheetHeader}>
+          <Pressable onPress={onClose} disabled={loading} hitSlop={12}>
+            <Text style={styles.headerAction}>Cancel</Text>
+          </Pressable>
+        </View>
         {stage === 'phone' ? (
           <>
             <Text style={styles.title}>Confirm your phone number</Text>
@@ -115,9 +160,11 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
             <View style={styles.phoneRow}>
               <CountryPicker value={country} onChange={c => { setCountry(c); setPhone(''); }} />
               <TextInput
+                ref={phoneRef}
                 style={[styles.phoneInput, styles.phoneInputFlex]}
                 value={phone}
                 onChangeText={setPhone}
+                returnKeyType="done"
                 placeholder={!country ? 'Select country first' : country.code === 'CA' || country.code === 'US' ? '705-555-0100' : country.code === 'UK' ? '7911 123456' : '98XXXXXXXX'}
                 placeholderTextColor={Colors.tertiaryLabel}
                 keyboardType="phone-pad"
@@ -186,6 +233,8 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
 
 const styles = StyleSheet.create({
   body: { paddingHorizontal: 24, paddingTop: 8, paddingBottom: 20, gap: 14 },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 },
+  headerAction: { fontSize: 15, fontFamily: Fonts.semibold, color: Colors.brand },
   title: { fontSize: 20, fontFamily: Fonts.bold, color: Colors.label },
   subtitle: { fontSize: 14, color: Colors.secondaryLabel, lineHeight: 20, fontFamily: Fonts.regular },
   phoneRow: { flexDirection: 'row', gap: 8, alignItems: 'stretch', minWidth: 0 },

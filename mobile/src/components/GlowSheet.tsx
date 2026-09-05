@@ -10,6 +10,7 @@ import {
   Animated,
   Dimensions,
   Easing,
+  KeyboardAvoidingView,
   Modal,
   Platform,
   Pressable,
@@ -27,9 +28,22 @@ interface GlowSheetProps {
   children: React.ReactNode;
   /** Fraction of screen height the sheet may grow to. */
   maxHeightPct?: number;
+  /**
+   * Whether tapping the backdrop or pressing the Android back button closes
+   * the sheet. Defaults to true, which is right for a browsing sheet you can
+   * idly dismiss.
+   *
+   * Set false for a sheet running a multi-step flow with state worth
+   * protecting. The backdrop Pressable covers the ENTIRE screen behind the
+   * sheet, so once the keyboard is up and the sheet is partly behind it, an
+   * ordinary mis-tap toward an input lands on the backdrop and dismisses the
+   * whole flow — which is how phone verification was losing a sent OTP and
+   * restarting at phone entry.
+   */
+  dismissible?: boolean;
 }
 
-export function GlowSheet({ visible, onClose, children, maxHeightPct = 0.88 }: GlowSheetProps) {
+export function GlowSheet({ visible, onClose, children, maxHeightPct = 0.88, dismissible = true }: GlowSheetProps) {
   const progress = useRef(new Animated.Value(0)).current;
   const [mounted, setMounted] = useState(visible);
 
@@ -61,11 +75,26 @@ export function GlowSheet({ visible, onClose, children, maxHeightPct = 0.88 }: G
       transparent
       animationType="none"
       statusBarTranslucent
-      onRequestClose={onClose}
+      onRequestClose={dismissible ? onClose : undefined}
     >
-      <View style={styles.overlay} pointerEvents="box-none">
-        <Animated.View style={[StyleSheet.absoluteFill, { opacity: progress }]}>
-          <Pressable style={[StyleSheet.absoluteFill, styles.backdrop]} onPress={onClose} />
+      {/* The sheet is bottom-anchored, so without this the software keyboard
+          simply covers it — the user cannot see the field they are typing
+          into. behavior 'padding' is the correct one for a bottom sheet on
+          iOS; Android already resizes the window via adjustResize, and
+          applying padding there as well double-counts and leaves a gap. */}
+      <KeyboardAvoidingView
+        style={styles.overlay}
+        pointerEvents="box-none"
+        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      >
+        <Animated.View style={[StyleSheet.absoluteFill, { opacity: progress }]} pointerEvents={dismissible ? 'auto' : 'none'}>
+          <Pressable
+            style={[StyleSheet.absoluteFill, styles.backdrop]}
+            onPress={dismissible ? onClose : undefined}
+            // Non-dismissible sheets keep the dimmed backdrop for depth but
+            // stop it swallowing taps meant for the sheet's own inputs.
+            pointerEvents={dismissible ? 'auto' : 'none'}
+          />
         </Animated.View>
         <Animated.View
           style={[
@@ -80,7 +109,7 @@ export function GlowSheet({ visible, onClose, children, maxHeightPct = 0.88 }: G
           <View style={styles.handle} />
           {children}
         </Animated.View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
   );
 }
