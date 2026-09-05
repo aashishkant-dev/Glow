@@ -214,7 +214,23 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
             <Text style={styles.title}>Confirm your phone number</Text>
             <Text style={styles.subtitle}>We'll text you a one-time code to verify it's really you before your first booking.</Text>
             <View style={styles.phoneRow}>
-              <CountryPicker value={country} onChange={c => { setCountry(c); setPhone(''); }} />
+              {/* Focus follows the choice. Picking a country opens a modal
+                  over this sheet; dismissing it left focus nowhere, the
+                  keyboard down, and the (now finally editable) number field
+                  waiting for a second tap — reported as the field losing
+                  focus during phone verification. The delay lets the
+                  picker's own dismissal animation finish; focusing into a
+                  view that is still animating out is unreliable on both
+                  platforms, the same reason the stage-focus effect above
+                  waits. */}
+              <CountryPicker
+                value={country}
+                onChange={c => {
+                  setCountry(c);
+                  setPhone('');
+                  setTimeout(() => phoneRef.current?.focus(), 320);
+                }}
+              />
               <TextInput
                 ref={phoneRef}
                 style={[styles.phoneInput, styles.phoneInputFlex]}

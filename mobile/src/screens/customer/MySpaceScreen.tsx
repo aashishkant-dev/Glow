@@ -423,7 +423,18 @@ export function MySpaceScreen() {
         </Text>
       </ScrollView>
 
-      <SkinScanCamera visible={cameraOpen} onClose={() => setCameraOpen(false)} onComplete={onScanComplete} previousScan={latest} />
+      {/* Reloading on close, not just on focus: a scan can now be left to
+          finish in the background (see SkinScanCamera's "Run in the
+          background"), and closing the camera does not change which screen
+          is focused — this one already is — so useFocusEffect above never
+          fires. Without this the scan the user was just told would "appear
+          in My Space" would not show up until they navigated away and back. */}
+      <SkinScanCamera
+        visible={cameraOpen}
+        onClose={() => { setCameraOpen(false); loadScansFor(activeProfileId); }}
+        onComplete={onScanComplete}
+        previousScan={latest}
+      />
 
       <Modal visible={!!renaming} transparent animationType="fade" onRequestClose={() => setRenaming(null)}>
         <View style={styles.renameBackdrop}>

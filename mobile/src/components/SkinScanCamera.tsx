@@ -1345,9 +1345,17 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // exposure bias are both already maxed out at that point; neither can
   // recover detail the sensor never captured.
   //
-  // Threshold is lightingGate's own amber boundary (55), not a second
-  // number that can drift away from it: exactly the states where that gate
-  // is already telling the user the light is not good enough.
+  // Gated on lightingGate's own RED thresholds (see rawLightingGate), not
+  // its amber ones, and that distinction is the whole difference between
+  // this and the version that was removed. The old fill light was drawn
+  // UNCONDITIONALLY: the reported screenshot shows it covering a
+  // perfectly well-lit room, shrinking the preview to a small oval for no
+  // reason — "the camera preview is letterboxed, make it better". Showing
+  // white pixels is the only way a phone can add light to its own selfie,
+  // and it necessarily costs preview area, so it is worth it in exactly one
+  // situation: a room so dark the preview is black and no gate can ever go
+  // green. In anything better than that, this stays off and the feed is
+  // full-screen.
   //
   // Deliberately NOT the previous approach (a translucent radial gradient
   // drawn OVER the live feed), which produced three separate rounds of
@@ -1356,7 +1364,8 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // whole artifact class is gone by construction, and opaque white is what
   // actually emits photons anyway.
   const fillLightActive =
-    step === 'camera' && cameraReady && lightingSample != null && lightingSample.avgLuma < 55;
+    step === 'camera' && cameraReady && lightingSample != null &&
+    (lightingSample.avgLuma < 40 || lightingSample.darkFraction >= 0.5);
 
   function reset() {
     setStep('camera');
@@ -2622,18 +2631,32 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
                 ~14% so the bands never crowd the framing the user is
                 actually trying to hit. */}
             {fillLightActive && (() => {
-              const padX = ringBox.width * 0.14;
-              const padY = ringBox.height * 0.10;
-              const wLeft = Math.max(0, ringBox.left - padX);
-              const wTop = Math.max(0, ringBox.top - padY);
-              const wRight = Math.min(winW, ringBox.left + ringBox.width + padX);
-              const wBottom = Math.min(winH, ringBox.top + ringBox.height + padY);
+              // Never smaller than the guide oval, however small the tracked
+              // face box happens to be — a fill light that shrinks the
+              // window to a postage stamp when you lean back is worse than
+              // the darkness it is fixing.
+              const winWidth = Math.max(ringBox.width, OVAL_W);
+              const winHeight = Math.max(ringBox.height, OVAL_H);
+              const cx = ringBox.left + ringBox.width / 2;
+              const cy = ringBox.top + ringBox.height / 2;
+              const padX = winWidth * 0.14;
+              const padY = winHeight * 0.10;
+              const wLeft = Math.max(0, cx - winWidth / 2 - padX);
+              const wTop = Math.max(0, cy - winHeight / 2 - padY);
+              const wRight = Math.min(winW, cx + winWidth / 2 + padX);
+              const wBottom = Math.min(winH, cy + winHeight / 2 + padY);
               return (
                 <View pointerEvents="none" style={StyleSheet.absoluteFill}>
                   <View style={[styles.fillLightBand, { left: 0, right: 0, top: 0, height: wTop }]} />
                   <View style={[styles.fillLightBand, { left: 0, right: 0, top: wBottom, height: Math.max(0, winH - wBottom) }]} />
                   <View style={[styles.fillLightBand, { left: 0, width: wLeft, top: wTop, height: Math.max(0, wBottom - wTop) }]} />
                   <View style={[styles.fillLightBand, { left: wRight, width: Math.max(0, winW - wRight), top: wTop, height: Math.max(0, wBottom - wTop) }]} />
+                  {/* A screen that suddenly goes white reads as a glitch
+                      unless it says what it is doing. Dark text, because it
+                      is sitting on the white band. */}
+                  <Text style={[styles.fillLightNote, { top: Math.min(winH - 40, wBottom + 14) }]}>
+                    Screen light on — it's very dark in here
+                  </Text>
                 </View>
               );
             })()}
@@ -3041,6 +3064,10 @@ const styles = StyleSheet.create({
   // transparency here both cuts the light output and re-introduces the
   // compositing artifacts the old gradient scrim caused.
   fillLightBand: { position: 'absolute', backgroundColor: '#fff' },
+  fillLightNote: {
+    position: 'absolute', left: 0, right: 0, textAlign: 'center',
+    color: '#3A3A3C', fontSize: 12.5, fontFamily: Fonts.medium,
+  },
   analyzingCancelBtn: {
     marginTop: 28, paddingHorizontal: 22, paddingVertical: 11, borderRadius: 22,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.28)',
