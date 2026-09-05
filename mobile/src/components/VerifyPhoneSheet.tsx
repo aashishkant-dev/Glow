@@ -176,16 +176,37 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
         {/* The sheet had NO close control of any kind, so the only ways out
             were the backdrop and the Android back button — both of which
             silently destroyed the flow, and both of which are now disabled
-            (dismissible={false}). Going BACK from the code step to phone entry
-            is already handled by the "Change number" link further down, so
-            this is deliberately just Cancel rather than a second copy of it. */}
+            (dismissible={false}).
+            A single "Cancel" was not enough: on the code step it reads as
+            "abandon the booking", not "go back", and for an account that
+            already has a phone on file (needsPhone === false) the "Change
+            number" link below is not rendered either — so that screen had
+            no back affordance of any kind. Reported exactly that way: "the
+            back button on the enter the code screen is not working, I can't
+            go back". This is now a real Back that always moves one step
+            backwards: to phone entry when there is one, out of the sheet
+            (to the booking screen) when there isn't. */}
         <View style={styles.sheetHeader}>
           {/* Deliberately NOT disabled while loading. This sheet is
               non-dismissible (no backdrop tap, no Android back), so if a
-              request ever hangs with loading stuck true, a disabled Cancel
+              request ever hangs with loading stuck true, a disabled control
               would leave the user with no way out of the flow at all. */}
-          <Pressable onPress={onClose} hitSlop={12}>
-            <Text style={styles.headerAction}>Cancel</Text>
+          <Pressable
+            onPress={() => {
+              if (stage === 'otp' && needsPhone) {
+                setStage('phone');
+                setDigits(Array(OTP_LENGTH).fill(''));
+              } else {
+                onClose();
+              }
+            }}
+            hitSlop={12}
+            accessibilityRole="button"
+            accessibilityLabel={stage === 'otp' && needsPhone ? 'Back to phone number' : 'Cancel verification'}
+          >
+            <Text style={styles.headerAction}>
+              {stage === 'otp' && needsPhone ? '\u2039  Back' : '\u2039  Cancel'}
+            </Text>
           </Pressable>
         </View>
         {stage === 'phone' ? (

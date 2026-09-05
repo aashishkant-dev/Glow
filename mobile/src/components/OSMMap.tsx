@@ -3,6 +3,7 @@ import { Platform, StyleSheet, Text, View, ViewStyle, StyleProp } from 'react-na
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { Colors } from '../utils/colors';
 import { MapIcon } from './TabIcons';
+import { LEAFLET_CSS, LEAFLET_JS } from '../vendor/leafletInline';
 
 export type OSMMarker = {
   lat: number;
@@ -79,23 +80,33 @@ function buildHtml(center: { lat: number; lng: number }, markers: OSMMarker[], z
   return `<!DOCTYPE html><html><head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes"/>
-<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<style>${LEAFLET_CSS}</style>
 <style>html,body,#map{height:100%;margin:0;padding:0;background:#E8E8EA;}</style>
 </head><body>
 <div id="map"></div>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>${LEAFLET_JS}</script>
 <script>
   function report(m){try{window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify({type:'maperror',reason:m}));}catch(e){}}
-  // Leaflet is loaded from a CDN, so it can simply not be there — a blocked
-  // origin, no network, or unpkg being unreachable. Without this the next line
-  // throws on an undefined L, the script dies, and the page stays the plain
-  // grey background: a blank map with nothing reported anywhere. Now the RN
-  // side hears about it and shows a real message instead.
+  // Leaflet is now inlined into this document (see vendor/leafletInline.ts),
+  // so the CDN can no longer be the reason it is missing. Kept anyway: if L
+  // is somehow undefined the next line throws on it, the script dies, and
+  // the page stays the plain grey background — a blank map with nothing
+  // reported anywhere. This makes the RN side hear about it instead.
   if (typeof L === 'undefined') { report('leaflet-unavailable'); }
   else try {
     var map=L.map('map',{zoomControl:false,attributionControl:false}).setView([${center.lat},${center.lng}],${zoom});
     L.control.zoom({position:'bottomright'}).addTo(map);
-    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{maxZoom:19}).addTo(map);
+    var tiles=L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{maxZoom:19});
+    // With Leaflet inlined, the page script always runs — so a dead network
+    // no longer produces a thrown error, it produces a perfectly working map
+    // with no imagery in it: the same unexplained grey rectangle by a
+    // different route. A handful of tile errors is normal (edge tiles, a
+    // flaky moment), so only report when MANY have failed and not one has
+    // ever loaded.
+    var tileFails=0, tileOk=false;
+    tiles.on('tileload',function(){tileOk=true;});
+    tiles.on('tileerror',function(){tileFails++;if(!tileOk&&tileFails>=6){report('tiles-unreachable');}});
+    tiles.addTo(map);
     ${markerJsAll}
     ${fit}
   } catch (e) { report(String(e && e.message || e)); }
@@ -168,13 +179,13 @@ export function OSMMap({ center, markers = [], zoom = 13, height, style, onMarke
     <View style={containerStyle}>
       <WebView
         originWhitelist={['*']}
-        // baseUrl is the actual fix for "the map is just blank". With inline
-        // html and NO baseUrl, iOS WKWebView loads the page with an opaque
-        // null origin, and the remote Leaflet <script>/<link> from unpkg then
-        // fails to load — so L is undefined, the init script throws, and all
-        // that renders is the grey page background. Giving the document a real
-        // https origin lets those subresource requests behave normally.
-        source={{ html, baseUrl: 'https://unpkg.com' }}
+        // The document no longer loads ANY script or stylesheet over the
+        // network (Leaflet is inlined above), so the opaque-null-origin
+        // problem that made this blank has nothing left to block. baseUrl is
+        // still given a real https origin because the tile requests are
+        // subresources too, and a null origin is the kind of thing that gets
+        // them treated as cross-origin-from-nowhere.
+        source={{ html, baseUrl: 'https://basemaps.cartocdn.com' }}
         style={styles.webview}
         scrollEnabled={false}
         javaScriptEnabled

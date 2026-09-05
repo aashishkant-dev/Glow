@@ -58,6 +58,7 @@
     "expo-updates": "~56.0.26",
     "expo-video": "~56.1.4",
     "expo-web-browser": "~56.0.6",
+    "leaflet": "1.9.4",
     "libphonenumber-js": "^1.13.10",
     "react": "19.2.3",
     "react-dom": "19.2.3",
