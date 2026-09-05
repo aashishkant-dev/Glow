@@ -1812,36 +1812,75 @@ export function CreateBookingScreen() {
       // Geocoding API was removed from the web shim in Expo SDK 49) — use
       // OpenStreetMap's free Nominatim API there instead, same OSM stack the
       // app already uses for maps elsewhere (no API key/billing needed).
+      // Free OSM reverse geocode. Used directly on web (expo-location's
+      // geocoder returns [] there since SDK 49) and as a GAP-FILLER on native,
+      // where Apple's geocoder is patchy outside large US/EU cities.
+      const viaNominatim = async () => {
+        try {
+          const res = await fetch(
+            `https://nominatim.openstreetmap.org/reverse?lat=${useCoords.lat}&lon=${useCoords.lng}&format=json`,
+            { headers: { 'Accept-Language': 'en' } },
+          );
+          const addr = (await res.json())?.address;
+          if (!addr) return null;
+          return {
+            street: [addr.house_number, addr.road].filter(Boolean).join(' ') || null,
+            // Same widening as the city chain below: OSM files a place under
+            // whichever of these tags fits its size.
+            city: addr.city || addr.town || addr.village || addr.suburb || addr.county || null,
+            postal: addr.postcode || null,
+          };
+        } catch { return null; }
+      };
+
       if (Platform.OS === 'web') {
-        const res = await fetch(
-          `https://nominatim.openstreetmap.org/reverse?lat=${useCoords.lat}&lon=${useCoords.lng}&format=json`,
-          { headers: { 'Accept-Language': 'en' } },
-        );
-        const data = await res.json();
-        const addr = data?.address;
-        if (!addr) {
+        const n = await viaNominatim();
+        if (!n) {
           Alert.alert('Location unavailable', 'Could not determine an address for your current location. Please enter it manually.');
           return;
         }
-        const streetLine = [addr.house_number, addr.road].filter(Boolean).join(' ');
-        if (streetLine) setStreet(streetLine);
-        const city = addr.city || addr.town || addr.village || addr.suburb;
-        if (city) setCity(city);
-        if (addr.postcode) setPostal(addr.postcode);
+        if (n.street) setStreet(n.street);
+        if (n.city) setCity(n.city);
+        if (n.postal) setPostal(n.postal);
         return;
       }
 
       const Location = await import('expo-location');
       const hits = await Location.reverseGeocodeAsync({ latitude: useCoords.lat, longitude: useCoords.lng });
       const hit = hits[0];
-      if (!hit) {
+
+      // `city` alone was the bug. Apple's geocoder frequently returns
+      // city: null and files the actual place name under district or
+      // subregion instead — routine outside large US/EU cities, and this app
+      // ships to Kathmandu. The web path already widened this way; native
+      // never did, so native was strictly worse at the same job.
+      let street = hit ? ([hit.streetNumber, hit.street].filter(Boolean).join(' ') || null) : null;
+      let city = hit ? (hit.city || hit.district || hit.subregion || hit.region || null) : null;
+      let postal = hit?.postalCode || null;
+
+      // Anything still missing gets a second opinion from OSM, which has
+      // markedly better coverage in a lot of the world than Apple's does.
+      // Only fills BLANKS — a value Apple did return is never overwritten.
+      if (!city || !postal || !street) {
+        const n = await viaNominatim();
+        if (n) {
+          street = street || n.street;
+          city = city || n.city;
+          postal = postal || n.postal;
+        }
+      }
+
+      if (!street && !city && !postal) {
         Alert.alert('Location unavailable', 'Could not determine an address for your current location. Please enter it manually.');
         return;
       }
-      const streetLine = [hit.streetNumber, hit.street].filter(Boolean).join(' ');
-      if (streetLine) setStreet(streetLine);
-      if (hit.city) setCity(hit.city);
-      if (hit.postalCode) setPostal(hit.postalCode);
+      if (street) setStreet(street);
+      if (city) setCity(city);
+      if (postal) setPostal(postal);
+      // Postal codes genuinely do not exist for many addresses (Nepal being
+      // one), so a blank postal after both lookups is not an error — the
+      // field simply stays editable rather than firing a scary alert.
+      if (!postal && __DEV__) console.log('[booking] no postal code available for these coordinates');
     } catch {
       Alert.alert('Location unavailable', 'Could not get your current location. Please enter your address manually.');
     } finally {
