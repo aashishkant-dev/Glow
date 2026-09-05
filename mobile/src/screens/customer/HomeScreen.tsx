@@ -30,6 +30,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useLocation } from '../../context/LocationContext';
 import { Colors, Fonts } from '../../utils/colors';
+import { reverseGeocodeOSM } from '../../utils/reverseGeocode';
 import { BellIcon, CheckDecagramIcon } from '../../components/CareIcons';
 import { SparkleIcon } from '../../components/BeautyIcons';
 import { GlowMatchSheet } from '../../components/GlowMatchSheet';
@@ -246,28 +247,32 @@ export function HomeScreen() {
     let cancelled = false;
 
     if (Platform.OS === 'web') {
-      fetch(`https://nominatim.openstreetmap.org/reverse?lat=${coords.lat}&lon=${coords.lng}&format=json`, {
-        headers: { 'Accept-Language': 'en' },
-      })
-        .then(res => res.json())
-        .then(data => {
-          if (cancelled) return;
-          const addr = data?.address;
-          if (!addr) return;
-          const name = formatLocationName(addr);
+      reverseGeocodeOSM(coords.lat, coords.lng)
+        .then(osm => {
+          if (cancelled || !osm) return;
+          const name = formatLocationName(osm.raw);
           if (name) setCityName(name);
         })
         .catch(() => {});
       return () => { cancelled = true; };
     }
 
+    // Apple's geocoder first, OSM only when it comes back with nothing
+    // usable. In Kathmandu it routinely returns a null city AND a null
+    // subregion, which left this pill with no name at all — the same
+    // coverage gap that stopped the booking form autofilling a city, just
+    // showing up somewhere quieter.
     import('expo-location').then(Location =>
       Location.reverseGeocodeAsync({ latitude: coords.lat, longitude: coords.lng })
-        .then(hits => {
-          if (cancelled || !hits[0]) return;
+        .then(async hits => {
+          if (cancelled) return;
           const h = hits[0];
-          const name = [h.city ?? h.subregion, h.region].filter(Boolean).join(', ');
-          if (name) setCityName(name);
+          const name = h ? [h.city ?? h.subregion, h.region].filter(Boolean).join(', ') : '';
+          if (name) { setCityName(name); return; }
+          const osm = await reverseGeocodeOSM(coords.lat, coords.lng);
+          if (cancelled || !osm) return;
+          const osmName = formatLocationName(osm.raw);
+          if (osmName) setCityName(osmName);
         })
         .catch(() => {}),
     );

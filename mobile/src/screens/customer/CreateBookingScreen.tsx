@@ -31,6 +31,7 @@ import { PinIcon, SearchIcon, CreditCardIcon, KeyIcon } from '../../components/C
 import { LocationIcon } from '../../components/TabIcons';
 import { apiCreateBooking, apiGetAvailableProviders, apiNearbyProviders, apiGetFavorites, AvailableProvider } from '../../api/client';
 import { useCoordsOrFallback, useLocation } from '../../context/LocationContext';
+import { reverseGeocodeOSM } from '../../utils/reverseGeocode';
 import { OSMMap, OSMMarker } from '../../components/OSMMap';
 import { DEFAULT_REGION, DEFAULT_REGION_NAME } from '../../utils/region';
 import { VerifyPhoneSheet } from '../../components/VerifyPhoneSheet';
@@ -1821,31 +1822,17 @@ export function CreateBookingScreen() {
         return;
       }
 
-      // expo-location's reverseGeocodeAsync always returns [] on web (the
-      // Geocoding API was removed from the web shim in Expo SDK 49) — use
-      // OpenStreetMap's free Nominatim API there instead, same OSM stack the
-      // app already uses for maps elsewhere (no API key/billing needed).
-      // Free OSM reverse geocode. Used directly on web (expo-location's
-      // geocoder returns [] there since SDK 49) and as a GAP-FILLER on native,
-      // where Apple's geocoder is patchy outside large US/EU cities.
-      const viaNominatim = async () => {
-        try {
-          const res = await fetch(
-            `https://nominatim.openstreetmap.org/reverse?lat=${useCoords.lat}&lon=${useCoords.lng}&format=json`,
-            { headers: { 'Accept-Language': 'en' } },
-          );
-          const addr = (await res.json())?.address;
-          if (!addr) return null;
-          return {
-            street: [addr.house_number, addr.road].filter(Boolean).join(' ') || null,
-            // Same widening as the city chain below: OSM files a place under
-            // whichever of these tags fits its size.
-            city: addr.city || addr.town || addr.village || addr.suburb || addr.county || null,
-            postal: addr.postcode || null,
-          };
-        } catch { return null; }
-      };
-
+      // Free OSM reverse geocode (utils/reverseGeocode.ts). Used directly on
+      // web — expo-location's geocoder returns [] there since SDK 49 — and as
+      // a GAP-FILLER on native, where Apple's geocoder is patchy outside
+      // large US/EU cities.
+      //
+      // The inline version of this call sent no User-Agent, which Nominatim
+      // answers with 403 Access denied, and swallowed it in a bare catch. So
+      // the gap-filler that exists specifically to fix "city and postal code
+      // don't autofill" was being rejected on every single call. See that
+      // file's header for the verified before/after.
+      const viaNominatim = () => reverseGeocodeOSM(useCoords.lat, useCoords.lng);
       if (Platform.OS === 'web') {
         const n = await viaNominatim();
         if (!n) {

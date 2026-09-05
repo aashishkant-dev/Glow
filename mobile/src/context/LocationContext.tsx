@@ -10,6 +10,7 @@ import { Alert, AppState, Linking, Platform } from 'react-native';
 import * as Location from 'expo-location';
 import { apiUpdateMyLocation } from '../api/client';
 import { Storage } from '../utils/storage';
+import { reverseGeocodeOSM } from '../utils/reverseGeocode';
 import { DEFAULT_REGION, setCurrencyCodeForGpsCountry } from '../utils/region';
 
 export interface Coords {
@@ -301,22 +302,22 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
     lastGeocodedRef.current = coords;
 
     if (Platform.OS === 'web') {
-      fetch(`https://nominatim.openstreetmap.org/reverse?lat=${coords.lat}&lon=${coords.lng}&format=json`, {
-        headers: { 'Accept-Language': 'en' },
-      })
-        .then(res => res.json())
-        .then(data => {
-          const countryCode = data?.address?.country_code;
-          if (countryCode) setCurrencyCodeForGpsCountry(countryCode);
-        })
+      reverseGeocodeOSM(coords.lat, coords.lng)
+        .then(osm => { if (osm?.countryCode) setCurrencyCodeForGpsCountry(osm.countryCode); })
         .catch(() => {});
       return;
     }
 
+    // OSM as a gap-filler here too: getting the country wrong (or not at
+    // all) means the whole app prices in the wrong currency, and Apple's
+    // geocoder returning nothing at all is a real outcome in the places
+    // this ships to.
     Location.reverseGeocodeAsync({ latitude: coords.lat, longitude: coords.lng })
-      .then(results => {
+      .then(async results => {
         const isoCountryCode = results?.[0]?.isoCountryCode;
-        if (isoCountryCode) setCurrencyCodeForGpsCountry(isoCountryCode);
+        if (isoCountryCode) { setCurrencyCodeForGpsCountry(isoCountryCode); return; }
+        const osm = await reverseGeocodeOSM(coords.lat, coords.lng);
+        if (osm?.countryCode) setCurrencyCodeForGpsCountry(osm.countryCode);
       })
       .catch(() => {});
   }, [coords]);
