@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { Platform, StyleSheet, Text, View, ViewStyle, StyleProp } from 'react-native';
 import { WebView, WebViewMessageEvent } from 'react-native-webview';
 import { Colors } from '../utils/colors';
@@ -85,11 +85,20 @@ function buildHtml(center: { lat: number; lng: number }, markers: OSMMarker[], z
 <div id="map"></div>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script>
-  var map=L.map('map',{zoomControl:false,attributionControl:false}).setView([${center.lat},${center.lng}],${zoom});
-  L.control.zoom({position:'bottomright'}).addTo(map);
-  L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{maxZoom:19}).addTo(map);
-  ${markerJsAll}
-  ${fit}
+  function report(m){try{window.ReactNativeWebView&&window.ReactNativeWebView.postMessage(JSON.stringify({type:'maperror',reason:m}));}catch(e){}}
+  // Leaflet is loaded from a CDN, so it can simply not be there — a blocked
+  // origin, no network, or unpkg being unreachable. Without this the next line
+  // throws on an undefined L, the script dies, and the page stays the plain
+  // grey background: a blank map with nothing reported anywhere. Now the RN
+  // side hears about it and shows a real message instead.
+  if (typeof L === 'undefined') { report('leaflet-unavailable'); }
+  else try {
+    var map=L.map('map',{zoomControl:false,attributionControl:false}).setView([${center.lat},${center.lng}],${zoom});
+    L.control.zoom({position:'bottomright'}).addTo(map);
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',{maxZoom:19}).addTo(map);
+    ${markerJsAll}
+    ${fit}
+  } catch (e) { report(String(e && e.message || e)); }
 </script>
 </body></html>`;
 }
@@ -107,6 +116,16 @@ export function OSMMap({ center, markers = [], zoom = 13, height, style, onMarke
     [real?.lat, real?.lng, zoom, JSON.stringify(markers)]
   );
 
+  // A map that cannot load should say so. Previously any failure — no
+  // network, blocked origin, CDN down — rendered as an unexplained grey box.
+  //
+  // Stores WHICH html failed rather than a boolean reset by an effect: the
+  // effect version was a setState-in-render-cycle that the linter rightly
+  // flags, and this needs no reset at all — new coordinates produce new html,
+  // which no longer matches the failed one, so the retry is automatic.
+  const [failedHtml, setFailedHtml] = useState<string | null>(null);
+  const mapFailed = failedHtml !== null && failedHtml === html;
+
   const containerStyle: StyleProp<ViewStyle> = [
     styles.container,
     height != null ? { height } : null,
@@ -118,6 +137,15 @@ export function OSMMap({ center, markers = [], zoom = 13, height, style, onMarke
       <View style={[containerStyle, styles.placeholder]}>
         <MapIcon size={28} color={Colors.brand} />
         <Text style={styles.placeholderText}>Map will appear once a location is set</Text>
+      </View>
+    );
+  }
+
+  if (mapFailed) {
+    return (
+      <View style={[containerStyle, styles.placeholder]}>
+        <MapIcon size={28} color={Colors.brand} />
+        <Text style={styles.placeholderText}>Map couldn't load — check your connection</Text>
       </View>
     );
   }
@@ -140,7 +168,13 @@ export function OSMMap({ center, markers = [], zoom = 13, height, style, onMarke
     <View style={containerStyle}>
       <WebView
         originWhitelist={['*']}
-        source={{ html }}
+        // baseUrl is the actual fix for "the map is just blank". With inline
+        // html and NO baseUrl, iOS WKWebView loads the page with an opaque
+        // null origin, and the remote Leaflet <script>/<link> from unpkg then
+        // fails to load — so L is undefined, the init script throws, and all
+        // that renders is the grey page background. Giving the document a real
+        // https origin lets those subresource requests behave normally.
+        source={{ html, baseUrl: 'https://unpkg.com' }}
         style={styles.webview}
         scrollEnabled={false}
         javaScriptEnabled
@@ -151,8 +185,14 @@ export function OSMMap({ center, markers = [], zoom = 13, height, style, onMarke
           try {
             const msg = JSON.parse(e.nativeEvent.data);
             if (msg.type === 'markerPress' && onMarkerPress) onMarkerPress(msg.label);
+            if (msg.type === 'maperror') {
+              console.warn('[OSMMap] map failed to initialise:', msg.reason);
+              setFailedHtml(html);
+            }
           } catch {}
         }}
+        onError={(e) => { console.warn('[OSMMap] webview error:', e.nativeEvent?.description); setFailedHtml(html); }}
+        onHttpError={(e) => { console.warn('[OSMMap] webview http error:', e.nativeEvent?.statusCode); }}
       />
     </View>
   );

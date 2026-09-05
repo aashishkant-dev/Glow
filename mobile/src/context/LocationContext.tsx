@@ -89,6 +89,13 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
 
   const fetchCoords = useCallback(async (): Promise<Coords | null> => {
     let servedLastKnown = false;
+    // Hoisted out of the try so the catch can still SEE the last-known
+    // position we already served. Previously the catch returned
+    // coordsRef.current instead, which is synced by a useEffect and therefore
+    // has not updated yet at the moment the catch runs in this same async
+    // call — so a first fix returned null while holding a perfectly good
+    // coordinate. See the catch for what that broke.
+    let served: Coords | null = null;
     try {
       if (Platform.OS === 'web') {
         const c = await getWebPosition();
@@ -110,6 +117,7 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
         let latest: Coords | null = null;
         if (last && mountedRef.current) {
           latest = { lat: last.coords.latitude, lng: last.coords.longitude };
+          served = latest;
           setCoords(latest);
           setPermissionStatus('granted');
         }
@@ -128,9 +136,23 @@ export function LocationProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (e: any) {
       if (!mountedRef.current) return null;
-      // A fresh-fix timeout with a last-known position already served is not a
-      // failure — keep 'granted' so the UI doesn't flash the enable-location UX.
-      if (e?.code === 3 && (servedLastKnown || coordsRef.current)) return coordsRef.current;
+      // A fresh fix failing when we ALREADY have a usable position is not a
+      // failure — keep 'granted' so the UI doesn't flash the enable-location UX,
+      // and hand back the position we have.
+      //
+      // Two bugs fixed here, both of which made "Use current location" report
+      // "Location unavailable" while a good coordinate was in hand:
+      //
+      // 1. It returned coordsRef.current, which a useEffect syncs AFTER render.
+      //    In this same async call setCoords() has only been queued, so on a
+      //    first fix the ref is still null and this returned null. `served` is
+      //    a plain local, correct immediately.
+      // 2. It only forgave code 3 (our own 15s timeout). A genuine
+      //    CoreLocation failure — routine indoors — threw the served position
+      //    away instead. Any fresh-fix error is now survivable as long as we
+      //    actually have something to serve.
+      const fallback = served ?? coordsRef.current;
+      if (fallback && (servedLastKnown || coordsRef.current)) return fallback;
       setPermissionStatus(classifyGeoError(e));
       return null;
     }
