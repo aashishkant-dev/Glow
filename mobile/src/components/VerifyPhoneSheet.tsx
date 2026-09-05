@@ -59,7 +59,11 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
   // Reset only once the flow is genuinely over (sheet closed by success or by
   // the explicit Cancel), so the NEXT booking starts clean.
   useEffect(() => {
-    if (!visible) startedRef.current = false;
+    if (!visible) {
+      startedRef.current = false;
+      verifiedRef.current = false;
+      verifyingRef.current = false;
+    }
   }, [visible]);
 
   // Focus the field the current stage actually wants. Nothing did this before,
@@ -116,23 +120,50 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
     if (digit && next.every(d => d)) verify(next.join(''));
   }
 
+  // Guards against DOUBLE submission, which is what produced the reported
+  // "I entered the correct code and it said expired".
+  //
+  // The last digit auto-submits (see handleDigitChange), and there is also a
+  // Verify button. Tapping it as the sixth digit lands fired verify() twice
+  // with the same code. The first request succeeds and the backend DELETES the
+  // OTP row — one-time use, correctly — so the second finds nothing and comes
+  // back "OTP expired. Please request a new one." The alert from that second
+  // call then buried the fact that verification had actually just succeeded.
+  //
+  // A ref, not the `loading` state: state updates are async, so a tap landing
+  // in the same tick as the auto-submit still sees loading === false and the
+  // button still enabled. The ref flips synchronously.
+  const verifyingRef = useRef(false);
+  const verifiedRef = useRef(false);
+
   async function verify(otp: string) {
+    if (verifyingRef.current || verifiedRef.current) return;
+    verifyingRef.current = true;
     setLoading(true);
     try {
       const payload: { otp: string; phone?: string } = { otp };
       if (needsPhone) payload.phone = getE164();
       const { user } = await apiVerifyPhone(payload);
+      // Latched BEFORE any await-free work below, so nothing that runs later
+      // can re-enter and turn a success into a spurious failure.
+      verifiedRef.current = true;
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
       updateUser({ phone: user.phone ?? undefined, phoneVerified: user.phoneVerified });
       onVerified();
     } catch (e: any) {
+      // A failure arriving AFTER a success is from a duplicate in-flight
+      // request and must never be shown — that is precisely the "correct code
+      // rejected as expired" report.
+      if (verifiedRef.current) return;
       if (Platform.OS !== 'web') Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error);
       const msg = e.message || 'Incorrect code. Please try again.';
       if (Platform.OS === 'web') alert(msg); else Alert.alert('Incorrect Code', msg);
       setDigits(Array(OTP_LENGTH).fill(''));
       setTimeout(() => inputRefs.current[0]?.focus(), 100);
+    } finally {
+      verifyingRef.current = false;
+      setLoading(false);
     }
-    setLoading(false);
   }
 
   return (
@@ -149,7 +180,11 @@ export function VerifyPhoneSheet({ visible, needsPhone, onVerified, onClose }: V
             is already handled by the "Change number" link further down, so
             this is deliberately just Cancel rather than a second copy of it. */}
         <View style={styles.sheetHeader}>
-          <Pressable onPress={onClose} disabled={loading} hitSlop={12}>
+          {/* Deliberately NOT disabled while loading. This sheet is
+              non-dismissible (no backdrop tap, no Android back), so if a
+              request ever hangs with loading stuck true, a disabled Cancel
+              would leave the user with no way out of the flow at all. */}
+          <Pressable onPress={onClose} hitSlop={12}>
             <Text style={styles.headerAction}>Cancel</Text>
           </Pressable>
         </View>

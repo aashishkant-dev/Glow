@@ -2670,6 +2670,29 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
                   <Text style={styles.retakeBtnFullText}>{errorKind === 'face' ? 'Retake photo' : 'Try again'}</Text>
                 </Pressable>
               )}
+
+              {/* A way OUT, not just a way to try again. "Try again" on its own
+                  is a loop: a server error retries the same photo, and if that
+                  photo is the problem the user is stuck pressing it forever
+                  with no exit — reported exactly that way. The header close
+                  button is scrolled off/behind this state, so this screen needs
+                  its own.
+                  'Retake photo' already returns to the camera, so the second
+                  action there is "leave"; for every other kind, going back to
+                  the camera IS the useful escape. */}
+              {!!error && !detectingFace && (
+                <Pressable
+                  onPress={() => {
+                    if (errorKind === 'face') { handleClose(); }
+                    else { setCaptureError(null); setShot(null); setStep('camera'); }
+                  }}
+                  style={styles.errorSecondaryBtn}
+                >
+                  <Text style={styles.errorSecondaryBtnText}>
+                    {errorKind === 'face' ? 'Close' : 'Back to camera'}
+                  </Text>
+                </Pressable>
+              )}
             </ScrollView>
           </View>
         )}
@@ -2850,6 +2873,8 @@ const styles = StyleSheet.create({
   faceWarningBanner: { backgroundColor: Colors.brandLight, borderRadius: 14, padding: 12, marginBottom: 16 },
   faceWarningBannerText: { color: Colors.brandDark, fontSize: 12.5, fontFamily: Fonts.medium, lineHeight: 17 },
 
+  errorSecondaryBtn: { marginTop: 10, alignItems: 'center', paddingVertical: 12 },
+  errorSecondaryBtnText: { fontSize: 15, fontFamily: Fonts.semibold, color: Colors.secondaryLabel },
   retakeBtnFull: {
     marginTop: 4, paddingVertical: 15, borderRadius: 16,
     backgroundColor: Colors.brand, alignItems: 'center',

@@ -506,7 +506,22 @@ async function runScanPipeline({ userId, photoBase64, burstCandidates, faceRegio
         too_bright: "That photo came out overexposed — try again out of direct light or flash glare.",
         too_blurry: "That photo came out too blurry to analyze — hold steady and try again.",
       };
-      return { ok: false, status: 400, body: { error: messages[qcFailure] || 'Photo quality was too low to analyze. Please try again.', reason: qcFailure } };
+      // `code` matters as much as the message. The client's
+      // classifyScanError only recognises NO_FACE_DETECTED /
+      // LOW_IMAGE_QUALITY; a 400 without a code fell through to its generic
+      // "Something went wrong on our end", so a perfectly actionable "that
+      // photo was too dark" was shown as an unexplained server error with
+      // nothing to do but retry the same bad photo. Raising the brightness
+      // floor made that path far more common, which is how it surfaced.
+      return {
+        ok: false,
+        status: 400,
+        body: {
+          error: messages[qcFailure] || 'Photo quality was too low to analyze. Please try again.',
+          code: 'LOW_IMAGE_QUALITY',
+          reason: qcFailure,
+        },
+      };
     }
 
     report('preparing_photo');
