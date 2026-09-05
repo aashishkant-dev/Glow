@@ -548,6 +548,37 @@ async function downscaleForUpload(uri: string, width: number, height: number): P
   }
 }
 
+// Cheap sharpness proxy for picking the best frame of a burst.
+//
+// Same reasoning as the full-size comparison it replaces (identical resize
+// and JPEG quality for every frame of one scene, so at a fixed quality the
+// larger encode is the one with more high-frequency detail = the sharper
+// frame), but done at a fraction of the pixels. Choosing between frames does
+// not need upload-quality encodes of frames that are about to be thrown
+// away: encoding all three at full upload resolution meant two complete
+// multi-megapixel JPEG encodes plus two base64 reads per scan whose only
+// contribution was a number to compare. This keeps the comparison and pays
+// the full encode once, for the winner.
+const SHARPNESS_PROBE_MAX_EDGE = 720;
+async function sharpnessProbeSize(uri: string, width: number, height: number): Promise<number> {
+  try {
+    const longEdge = Math.max(width || 0, height || 0);
+    const scale = longEdge > 0 ? Math.min(SHARPNESS_PROBE_MAX_EDGE / longEdge, 1) : 1;
+    const actions: ImageManipulator.Action[] = scale < 1
+      ? [{ resize: { width: Math.round(width * scale), height: Math.round(height * scale) } }]
+      : [];
+    const out = await ImageManipulator.manipulateAsync(
+      uri,
+      actions,
+      { compress: 0.9, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+    );
+    return out.base64 ? out.base64.length : 0;
+  } catch {
+    // 0 means "no opinion" — the caller keeps whatever it already had.
+    return 0;
+  }
+}
+
 interface Props {
   visible: boolean;
   onClose: () => void;
@@ -747,10 +778,20 @@ function LightingSensor({ onSample, onOutputReady }: {
       // Plane 0 of a YUV frame is always the full-resolution Y (luma)
       // plane — exactly the channel that represents brightness, with no
       // color information to discard first.
+      //
+      // `new Uint8Array(arrayBuffer)` is a VIEW over that buffer, not a
+      // copy, and getPixelBuffer() is documented as not copying either —
+      // the bytes belong to the CVPixelBuffer the Frame has locked. So the
+      // read below has to happen BEFORE frame.dispose(), which unlocks the
+      // buffer and invalidates the sample buffer back into the capture
+      // pool ("Once the FramePlane gets invalidated, this ArrayBuffer is no
+      // longer safe to access" — Frame.nitro.ts). Reading after disposing
+      // was reading memory the pipeline had already taken back for the next
+      // frame: undefined behaviour that happens to return plausible-looking
+      // numbers, which is the worst kind.
       const luma = new Uint8Array(planes[0].getPixelBuffer());
-      frame.dispose();
       const len = luma.length;
-      if (len === 0) return;
+      if (len === 0) { frame.dispose(); return; }
       const STRIDE = 41; // prime — avoids landing on a repeating row/column pattern
       const DARK_BYTE_THRESHOLD = 40; // 0-255 luma
       // A harshly backlit frame (bright window/sky behind an underexposed
@@ -769,6 +810,10 @@ function LightingSensor({ onSample, onOutputReady }: {
         if (v > BRIGHT_BYTE_THRESHOLD) bright++;
         sampled++;
       }
+      // Every byte we needed has been read into plain numbers by now, so
+      // the frame can go back to the pipeline (which stalls if frames
+      // aren't disposed promptly).
+      frame.dispose();
       if (sampled === 0) return;
       runOnJS(onSample)({ avgLuma: sum / sampled, darkFraction: dark / sampled, brightFraction: bright / sampled });
     },
@@ -1212,6 +1257,27 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
     return Platform.OS === 'android' ? Math.round(boost) : boost;
   }, [device, lightingSample]);
 
+  // The phone's own screen is the ONLY light source this feature has, and
+  // this screen is pure black (`root` below) — so in a dim room it emits
+  // essentially nothing, the front camera sees essentially nothing, ML Kit
+  // finds no face at all (faces=0), and every gate sits red forever with
+  // no way for the user to fix it from inside the app. Low-light boost and
+  // exposure bias are both already maxed out at that point; neither can
+  // recover detail the sensor never captured.
+  //
+  // Threshold is lightingGate's own amber boundary (55), not a second
+  // number that can drift away from it: exactly the states where that gate
+  // is already telling the user the light is not good enough.
+  //
+  // Deliberately NOT the previous approach (a translucent radial gradient
+  // drawn OVER the live feed), which produced three separate rounds of
+  // visible artifacts. This paints opaque white only OUTSIDE the framing
+  // window — nothing is ever alpha-composited over camera pixels, so the
+  // whole artifact class is gone by construction, and opaque white is what
+  // actually emits photons anyway.
+  const fillLightActive =
+    step === 'camera' && cameraReady && lightingSample != null && lightingSample.avgLuma < 55;
+
   function reset() {
     setStep('camera');
     setShot(null);
@@ -1223,6 +1289,11 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   }
 
   function handleClose() {
+    // Covers every exit: the header X, the error screen's own exits, and
+    // Android's hardware back via the Modal's onRequestClose. If a scan is
+    // in flight, its polling loop stops on the next check instead of
+    // writing state into an unmounted/closed screen.
+    scanCancelledRef.current = true;
     reset();
     onClose();
   }
@@ -1236,8 +1307,27 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
     setCapturing(true);
     setCaptureError(null);
     if (Platform.OS !== 'web') Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light);
+    // Screen PRE-flash, not just a shutter animation. The existing flash
+    // went to full white and immediately began fading over 250ms, so it was
+    // already dark again by the time the sensor actually exposed the frame
+    // — pure decoration, contributing no light to the photo that gets
+    // analysed. In a dim room that photo comes back below the backend's
+    // brightness floor and the scan is rejected, which is the front half of
+    // the "something went wrong" loop.
+    //
+    // So when the scene is genuinely dark, hold the screen at full opaque
+    // white and WAIT before capturing: auto-exposure needs a beat to
+    // re-meter against the new light, and the AE lock below would otherwise
+    // freeze the pre-flash exposure. 550ms is the same order as iOS's own
+    // Retina Flash pre-roll. In good light nothing changes — the original
+    // quick shutter blink.
+    const usePreFlash = lightingSample != null && lightingSample.avgLuma < 55;
     flashAnim.setValue(1);
-    Animated.timing(flashAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start();
+    if (usePreFlash) {
+      await new Promise((r) => setTimeout(r, 550));
+    } else {
+      Animated.timing(flashAnim, { toValue: 0, duration: 250, useNativeDriver: true }).start();
+    }
     // Declared outside the try block, disposed in `finally` — not just at
     // the end of the happy path. `photo` is a native Nitro object (the same
     // GC-thread-unsafe-teardown class of object CameraSession already
@@ -1412,7 +1502,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       // optimistic assumption — a miss at any point falls straight through
       // to the existing unaligned path with a clear console.warn explaining
       // why, never a silent half-applied transform.
-      let alignedResult: { uri: string; base64: string; faceRegion: FaceRegion | null; zoneMarkers: StoredZoneMarkers | null; faceLandmarks: FaceLandmarkPayload | null; burstCandidates: string[] } | null = null;
+      let alignedResult: { uri: string; base64: string; faceRegion: FaceRegion | null; zoneMarkers: StoredZoneMarkers | null; faceLandmarks: FaceLandmarkPayload | null } | null = null;
       if (!noFaceDetected && rawPoints) {
         const anchors = extractEyeNoseAnchors(rawPoints, primaryMirrored);
         const transform = anchors && noseSanityGate(anchors) ? computeSimilarityTransform(anchors) : null;
@@ -1439,27 +1529,25 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
               console.warn('[SkinScanCamera] alignment sanity check failed, discarding transform', sanity?.reason, { measured: sanity?.measured, expected: sanity?.expected });
             } else {
               if (__DEV__) console.log('[SkinScanCamera] alignment sanity check PASSED', { measured: sanity.measured, expected: sanity.expected });
-              // Same locked-exposure burst, captured within a sub-second
-              // window (see the capture loop's own comment) — the SAME
-              // transform parameters are reapplied to frames 1/2 rather
-              // than re-deriving landmarks a second and third time. A
-              // secondary frame that individually fails to transform just
-              // falls back to ITS OWN unaligned base64 rather than
-              // failing the whole burst over one frame.
-              const otherAligned = await Promise.all(
-                frameUris.slice(1).map(async (u, idx) => {
-                  const res = await applySimilarityTransform(u, imgWidth, imgHeight, transform);
-                  if (!res) console.warn(`[SkinScanCamera] alignment failed on burst frame ${idx + 1}, using its unaligned capture instead`);
-                  return res?.base64 ?? await uploadBase64(u);
-                })
-              );
+              // The other two burst frames used to be transformed here as
+              // well, into `burstCandidates`. That work was DEAD: since the
+              // sharpest frame started being chosen on-device,
+              // finalBurstCandidates is unconditionally [] and nothing ever
+              // read the aligned copies again. It cost two full
+              // ImageManipulator transforms plus two base64 encodes of a
+              // multi-megapixel photo on every successfully-aligned scan —
+              // pure latency between the shutter and the upload, on the
+              // exact path the user reports as slow. Removed rather than
+              // kept "just in case": the primary frame is the one being
+              // analysed, and reinstating this would mean reinstating the
+              // multi-frame upload that caused the 56s POST in the first
+              // place.
               alignedResult = {
                 uri: alignedPrimary.uri,
                 base64: alignedPrimary.base64,
                 faceRegion: redetected.faceRegion,
                 zoneMarkers: redetected.zoneMarkers,
                 faceLandmarks: redetected.faceLandmarks,
-                burstCandidates: otherAligned,
               };
             }
           }
@@ -1476,59 +1564,57 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       // for exactly this "no mask" case, so this costs some occlusion
       // precision on an aligned scan, never correctness.
       const finalUri = alignedResult?.uri ?? uri;
-      const finalBase64 = alignedResult?.base64 ?? await uploadBase64(frameUris[0]);
+      // ── Pick the sharpest frame BEFORE encoding it ──────────────────────
+      //
+      // Only one frame is ever uploaded (see the note below on the 56s
+      // POST), so only one frame needs an upload-quality encode. This used
+      // to encode all three at full resolution purely to compare their
+      // sizes, then discard two — real, measurable device work on the exact
+      // path reported as slow. The comparison now runs on 720px probes and
+      // the winner alone is encoded for upload.
+      let chosenFrameIdx = 0;
+      let sharpestNote = 'primary';
+      if (!alignedResult && frameUris.length > 1) {
+        const probes = await Promise.all(
+          frameUris.map(async (u, i) => ({ i, size: await sharpnessProbeSize(u, imgWidth, imgHeight) }))
+        );
+        const best = probes.reduce((a2, b2) => (b2.size > a2.size ? b2 : a2), probes[0]);
+        if (best && best.size > 0 && best.i !== 0) {
+          chosenFrameIdx = best.i;
+          sharpestNote = `burst[${best.i}]`;
+        }
+      }
+      const finalBase64 = alignedResult?.base64 ?? await uploadBase64(frameUris[chosenFrameIdx]);
       const finalFaceRegion = alignedResult?.faceRegion ?? faceRegion;
       const finalZoneMarkers = alignedResult?.zoneMarkers ?? zoneMarkers;
       // Same rule as zoneMarkers: an aligned photo's contours come from the
       // re-detection ON that aligned photo, never the original's.
       const finalFaceLandmarks = alignedResult ? alignedResult.faceLandmarks : faceLandmarks;
       const finalSkinMask = alignedResult ? null : originalSkinMask;
-      // ── Pick the sharpest frame HERE, and upload only that one ──────────
+      // Only ONE frame is uploaded. This used to upload the primary frame
+      // PLUS every other burst frame and let the backend score them and
+      // analyse the sharpest. Correct, and far too expensive: production
+      // logs showed `POST /skin/scan` returning its 202 after 56,417ms. That
+      // 202 is sent immediately after cheap validation, BEFORE any analysis
+      // — so almost all of that was the request body still arriving. Four
+      // ~250KB base64 images is roughly a megabyte, and at the ~150kbps that
+      // implies it sits right on the client's 70s timeout. That is the
+      // "connection error", and it is a payload problem, not a server one.
       //
-      // This used to upload the primary frame PLUS every other burst frame
-      // and let the backend score them and analyse the sharpest. Correct, and
-      // far too expensive: production logs showed `POST /skin/scan` returning
-      // its 202 after 56,417ms. That 202 is sent immediately after cheap
-      // validation, BEFORE any analysis — so almost all of that was the
-      // request body still arriving. Four ~250KB base64 images over mobile
-      // data is roughly a megabyte, and at the ~150kbps that implies it sits
-      // right on the client's 70s timeout. That is the "connection error",
-      // and it is a payload problem, not a server problem.
-      //
-      // Selecting on-device keeps the benefit of the burst (it still guards
-      // against one motion-blurred frame) while uploading a quarter of the
-      // bytes.
+      // Selecting on-device (above) keeps the benefit of the burst — it
+      // still guards against one motion-blurred frame — while uploading a
+      // quarter of the bytes.
       //
       // The metric is deliberately a PROXY, and worth being straight about:
-      // the backend scores real Laplacian sharpness, which needs the pixels —
-      // which is exactly the upload being avoided. Instead this compares the
-      // encoded size of frames that have already been through IDENTICAL
-      // resize and JPEG quality (uploadBase64 → downscaleForUpload, same
-      // params for every frame). At a fixed quality a blurrier image has less
+      // the backend scores real Laplacian sharpness, which needs the pixels,
+      // which is exactly the upload being avoided. Instead it compares the
+      // encoded size of frames put through IDENTICAL resize and JPEG
+      // quality. At a fixed quality a blurrier image has less
       // high-frequency content and encodes smaller, so among frames of the
       // SAME scene from one sub-second locked burst, the largest is the
       // sharpest. That reasoning does not hold across different scenes or
-      // different encoder settings — neither of which applies here.
-      //
-      // Uses base64 already computed and memoised by uploadBase64, so this
-      // costs no extra encoding work.
-      let finalBase64ToSend = finalBase64;
-      let sharpestNote = 'primary';
-      if (!alignedResult) {
-        try {
-          const encoded = await Promise.all(frameUris.map(async (u, i) => ({ i, b64: await uploadBase64(u) })));
-          const best = encoded.reduce((a, b) => (b.b64.length > a.b64.length ? b : a), encoded[0]);
-          if (best && best.b64.length > finalBase64ToSend.length) {
-            finalBase64ToSend = best.b64;
-            sharpestNote = `burst[${best.i}]`;
-          }
-        } catch (err) {
-          // Falls back to the primary frame, which is a perfectly good photo
-          // captured first under the same AE/AF/AWB lock — never to uploading
-          // everything again, since that is the failure being fixed.
-          console.warn('[SkinScanCamera] on-device sharpness pick failed, sending the primary frame', err instanceof Error ? err.message : err);
-        }
-      }
+      // encoder settings — neither of which applies here.
+      const finalBase64ToSend = finalBase64;
       if (__DEV__) console.log(`[SkinScanCamera] uploading 1 frame (${sharpestNote}) instead of ${frameUris.length}`);
       // Always empty now: the sharpest frame IS the photo being sent, so
       // there is nothing left for the backend to choose between. The backend
@@ -1560,6 +1646,12 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       tapWarning();
       setCaptureError('Could not capture that photo — try again.');
     } finally {
+      // Releases a HELD pre-flash (see usePreFlash above) on every exit
+      // path, including a capture that threw — otherwise a failed shot in
+      // a dark room leaves the screen stuck at full white with the camera
+      // invisible behind it. Harmless when there was no pre-flash: the
+      // quick blink has already animated to 0 and this just re-runs it.
+      Animated.timing(flashAnim, { toValue: 0, duration: 220, useNativeDriver: true }).start();
       photo?.dispose();
       // resetFocus() resets ALL THREE locked values back to continuous
       // auto in one call (per its own doc comment) — the live preview
@@ -1586,6 +1678,14 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // simulated") — that's exactly what this replaces: the pipeline now has
   // real, verifiable stage transitions to show instead of a guess.
   const [scanStage, setScanStage] = useState<ScanJobStage | null>(null);
+  // Set by the Cancel action on the 'analyzing' screen. submit()'s polling
+  // loop is a plain async for(;;) — nothing else can interrupt it, so
+  // without this the user is held on that screen until the job finishes or
+  // the 90s deadline expires, with no close button anywhere on it (the
+  // header X lives inside the step === 'camera' block). A ref, not state:
+  // the loop closes over the render that started it, so a state value read
+  // in there would be the one captured at submit() time, forever false.
+  const scanCancelledRef = useRef(false);
   const STAGE_ORDER: ScanJobStage[] = ['scoring_sharpness', 'preparing_photo', 'analyzing', 'saving'];
   const STAGE_LABELS: Record<ScanJobStage, string> = {
     scoring_sharpness: 'Checking sharpness…',
@@ -1629,6 +1729,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // seconds — no manual questionnaire gates the scan itself.
   async function submit(shotToSubmit: typeof shot) {
     if (!shotToSubmit) return;
+    scanCancelledRef.current = false;
     setStep('analyzing');
     setError(null);
     setErrorKind(null);
@@ -1693,6 +1794,12 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       let consecutivePollFailures = 0;
       let deadlinePassed = false;
       for (;;) {
+        // Checked at the top of every iteration (and after every await
+        // below): the user has closed the screen, so there is nobody left
+        // to show a result or an error to. The job itself keeps running
+        // server-side and lands in their scan history — that's what the
+        // Cancel copy promises.
+        if (scanCancelledRef.current) return;
         if (Date.now() >= deadline) {
           // One last look before giving up: the job may well have finished
           // in the gap since the previous poll, and a finished scan is
@@ -1725,12 +1832,14 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
           consecutivePollFailures++;
           if (consecutivePollFailures >= 4) throw pollErr;
           await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+          if (scanCancelledRef.current) return;
           continue;
         }
         if (poll.status === 'processing') {
           lastStage = poll.stage;
           setScanStage(poll.stage);
         } else if (poll.status === 'done') {
+          if (scanCancelledRef.current) return;
           reset();
           onComplete(poll.scan, poll.bookCategory, poll.isNewProfile);
           return;
@@ -1745,6 +1854,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
           throw e;
         }
         await new Promise((r) => setTimeout(r, POLL_INTERVAL_MS));
+        if (scanCancelledRef.current) return;
       }
     } catch (err: any) {
       // The raw err.message is ALWAYS logged (for debugging/crash
@@ -1763,6 +1873,10 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
         totalSec: Math.round((Date.now() - submitStartedAt) / 100) / 10,
         lastStage,
       });
+      // A cancelled scan is not a failed one. Without this, closing the
+      // screen mid-scan re-opens it moments later on the error state,
+      // which is exactly the "stuck in a loop" shape this is fixing.
+      if (scanCancelledRef.current) return;
       const { kind, message } = classifyScanError(err);
       setErrorKind(kind);
       setError(message);
@@ -2366,6 +2480,32 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
 
         {step === 'camera' && hasPermission && device != null && (
           <>
+            {/* Screen fill light — see fillLightActive. Four OPAQUE white
+                bands framing a clear window around ringBox, so the live
+                feed is never drawn over: the artifact-free replacement for
+                the removed radial-gradient scrim (see ringGeometry's
+                comment for that history). The window tracks the real
+                detected face once there is one, and falls back to the
+                guide oval before that, same as the bracket. Padded out
+                ~14% so the bands never crowd the framing the user is
+                actually trying to hit. */}
+            {fillLightActive && (() => {
+              const padX = ringBox.width * 0.14;
+              const padY = ringBox.height * 0.10;
+              const wLeft = Math.max(0, ringBox.left - padX);
+              const wTop = Math.max(0, ringBox.top - padY);
+              const wRight = Math.min(winW, ringBox.left + ringBox.width + padX);
+              const wBottom = Math.min(winH, ringBox.top + ringBox.height + padY);
+              return (
+                <View pointerEvents="none" style={StyleSheet.absoluteFill}>
+                  <View style={[styles.fillLightBand, { left: 0, right: 0, top: 0, height: wTop }]} />
+                  <View style={[styles.fillLightBand, { left: 0, right: 0, top: wBottom, height: Math.max(0, winH - wBottom) }]} />
+                  <View style={[styles.fillLightBand, { left: 0, width: wLeft, top: wTop, height: Math.max(0, wBottom - wTop) }]} />
+                  <View style={[styles.fillLightBand, { left: wRight, width: Math.max(0, winW - wRight), top: wTop, height: Math.max(0, wBottom - wTop) }]} />
+                </View>
+              );
+            })()}
+
             {/* No mask/scrim over the live feed at all anymore — see
                 ringGeometry's own comment for why (three rounds of visible
                 artifacts from that approach, the last one a real piece of
@@ -2728,6 +2868,22 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
             {scanStage === 'analyzing' && analyzingElapsedSec >= 12 && (
               <Text style={styles.analyzingStillWorking}>Still working — a thorough read can take up to a minute ({analyzingElapsedSec}s)…</Text>
             )}
+            {/* The only way off this screen. It had none: the header close
+                button is rendered inside the step === 'camera' block, and
+                iOS has no hardware back for the Modal's onRequestClose to
+                fire — so a scan that ran long (or hung) held the user here
+                with nothing to press, reported as "I can't get out while
+                it's scanning".
+
+                Worded as "Run in the background", not "Cancel", because
+                that is what actually happens: the job was already accepted
+                server-side and keeps going: it lands in the scan history
+                whether or not this screen is still open. Nothing is thrown
+                away by pressing it. */}
+            <Pressable onPress={handleClose} style={styles.analyzingCancelBtn} hitSlop={12}>
+              <Text style={styles.analyzingCancelText}>Run in the background</Text>
+            </Pressable>
+            <Text style={styles.analyzingCancelHint}>Your scan keeps processing — it'll appear in My Space when it's done.</Text>
           </View>
         )}
       </View>
@@ -2740,6 +2896,19 @@ const OVAL_H = 280;
 
 const styles = StyleSheet.create({
   root: { flex: 1, backgroundColor: '#000' },
+  // Pure opaque white, no alpha: this is a LIGHT SOURCE, not a tint. Any
+  // transparency here both cuts the light output and re-introduces the
+  // compositing artifacts the old gradient scrim caused.
+  fillLightBand: { position: 'absolute', backgroundColor: '#fff' },
+  analyzingCancelBtn: {
+    marginTop: 28, paddingHorizontal: 22, paddingVertical: 11, borderRadius: 22,
+    borderWidth: 1, borderColor: 'rgba(255,255,255,0.28)',
+  },
+  analyzingCancelText: { color: '#fff', fontSize: 14, fontFamily: Fonts.semibold },
+  analyzingCancelHint: {
+    color: 'rgba(255,255,255,0.55)', fontSize: 12, fontFamily: Fonts.regular,
+    textAlign: 'center', marginTop: 10, paddingHorizontal: 40, lineHeight: 17,
+  },
   // left/top/width/height come from ringBox at the call site (liveBox once
   // tracking, otherwise the fixed guide-oval size from ringGeometry) —
   // position: 'absolute' is the only fixed part here.
