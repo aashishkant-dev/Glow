@@ -1483,13 +1483,65 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       // re-detection ON that aligned photo, never the original's.
       const finalFaceLandmarks = alignedResult ? alignedResult.faceLandmarks : faceLandmarks;
       const finalSkinMask = alignedResult ? null : originalSkinMask;
-      const finalBurstCandidates = alignedResult?.burstCandidates ?? await Promise.all(frameUris.slice(1).map(uploadBase64));
+      // ── Pick the sharpest frame HERE, and upload only that one ──────────
+      //
+      // This used to upload the primary frame PLUS every other burst frame
+      // and let the backend score them and analyse the sharpest. Correct, and
+      // far too expensive: production logs showed `POST /skin/scan` returning
+      // its 202 after 56,417ms. That 202 is sent immediately after cheap
+      // validation, BEFORE any analysis — so almost all of that was the
+      // request body still arriving. Four ~250KB base64 images over mobile
+      // data is roughly a megabyte, and at the ~150kbps that implies it sits
+      // right on the client's 70s timeout. That is the "connection error",
+      // and it is a payload problem, not a server problem.
+      //
+      // Selecting on-device keeps the benefit of the burst (it still guards
+      // against one motion-blurred frame) while uploading a quarter of the
+      // bytes.
+      //
+      // The metric is deliberately a PROXY, and worth being straight about:
+      // the backend scores real Laplacian sharpness, which needs the pixels —
+      // which is exactly the upload being avoided. Instead this compares the
+      // encoded size of frames that have already been through IDENTICAL
+      // resize and JPEG quality (uploadBase64 → downscaleForUpload, same
+      // params for every frame). At a fixed quality a blurrier image has less
+      // high-frequency content and encodes smaller, so among frames of the
+      // SAME scene from one sub-second locked burst, the largest is the
+      // sharpest. That reasoning does not hold across different scenes or
+      // different encoder settings — neither of which applies here.
+      //
+      // Uses base64 already computed and memoised by uploadBase64, so this
+      // costs no extra encoding work.
+      let finalBase64ToSend = finalBase64;
+      let sharpestNote = 'primary';
+      if (!alignedResult) {
+        try {
+          const encoded = await Promise.all(frameUris.map(async (u, i) => ({ i, b64: await uploadBase64(u) })));
+          const best = encoded.reduce((a, b) => (b.b64.length > a.b64.length ? b : a), encoded[0]);
+          if (best && best.b64.length > finalBase64ToSend.length) {
+            finalBase64ToSend = best.b64;
+            sharpestNote = `burst[${best.i}]`;
+          }
+        } catch (err) {
+          // Falls back to the primary frame, which is a perfectly good photo
+          // captured first under the same AE/AF/AWB lock — never to uploading
+          // everything again, since that is the failure being fixed.
+          console.warn('[SkinScanCamera] on-device sharpness pick failed, sending the primary frame', err instanceof Error ? err.message : err);
+        }
+      }
+      if (__DEV__) console.log(`[SkinScanCamera] uploading 1 frame (${sharpestNote}) instead of ${frameUris.length}`);
+      // Always empty now: the sharpest frame IS the photo being sent, so
+      // there is nothing left for the backend to choose between. The backend
+      // treats an absent burstCandidates as the normal single-frame case it
+      // has always supported (see runScanPipeline), so this needs no server
+      // change and older servers keep working.
+      const finalBurstCandidates: string[] = [];
       // alignedResult is only ever set inside the `!noFaceDetected` branch
       // above, so noFaceDetected itself already reflects the right value in
       // both the aligned and fallback cases — no separate "final" variant
       // needed here.
 
-      const newShot = { uri: finalUri, base64: finalBase64, mimeType: 'image/jpeg', faceRegion: finalFaceRegion, zoneMarkers: finalZoneMarkers, faceLandmarks: finalFaceLandmarks, skinMask: finalSkinMask, burstCandidates: finalBurstCandidates, aligned: !!alignedResult };
+      const newShot = { uri: finalUri, base64: finalBase64ToSend, mimeType: 'image/jpeg', faceRegion: finalFaceRegion, zoneMarkers: finalZoneMarkers, faceLandmarks: finalFaceLandmarks, skinMask: finalSkinMask, burstCandidates: finalBurstCandidates, aligned: !!alignedResult };
       setShot(newShot);
       setNoFaceWarning(noFaceDetected);
       setDetectingFace(false);
