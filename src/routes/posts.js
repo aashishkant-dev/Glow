@@ -83,7 +83,9 @@ router.post(
       } else {
         let buf = Buffer.from(photoBase64, 'base64');
         try {
-          let img = sharp(buf).resize(1080, 1350, { fit: 'inside', withoutEnlargement: true });
+          // See the note in routes/documents.js compressImage() on why
+          // .rotate() must precede .resize() here.
+          let img = sharp(buf).rotate().resize(1080, 1350, { fit: 'inside', withoutEnlargement: true });
           img = PHOTO_FILTERS[filter || 'original'](img);
           buf = await img.jpeg({ quality: 80 }).toBuffer();
         } catch {}

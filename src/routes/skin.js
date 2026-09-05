@@ -294,7 +294,10 @@ async function fetchImageBase64(url) {
     // the prompt in geminiSkinAnalysis.js). Downsized here, once, right
     // after fetching — smaller upload to Gemini and fewer image tokens for
     // it to process, on every reference photo, every future scan.
-    const resized = await sharp(buf).resize(640, 640, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
+    // .rotate() for the same reason the main pipeline uses it at the base
+    // sharp() below: a reference photo fed to the model sideways is a
+    // reference photo the model compares against wrongly.
+    const resized = await sharp(buf).rotate().resize(640, 640, { fit: 'inside', withoutEnlargement: true }).jpeg({ quality: 80 }).toBuffer();
     return resized.toString('base64');
   } finally {
     clearTimeout(timeout);

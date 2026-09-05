@@ -1655,7 +1655,10 @@ router.post(
       // Compress to max 800×800 JPEG at 80% quality before uploading
       let buf = Buffer.from(photoBase64, 'base64');
       try {
+        // See the note in routes/documents.js compressImage() on why
+        // .rotate() must precede .resize() here.
         buf = await sharp(buf)
+          .rotate()
           .resize(800, 800, { fit: 'inside', withoutEnlargement: true })
           .jpeg({ quality: 80 })
           .toBuffer();

@@ -14,6 +14,15 @@ async function compressImage(buffer, mimeType) {
   if (!mimeType || !mimeType.startsWith('image/')) return buffer;
   try {
     return await sharp(buffer)
+      // .rotate() with no argument applies the EXIF orientation tag and then
+      // clears it. Without it sharp resizes the RAW pixel buffer and the
+      // re-encode drops the tag (sharp strips metadata unless asked not to),
+      // so a portrait phone photo is stored as sideways pixels with nothing
+      // left to say so — which is why some uploads appeared landscape, some
+      // upright and some upside-down depending on how the phone was held.
+      // Must come BEFORE resize: the fit box is applied to whatever
+      // orientation the pixels are in at that moment.
+      .rotate()
       .resize(1920, 1920, { fit: 'inside', withoutEnlargement: true })
       .jpeg({ quality: 70 })
       .toBuffer();

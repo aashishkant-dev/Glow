@@ -16,7 +16,7 @@
  * (`scan.heatmaps` null) shows no tabs at all — Summary only — rather than
  * four tabs that can only ever say "not assessed."
  */
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Alert, Modal, Pressable, ScrollView, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
@@ -202,6 +202,27 @@ export function SkinScanResultScreen() {
   // way activeTab changes, so this can't be reintroduced by a future call
   // site forgetting to scroll back up.
   const scrollRef = useRef<ScrollView>(null);
+  // "View Recommendations" used to just call selectTab('summary'), and
+  // selectTab scrolls to y:0 — so it switched tabs and landed the user at the
+  // TOP of the page, which is the full-bleed photo. The recommendations are
+  // most of a screen further down, so the button read as "opens a picture".
+  //
+  // Scrolling needs the recommendations' offset within the SCROLL CONTENT,
+  // and onLayout only reports y relative to the immediate parent — so the
+  // body container's own offset is tracked too and the two are summed.
+  //
+  // It also cannot scroll at press time: switching to Summary renders a
+  // different set of sections, so any offset measured before that is stale.
+  // The press arms a flag instead, and the scroll happens from onLayout once
+  // the new content has actually been laid out.
+  const bodyY = useRef(0);
+  const recsY = useRef(0);
+  const pendingScrollToRecs = useRef(false);
+  const scrollToRecs = useCallback(() => {
+    pendingScrollToRecs.current = false;
+    // A little headroom so the heading isn't flush against the top edge.
+    scrollRef.current?.scrollTo({ y: Math.max(0, bodyY.current + recsY.current - 12), animated: true });
+  }, []);
   // Tap-to-highlight: which zone (e.g. 'forehead') is currently spotlighted
   // on the active concern's overlay — null means show the full, undimmed
   // overlay (the default). Cleared on every tab switch since a zone
@@ -458,13 +479,19 @@ export function SkinScanResultScreen() {
           <ConcernDetailCard
             concernKey={activeTab}
             concern={scan.heatmaps?.[activeTab]}
-            onViewRecommendations={() => selectTab('summary')}
+            onViewRecommendations={() => {
+              pendingScrollToRecs.current = true;
+              selectTab('summary');
+            }}
             highlightedZone={highlightedZone}
             onSelectZone={selectZone}
           />
         )}
 
-        <View style={[styles.body, activeTab !== 'summary' && styles.bodyNoTop]}>
+        <View
+          style={[styles.body, activeTab !== 'summary' && styles.bodyNoTop]}
+          onLayout={(e) => { bodyY.current = e.nativeEvent.layout.y; }}
+        >
           {activeTab === 'summary' && (
             <>
               {/* Shown on every scan now — there's no other tier since Perfect
@@ -610,7 +637,18 @@ export function SkinScanResultScreen() {
             </Pressable>
           )}
 
-          <Text style={styles.sectionTitle}>Recommended for you</Text>
+          <Text
+            style={styles.sectionTitle}
+            onLayout={(e) => {
+              recsY.current = e.nativeEvent.layout.y;
+              // Completing the scroll HERE, not in the press handler, is the
+              // point: this fires after the Summary tab's content exists, so
+              // the offset is the real one rather than the previous tab's.
+              if (pendingScrollToRecs.current) scrollToRecs();
+            }}
+          >
+            Recommended for you
+          </Text>
           {scan.recommendations.map((r, i) => (
             <View key={i} style={styles.recCard}>
               <View style={styles.recCategoryPill}><Text style={styles.recCategoryText}>{r.category}</Text></View>
