@@ -10,12 +10,13 @@
 //   - scan B (older, photoAligned=false): minimal scan, no heatmaps needed
 //     — exists purely to confirm MySpaceScreen's history rail renders the
 //     quiet corner-dot badge for it and NOT for scan A.
-process.env.DATABASE_URL = 'postgresql://aassh:glow_local@localhost:5433/glow';
+const { jwtSecret, useDatabase } = require('./_env');
+useDatabase();
 const prisma = require('../src/lib/prisma');
 const jwt = require('../node_modules/jsonwebtoken');
 const { CONCERN_CONTENT, severityBand, buildVerdict } = require('../src/utils/skinConcernContent');
 
-const JWT_SECRET = 'd3f1cd3f5e168f66b100f5ef91b45b06aaa386b72d9bcbb428ba83d163252497';
+const JWT_SECRET = jwtSecret();
 const PHOTO_URL = 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=1080&h=1350&fit=crop&q=80';
 
 function record(key, confidenceLevel) {

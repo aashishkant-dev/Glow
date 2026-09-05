@@ -1,11 +1,12 @@
 // Verifies the "an artist can also book as a client" backend changes against
 // the LOCAL running API (:3000) + local postgres (:5433), the same harness
 // pattern as seed_scan.js. Run: node e2e/verify_artist_books_as_client.js
-process.env.DATABASE_URL = 'postgresql://aassh:glow_local@localhost:5433/glow';
+const { jwtSecret, useDatabase } = require('./_env');
+useDatabase();
 const prisma = require('../src/lib/prisma');
 const jwt = require('../node_modules/jsonwebtoken');
 
-const JWT_SECRET = 'd3f1cd3f5e168f66b100f5ef91b45b06aaa386b72d9bcbb428ba83d163252497';
+const JWT_SECRET = jwtSecret();
 const BASE = 'http://localhost:3000';
 
 let pass = 0, fail = 0;

@@ -2,11 +2,12 @@
 // render ON the photo in each concern tab AND inside the pinch-zoom
 // magnifier — against a REAL scan produced by the real pipeline (real
 // heatmap PNGs in blob storage), not seeded placeholder URLs.
+const { jwtSecret, useDatabase } = require('./_env');
 const { chromium, devices } = require('playwright-core');
 const jwt = require('../node_modules/jsonwebtoken');
-process.env.DATABASE_URL = 'postgresql://aassh:glow_local@localhost:5433/glow';
+useDatabase();
 const prisma = require('../src/lib/prisma');
-const JWT_SECRET = 'd3f1cd3f5e168f66b100f5ef91b45b06aaa386b72d9bcbb428ba83d163252497';
+const JWT_SECRET = jwtSecret();
 const SCAN_ID = 'cmtjk3osq00017kftggqwddab';
 
 (async () => {

@@ -13,14 +13,15 @@
 //      right message via polling, not a direct HTTP 400 — since by the time
 //      that failure is discovered, the initial POST has already returned.
 'use strict';
+const { jwtSecret, useDatabase } = require('./_env');
 const jwt = require('../node_modules/jsonwebtoken');
 const sharp = require('../node_modules/sharp');
 
-const JWT_SECRET = 'd3f1cd3f5e168f66b100f5ef91b45b06aaa386b72d9bcbb428ba83d163252497';
+const JWT_SECRET = jwtSecret();
 const BASE = 'http://localhost:3000';
 const PHOTO_URL = 'https://images.unsplash.com/photo-1544005313-94ddf0286df2?w=1080&h=1350&fit=crop&q=80';
 
-process.env.DATABASE_URL = 'postgresql://aassh:glow_local@localhost:5433/glow';
+useDatabase();
 const prisma = require('../src/lib/prisma');
 
 async function ensureUser(phone, name) {
