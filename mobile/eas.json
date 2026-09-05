@@ -13,7 +13,8 @@
         "EXPO_PUBLIC_API_URL": "http://localhost:3000",
         "EXPO_PUBLIC_GOOGLE_CLIENT_ID_IOS": "692646116677-fpsjp4gudalbb0r75db4g1hrb4qjh4rc.apps.googleusercontent.com",
         "EXPO_PUBLIC_GOOGLE_CLIENT_ID_ANDROID": "692646116677-2rvsg7aaacb0dno6k7e9cnp0pe7nd2qq.apps.googleusercontent.com",
-        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB": "692646116677-9pen2tuj90hbjgei07l5q40qd27hja79.apps.googleusercontent.com"
+        "EXPO_PUBLIC_GOOGLE_CLIENT_ID_WEB": "692646116677-9pen2tuj90hbjgei07l5q40qd27hja79.apps.googleusercontent.com",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       },
       "android": {
         "buildType": "apk"
@@ -33,7 +34,8 @@
         "EXPO_PUBLIC_REGION_NAME": "Kathmandu, Nepal",
         "EXPO_PUBLIC_REGION_LAT": "27.7172",
         "EXPO_PUBLIC_REGION_LNG": "85.3240",
-        "EXPO_PUBLIC_REGION_COUNTRY": "NP"
+        "EXPO_PUBLIC_REGION_COUNTRY": "NP",
+        "SENTRY_DISABLE_AUTO_UPLOAD": "true"
       },
       "android": {
         "buildType": "apk"
