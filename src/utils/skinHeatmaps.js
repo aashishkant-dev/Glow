@@ -1366,6 +1366,7 @@ const OVERLAY_STYLE = {
 // as creases. The fix belongs in the mask, alongside the hair-bleed work,
 // not here.
 const LINE_GATE = 0.2;
+const LINE_SKIN_GATE = 0.55;
 
 function renderTracedLinesRgba(width, height, alpha, mask, gx, gy, colorRgb) {
   const MAX_ALPHA = 200;
@@ -1373,7 +1374,21 @@ function renderTracedLinesRgba(width, height, alpha, mask, gx, gy, colorRgb) {
   for (let y = 1; y < height - 1; y++) {
     for (let x = 1; x < width - 1; x++) {
       const i = y * width + x;
-      if (mask[i] <= 0.15 || alpha[i] <= LINE_GATE) continue;
+      // A stricter mask gate than every other concern uses (0.15), and for a
+      // specific reason. The extent filter below keeps long thin connected
+      // structures — and hair is the most perfectly line-shaped thing on a
+      // face, so eyebrow and sideburn hair is exactly what a crease detector
+      // over-keeps once texture noise is gone. Verified by rendering: with
+      // the 0.15 gate the surviving traces sat on brows and sideburns while
+      // the forehead, correctly, had almost none.
+      //
+      // mask already carries the skin-likelihood weights (see skinLikelihood),
+      // so hair is partially attenuated here rather than absent — 0.15 let
+      // half-rejected hair straight through. Requiring a crease to sit on
+      // confidently-skin pixels is the honest bar: a real forehead line is
+      // on skin by definition, and refusing to trace a line we are not sure
+      // is skin costs a marginal detection rather than inventing a wrinkle.
+      if (mask[i] <= LINE_SKIN_GATE || alpha[i] <= LINE_GATE) continue;
       // Step one pixel along the gradient (perpendicular to the crease) in
       // both directions and keep only a local maximum — the crest itself.
       const g = Math.hypot(gx[i], gy[i]);
@@ -1385,17 +1400,78 @@ function renderTracedLinesRgba(width, height, alpha, mask, gx, gy, colorRgb) {
       if (alpha[i] >= a1 && alpha[i] >= a2) keep[i] = alpha[i];
     }
   }
+  // Keep only ridge crests that form a real, extended CREASE, and discard
+  // isolated crest pixels.
+  //
+  // This is the difference between marking wrinkles and shading the face.
+  // Non-max suppression above answers "is this pixel a ridge crest", and on
+  // any textured skin an enormous number of pixels are — pores, stubble,
+  // fine surface texture and sensor noise all produce local ridges. Measured
+  // on a real face, that alone painted 45% of the assessed area at band
+  // 'mild'; sweeping the strength gate could not fix it (0.65 still left
+  // 24.7%) because the strength of a texture ridge and a real crease overlap.
+  //
+  // What actually separates them is EXTENT. A forehead line is a long, thin,
+  // connected structure; skin texture is a scatter of short isolated blobs.
+  // So components are traced and filtered on span and elongation instead of
+  // on strength. The reference implementation this was compared against marks
+  // roughly six discrete segments on a forehead — that is the target shape,
+  // not a smaller number pulled from nowhere.
+  //
+  // Deliberately 8-connected and local, rather than reusing connectedComponents
+  // above: that helper is 4-connected, which fragments a diagonal crease into
+  // one component per pixel and would delete exactly the lines this is trying
+  // to keep. It is also shared with the blemish/dark-spot detectors, whose
+  // round blobs genuinely want 4-connectivity, so widening it there would
+  // silently change their results too.
+  const MIN_SPAN_FRAC = 0.035;   // of the shorter image side
+  const MIN_ELONGATION = 2.0;    // longest bbox side / shortest
+  const minSpan = Math.max(8, Math.round(Math.min(width, height) * MIN_SPAN_FRAC));
+  const label = new Int32Array(width * height);
+  const traced = new Float32Array(width * height);
+  const stack = [];
+  let nextId = 1;
+  for (let s0 = 0; s0 < keep.length; s0++) {
+    if (keep[s0] <= 0 || label[s0]) continue;
+    const id = nextId++;
+    const pix = [];
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    stack.push(s0); label[s0] = id;
+    while (stack.length) {
+      const i = stack.pop();
+      pix.push(i);
+      const x = i % width, y = (i - x) / width;
+      if (x < minX) minX = x; if (x > maxX) maxX = x;
+      if (y < minY) minY = y; if (y > maxY) maxY = y;
+      for (let dy = -1; dy <= 1; dy++) {
+        for (let dx = -1; dx <= 1; dx++) {
+          if (!dx && !dy) continue;
+          const nx = x + dx, ny = y + dy;
+          if (nx < 0 || ny < 0 || nx >= width || ny >= height) continue;
+          const j = ny * width + nx;
+          if (label[j] || keep[j] <= 0) continue;
+          label[j] = id; stack.push(j);
+        }
+      }
+    }
+    const bw = maxX - minX + 1, bh = maxY - minY + 1;
+    const span = Math.hypot(bw, bh);
+    const elongation = Math.max(bw, bh) / Math.max(1, Math.min(bw, bh));
+    if (span < minSpan || elongation < MIN_ELONGATION) continue;
+    for (const i of pix) traced[i] = keep[i];
+  }
+
   const out = Buffer.alloc(width * height * 4);
   for (let y = 0; y < height; y++) {
     for (let x = 0; x < width; x++) {
       const i = y * width + x;
       // 1px dilation: a crest pixel paints itself and its 4-neighbours, so
       // the trace survives the downscale to screen size.
-      let v = keep[i];
-      if (x > 0) v = Math.max(v, keep[i - 1] * 0.75);
-      if (x < width - 1) v = Math.max(v, keep[i + 1] * 0.75);
-      if (y > 0) v = Math.max(v, keep[i - width] * 0.75);
-      if (y < height - 1) v = Math.max(v, keep[i + width] * 0.75);
+      let v = traced[i];
+      if (x > 0) v = Math.max(v, traced[i - 1] * 0.75);
+      if (x < width - 1) v = Math.max(v, traced[i + 1] * 0.75);
+      if (y > 0) v = Math.max(v, traced[i - width] * 0.75);
+      if (y < height - 1) v = Math.max(v, traced[i + width] * 0.75);
       const o = i * 4;
       out[o] = colorRgb[0];
       out[o + 1] = colorRgb[1];
