@@ -144,6 +144,11 @@ function initSocket(httpServer) {
           notify({
             userId:    recipientId,
             type:      'message',
+            // Which side of the booking the RECIPIENT is on, so the bell's
+            // perspective filter can place it. Missed when audience was added
+            // to every other notify() call site — messages are the one path
+            // that lives in socket.js rather than the routes.
+            audience:  recipientId === booking.customerId ? 'CLIENT' : 'ARTIST',
             title:     `💬 ${msg.senderName}`,
             body:      msg.text.slice(0, 100),
             bookingId,

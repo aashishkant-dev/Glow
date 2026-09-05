@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useState } fr
 import { Storage, StoredUser } from '../utils/storage';
 import { connectSocket, disconnectSocket } from '../utils/socket';
 import { initNotifications, addPushTokenRefreshListener } from '../utils/notifications';
-import { registerUnauthorizedHandler } from '../api/client';
+import { registerUnauthorizedHandler, apiSavePushToken } from '../api/client';
 import { setCurrencyCodeForPhone, setCurrencyCodeFromDeviceLocale, resetCurrencyCode, subscribeCurrencyChange } from '../utils/region';
 
 interface AuthState {
@@ -60,6 +60,16 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const signOut = useCallback(async () => {
+    // Release this device's push token BEFORE the auth token is cleared —
+    // the request needs it. Otherwise the signed-out account keeps the token
+    // and keeps receiving pushes on a phone that now belongs to whoever signs
+    // in next, which is how a sender ended up getting their own message
+    // notification on a shared test device.
+    //
+    // Best-effort and never blocking: sign-out must always succeed, offline
+    // or not. The server-side steal-on-register (PATCH /profile/push-token)
+    // is the backstop that repairs it on the next login regardless.
+    await apiSavePushToken('').catch(() => {});
     disconnectSocket();
     await Storage.clearAuth();
     await Storage.clearDocuments();

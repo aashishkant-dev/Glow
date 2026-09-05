@@ -1701,10 +1701,41 @@ router.patch(
   async (req, res) => {
     try {
       const { pushToken } = req.body;
-      if (!pushToken || typeof pushToken !== 'string') {
+      if (typeof pushToken !== 'string') {
         return res.status(400).json({ error: 'pushToken is required' });
       }
-      await prisma.user.update({ where: { id: req.user.id }, data: { expoPushToken: pushToken } });
+
+      // An empty string is a deliberate CLEAR, sent on sign-out. Without it a
+      // signed-out account kept its token forever (see below for why that
+      // misroutes notifications), and the only way it ever changed was another
+      // login on the same device happening to overwrite it.
+      if (!pushToken) {
+        await prisma.user.update({ where: { id: req.user.id }, data: { expoPushToken: '' } });
+        return res.json({ message: 'Push token cleared' });
+      }
+
+      // A push token identifies a DEVICE, not an account, so at most one user
+      // may hold it — otherwise a notification for the previous owner is
+      // delivered to whoever is signed in now.
+      //
+      // That is a real, reported bug and not a theoretical one: on a single
+      // test device, signing in as the artist saved the token to the artist,
+      // then signing in as the client saved the SAME token to the client while
+      // the artist's record still held it. Every message the client then sent
+      // to the artist pushed to that token — i.e. straight back to the phone
+      // the sender was holding, which reads exactly as "I sent a message and I
+      // got the notification".
+      //
+      // Stealing the token from any other account here (rather than only
+      // clearing on sign-out) makes this self-healing: it also covers a crash,
+      // an app reinstall, or a sign-out that never reached the server.
+      await prisma.$transaction([
+        prisma.user.updateMany({
+          where: { expoPushToken: pushToken, id: { not: req.user.id } },
+          data: { expoPushToken: '' },
+        }),
+        prisma.user.update({ where: { id: req.user.id }, data: { expoPushToken: pushToken } }),
+      ]);
       res.json({ message: 'Push token saved' });
     } catch (err) {
       console.error(err);
