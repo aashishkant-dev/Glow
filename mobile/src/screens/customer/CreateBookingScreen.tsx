@@ -1358,6 +1358,9 @@ export function CreateBookingScreen() {
   // the device's actual location — used for the map's "You" pin so we never
   // drop a fake marker on a default city.
   const coords = useCoordsOrFallback();
+  // See the nearby-provider effect below for why this exists rather than
+  // depending on the `coords` object (a new identity on every update).
+  const coordsKey = `${coords.lat.toFixed(3)},${coords.lng.toFixed(3)}`;
   const { coords: realCoords, requestLocation } = useLocation();
   const route  = useRoute<any>();
   const { user } = useAuth();
@@ -1758,7 +1761,17 @@ export function CreateBookingScreen() {
         setProviders(sorted);
       }
     }).finally(() => setLoadingProviders(false));
-  }, [step, hasPreselectedProvider]);
+    // coordsKey, not `coords` itself: this effect calls apiNearbyProviders
+    // with the coordinates, and a GPS fix almost never exists at mount — it
+    // arrives a second or two later. Without a dependency on it, the whole
+    // artist list was fetched exactly once, against the fallback region
+    // centre, and the real fix was never used: every distanceKm came back
+    // undefined, so the "nearest first" ordering was arbitrary and the Near
+    // Me map had no user position to centre on. Keyed to 3 decimal places
+    // (~100m) so ordinary GPS jitter while standing still doesn't refetch
+    // the list on every update.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, hasPreselectedProvider, coordsKey]);
 
   function toggleDate(d: Date) {
     if (d < minSelectDate || d > maxSelectDate) return;

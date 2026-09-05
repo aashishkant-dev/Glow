@@ -548,6 +548,86 @@ async function downscaleForUpload(uri: string, width: number, height: number): P
   }
 }
 
+// Crops a captured frame down to the face before it is downscaled for
+// upload — the fallback path's answer to the same problem raising
+// ALIGN_OUTPUT_WIDTH solves for the aligned path (see skinZones.ts for the
+// measured numbers behind both).
+//
+// The backend analyses whatever it is sent at up to 1080x1350. Sending the
+// WHOLE frame at that size spends most of those pixels on a wall, a
+// ceiling and a shoulder, and leaves the face — the only part being
+// analysed — rendered around 500px tall. At that size the blemish detector
+// finds literally nothing, because a blemish is a couple of pixels across
+// and its difference-of-Gaussians has nothing to separate. Cropping to the
+// face first spends the same bytes on skin instead of background.
+//
+// `region` is the expanded "beauty crop" box detectFaceRegion already
+// returns (forehead to jaw plus temple margin), as fractions. This adds a
+// further margin, squares the result to the 4:5 the backend targets so its
+// own resize is a straight scale rather than a re-crop, and clamps to the
+// image. Never enlarges: if the crop is smaller than the target, the real
+// pixels are kept rather than interpolating fake ones.
+//
+// Returns null on any failure, and the caller then uses the uncropped frame
+// exactly as before.
+const FACE_CROP_MARGIN = 0.12;
+const FACE_CROP_ASPECT = UPLOAD_MAX_WIDTH / UPLOAD_MAX_HEIGHT;
+async function cropToFaceForUpload(
+  uri: string,
+  width: number,
+  height: number,
+  region: FaceRegion,
+): Promise<{ uri: string; width: number; height: number; base64: string } | null> {
+  try {
+    if (!width || !height) return null;
+    let x = region.x * width;
+    let y = region.y * height;
+    let w = region.width * width;
+    let h = region.height * height;
+    if (!(w > 0) || !(h > 0)) return null;
+
+    const mx = w * FACE_CROP_MARGIN;
+    const my = h * FACE_CROP_MARGIN;
+    x -= mx; y -= my; w += 2 * mx; h += 2 * my;
+
+    // Grow (never shrink) to the target aspect, so nothing already inside
+    // the box is cropped back out to make the shape fit.
+    if (w / h > FACE_CROP_ASPECT) {
+      const targetH = w / FACE_CROP_ASPECT;
+      y -= (targetH - h) / 2; h = targetH;
+    } else {
+      const targetW = h * FACE_CROP_ASPECT;
+      x -= (targetW - w) / 2; w = targetW;
+    }
+
+    // Clamp inside the image. Shrinking to fit is fine — the aspect drifts
+    // slightly and the backend's own fit:'inside' resize absorbs that.
+    w = Math.min(w, width); h = Math.min(h, height);
+    x = Math.min(Math.max(x, 0), width - w);
+    y = Math.min(Math.max(y, 0), height - h);
+
+    const originX = Math.round(x), originY = Math.round(y);
+    const cropW = Math.round(w), cropH = Math.round(h);
+    if (cropW < 8 || cropH < 8) return null;
+
+    // Nothing to gain from cropping a face that already fills the frame;
+    // the extra encode would be pure cost.
+    if (cropW >= width * 0.94 && cropH >= height * 0.94) return null;
+
+    const outW = Math.min(UPLOAD_MAX_WIDTH, cropW);
+    const out = await ImageManipulator.manipulateAsync(
+      uri,
+      [{ crop: { originX, originY, width: cropW, height: cropH } }, { resize: { width: outW } }],
+      { compress: 0.92, format: ImageManipulator.SaveFormat.JPEG, base64: true }
+    );
+    if (!out.base64 || !out.width || !out.height) return null;
+    return { uri: out.uri, width: out.width, height: out.height, base64: stripDataUrlPrefix(out.base64) };
+  } catch (err) {
+    console.warn('[SkinScanCamera] face crop failed, uploading the full frame instead', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 // Cheap sharpness proxy for picking the best frame of a burst.
 //
 // Same reasoning as the full-size comparison it replaces (identical resize
@@ -1563,7 +1643,9 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       // has a proven, graceful fallback to ellipse-only occlusion handling
       // for exactly this "no mask" case, so this costs some occlusion
       // precision on an aligned scan, never correctness.
-      const finalUri = alignedResult?.uri ?? uri;
+      // Set after the crop below, so the review thumbnail is the photo that
+      // was actually analysed.
+      let finalUri = alignedResult?.uri ?? uri;
       // ── Pick the sharpest frame BEFORE encoding it ──────────────────────
       //
       // Only one frame is ever uploaded (see the note below on the 56s
@@ -1584,13 +1666,63 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
           sharpestNote = `burst[${best.i}]`;
         }
       }
-      const finalBase64 = alignedResult?.base64 ?? await uploadBase64(frameUris[chosenFrameIdx]);
-      const finalFaceRegion = alignedResult?.faceRegion ?? faceRegion;
-      const finalZoneMarkers = alignedResult?.zoneMarkers ?? zoneMarkers;
+      // ── Face crop, fallback path only ───────────────────────────────────
+      //
+      // The aligned path already produces a face-framed canvas at the
+      // pipeline's full resolution (see ALIGN_OUTPUT_WIDTH). When alignment
+      // bails, the whole frame used to be uploaded instead, which spends
+      // most of a 1080x1350 budget on background and leaves the face far
+      // too small for the finer detectors to see anything at all.
+      //
+      // Re-detects on the CROPPED image rather than rescaling the original
+      // coordinates by hand — the same shape the alignment path already
+      // uses, and the reason is the same: every coordinate the backend
+      // receives (faceRegion, zoneMarkers, faceLandmarks) is a fraction of
+      // the photo actually uploaded, so deriving them FROM that photo makes
+      // a whole class of silent misalignment impossible. If the re-detect
+      // comes back empty the crop is discarded entirely and the full frame
+      // goes up as before, rather than shipping a crop with the original's
+      // coordinates stapled to it.
+      let croppedResult: {
+        uri: string; base64: string;
+        faceRegion: FaceRegion | null;
+        zoneMarkers: StoredZoneMarkers | null;
+        faceLandmarks: FaceLandmarkPayload | null;
+      } | null = null;
+      if (!alignedResult && faceRegion) {
+        const crop = await cropToFaceForUpload(frameUris[chosenFrameIdx], imgWidth, imgHeight, faceRegion);
+        if (crop) {
+          const redetected = detectFaceRegion(contourFaceDetector, landmarkFaceDetector, crop.uri, crop.width, crop.height, primaryMirrored);
+          if (redetected.noFaceDetected || !redetected.faceRegion) {
+            console.warn('[SkinScanCamera] face crop discarded: no face re-detected on the cropped frame');
+          } else {
+            croppedResult = {
+              uri: crop.uri,
+              base64: crop.base64,
+              faceRegion: redetected.faceRegion,
+              zoneMarkers: redetected.zoneMarkers,
+              faceLandmarks: redetected.faceLandmarks,
+            };
+            if (__DEV__) console.log('[SkinScanCamera] uploading a face crop', { from: `${imgWidth}x${imgHeight}`, to: `${crop.width}x${crop.height}` });
+          }
+        }
+      }
+
+      const finalBase64 = alignedResult?.base64 ?? croppedResult?.base64 ?? await uploadBase64(frameUris[chosenFrameIdx]);
+      const finalFaceRegion = alignedResult?.faceRegion ?? croppedResult?.faceRegion ?? faceRegion;
+      if (croppedResult) finalUri = croppedResult.uri;
+      const finalZoneMarkers = alignedResult?.zoneMarkers ?? croppedResult?.zoneMarkers ?? zoneMarkers;
       // Same rule as zoneMarkers: an aligned photo's contours come from the
       // re-detection ON that aligned photo, never the original's.
-      const finalFaceLandmarks = alignedResult ? alignedResult.faceLandmarks : faceLandmarks;
-      const finalSkinMask = alignedResult ? null : originalSkinMask;
+      const finalFaceLandmarks = alignedResult ? alignedResult.faceLandmarks
+        : croppedResult ? croppedResult.faceLandmarks
+        : faceLandmarks;
+      // Same rule as the aligned path: the segmentation mask was computed
+      // against the ORIGINAL frame's geometry, so it does not describe a
+      // cropped photo. Sending it anyway would silently occlude the wrong
+      // pixels; buildMasks (skinHeatmaps.js) already falls back gracefully
+      // to ellipse-only occlusion when there is no mask.
+      const finalSkinMask = alignedResult || croppedResult ? null : originalSkinMask;
       // Only ONE frame is uploaded. This used to upload the primary frame
       // PLUS every other burst frame and let the backend score them and
       // analyse the sharpest. Correct, and far too expensive: production

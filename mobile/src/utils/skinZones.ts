@@ -366,8 +366,33 @@ export function extractFaceLandmarks(contours: Record<string, Point[] | undefine
 // client-side means the backend's own resize is close to a straight scale
 // rather than a re-crop that could reintroduce the very misalignment this
 // stage exists to remove.
-export const ALIGN_OUTPUT_WIDTH = 720;
-export const ALIGN_OUTPUT_HEIGHT = 900;
+//
+// 1080x1350, not the 720x900 this started at, and the reason is measured
+// rather than a preference. The backend resizes every uploaded frame to fit
+// inside 1080x1350 before analysis (routes/skin.js) with
+// withoutEnlargement: true — so a 720-wide aligned canvas was analysed at
+// 720, two thirds of the linear detail the pipeline already supports, for
+// no benefit. Run against a real photo through the real engine
+// (src/utils/skinHeatmaps.js) at three effective face resolutions:
+//
+//   whole frame @720   pores 0   dark spots 26 (4 findings)   blemishes 0 (0)
+//   whole frame @1024  pores 0   dark spots 40 (8 findings)   blemishes 0 (0)
+//   face crop  @1080   pores 6   dark spots 50 (15 findings)  blemishes 37 (11)
+//
+// Blemishes are the clearest case: at the old resolution the detector finds
+// NONE at all — not "few", zero — because a blemish is a handful of pixels
+// wide once a face is rendered ~500px tall, and the difference-of-Gaussians
+// it relies on has nothing left to separate. This is the actual gap behind
+// "their scan is more detailed and accurate than ours": not the algorithms,
+// the number of pixels they were given.
+//
+// Payload cost, measured on the same photo at quality 0.92: 220KB -> 396KB
+// of base64. That is well inside budget now that a scan uploads ONE frame
+// instead of four (the four-frame body is what produced the 56s POST and
+// the "connection error"), and it is the same order as the unaligned path
+// has always sent at 1080x1350.
+export const ALIGN_OUTPUT_WIDTH = 1080;
+export const ALIGN_OUTPUT_HEIGHT = 1350;
 
 // Eyes at 38% down from the top (room for forehead above, chin/jaw below)
 // and centered horizontally — a standard head-and-shoulders selfie

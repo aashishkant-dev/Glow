@@ -1068,14 +1068,35 @@ function ageSpotSeverity(gray, labB, mask, width, height) {
 // says "clear" no matter how prominent those three are; on a face with
 // freckled cheeks it says "notable" for what is mostly one uniform
 // pattern. What a person actually reads off the photo is HOW MANY marks
-// were found and HOW MUCH area they cover — so that is what's scored:
-// `typicalCount` findings, or 2% of the face in area, reads as 1.0.
+// were found and HOW MUCH area they cover — so that is what's scored.
+//
+// The curve is a soft saturation, `n / (n + half)`, NOT a linear ramp
+// clipped at `half`. The linear version reached 1.0 — the top of the scale,
+// "notable", 100/100 — the moment a face had `typicalCount` marks on it,
+// which is by that constant's own definition an ORDINARY face. Measured on
+// a real photo: 14 dark spots against a typicalCount of 14 scored exactly
+// 1.00 and reported "notable" for a face with a few moles and some light
+// freckling, and everyone from 14 marks to 140 got the same 100. A scale
+// whose typical value is its maximum cannot rank anything, which is
+// precisely the "the results are not accurate" report.
+//
+// With the soft curve, `half` marks scores 0.5 — the moderate boundary,
+// i.e. typical reads as typical — 3x that scores 0.75, and the top of the
+// range stays reachable but is never actually clipped, so a genuinely
+// heavily-marked face still ranks above a moderately-marked one. Same
+// treatment for area: 2% of the assessed face is the 0.5 point rather than
+// the ceiling. Monotonic in both, so more marks always scores higher.
+function softSaturate(value, half) {
+  if (!(value > 0) || !(half > 0)) return 0;
+  return value / (value + half);
+}
+
 function findingsScore(spots, maskArea, typicalCount) {
   if (!spots.length || !maskArea) return 0;
   let area = 0;
   for (const s of spots) area += s.area;
-  const byCount = Math.min(1, spots.length / typicalCount);
-  const byArea = Math.min(1, (area / maskArea) / 0.02);
+  const byCount = softSaturate(spots.length, typicalCount);
+  const byArea = softSaturate(area / maskArea, 0.02);
   return Math.min(1, byCount * 0.7 + byArea * 0.3);
 }
 
