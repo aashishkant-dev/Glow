@@ -96,11 +96,10 @@ async function pickSharpest(sharp, candidatesBase64) {
 // flagged as such. Both checked against this exact code (not a
 // simplified stand-in), not guessed:
 //
-// BRIGHTNESS_FLOOR/CEILING reuse the live lightingGate's own already-
-// production-tuned red thresholds (avgLuma < 40 or > 235,
-// SkinScanCamera.tsx) rather than a second, differently-opinionated pair —
-// this is a backstop confirming the live gate's own read still holds on
-// the actual saved file, not a fresh guess. Trustworthy.
+// BRIGHTNESS_CEILING still mirrors the live lightingGate's red threshold
+// (avgLuma > 235, SkinScanCamera.tsx). BRIGHTNESS_FLOOR no longer does, and
+// that divergence is deliberate — see its own note below for the production
+// evidence that forced it.
 //
 // SHARPNESS_FLOOR is NOT equally well-grounded, and that's stated plainly
 // rather than dressed up as calibrated. Real run of THIS module's own
@@ -124,7 +123,31 @@ async function pickSharpest(sharp, candidatesBase64) {
 // should be trusted at a tighter setting. See this project's own
 // verification report.
 const SHARPNESS_FLOOR = 15;
-const BRIGHTNESS_FLOOR = 40;
+// Raised 40 -> 60 against real production evidence, not taste.
+//
+// A real scan (production, 2026-09-05) came in at brightness 50.0 — a
+// near-dark selfie with half the face in shadow — passed this gate by ten
+// points, and was analysed into a confident "notable acne, 14 findings"
+// whose markers sat on the subject's eyelids and moustache. The vendor
+// rejected the very same photo outright: "Poor lighting | Harsh shadows
+// obscuring facial features | Low resolution and digital noise." The vendor
+// was right and this gate was wrong.
+//
+// 40 came from reusing the LIVE PREVIEW gate's red threshold, and that was
+// the mistake: red there means "this frame is unusable at all", while the
+// same gate already calls anything under 55 "a bit dark". A still that is
+// about to be measured for pores and blemishes needs a higher bar than a
+// viewfinder frame, not the same one — noise rises as light falls, and
+// sensor noise in shadow is exactly what gets counted as blemishes.
+//
+// 60 sits above the 50 that produced nonsense and far below the 94.9 of a
+// real good scan from this same app, so it separates the two known cases
+// with margin on both sides. Only those two real points anchor it, so it is
+// deliberately just above the live gate's own "a bit dark" line rather than
+// somewhere more aggressive that two samples cannot justify. Refusing a
+// borderline photo costs a retake; accepting one costs a confident wrong
+// answer about someone's skin, which is the worse failure for this product.
+const BRIGHTNESS_FLOOR = 60;
 const BRIGHTNESS_CEILING = 235;
 
 // Real QC gate on the actual selected frame — returns null when it passes,
