@@ -1652,9 +1652,6 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       // has a proven, graceful fallback to ellipse-only occlusion handling
       // for exactly this "no mask" case, so this costs some occlusion
       // precision on an aligned scan, never correctness.
-      // Set after the crop below, so the review thumbnail is the photo that
-      // was actually analysed.
-      let finalUri = alignedResult?.uri ?? uri;
       // ── Pick the sharpest frame BEFORE encoding it ──────────────────────
       //
       // Only one frame is ever uploaded (see the note below on the 56s
@@ -1675,6 +1672,13 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
           sharpestNote = `burst[${best.i}]`;
         }
       }
+      // Assigned after the sharpness pick (and reassigned after the crop
+      // below) so the review thumbnail is the photo that was actually
+      // analysed. `uri` — the primary frame — was wrong whenever the pick
+      // chose a different burst frame: the screen showed frame 0 while
+      // frame 1 or 2 was the one uploaded.
+      let finalUri = alignedResult?.uri ?? frameUris[chosenFrameIdx] ?? uri;
+
       // ── Face crop, fallback path only ───────────────────────────────────
       //
       // The aligned path already produces a face-framed canvas at the
