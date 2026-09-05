@@ -1436,7 +1436,13 @@ export type SkinHeatmapConcernKey = 'pore' | 'moisture' | 'wrinkle' | 'acne' | '
 // label/verdict/education/tips come from (shared, severity-banded copy —
 // same content regardless of which engine below produced the number).
 export interface SkinHeatmapConcern {
-  url: string;
+  // null is a REAL, expected value, not an error state. Two cases produce it:
+  // a region concern the engine found nothing for (overlay deliberately
+  // suppressed rather than painting a clear face), and a vendor-only concern
+  // (firmness / dark circles / puffiness) which is scored but has no
+  // per-pixel evidence to draw. Every consumer must treat "no url" as "no
+  // overlay to show", never as a broken record.
+  url: string | null;
   label: string;
   // Short tab-bar label — same as `label` for most concerns, distinct where
   // the full label ("Fine Lines & Wrinkles") is too long for a pill.
@@ -1521,6 +1527,10 @@ export interface SkinScan {
   // schema-aware caller should treat a missing/older version as "verify
   // before trusting," not assume current shape). See validateSkinScan
   // below — this is what it checks against.
+  // Currently 2 on the server: `url` became nullable and three vendor-only
+  // concerns were added. Nothing in this client asserts the value yet, so a
+  // mismatch is not currently detected — recorded here so the pairing the
+  // backend comment asks for is at least visible on both sides.
   schemaVersion?: number;
   id: string;
   // Which physical person this scan belongs to — see SkinProfile below. A
@@ -1623,7 +1633,11 @@ function sanitizeSkinScan(scan: SkinScan): SkinScan {
   for (const [key, concern] of Object.entries(scan.heatmaps)) {
     if (concern == null) { cleaned[key as SkinHeatmapConcernKey] = null as any; continue; }
     const errors: string[] = [];
-    if (typeof concern.url !== 'string' || !concern.url) errors.push('url');
+    // url may be null on purpose (see SkinHeatmapConcern.url). Only a
+    // non-string, non-null value — or an empty string, which is a real
+    // upload bug — is malformed. Requiring a url here silently deleted every
+    // suppressed and every vendor-only concern.
+    if (concern.url !== null && concern.url !== undefined && (typeof concern.url !== 'string' || !concern.url)) errors.push('url');
     if (typeof concern.severity !== 'number' || Number.isNaN(concern.severity) || concern.severity < 0 || concern.severity > 1) errors.push('severity');
     if (!VALID_BANDS.has(concern.band)) errors.push('band');
     if (typeof concern.verdict !== 'string' || !concern.verdict) errors.push('verdict');

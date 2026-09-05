@@ -329,7 +329,12 @@ export function SkinScanResultScreen() {
         ? `My Glow ${activeConcern.label} reading ✨`
         : `My Glow skin check-in: ${TONE_LABELS[scan.skinTone]} tone · ${TYPE_LABELS[scan.skinType]} skin ✨`,
       faceBox: scan.faceBox,
-      heatmap: activeConcern
+      // Requires a real overlay image, not just an active concern: the
+      // Heatmap share variant's whole point is showing the ink over the
+      // photo, and a concern with url null (suppressed, or vendor-only) has
+      // none. Falls back to the plain photo card rather than rendering an
+      // <Image> with a null uri.
+      heatmap: activeConcern?.url
         ? { url: activeConcern.url, label: activeConcern.label, verdict: activeConcern.verdict, band: activeConcern.band }
         : undefined,
       // The full reading, every concern in the app's fixed tab order —
@@ -338,10 +343,18 @@ export function SkinScanResultScreen() {
       report: scan.heatmaps
         ? {
             date: new Date(scan.createdAt).toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' }).toUpperCase(),
-            rows: CONCERN_ORDER.map(({ key, label }) => {
-              const c = scan.heatmaps?.[key];
-              return { key, label, band: c?.band ?? null, severityScore: c?.severityScore ?? 0 };
-            }),
+            // Same vendor-only exception as the tab bar and the Summary list:
+            // a concern we never measure ourselves, that the vendor didn't
+            // return, is omitted rather than printed on a shareable report as
+            // "not assessed" — on a card someone actually sends to a friend
+            // that reads as a gap in THEIR skin reading, when it is really
+            // just an optional API that didn't answer.
+            rows: CONCERN_ORDER
+              .filter(({ key }) => !VENDOR_ONLY_CONCERNS.has(key) || !!scan.heatmaps?.[key])
+              .map(({ key, label }) => {
+                const c = scan.heatmaps?.[key];
+                return { key, label, band: c?.band ?? null, severityScore: c?.severityScore ?? 0 };
+              }),
           }
         : undefined,
     });

@@ -200,11 +200,24 @@ function mergeIvyIntoHeatmaps(heatmaps, ivy) {
 // PNG (skinHeatmaps.js), so this can never disagree with what's actually
 // on screen. Historical records without that field get no note — nothing
 // is known about their PNGs, so nothing is claimed.
-function overlayNoteFor(record) {
+// Concerns with no pixel path in this engine at all — scored by the vendor
+// only. Kept next to overlayNoteFor because that is the one place the
+// distinction changes user-visible copy.
+const VENDOR_ONLY_CONCERN_KEYS = new Set(['firmness', 'dark_circles', 'eye_bags']);
+
+// `concernKey` is passed in rather than read off the record: buildConcernRecord
+// does not put the key on the record it returns, so record.key is undefined and
+// any lookup against it silently never matches.
+function overlayNoteFor(record, concernKey) {
   if (!record?.overlay || record.band === 'clear') return null;
   const { flaggedFraction, findings } = record.overlay;
   const empty = findings != null ? findings === 0 : flaggedFraction < 0.002;
   if (!empty) return null;
+  // A vendor-only concern has no pixel path at all, so "our pixel map found
+  // nothing distinct enough" would imply we looked and failed. We never look.
+  if (VENDOR_ONLY_CONCERN_KEYS.has(concernKey)) {
+    return 'This reading comes from the facial-analysis model scoring your whole photo. It is not mapped onto the image because there is no single area to point at — the score is real, the absence of a highlight is expected.';
+  }
   return record.source === 'ivyai'
     ? 'Ivy AI rated this from the whole photo, but our pixel map found nothing distinct enough to mark on it — nothing is highlighted, not because there is nothing there, but because it could not be pinpointed.'
     : 'Nothing in this area stood out enough from the surrounding skin to mark on the photo — the reading is real, but no single spot could be pinpointed.';
@@ -801,7 +814,7 @@ async function runScanPipeline({ userId, photoBase64, burstCandidates, faceRegio
       ivyApplied.push(key);
     }
     for (const key of Object.keys(heatmaps)) {
-      const note = overlayNoteFor(heatmaps[key]);
+      const note = overlayNoteFor(heatmaps[key], key);
       if (note) heatmaps[key] = { ...heatmaps[key], overlayNote: note };
     }
     if (ivyApplied.length) {

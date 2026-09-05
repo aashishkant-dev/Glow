@@ -260,7 +260,12 @@ function buildVerdict(key, band, zoneBreakdown) {
 // schemaVersion together, deliberately, whenever a field is added, renamed,
 // or its meaning changes, so client/server drift is a version mismatch a
 // client can detect, not silent corruption.
-const CONCERN_RECORD_SCHEMA_VERSION = 1;
+// 2: `url` became nullable (a concern can now be fully assessed with no
+// overlay to draw), and three vendor-only concerns were added
+// (firmness / dark_circles / eye_bags). Both are shape/meaning changes, which
+// is exactly what the note above requires a bump for. Mirrored in
+// mobile/src/api/client.ts.
+const CONCERN_RECORD_SCHEMA_VERSION = 2;
 const VALID_BANDS = new Set(['clear', 'mild', 'moderate', 'notable']);
 const VALID_SOURCES = new Set(['estimated', 'perfectcorp', 'ivyai']); // 'perfectcorp' kept valid for reading pre-removal historical scans only — nothing writes it anymore
 
@@ -275,7 +280,14 @@ function validateConcernRecord(key, record) {
   if (record == null) return [];
   const errors = [];
   if (!CONCERN_CONTENT[key]) errors.push(`unknown concern key: ${key}`);
-  if (typeof record.url !== 'string' || !record.url) errors.push('url missing or not a string');
+  // null is legitimate and expected: a region concern the engine deliberately
+  // drew no overlay for (nothing found worth painting), and every vendor-only
+  // concern (firmness / dark circles / puffiness), which is scored but has no
+  // per-pixel evidence to map. Requiring a url here discarded every one of
+  // those records to null at the build boundary — killing both features and
+  // logging a false error for each. An EMPTY string is still a real bug (a
+  // failed upload), so it is still rejected.
+  if (record.url != null && (typeof record.url !== 'string' || !record.url)) errors.push('url must be a non-empty string or null');
   if (typeof record.severity !== 'number' || Number.isNaN(record.severity) || record.severity < 0 || record.severity > 1) {
     errors.push(`severity out of range [0,1]: ${record.severity}`);
   }

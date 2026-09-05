@@ -149,6 +149,26 @@ export function ConcernHeatmapOverlay({ activeTab, heatmaps, highlightedZoneRect
   // over the bare photo (no reveal — nothing to reveal — and no pings, see
   // ConcernSweepReveal's `url` note). Only while justScanned, so re-opening
   // an old scan from history doesn't pretend to be analysing it again.
+  // A concern with no overlay url is scored but has nothing to draw (see
+  // SkinHeatmapConcern.url): either the engine found nothing worth painting,
+  // or it is a vendor-only concern with no per-pixel evidence. The tab still
+  // shows its verdict, education and tips below — there is simply no ink on
+  // the photo. Without this the sweep would be handed an undefined image and
+  // the fallback <Image> a null uri, which is a blank/erroring layer over the
+  // face rather than a clean photo.
+  // Bound to a local so TypeScript's narrowing survives into the JSX below —
+  // narrowing a property access (concern.url) is discarded across the early
+  // returns, which is what leaves `string | null` reaching props that only
+  // accept `string | undefined`.
+  const overlayUrl = concern?.url ?? null;
+  if (concern && !overlayUrl) {
+    return highlightedZoneRect ? (
+      <View style={StyleSheet.absoluteFill} pointerEvents="none">
+        <ZoneHighlightMask zoneRect={highlightedZoneRect} />
+      </View>
+    ) : null;
+  }
+
   if (!concern) {
     if (activeTab !== 'summary' || !justScanned || !SWEEP_ENABLED) return null;
     // The measuring View renders unconditionally here — gating IT on
@@ -182,14 +202,14 @@ export function ConcernHeatmapOverlay({ activeTab, heatmaps, highlightedZoneRect
         // resets the per-finding hooks cleanly when the number of points
         // changes between concerns.
         <ConcernSweepReveal
-          key={concern.url}
-          url={concern.url}
+          key={overlayUrl ?? 'none'}
+          url={overlayUrl ?? undefined}
           points={concern.overlay?.points}
           width={size.width}
           height={size.height}
         />
       ) : (
-        <Image source={{ uri: concern.url }} style={StyleSheet.absoluteFill} contentFit="cover" />
+        <Image source={{ uri: overlayUrl ?? undefined }} style={StyleSheet.absoluteFill} contentFit="cover" />
       )}
       {!!highlightedZoneRect && <ZoneHighlightMask zoneRect={highlightedZoneRect} />}
     </Animated.View>
