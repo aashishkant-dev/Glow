@@ -66,7 +66,9 @@ export type CustomerStackParams = {
     | { bookingId: string; otherUserId?: undefined; otherName?: string; otherPhotoUrl?: string; otherRole?: string }
     | { bookingId?: undefined; otherUserId: string; otherName?: string; otherPhotoUrl?: string; otherRole?: string };
   ProviderPublicProfile: { providerId: string; providerName?: string; fromBooking?: boolean };
-  PostDetail: { post: Post };
+  // `posts` + `index` open the screen as a swipeable feed positioned on
+  // one post; a caller with only `post` still gets a working one-item feed.
+  PostDetail: { post?: Post; posts?: Post[]; index?: number };
   Reels: { posts: Post[]; startIndex?: number };
   SkinScanResult: { scan: SkinScan; justScanned?: boolean };
 };

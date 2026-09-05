@@ -531,14 +531,12 @@ export function ProviderPublicProfileScreen() {
                 <Pressable
                   key={post.id}
                   style={styles.postThumb}
+                  // One feed for the artist's whole grid, photos and video
+                  // alike, so swiping up walks their portfolio in order
+                  // instead of stopping at the post that was tapped.
                   onPress={() => {
                     tapLight();
-                    const videoPosts = p.posts!.filter(v => v.videoUrl);
-                    if (post.videoUrl) {
-                      nav.navigate('Reels', { posts: videoPosts, startIndex: videoPosts.findIndex(v => v.id === post.id) });
-                    } else {
-                      nav.navigate('PostDetail', { post });
-                    }
+                    nav.navigate('PostDetail', { post, posts: p.posts!, index: p.posts!.findIndex(v => v.id === post.id) });
                   }}
                 >
                   <PostMedia photoUrl={post.photoUrl} videoUrl={post.videoUrl} style={styles.postThumbImg} showBadge />

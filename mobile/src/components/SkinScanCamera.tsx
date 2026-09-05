@@ -2564,6 +2564,15 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
                   {'\n'}angle={angleGate}(raw {rawAngleGate}) pitch={pitchAngle?.toFixed(1) ?? '—'} roll={rollAngle?.toFixed(1) ?? '—'} yaw={yawAngle?.toFixed(1) ?? '—'}
                   {'\n'}lighting={lightingGate}(raw {rawLightingGate}) avgLuma={lightingSample?.avgLuma.toFixed(1) ?? (lightingGraceElapsed ? 'NO SAMPLE — worklet not firing?' : 'sampling…')} darkFrac={lightingSample?.darkFraction.toFixed(2) ?? '—'} brightFrac={lightingSample?.brightFraction.toFixed(2) ?? '—'} exposureBias={exposureBias.toFixed(2)}
                   {'\n'}{debugBox ? `box: x=${debugBox.x.toFixed(0)} y=${debugBox.y.toFixed(0)} w=${debugBox.width.toFixed(0)} h=${debugBox.height.toFixed(0)}` : 'box: none — no live face from ML Kit'} faces={liveFaces.length}
+                  {/* The three signals that were missing when this readout
+                      was used to diagnose an all-red, faces=0 capture
+                      screen: whether the screen fill light is actually on,
+                      what the device's exposure range even is (so a pegged
+                      exposureBias above can be read as "at the ceiling"
+                      rather than just a number), and whether the shutter
+                      will pre-flash. */}
+                  {'\n'}fillLight={fillLightActive ? 'ON' : 'off'} preFlash={lightingSample != null && lightingSample.avgLuma < 55 ? 'yes' : 'no'} evRange={device?.supportsExposureBias ? `${device.minExposureBias.toFixed(1)}..${device.maxExposureBias.toFixed(1)}` : 'unsupported'} lowLightBoost={device?.supportsLowLightBoost ? 'yes' : 'no'}
+                  {'\n'}long-press any pill to hide this
                 </Text>
               </View>
             )}

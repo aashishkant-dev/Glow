@@ -115,7 +115,9 @@ export type PROVIDERStackParams = {
   BookingDetail: { booking: Booking };
   Tracking: { bookingId: string; bookingLocation?: { lat: number; lng: number } };
   ProviderPublicProfile: { providerId: string; providerName?: string; fromBooking?: boolean };
-  PostDetail: { post: Post };
+  // `posts` + `index` open the screen as a swipeable feed positioned on
+  // one post; a caller with only `post` still gets a working one-item feed.
+  PostDetail: { post?: Post; posts?: Post[]; index?: number };
   Reels: { posts: Post[]; startIndex?: number };
 };
 

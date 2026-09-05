@@ -180,7 +180,10 @@ export function SavedScreen() {
                 <Pressable
                   key={post.id}
                   style={styles.postTile}
-                  onPress={() => nav.navigate('PostDetail', { post })}
+                  // The whole liked list, not just this tile — PostDetail is
+                  // a vertical feed now, so a tap opens here and keeps
+                  // swiping through the rest.
+                  onPress={() => nav.navigate('PostDetail', { post, posts: likedPosts, index: likedPosts.findIndex(p => p.id === post.id) })}
                 >
                   <PostMedia photoUrl={post.photoUrl} videoUrl={post.videoUrl} style={styles.postTileImage} showBadge />
                   <View style={styles.postTileLikeBadge}>

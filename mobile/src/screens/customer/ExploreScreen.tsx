@@ -538,9 +538,12 @@ export function ExploreScreen() {
                   <Pressable
                     key={post.id}
                     style={styles.postTile}
-                    onPress={() => post.videoUrl
-                      ? nav.navigate('Reels', { posts: reelPosts, startIndex: reelPosts.findIndex(p => p.id === post.id) })
-                      : nav.navigate('PostDetail', { post })}
+                    // Every post — photo AND video — goes into the same
+                    // vertical feed, in grid order, so swiping up moves to
+                    // whatever is genuinely next rather than skipping half
+                    // the grid. Reels stays its own video-only entry point
+                    // from the Reels tab.
+                    onPress={() => nav.navigate('PostDetail', { post, posts: filteredPosts, index: filteredPosts.findIndex(p => p.id === post.id) })}
                   >
                     <PostMedia photoUrl={post.photoUrl} videoUrl={post.videoUrl} style={styles.postTileImage} showBadge />
                     <View style={styles.postTileLikeBadge}>
