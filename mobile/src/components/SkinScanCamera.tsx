@@ -548,6 +548,69 @@ async function downscaleForUpload(uri: string, width: number, height: number): P
   }
 }
 
+// Bakes a captured frame's orientation — including the front camera's
+// mirroring — into its actual PIXELS, once, so nothing downstream has to
+// interpret a metadata flag.
+//
+// THE BUG THIS FIXES. `saveToTemporaryFileAsync()` writes AVFoundation's
+// own file data, which carries an EXIF orientation tag, and `photo.isMirrored`
+// is literally derived FROM that tag (vision-camera's
+// AVCapturePhoto+getMediaSampleMetadata.swift reads
+// kCGImagePropertyOrientation and returns `uiOrientation.isMirrored`). It
+// describes the METADATA, not the bytes.
+//
+// Every consumer then honours that EXIF and un-mirrors the image on the way
+// in: ML Kit's still detector loads it with `UIImage(contentsOfFile:)`
+// (HybridImageFaceDetector.swift) which applies EXIF, expo-image-manipulator
+// applies it, and the backend's sharp `.rotate()` applies it. So by the time
+// any coordinate exists, the face is NOT mirrored — while `isMirrored` was
+// still being passed down as "these pixels are mirrored". deriveZoneMarkers
+// and extractEyeNoseAnchors both branch on that as `swapLR = !mirrored`, so
+// on every front-camera scan they got the swap exactly backwards:
+//   - left/right cheek and under-eye zones landed on the wrong side of the face
+//   - extractEyeNoseAnchors returned the two eyes swapped, which negates the
+//     eye-line vector, so computeSimilarityTransform produced a transform
+//     ~180 degrees out and checkAlignmentSanity correctly threw it away —
+//     meaning ALIGNMENT COULD NEVER SUCCEED on a front-camera photo, and
+//     every scan silently took the lower-resolution fallback path.
+//
+// Rather than flip the flag and rely on that whole chain staying true, this
+// removes the ambiguity: re-encode once with the orientation applied and the
+// tag gone, so there is no metadata left for any stage to disagree about.
+// This project has now been bitten twice by exactly that (see also the
+// missing-EXIF-auto-orient upload fix), which is what makes one deterministic
+// re-encode worth its cost.
+//
+// It also settles what the photo should LOOK like. The front-camera preview
+// is mirrored — that is the image the user framed themselves in — so a
+// result photo in true orientation reads as flipped, reported as "the
+// pictures are inverted, it should be how it is taken from camera". Flipping
+// back to match the preview makes the saved photo agree with what they saw,
+// AND makes `mirrored: true` an honest description of the pixels, so
+// deriveZoneMarkers' viewer-relative convention (ZONE_RECTS' cheekL sits at
+// the left of the DISPLAYED photo) lands correctly with no change to its own
+// logic.
+//
+// Returns null on failure; the caller then uses the original file and the
+// original flag, i.e. exactly the previous behaviour.
+async function normalizeCapturedFrame(
+  uri: string,
+  isMirrored: boolean,
+): Promise<{ uri: string; width: number; height: number } | null> {
+  try {
+    const out = await ImageManipulator.manipulateAsync(
+      uri,
+      isMirrored ? [{ flip: ImageManipulator.FlipType.Horizontal }] : [],
+      { compress: 0.95, format: ImageManipulator.SaveFormat.JPEG }
+    );
+    if (!out.uri || !out.width || !out.height) return null;
+    return { uri: out.uri, width: out.width, height: out.height };
+  } catch (err) {
+    console.warn('[SkinScanCamera] frame normalisation failed, using the original capture', err instanceof Error ? err.message : err);
+    return null;
+  }
+}
+
 // Crops a captured frame down to the face before it is downscaled for
 // upload — the fallback path's answer to the same problem raising
 // ALIGN_OUTPUT_WIDTH solves for the aligned path (see skinZones.ts for the
@@ -1519,7 +1582,21 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
         photo.dispose();
         photo = null;
       }
-      const uri = primaryUri;
+      // Orientation and mirroring baked into pixels, once, before anything
+      // reads a coordinate off this frame — see normalizeCapturedFrame for
+      // the full "why" (in short: `photo.isMirrored` describes the EXIF tag,
+      // every consumer silently applies that tag, and the mismatch flipped
+      // left/right on every front-camera scan and made alignment impossible).
+      const normalizedPrimary = await normalizeCapturedFrame(primaryUri, primaryMirrored);
+      if (normalizedPrimary) frameUris[0] = normalizedPrimary.uri;
+      const uri = normalizedPrimary?.uri ?? primaryUri;
+      // Does the PIXEL data now read as mirrored? Two honest cases, not one
+      // assumption: normalisation succeeded, so the frame was flipped back to
+      // match the mirrored preview the user framed in — mirrored exactly when
+      // the capture was. It failed, so the original file goes on unchanged and
+      // every consumer applies its EXIF, which un-mirrors it — so the pixels
+      // are NOT mirrored regardless of what the flag says.
+      const pixelsMirrored = normalizedPrimary ? primaryMirrored : false;
       // See getImageSize's own comment — this reads the SAME saved file the
       // native detector reads, instead of guessing at photo.width/height's
       // relationship to it.
@@ -1564,7 +1641,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       // LEFT_EYE points actually land on in THIS photo — see
       // deriveZoneMarkers' own comment for why that swap can't just be
       // assumed from vision-camera's typical capture defaults.
-      const { faceRegion, noFaceDetected, zoneMarkers, rawPoints, faceLandmarks } = detectFaceRegion(contourFaceDetector, landmarkFaceDetector, uri, imgWidth, imgHeight, primaryMirrored);
+      const { faceRegion, noFaceDetected, zoneMarkers, rawPoints, faceLandmarks } = detectFaceRegion(contourFaceDetector, landmarkFaceDetector, uri, imgWidth, imgHeight, pixelsMirrored);
       if (__DEV__) {
         console.log('[SkinScanCamera] detectFaceRegion result', {
           imgWidth, imgHeight, photoWidth: primaryWidth, photoHeight: primaryHeight, photoOrientation: primaryOrientation,
@@ -1593,7 +1670,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       // why, never a silent half-applied transform.
       let alignedResult: { uri: string; base64: string; faceRegion: FaceRegion | null; zoneMarkers: StoredZoneMarkers | null; faceLandmarks: FaceLandmarkPayload | null } | null = null;
       if (!noFaceDetected && rawPoints) {
-        const anchors = extractEyeNoseAnchors(rawPoints, primaryMirrored);
+        const anchors = extractEyeNoseAnchors(rawPoints, pixelsMirrored);
         const transform = anchors && noseSanityGate(anchors) ? computeSimilarityTransform(anchors) : null;
         if (!anchors) {
           if (__DEV__) console.log('[SkinScanCamera] alignment skipped: no usable eye/nose landmarks on this detection');
@@ -1609,8 +1686,8 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
             // skipLandmarkPass: this result feeds extractEyeNoseAnchors and nothing
             // else, and that reads only contour fields — see detectFaceRegion's
             // own note. Saves one full 'accurate' ML Kit pass per capture.
-            const redetected = detectFaceRegion(contourFaceDetector, landmarkFaceDetector, alignedPrimary.uri, alignedPrimary.width, alignedPrimary.height, primaryMirrored, true);
-            const redetectedAnchors = !redetected.noFaceDetected && redetected.rawPoints ? extractEyeNoseAnchors(redetected.rawPoints, primaryMirrored) : null;
+            const redetected = detectFaceRegion(contourFaceDetector, landmarkFaceDetector, alignedPrimary.uri, alignedPrimary.width, alignedPrimary.height, pixelsMirrored, true);
+            const redetectedAnchors = !redetected.noFaceDetected && redetected.rawPoints ? extractEyeNoseAnchors(redetected.rawPoints, pixelsMirrored) : null;
             const sanity = redetectedAnchors ? checkAlignmentSanity(redetectedAnchors) : null;
             if (!redetectedAnchors) {
               console.warn('[SkinScanCamera] alignment sanity check failed: could not re-detect eyes on the aligned photo', { noFaceDetected: redetected.noFaceDetected });
@@ -1668,8 +1745,23 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
         );
         const best = probes.reduce((a2, b2) => (b2.size > a2.size ? b2 : a2), probes[0]);
         if (best && best.size > 0 && best.i !== 0) {
-          chosenFrameIdx = best.i;
-          sharpestNote = `burst[${best.i}]`;
+          // A burst frame that wins has to go through the SAME normalisation
+          // the primary did, or the photo being uploaded would be in a
+          // different pixel space (EXIF-mirrored, un-mirrored on the way in
+          // by whoever reads it) from the coordinates measured off the
+          // primary — every marker mirrored against its own photo. Only
+          // when the primary was itself normalised; if that failed, both
+          // stay raw and consistent with each other.
+          const normalizedWinner = normalizedPrimary
+            ? await normalizeCapturedFrame(frameUris[best.i], primaryMirrored)
+            : null;
+          if (!normalizedPrimary || normalizedWinner) {
+            if (normalizedWinner) frameUris[best.i] = normalizedWinner.uri;
+            chosenFrameIdx = best.i;
+            sharpestNote = `burst[${best.i}]`;
+          } else {
+            console.warn('[SkinScanCamera] sharper burst frame could not be normalised; keeping the primary');
+          }
         }
       }
       // Assigned after the sharpness pick (and reassigned after the crop
@@ -1705,7 +1797,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       if (!alignedResult && faceRegion) {
         const crop = await cropToFaceForUpload(frameUris[chosenFrameIdx], imgWidth, imgHeight, faceRegion);
         if (crop) {
-          const redetected = detectFaceRegion(contourFaceDetector, landmarkFaceDetector, crop.uri, crop.width, crop.height, primaryMirrored);
+          const redetected = detectFaceRegion(contourFaceDetector, landmarkFaceDetector, crop.uri, crop.width, crop.height, pixelsMirrored);
           if (redetected.noFaceDetected || !redetected.faceRegion) {
             console.warn('[SkinScanCamera] face crop discarded: no face re-detected on the cropped frame');
           } else {
@@ -2181,7 +2273,27 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // Raised to sit just under that real tolerance instead of an arbitrary
   // tighter number, so a mostly-frontal photo isn't rejected pre-capture
   // for an angle the backend would have accepted anyway.
-  const rawAngleGate: Gate = maxTilt == null ? 'red' : maxTilt <= 15 ? 'green' : maxTilt <= 25 ? 'amber' : 'red';
+  // Fails OPEN when the angles are unavailable, not closed. `maxTilt` is
+  // null in two completely different situations and this used to answer
+  // 'red' to both:
+  //   1. no face is being tracked at all — positionGate already owns that
+  //      case and says something useful about it, so answering red here as
+  //      well adds nothing;
+  //   2. a face IS tracked but the detector returned no Euler angles. ML Kit
+  //      does not guarantee headEulerAngleX outside its accurate performance
+  //      mode, and the live detector here runs in 'fast' — so on a device
+  //      where that is the case, "Look Straight" sat red forever no matter
+  //      how squarely the user faced the camera, isReady could never become
+  //      true, and auto-capture could never fire. Reported as: in good light
+  //      it still never goes green.
+  // Blocking capture requires positive evidence that the head IS tilted.
+  // No evidence is not evidence of a tilt — the same "don't fail closed on
+  // an optional signal" rule lightingGate already follows above.
+  // (Long-press a pill with a face in frame: `pitch=—` there means this
+  // detector genuinely reports no angles, which this now tolerates.)
+  const rawAngleGate: Gate = primaryLiveFace == null ? 'red'
+    : maxTilt == null ? 'green'
+    : maxTilt <= 15 ? 'green' : maxTilt <= 25 ? 'amber' : 'red';
   // Same debounce as positionGate above: 4 reads (~400ms) to confirm
   // improved, 2 (~200ms) to confirm worse.
   const angleGate = useStabilized(rawAngleGate, 4, 2);
@@ -2190,7 +2302,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // and amber branches both existed, but green fell through to "Almost
   // straight" too, the same "green pill, non-green-sounding text" bug as
   // positionReason above.
-  const angleReason = maxTilt == null ? 'Look straight at the camera'
+  const angleReason = primaryLiveFace == null ? 'Look straight at the camera'
     : angleGate === 'red' ? 'Straighten your head'
     : angleGate === 'amber' ? 'Almost straight'
     : 'Straight';

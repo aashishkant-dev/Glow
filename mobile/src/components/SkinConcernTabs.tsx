@@ -382,8 +382,28 @@ const BAND_COLOR: Record<SkinHeatmapConcern['band'], string> = {
 // this range" instead of forcing false precision onto a marginal read.
 // 'high' is deliberately an empty array — no fog at all is itself the
 // high-confidence signal, by contrast with medium/low, not a special case.
-const CONFIDENCE_FOG: Record<'low' | 'medium' | 'high', { width: number; height: number; opacity: number }[]> = {
+//
+// 'vendor' MUST have an entry. The backend emits confidence.level 'vendor'
+// for the three vendor-only concerns (firmness / dark circles / puffiness —
+// see VENDOR_ONLY_CONCERNS in routes/skin.js), but this map only had
+// low/medium/high and SeverityGradientBar destructures the result:
+// `const [fog0, fog1, fog2] = CONFIDENCE_FOG[confidenceLevel]`. Destructuring
+// undefined throws, so opening the Dark Circles tab — or Firmness, or
+// Puffiness — crashed the screen every time. Reported as "clicking on dark
+// circles shows something went wrong". TypeScript never caught it because
+// SkinHeatmapConcern.confidence.level was typed 'low' | 'medium' | 'high',
+// which was simply not true of what the server sends (now corrected in
+// client.ts).
+//
+// Vendor reads get medium fog, not none: the score is real, but it comes
+// from a model scoring the WHOLE photo with no per-pixel evidence behind it,
+// so rendering it as pinpoint-precise would overclaim.
+const CONFIDENCE_FOG: Record<'low' | 'medium' | 'high' | 'vendor', { width: number; height: number; opacity: number }[]> = {
   high: [],
+  vendor: [
+    { width: 22, height: 34, opacity: 0.16 },
+    { width: 22, height: 22, opacity: 0.26 },
+  ],
   medium: [
     { width: 22, height: 34, opacity: 0.16 },
     { width: 22, height: 22, opacity: 0.26 },
@@ -412,7 +432,7 @@ function fogLayerStyle(layer: { width: number; height: number; opacity: number }
   };
 }
 
-function SeverityGradientBar({ severity, gradientLabels, confidenceLevel }: { severity: number; gradientLabels: { low: string; high: string }; confidenceLevel: 'low' | 'medium' | 'high' }) {
+function SeverityGradientBar({ severity, gradientLabels, confidenceLevel }: { severity: number; gradientLabels: { low: string; high: string }; confidenceLevel: SkinHeatmapConcern['confidence']['level'] }) {
   const clamped = Math.max(0, Math.min(1, severity));
   const topFraction = 1 - clamped;
   const anim = useRef(new Animated.Value(0)).current;
@@ -424,7 +444,11 @@ function SeverityGradientBar({ severity, gradientLabels, confidenceLevel }: { se
   // Unrolled rather than .map()'d over CONFIDENCE_FOG[confidenceLevel] —
   // see fogLayerStyle's comment. At most 3 layers (the 'low' case); absent
   // layers for 'medium'/'high' are simply undefined and render nothing.
-  const [fog0, fog1, fog2] = CONFIDENCE_FOG[confidenceLevel];
+  // `?? []` is the belt to the type's braces: an unrecognised level now
+  // renders without fog instead of throwing and taking the whole result
+  // screen down with it. A server that adds a fourth confidence level should
+  // cost this bar a visual nicety, never the screen.
+  const [fog0, fog1, fog2] = CONFIDENCE_FOG[confidenceLevel] ?? [];
 
   return (
     <View style={gradStyles.outer}>

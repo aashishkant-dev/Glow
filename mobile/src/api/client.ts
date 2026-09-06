@@ -1497,7 +1497,17 @@ export interface SkinHeatmapConcern {
   // field, so this reflects "a licensed vision model produced this," not a
   // fabricated precision claim — zoneFraction/pixelCount are only ever
   // populated on the 'estimated' path (undefined on 'perfectcorp').
-  confidence: { level: 'low' | 'medium' | 'high'; zoneFraction?: number; pixelCount?: number };
+  // 'vendor' is a REAL value the server sends, for the three vendor-only
+  // concerns (firmness / dark circles / puffiness) that a licensed model
+  // scores from the whole photo with no per-pixel evidence — see
+  // VENDOR_ONLY_CONCERNS in routes/skin.js. It was missing from this union,
+  // and because this type is what the UI trusts, the omission read as a
+  // guarantee: SkinConcernTabs indexed a Record keyed only by
+  // low/medium/high and destructured the result, so opening any of those
+  // three tabs threw and broke the result screen. A type that does not
+  // describe the wire format is worse than no type.
+  // zoneFraction/pixelCount arrive as null (not absent) on the vendor path.
+  confidence: { level: 'low' | 'medium' | 'high' | 'vendor'; zoneFraction?: number | null; pixelCount?: number | null };
   // Perfect Corp's raw 0-100 score for this concern (higher = healthier) —
   // only present on the 'perfectcorp' path. Kept alongside `severity`
   // (which is already inverted/normalized for the gradient bar) so a
