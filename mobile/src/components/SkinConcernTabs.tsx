@@ -230,8 +230,8 @@ const OVERLAY_RGB: Partial<Record<SkinHeatmapConcernKey, string>> = {
   pore: '138,104,118',
   wrinkle: '150,122,180',
   moisture: '140,162,198',
-  age_spot: '146,100,74',
-  acne: '186,70,116',
+  age_spot: '255,176,59',
+  acne: '255,79,129',
 };
 
 // What the two ends of the scale MEAN for this specific concern. Generic

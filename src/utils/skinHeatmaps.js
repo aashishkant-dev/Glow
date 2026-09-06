@@ -1187,8 +1187,16 @@ const CONCERN_COLORS = {
   shine: [212, 175, 55],
   wrinkles: [150, 122, 180],
   moisture: [140, 162, 198],
-  age_spot: [146, 100, 74],
-  acne: [186, 70, 116],
+  // The two RINGED concerns (see renderRingsRgba) are deliberately the most
+  // saturated entries here, and they have to be: a ring is a thin line a
+  // couple of pixels wide drawn on skin, so it has to survive being small.
+  // age_spot in particular was rgb(146,100,74) — mid-brown, i.e. the colour
+  // of the very thing it was marking. Amber and vivid pink keep each
+  // concern's own identity while actually being legible on a face.
+  // MIRRORED IN mobile/src/components/SkinConcernTabs.tsx (OVERLAY_RGB) —
+  // a legend that doesn't match the ink is worse than no legend.
+  age_spot: [255, 176, 59],
+  acne: [255, 79, 129],
 };
 
 // A PLAIN MEAN across the whole assessable region was tried first and
@@ -1552,51 +1560,126 @@ function renderStippleRgba(width, height, alpha, mask, colorRgb) {
   }
   return renderOverlayRgba(width, height, acc, mask, colorRgb, MAX_ALPHA);
 }
-
-// Blemishes: one consistently-sized soft marker per detected blemish
-// (blemishSeverity's `spots`), strongest first, capped so a face with a
-// real breakout reads as "these are the flagged spots" rather than a
-// scatter. Markers closer than ~1.6 radii to a stronger one are merged
-// into it — two adjacent findings become one mark, not a pink cluster.
-function renderMarkersRgba(width, height, spots, mask, colorRgb) {
-  const MAX_ALPHA = 190;
-  const R = Math.max(5, Math.min(width, height) / 95); // ~11px at 1080
-  const MAX_MARKERS = 40;
-  const ordered = [...spots].sort((a, b) => b.strength - a.strength);
-  const placed = [];
-  for (const s of ordered) {
-    if (placed.length >= MAX_MARKERS) break;
-    const cx = (s.minX + s.maxX) / 2, cy = (s.minY + s.maxY) / 2;
-    if (placed.some((p) => Math.hypot(p.cx - cx, p.cy - cy) < R * 1.6)) continue;
-    placed.push({ cx, cy, strength: s.strength });
-  }
-  const acc = new Float32Array(width * height);
-  for (const p of placed) {
-    const strength = 0.7 + 0.3 * Math.min(1, (p.strength - 3.5) / 4);
-    stampDisc(acc, width, height, Math.round(p.cx), Math.round(p.cy), R, strength);
-  }
-  return { rgba: renderOverlayRgba(width, height, acc, mask, colorRgb, MAX_ALPHA), count: placed.length };
-}
-
 // Dark spots: each detected component is painted as its own soft patch —
 // its real outline, grown by a couple of pixels and feathered, at an
 // alpha set by how far outside ordinary skin it read. Shape comes from the
 // detector, not a fixed disc, because pigment patches genuinely vary in
 // size; the feather is what keeps them from looking like stickers.
-function renderSpotsRgba(width, height, spots, mask, colorRgb) {
-  const MAX_ALPHA = 175;
-  const acc = new Float32Array(width * height);
-  for (const s of spots) {
-    const strength = 0.6 + 0.4 * Math.min(1, (s.strength - 3) / 5);
-    for (const i of s.pixels) acc[i] = Math.max(acc[i], strength);
+// Discrete findings are RINGED, not filled.
+//
+// Filling was self-defeating and measurably so. A dark spot is, by
+// definition, a small dark brown mark on skin — and the fill was drawn in
+// CONCERN_COLORS.age_spot, which was rgb(146,100,74): mid-brown. Brown ink,
+// at a few pixels across, over a brown mole on brown skin. Rendered against
+// a real photo the overlay was invisible even though the detector had found
+// 15 genuine freckles and moles in exactly the right places — so the tab
+// looked broken while the analysis underneath was working.
+//
+// A ring does not depend on contrasting with what it sits on: it sits
+// AROUND it, on ordinary skin, and it reads as "we found this here" rather
+// than as a stain on the face. It also cannot hide the very feature the
+// user opened the tab to look at, which a fill necessarily does.
+//
+// Written straight to RGBA rather than through renderOverlayRgba on
+// purpose: that multiplies by the analysis mask, which would clip a ring
+// wherever it crossed the mask's feathered edge and leave broken arcs. The
+// spots themselves were already detected inside the mask, so their rings
+// are on assessed skin by construction.
+//
+// Overlapping findings are suppressed before anything is drawn. A cluster of
+// freckles produces several components within a few pixels of each other,
+// and ringing every one stacks concentric circles into a scribble that reads
+// as a rendering glitch rather than as findings — visible on the first real
+// photo this was tried on. Standard non-maximum suppression: strongest
+// first, and a weaker finding is dropped when its centre falls inside a
+// ring already kept. The kept set is also what feeds `overlay.points`, so
+// what the client pulses and what the photo shows stay the same set.
+function suppressOverlappingSpots(spots, minRadius) {
+  const ordered = [...spots].sort((a, b) => b.strength - a.strength);
+  const kept = [];
+  for (const s of ordered) {
+    const r = ringRadiusFor(s, minRadius);
+    const cx = (s.minX + s.maxX) / 2;
+    const cy = (s.minY + s.maxY) / 2;
+    let clash = false;
+    for (const k of kept) {
+      const kr = ringRadiusFor(k, minRadius);
+      const kx = (k.minX + k.maxX) / 2;
+      const ky = (k.minY + k.maxY) / 2;
+      const d = Math.hypot(cx - kx, cy - ky);
+      if (d < Math.max(r, kr) * 0.9) { clash = true; break; }
+    }
+    if (!clash) kept.push(s);
   }
-  const grown = gaussianApprox(acc, width, height, Math.max(1, Math.round(Math.min(width, height) / 360)));
-  // Blur lowers the peak; renormalise so a patch's centre keeps its
-  // intended strength while its edge fades out.
-  for (let i = 0; i < grown.length; i++) grown[i] = Math.min(1, grown[i] * 1.6);
-  return { rgba: renderOverlayRgba(width, height, grown, mask, colorRgb, MAX_ALPHA), count: spots.length };
+  return kept;
 }
 
+function ringRadiusFor(s, minRadius) {
+  const bw = s.maxX - s.minX + 1;
+  const bh = s.maxY - s.minY + 1;
+  return Math.max((Math.max(bw, bh) / 2) * 1.9, minRadius);
+}
+
+function ringMinRadius(width, height) {
+  return Math.max(6, Math.round(Math.min(width, height) / 150));
+}
+
+function renderRingsRgba(width, height, spots, colorRgb) {
+  const out = Buffer.alloc(width * height * 4);
+  const minDim = Math.min(width, height);
+  // Scaled to the image, so a ring is the same visual size whatever
+  // resolution the photo came in at. Floors keep a 2px freckle's ring big
+  // enough to see instead of shrinking to the spot itself.
+  const minRadius = ringMinRadius(width, height);
+  const thickness = Math.max(2, minDim / 420);
+  const alphaAt = new Float32Array(width * height);
+  const kept = suppressOverlappingSpots(spots, minRadius);
+
+  for (const s of kept) {
+    const cx = (s.minX + s.maxX) / 2;
+    const cy = (s.minY + s.maxY) / 2;
+    const ringR = ringRadiusFor(s, minRadius);
+    const strength = 0.65 + 0.35 * Math.min(1, (s.strength - 3) / 5);
+    const outer = Math.ceil(ringR + thickness + 1);
+    const x0 = Math.max(0, Math.floor(cx - outer));
+    const x1 = Math.min(width - 1, Math.ceil(cx + outer));
+    const y0 = Math.max(0, Math.floor(cy - outer));
+    const y1 = Math.min(height - 1, Math.ceil(cy + outer));
+    for (let y = y0; y <= y1; y++) {
+      const dy = y - cy;
+      for (let x = x0; x <= x1; x++) {
+        const dx = x - cx;
+        const d = Math.sqrt(dx * dx + dy * dy);
+        const off = Math.abs(d - ringR);
+        let a = 0;
+        if (off <= thickness) {
+          // Soft-edged annulus: full strength on the ring, fading over the
+          // thickness so it doesn't alias into a jagged circle.
+          a = strength * (1 - off / thickness);
+        } else if (d < ringR - thickness) {
+          // A whisper of fill inside, so the ring reads as pointing AT
+          // something rather than as a floating circle — nowhere near
+          // enough to obscure the mark itself.
+          a = strength * 0.14;
+        }
+        if (a > 0) {
+          const i = y * width + x;
+          if (a > alphaAt[i]) alphaAt[i] = a;
+        }
+      }
+    }
+  }
+
+  const MAX_ALPHA = 215;
+  for (let i = 0; i < width * height; i++) {
+    const o = i * 4;
+    out[o] = colorRgb[0];
+    out[o + 1] = colorRgb[1];
+    out[o + 2] = colorRgb[2];
+    out[o + 3] = Math.round(Math.min(1, alphaAt[i]) * MAX_ALPHA);
+  }
+  return { rgba: out, count: kept.length, kept };
+}
 // Region concerns: the wash, with the alpha map softened first so a blotch
 // fades out at its edges instead of ending on a hard pixel border. Blur
 // runs on ALPHA only (never on severity), so the reported score/band are
@@ -1621,15 +1704,40 @@ function renderSpotsRgba(width, height, spots, mask, colorRgb) {
 // A knee, not a hard cut: values above the floor are remapped to 0..1 rather
 // than clipped, so the boundary of a real region still fades naturally
 // instead of gaining a hard outline.
-const WASH_FLOOR = 0.35;
+//
+// Lowered 0.35 -> 0.20, and the 'clear' case it was originally defending
+// against is no longer its job: a clear concern now draws NOTHING AT ALL
+// (see suppressOverlay in describe), so the floor was doing that work a
+// second time, destructively, on concerns that DID have something to show.
+const WASH_FLOOR = 0.20;
 
 function renderWashRgba(width, height, alpha, mask, colorRgb, intensity = 1) {
-  const MAX_ALPHA = 150;
+  // 190, not 150. Measured on a real photo through this engine, the wash
+  // concerns were coming out at a mean alpha of 11-15 out of 255 across
+  // under 1% of the image — present in the data, invisible on a phone. An
+  // overlay nobody can see is indistinguishable from a broken one, which is
+  // exactly how it was reported.
+  const MAX_ALPHA = 190;
   const feathered = gaussianApprox(alpha, width, height, Math.max(3, Math.round(Math.min(width, height) / 110)));
-  const scale = 0.45 + 0.55 * Math.min(1, intensity / 0.5);
+  // ORDER MATTERS, and it was wrong. The severity scale used to be applied
+  // BEFORE the knee, so the two compounded: a 'mild' concern was scaled down
+  // to ~0.65 and then had 0.35 subtracted from what was left, which crushed
+  // a genuine mid-rank pixel to ~9/255 — the invisible wash above.
+  //
+  // The knee now shapes WHICH pixels are painted (dropping the weakest ranks
+  // so the region keeps a soft edge instead of covering the whole mask), and
+  // the severity scale then sets HOW STRONGLY the painted region reads. Two
+  // separate jobs, applied in series rather than multiplied into nothing.
+  //
+  // Floor of 0.55 at the bottom of the range: 'clear' is already suppressed
+  // entirely, so the faintest thing that can reach here is 'mild' — and a
+  // mild finding still has to be visible, or the tab looks broken. Reaches
+  // full strength around p85 0.6, i.e. solidly into 'moderate'.
+  const strength = 0.55 + 0.45 * Math.min(1, intensity / 0.6);
   for (let i = 0; i < feathered.length; i++) {
-    const v = feathered[i] * scale;
-    feathered[i] = v <= WASH_FLOOR ? 0 : (v - WASH_FLOOR) / (1 - WASH_FLOOR);
+    const v = feathered[i];
+    const kneed = v <= WASH_FLOOR ? 0 : (v - WASH_FLOOR) / (1 - WASH_FLOOR);
+    feathered[i] = kneed * strength;
   }
   return renderOverlayRgba(width, height, feathered, mask, colorRgb, MAX_ALPHA);
 }
@@ -1807,6 +1915,11 @@ async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers, segMask, f
     const color = CONCERN_COLORS[concern];
     let rgba;
     let findings = null;
+    // The findings actually DRAWN, after overlapping ones are suppressed
+    // (see suppressOverlappingSpots). `points` below is built from this so
+    // the coordinates the client highlights are the same marks the photo
+    // shows — not a longer list including ones that were merged away.
+    let drawnSpots = spots;
 
     // A concern this photo found nothing meaningful for draws NOTHING.
     //
@@ -1840,10 +1953,10 @@ async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers, segMask, f
       rgba = renderTracedLinesRgba(width, height, alpha, mask, geom.gx, geom.gy, color);
     } else if (style === 'stipple') {
       rgba = renderStippleRgba(width, height, alpha, mask, color);
-    } else if (style === 'markers' && spots) {
-      ({ rgba, count: findings } = renderMarkersRgba(width, height, spots, mask, color));
-    } else if (style === 'spots' && spots) {
-      ({ rgba, count: findings } = renderSpotsRgba(width, height, spots, mask, color));
+    } else if ((style === 'markers' || style === 'spots') && spots) {
+      // Both discrete-finding styles ring their findings now — see
+      // renderRingsRgba for why filling them could not work.
+      ({ rgba, count: findings, kept: drawnSpots } = renderRingsRgba(width, height, spots, color));
     } else {
       rgba = renderWashRgba(width, height, alpha, mask, color, p85);
     }
@@ -1875,7 +1988,7 @@ async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers, segMask, f
         // same components the renderer drew, as 0-1 photo fractions with a
         // radius, so a client can point at them (a highlight, a pulse, a
         // callout) without decoding the PNG. Strongest first, capped.
-        ...(spots ? { points: [...spots].sort((a, b) => b.strength - a.strength).slice(0, 40).map((s) => ({
+        ...(drawnSpots ? { points: [...drawnSpots].sort((a, b) => b.strength - a.strength).slice(0, 40).map((s) => ({
           x: (s.minX + s.maxX) / 2 / width,
           y: (s.minY + s.maxY) / 2 / height,
           r: Math.max(s.maxX - s.minX, s.maxY - s.minY, 2) / 2 / width,
