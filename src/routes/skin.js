@@ -831,6 +831,29 @@ async function runScanPipeline({ userId, photoBase64, burstCandidates, faceRegio
       });
       ivyApplied.push(key);
     }
+    // A concern that ends up 'clear' must not still be painted.
+    //
+    // The engine already refuses to draw a region overlay for a clear
+    // concern (suppressOverlay in skinHeatmaps.js), but it decides that from
+    // ITS OWN severity — and Ivy's severity is merged in afterwards. So a
+    // concern the engine scored high enough to paint, which the vendor then
+    // revised DOWN to clear, kept its ink: observed on a real scan as
+    // "Redness — clear, minimal to no redness" shown over a face with
+    // redness painted on it. The band and the picture have to agree, and the
+    // band the user reads is the merged one.
+    //
+    // Region overlays only. Discrete findings (blemishes, dark spots) are
+    // exempt for the same reason they are exempt upstream: a real mole ringed
+    // on otherwise clear skin is a true, useful mark, not a contradiction —
+    // they are identified by carrying a `findings` count.
+    for (const key of Object.keys(heatmaps)) {
+      const rec = heatmaps[key];
+      if (!rec || !rec.url) continue;
+      const isDiscrete = rec.overlay && rec.overlay.findings != null;
+      if (rec.band === 'clear' && !isDiscrete) {
+        heatmaps[key] = { ...rec, url: null };
+      }
+    }
     for (const key of Object.keys(heatmaps)) {
       const note = overlayNoteFor(heatmaps[key], key);
       if (note) heatmaps[key] = { ...heatmaps[key], overlayNote: note };
