@@ -310,12 +310,32 @@ router.get(
       }
       const limit = Math.min(Math.max(parseInt(req.query.limit, 10) || 20, 1), 50);
       const cursor = req.query.cursor;
+      // Real, server-side search. The app used to filter only the page it had
+      // already loaded — ~20 posts out of the whole catalogue — so searching
+      // for anything that happened not to be on page one returned "no posts
+      // match" even when the post existed. Reported simply as: search doesn't
+      // work. Matching the same four fields the client was filtering on
+      // (caption, category, artist name, service name) so results don't
+      // change shape now that they come from the database, just become
+      // complete.
+      const q = typeof req.query.q === 'string' ? req.query.q.trim() : '';
+      const search = q
+        ? {
+            OR: [
+              { caption: { contains: q, mode: 'insensitive' } },
+              { category: { contains: q, mode: 'insensitive' } },
+              { profile: { user: { name: { contains: q, mode: 'insensitive' } } } },
+              { service: { name: { contains: q, mode: 'insensitive' } } },
+            ],
+          }
+        : {};
 
       const posts = await prisma.post.findMany({
         where: {
           active: true,
           profile: { approvedByAdmin: true },
           ...(category ? { category } : {}),
+          ...search,
         },
         orderBy: sort === 'top' ? { likeCount: 'desc' } : { createdAt: 'desc' },
         take: limit + 1,

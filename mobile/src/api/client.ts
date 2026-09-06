@@ -1185,11 +1185,16 @@ export function apiUnlikePost(postId: string) {
   return request<{ success: boolean }>('DELETE', `/posts/${postId}/like`);
 }
 
-export function apiGetExplorePosts(sort: 'recent' | 'top', cursor?: string, limit = 20, category?: string) {
+// `q` is a REAL server-side search across caption, category, artist name and
+// service name (see GET /posts/explore). It used to be filtered client-side
+// over whatever page happened to be loaded — about 20 posts out of the whole
+// catalogue — so anything not on page one simply could not be found.
+export function apiGetExplorePosts(sort: 'recent' | 'top', cursor?: string, limit = 20, category?: string, q?: string) {
   const params = new URLSearchParams({
     sort, limit: String(limit),
     ...(cursor ? { cursor } : {}),
     ...(category ? { category } : {}),
+    ...(q && q.trim() ? { q: q.trim() } : {}),
   });
   return request<{ posts: Post[]; nextCursor: string | null }>('GET', `/posts/explore?${params.toString()}`);
 }

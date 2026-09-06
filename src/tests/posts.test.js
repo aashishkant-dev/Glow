@@ -456,6 +456,54 @@ describe('GET /posts/explore', () => {
     expect(res.body.nextCursor).toBeNull();
   });
 
+  // Search used to be done client-side over whatever page the app had already
+  // loaded — about 20 posts out of the whole catalogue — so anything further
+  // down could not be found at all, reported as "search doesn't work".
+  it('passes a case-insensitive search across caption, category, artist and service when q is given', async () => {
+    mockFindUnique.mockResolvedValueOnce({ id: 'customer1', role: 'CUSTOMER', deletedAt: null });
+    prisma.post.findMany.mockResolvedValueOnce([]);
+
+    const res = await request(app)
+      .get('/posts/explore?q=bridal')
+      .set('Authorization', `Bearer ${customerToken()}`);
+
+    expect(res.status).toBe(200);
+    const { where } = prisma.post.findMany.mock.calls.at(-1)[0];
+    expect(where.OR).toEqual([
+      { caption: { contains: 'bridal', mode: 'insensitive' } },
+      { category: { contains: 'bridal', mode: 'insensitive' } },
+      { profile: { user: { name: { contains: 'bridal', mode: 'insensitive' } } } },
+      { service: { name: { contains: 'bridal', mode: 'insensitive' } } },
+    ]);
+    // Search narrows the existing visibility rules, never replaces them.
+    expect(where.active).toBe(true);
+    expect(where.profile).toEqual(expect.objectContaining({ approvedByAdmin: true }));
+  });
+
+  it('trims q and ignores it when blank, so a stray space is not a search', async () => {
+    mockFindUnique.mockResolvedValueOnce({ id: 'customer1', role: 'CUSTOMER', deletedAt: null });
+    prisma.post.findMany.mockResolvedValueOnce([]);
+
+    await request(app)
+      .get('/posts/explore?q=%20%20')
+      .set('Authorization', `Bearer ${customerToken()}`);
+
+    expect(prisma.post.findMany.mock.calls.at(-1)[0].where.OR).toBeUndefined();
+  });
+
+  it('applies category and q together rather than one overriding the other', async () => {
+    mockFindUnique.mockResolvedValueOnce({ id: 'customer1', role: 'CUSTOMER', deletedAt: null });
+    prisma.post.findMany.mockResolvedValueOnce([]);
+
+    await request(app)
+      .get('/posts/explore?category=Makeup&q=glam')
+      .set('Authorization', `Bearer ${customerToken()}`);
+
+    const { where } = prisma.post.findMany.mock.calls.at(-1)[0];
+    expect(where.category).toBe('Makeup');
+    expect(where.OR).toHaveLength(4);
+  });
+
   it('passes cursor and skip:1 to prisma when a cursor is provided', async () => {
     mockFindUnique.mockResolvedValueOnce({ id: 'customer1', role: 'CUSTOMER', deletedAt: null });
     prisma.post.findMany.mockResolvedValueOnce([]);

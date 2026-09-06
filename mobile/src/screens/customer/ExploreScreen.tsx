@@ -91,16 +91,30 @@ export function ExploreScreen() {
   // at all, so that filter silently matched almost nothing.
   const postCategoryName = postCategory === 'All' ? undefined : CATEGORIES.find(c => c.id === postCategory)?.name;
 
+  // Posts are server-paginated, so filtering them client-side only ever
+  // searched the ~20 already loaded — anything further down the catalogue
+  // could not be found at all, which is what made search look broken. The
+  // query now goes to the backend (see GET /posts/explore), debounced so
+  // typing doesn't fire a request per keystroke. The client-side narrowing
+  // below is kept: it gives instant feedback during the debounce, and it is
+  // what still works if the app is talking to a backend that predates the
+  // `q` parameter.
+  const [debouncedQuery, setDebouncedQuery] = useState('');
+  useEffect(() => {
+    const id = setTimeout(() => setDebouncedQuery(query.trim()), 300);
+    return () => clearTimeout(id);
+  }, [query]);
+
   useEffect(() => {
     setPostsLoading(true);
-    apiGetExplorePosts(postSort, undefined, 20, postCategoryName)
+    apiGetExplorePosts(postSort, undefined, 20, postCategoryName, debouncedQuery)
       .then(({ posts: data, nextCursor }) => {
         setPosts(data);
         setPostsCursor(nextCursor);
       })
       .catch(() => {})
       .finally(() => setPostsLoading(false));
-  }, [postSort, postCategoryName]);
+  }, [postSort, postCategoryName, debouncedQuery]);
 
   // Re-fetch page 1 of the current sort whenever the Posts tab regains focus,
   // so like state edited on PostDetailScreen (like count, isLikedByMe) isn't
@@ -110,13 +124,13 @@ export function ExploreScreen() {
   useFocusEffect(
     React.useCallback(() => {
       if (tab !== 'Posts') return;
-      apiGetExplorePosts(postSort, undefined, 20, postCategoryName)
+      apiGetExplorePosts(postSort, undefined, 20, postCategoryName, debouncedQuery)
         .then(({ posts: data, nextCursor }) => {
           setPosts(data);
           setPostsCursor(nextCursor);
         })
         .catch(() => {});
-    }, [tab, postSort, postCategoryName]),
+    }, [tab, postSort, postCategoryName, debouncedQuery]),
   );
 
   // This was `const filteredPosts = posts` — an unfinished stub that never
@@ -142,14 +156,14 @@ export function ExploreScreen() {
   const loadMorePosts = useCallback(() => {
     if (postsLoadingMore || !postsCursor) return;
     setPostsLoadingMore(true);
-    apiGetExplorePosts(postSort, postsCursor, 20, postCategoryName)
+    apiGetExplorePosts(postSort, postsCursor, 20, postCategoryName, debouncedQuery)
       .then(({ posts: data, nextCursor }) => {
         setPosts(prev => [...prev, ...data]);
         setPostsCursor(nextCursor);
       })
       .catch(() => {})
       .finally(() => setPostsLoadingMore(false));
-  }, [postSort, postsCursor, postsLoadingMore, postCategoryName]);
+  }, [postSort, postsCursor, postsLoadingMore, postCategoryName, debouncedQuery]);
 
   const looks = useMemo(
     () => (lookFilter === 'All' ? LOOKS : LOOKS.filter(l => l.occasion === lookFilter)),
@@ -248,16 +262,48 @@ export function ExploreScreen() {
   // plain 'Bridal' specialty exists; that string is only used for the
   // unrelated Looks-tab LookOccasion taxonomy).
   const BRIDAL_SPECIALTIES = ['Bridal Makeup'];
+  // Heading for artists who have not listed a specialty yet — see
+  // artistSections below for why they need one at all.
+  const UNSPECIALIZED_SECTION = 'More artists';
 
   const artistSections = useMemo(() => {
     const q = query.trim().toLowerCase();
     const bySpecialty = new Map<string, PublicProviderCard[]>();
+
+    const matchesQuery = (a: PublicProviderCard) =>
+      !q ||
+      a.name.toLowerCase().includes(q) ||
+      a.specialties?.some(sp => sp.toLowerCase().includes(q)) ||
+      a.qualificationType?.replace(/_/g, ' ').toLowerCase().includes(q);
+
+    // Searching returns ONE flat, de-duplicated list rather than the
+    // specialty-grouped browse layout. Grouped, an artist with three
+    // specialties appeared three times in their own search results, and the
+    // matches were scattered under headings that had nothing to do with what
+    // was typed. Someone who types a name wants that person, once.
+    if (q) {
+      const matches = allArtists.filter(matchesQuery);
+      const sorted = [...matches].sort((a, b) => {
+        if (artistSort === 'rating') return (b.rating ?? 0) - (a.rating ?? 0) || b.ratingCount - a.ratingCount;
+        if (artistSort === 'priceLow') {
+          const ap = a.startingPrice ?? Infinity, bp = b.startingPrice ?? Infinity;
+          return ap - bp;
+        }
+        return (b.experienceYears ?? 0) - (a.experienceYears ?? 0);
+      });
+      return sorted.length ? [{ specialty: `Results for "${query.trim()}"`, artists: sorted }] : [];
+    }
 
     allArtists.forEach(a => {
       const specs = new Set<string>();
       const seedSpecialty = (a as any).specialty as string | undefined;
       if (seedSpecialty) specs.add(seedSpecialty);
       a.specialties?.forEach(s => specs.add(s));
+      // An artist who has not listed a specialty used to land in NO bucket at
+      // all, so they were absent from the Artists tab entirely and could never
+      // be found by name — invisible in the app through no fault of their own.
+      // They get a real section instead of being dropped on the floor.
+      if (specs.size === 0) specs.add(UNSPECIALIZED_SECTION);
       specs.forEach(s => {
         if (!bySpecialty.has(s)) bySpecialty.set(s, []);
         bySpecialty.get(s)!.push(a);
@@ -265,13 +311,10 @@ export function ExploreScreen() {
     });
 
     let sections = Array.from(bySpecialty.entries()).map(([specialty, artists]) => {
-      const filtered = q
-        ? artists.filter(a =>
-            a.name.toLowerCase().includes(q) ||
-            a.specialties?.some(s => s.toLowerCase().includes(q)) ||
-            a.qualificationType?.replace(/_/g, ' ').toLowerCase().includes(q))
-        : artists;
-      const sorted = [...filtered].sort((a, b) => {
+      // No per-section filtering here any more: a non-empty query returned
+      // above as one flat result list, so this path only ever runs for the
+      // unfiltered browse layout.
+      const sorted = [...artists].sort((a, b) => {
         if (artistSort === 'rating') return (b.rating ?? 0) - (a.rating ?? 0) || b.ratingCount - a.ratingCount;
         if (artistSort === 'priceLow') {
           const ap = a.startingPrice ?? Infinity, bp = b.startingPrice ?? Infinity;
@@ -283,6 +326,11 @@ export function ExploreScreen() {
     }).filter(s => s.artists.length > 0);
 
     sections.sort((a, b) => {
+      // "More artists" is a fallback, not a category — it sorts last, below
+      // even the bridal sections.
+      const aOther = a.specialty === UNSPECIALIZED_SECTION;
+      const bOther = b.specialty === UNSPECIALIZED_SECTION;
+      if (aOther !== bOther) return aOther ? 1 : -1;
       const aBridal = BRIDAL_SPECIALTIES.includes(a.specialty);
       const bBridal = BRIDAL_SPECIALTIES.includes(b.specialty);
       if (aBridal !== bBridal) return aBridal ? 1 : -1;
