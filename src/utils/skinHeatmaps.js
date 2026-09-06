@@ -442,23 +442,49 @@ function madOf(values, med) {
 function skinLikelihood(gray, labA, labB, faceMask, faceBox, width, height) {
   const out = new Float32Array(width * height);
 
-  // Core sample region: the mid-face band. In faceBox fractions this is
-  // roughly nose + upper cheeks — below the hairline and brows, above the
-  // moustache/beard, inside the temples. Derived from the box's own
-  // construction (detectFaceRegion expands ML Kit's tight box by -0.25w /
-  // -0.5h / +0.25w / +0.25h), so the tight face occupies x 0.167-0.833 and
-  // y 0.286-0.857 of faceBox; this samples the middle of that.
-  const x0 = Math.max(0, Math.round((faceBox.x + faceBox.width * 0.36) * width));
-  const x1 = Math.min(width - 1, Math.round((faceBox.x + faceBox.width * 0.64) * width));
-  const y0 = Math.max(0, Math.round((faceBox.y + faceBox.height * 0.49) * height));
-  const y1 = Math.min(height - 1, Math.round((faceBox.y + faceBox.height * 0.64) * height));
+  // Core sample region: the two UPPER CHEEKS. Everything this function does
+  // hangs off this sample — it is the definition of "what this person's skin
+  // looks like" — so where it is taken from decides whether the whole filter
+  // works or inverts.
+  //
+  // It used to be a single central column (x 0.36-0.64, y 0.49-0.64 of
+  // faceBox). faceBox is ML Kit's tight box expanded -0.5h at the top and
+  // +0.25h at the bottom, so the tight face (brows to chin) occupies y
+  // 0.286-0.857 — which puts that band from mid-cheek DOWN PAST THE NOSE
+  // BASE toward the mouth, dead centre. On a bearded face that is moustache,
+  // plus the nose's own specular highlight and shadowed nostrils.
+  //
+  // Measured on the reported bearded face, with the old sample:
+  //     forehead (real skin)   weight 0.000
+  //     left cheek (real skin) weight 0.644
+  //     moustache/beard        weight 0.771
+  // The model had learned that skin is dark, so it rejected the forehead
+  // outright and accepted the beard as the most skin-like thing on the face.
+  // Every downstream consumer inherited that inversion: dark spots and
+  // blemishes were detected in the moustache and brows and nowhere else,
+  // which is exactly how it was reported from the device.
+  //
+  // The upper cheeks are the most reliably BARE, evenly-lit skin on any
+  // face, male or female: below the eyes, above the beard line, and off the
+  // nose's midline highlight. Sampled as two side patches with the centre
+  // column deliberately excluded.
+  const sampleBoxes = [
+    { fx0: 0.20, fx1: 0.38, fy0: 0.45, fy1: 0.56 },   // viewer-left cheek
+    { fx0: 0.62, fx1: 0.80, fy0: 0.45, fy1: 0.56 },   // viewer-right cheek
+  ];
 
   const sL = [], sA = [], sB = [];
-  for (let y = y0; y <= y1; y++) {
-    for (let x = x0; x <= x1; x++) {
-      const i = y * width + x;
-      if (faceMask[i] <= 0.4) continue;
-      sL.push(gray[i]); sA.push(labA[i]); sB.push(labB[i]);
+  for (const b of sampleBoxes) {
+    const x0 = Math.max(0, Math.round((faceBox.x + faceBox.width * b.fx0) * width));
+    const x1 = Math.min(width - 1, Math.round((faceBox.x + faceBox.width * b.fx1) * width));
+    const y0 = Math.max(0, Math.round((faceBox.y + faceBox.height * b.fy0) * height));
+    const y1 = Math.min(height - 1, Math.round((faceBox.y + faceBox.height * b.fy1) * height));
+    for (let y = y0; y <= y1; y++) {
+      for (let x = x0; x <= x1; x++) {
+        const i = y * width + x;
+        if (faceMask[i] <= 0.4) continue;
+        sL.push(gray[i]); sA.push(labA[i]); sB.push(labB[i]);
+      }
     }
   }
   // Too small a sample to model anything — leave the mask untouched rather
@@ -467,7 +493,24 @@ function skinLikelihood(gray, labA, labB, faceMask, faceBox, width, height) {
   if (sL.length < 200) { out.fill(1); return { weights: out, calibrated: false }; }
 
   const lMed = medianOf(sL), aMed = medianOf(sA), bMed = medianOf(sB);
-  const lMad = madOf(sL, lMed), aMad = madOf(sA, aMed), bMad = madOf(sB, bMed);
+  // Floors on the spread, or the model becomes over-confident and starts
+  // rejecting the face it is supposed to protect.
+  //
+  // The sample is deliberately a small, uniform patch of cheek, so its MAD
+  // is small — and every threshold below is expressed in MADs. Without a
+  // floor, ordinary shading across a real face (a forehead catching the
+  // light, a cheek in shadow) measures as many "sigmas" from the sample and
+  // gets thrown out as not-skin. Measured on the reported bearded face after
+  // moving the sample to the cheeks: beard fell to 0.04 correctly, but real
+  // cheek skin also fell to 0.43 — the filter had become too sure of itself.
+  //
+  // These floors say what is really meant: a face is allowed to vary by
+  // about 6 grey levels of shading and ~2 Lab units of hue before it counts
+  // as evidence of anything, whatever the sample patch happened to look
+  // like. Hair sits far outside that regardless.
+  const lMad = Math.max(madOf(sL, lMed), 6);
+  const aMad = Math.max(madOf(sA, aMed), 2.2);
+  const bMad = Math.max(madOf(sB, bMed), 2.2);
 
   // Colour and brightness alone are NOT enough, and this was verified rather
   // than assumed: rendering the weights over a real bearded face showed
@@ -1014,7 +1057,32 @@ function drynessSeverity(gray, mask, width, height) {
 // pass a size/shape gate) alongside the per-pixel maps — the overlay draws
 // those, not a wash, because "a dark spot" is a thing with an outline, and
 // a wash of the raw response reads as generic mottling.
-function ageSpotSeverity(gray, labB, mask, width, height) {
+// A discrete finding must sit on skin we are CONFIDENT about.
+//
+// Reproduced against the reported bearded face: the dark-spot and blemish
+// rings landed on his eyebrows, moustache and beard, and almost nowhere
+// else. The leak is the 0.15 mask threshold the detectors use to decide
+// which pixels to consider at all — skinLikelihood correctly scores beard
+// and brow hair LOW, but a weight of 0.25 still clears 0.15, so hair became
+// candidate pixels, formed components, passed the size/shape gates and got
+// ringed.
+//
+// Attenuating their alpha (which the weights already did) cannot fix this:
+// a ring is drawn per COMPONENT, so a faint component is still a circle
+// drawn on a beard. The component has to be rejected outright.
+//
+// Gates on skinLikelihood's own weights rather than the composite mask,
+// because the composite conflates "this is not skin" with "this is near the
+// edge of a zone ellipse" — only the first is a reason to throw a finding
+// away. Null weights (uncalibrated photo) leave behaviour exactly as before.
+function onConfidentSkin(component, skinWeights, minMean) {
+  if (!skinWeights) return true;
+  let sum = 0;
+  for (const i of component.pixels) sum += skinWeights[i];
+  return sum / component.pixels.length >= minMean;
+}
+
+function ageSpotSeverity(gray, labB, mask, width, height, skinWeights = null) {
   const small = gaussianApprox(gray, width, height, 2);
   const large = gaussianApprox(gray, width, height, 12);
   const { mean: meanB, std: stdB } = maskedStats(labB, mask, 0.15);
@@ -1057,6 +1125,8 @@ function ageSpotSeverity(gray, labB, mask, width, height) {
     const aspect = Math.max(bw, bh) / Math.max(1, Math.min(bw, bh));
     if (aspect > 3.2) return false;                           // a stroke (hair, crease shadow), not a spot
     if (c.area < 0.3 * bw * bh) return false;                 // too sparse to be one solid patch
+    // Brow, moustache and beard hair, rejected outright — see onConfidentSkin.
+    if (!onConfidentSkin(c, skinWeights, 0.6)) return false;
     return true;
   });
   return { severity, spots, score: findingsScore(spots, maskArea, 14) };
@@ -1122,7 +1192,7 @@ function findingsScore(spots, maskArea, typicalCount) {
 // scatter of tiny pink specks (every pixel a hair above a skewed mean),
 // which read as noise, not "these are your blemishes." A blemish is a
 // discrete thing; the overlay now marks each one it actually finds.
-function blemishSeverity(labA, gray, mask, width, height) {
+function blemishSeverity(labA, gray, mask, width, height, skinWeights = null) {
   const small = gaussianApprox(labA, width, height, 2);
   const large = gaussianApprox(labA, width, height, 8);
   const coherence = coherenceMap(labA, mask, width, height, 3);
@@ -1167,7 +1237,10 @@ function blemishSeverity(labA, gray, mask, width, height) {
     if (c.area < minArea || c.area > maxArea) return false;
     const bw = c.maxX - c.minX + 1, bh = c.maxY - c.minY + 1;
     if (Math.max(bw, bh) / Math.max(1, Math.min(bw, bh)) > 2.6) return false;
-    return c.area >= 0.3 * bw * bh;
+    if (c.area < 0.3 * bw * bh) return false;
+    // Same hair rejection as dark spots — see onConfidentSkin. A red blob in
+    // a moustache is a hair follicle, not a blemish to point at.
+    return onConfidentSkin(c, skinWeights, 0.6);
   });
   return { severity, spots, score: findingsScore(spots, maskArea, 12) };
 }
@@ -2003,8 +2076,12 @@ async function generateHeatmaps({ buffer, info, faceBox, zoneMarkers, segMask, f
   const poresMaps = poreSeverity(gray, poreMask, width, height);
   const wrinklesMaps = wrinkleSeverity(gray, wrinkleMask, width, height);
   const moistureMaps = drynessSeverity(gray, fullMask, width, height);
-  const ageSpotMaps = ageSpotSeverity(gray, labB, fullMask, width, height);
-  const acneMaps = blemishSeverity(labA, gray, fullMask, width, height);
+  // skin.weights, not the composite masks: a discrete finding is thrown away
+  // when it sits on hair, and only skinLikelihood knows the difference
+  // between "not skin" and "near a zone edge" (see onConfidentSkin).
+  const skinW = skin.calibrated ? skin.weights : null;
+  const ageSpotMaps = ageSpotSeverity(gray, labB, fullMask, width, height, skinW);
+  const acneMaps = blemishSeverity(labA, gray, fullMask, width, height, skinW);
 
   const [redness, texture, pores, shine, wrinkles, moisture, age_spot, acne] = await Promise.all([
     describe('redness', rednessMaps.severity, fullMask, { alpha: rednessMaps.alpha }),
