@@ -933,30 +933,82 @@ function LightingSensor({ onSample, onOutputReady }: {
       // was reading memory the pipeline had already taken back for the next
       // frame: undefined behaviour that happens to return plausible-looking
       // numbers, which is the worst kind.
-      const luma = new Uint8Array(planes[0].getPixelBuffer());
+      const plane = planes[0];
+      const planeW = Math.floor(plane.width);
+      const planeH = Math.floor(plane.height);
+      const rowStride = Math.floor(plane.bytesPerRow);
+      const luma = new Uint8Array(plane.getPixelBuffer());
       const len = luma.length;
       if (len === 0) { frame.dispose(); return; }
-      const STRIDE = 41; // prime — avoids landing on a repeating row/column pattern
-      const DARK_BYTE_THRESHOLD = 40; // 0-255 luma
+
+      const DARK_BYTE_THRESHOLD = 40;  // 0-255 luma
       // A harshly backlit frame (bright window/sky behind an underexposed
-      // face — the actual scene in the reported "negative/orange-looking"
-      // screenshot) can average out to a perfectly normal-looking avgLuma:
-      // a large blown-out bright region and a darker face region cancel out
-      // in the mean. brightFraction catches that bimodal case directly —
-      // what fraction of the frame is already clipped/near-white —
-      // independent of what the AVERAGE says.
-      const BRIGHT_BYTE_THRESHOLD = 245; // 0-255 luma
+      // face) can average out to a perfectly normal-looking avgLuma: a large
+      // blown-out region and a darker face cancel in the mean. brightFraction
+      // catches that bimodal case directly — what fraction of the sample is
+      // already clipped — independent of what the AVERAGE says.
+      const BRIGHT_BYTE_THRESHOLD = 245;
+
       let sum = 0, dark = 0, bright = 0, sampled = 0;
-      for (let i = 0; i < len; i += STRIDE) {
-        const v = luma[i];
-        sum += v;
-        if (v < DARK_BYTE_THRESHOLD) dark++;
-        if (v > BRIGHT_BYTE_THRESHOLD) bright++;
-        sampled++;
+
+      // Sample the CENTRE of the frame, row by row, honouring bytesPerRow.
+      //
+      // Two bugs fixed here at once, and both of them ended in the same
+      // place: a Lighting pill that never went green.
+      //
+      // 1. This used to average the WHOLE frame. What the gate is meant to
+      //    describe is the light on the SUBJECT, but a selfie normally
+      //    contains a lot of not-subject: a dim room behind, hair, dark
+      //    clothing across the bottom corners. Any of those push
+      //    darkFraction past the 0.35 amber threshold on their own, so a
+      //    perfectly well-lit face in front of a dark wall was pinned at
+      //    amber (or red) forever with nothing the user could do about it.
+      //    The centre box is where the guide oval sits and where the
+      //    position gate is already pushing the face, and a centred region
+      //    stays centred under any frame rotation — so this needs no
+      //    screen-to-sensor coordinate mapping, which is exactly the kind of
+      //    assumption that has gone wrong on this screen before.
+      //
+      // 2. It indexed the raw buffer with one flat stride, ignoring
+      //    bytesPerRow. Y planes are commonly padded to an alignment
+      //    boundary, and those padding bytes are zeros — counted as pixels,
+      //    they are counted as BLACK, inflating darkFraction and dragging
+      //    avgLuma down on every single frame.
+      const usableRows = rowStride > 0 ? Math.min(planeH, Math.floor(len / rowStride)) : 0;
+      if (planeW > 0 && usableRows > 0 && rowStride >= planeW) {
+        const x0 = Math.floor(planeW * 0.25);
+        const x1 = Math.max(x0 + 1, Math.floor(planeW * 0.75));
+        const y0 = Math.floor(usableRows * 0.20);
+        const y1 = Math.max(y0 + 1, Math.floor(usableRows * 0.80));
+        // Coprime-ish steps over a region rather than one flat stride over
+        // the buffer, for the same reason the old STRIDE was prime: avoid
+        // locking onto a repeating column pattern.
+        for (let y = y0; y < y1; y += 3) {
+          const row = y * rowStride;
+          for (let x = x0; x < x1; x += 7) {
+            const v = luma[row + x];
+            sum += v;
+            if (v < DARK_BYTE_THRESHOLD) dark++;
+            if (v > BRIGHT_BYTE_THRESHOLD) bright++;
+            sampled++;
+          }
+        }
+      } else {
+        // Geometry the plane did not report (or a buffer smaller than its own
+        // stride implies) — fall back to the previous whole-buffer scan
+        // rather than reporting nothing. 41 is prime, to avoid landing on a
+        // repeating row/column pattern.
+        const STRIDE = 41;
+        for (let i = 0; i < len; i += STRIDE) {
+          const v = luma[i];
+          sum += v;
+          if (v < DARK_BYTE_THRESHOLD) dark++;
+          if (v > BRIGHT_BYTE_THRESHOLD) bright++;
+          sampled++;
+        }
       }
-      // Every byte we needed has been read into plain numbers by now, so
-      // the frame can go back to the pipeline (which stalls if frames
-      // aren't disposed promptly).
+      // Every byte we needed is now a plain number, so the frame can go back
+      // to the pipeline (which stalls if frames aren't disposed promptly).
       frame.dispose();
       if (sampled === 0) return;
       runOnJS(onSample)({ avgLuma: sum / sampled, darkFraction: dark / sampled, brightFraction: bright / sampled });
