@@ -45,6 +45,7 @@
  */
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image } from 'expo-image';
+import { LinearGradient } from 'expo-linear-gradient';
 import {
   ActivityIndicator,
   Animated,
@@ -1432,6 +1433,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
 
   function reset() {
     setStep('camera');
+    setConfirming(false);
     setShot(null);
     setCameraReady(false);
     setError(null);
@@ -1868,16 +1870,22 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
       setShot(newShot);
       setNoFaceWarning(noFaceDetected);
       setDetectingFace(false);
-      // A face WAS found on the captured still — go straight to analysis,
-      // no manual "looks good?" tap required (see submit's own comment on
-      // why). A miss stays on 'reviewing' and shows a clear retake prompt
+      // A face WAS found on the captured still — show it for confirmation
+      // (Retake / Start Analysis) rather than uploading immediately. A miss
+      // skips that and stays on 'reviewing' with a clear retake prompt
       // instead — real, actionable feedback before spending an upload +
-      // Gemini call on a photo likely to get rejected anyway. Deliberately
-      // NOT awaited and NOT an early return — this still needs to fall
-      // through to setCapturing(false) below exactly like the miss case
-      // does; submit() manages the 'analyzing'/'reviewing' step transitions
-      // entirely on its own from here.
-      if (!noFaceDetected) submit(newShot);
+      // Gemini call on a photo likely to get rejected anyway.
+      //
+      // No longer auto-submits. The reference implementation this screen is
+      // built against (Sephora's Smart Skin Scan) shows the captured photo
+      // with Retake / Start Analysis before it analyses anything, and that
+      // step earns its tap here for a concrete reason, not just parity: the
+      // single biggest cause of a bad or rejected scan in this app has been
+      // a bad input photo (too dark, blurred, half a face), and until now
+      // the user never saw the photo before it was uploaded, analysed, and
+      // came back either wrong or refused. Seeing it first is the cheapest
+      // possible accuracy fix. `confirming` drives the review screen below.
+      if (!noFaceDetected) setConfirming(true);
     } catch (err) {
       console.error('[SkinScanCamera] shoot failed', err);
       tapWarning();
@@ -1923,6 +1931,9 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   // the loop closes over the render that started it, so a state value read
   // in there would be the one captured at submit() time, forever false.
   const scanCancelledRef = useRef(false);
+  // True between a successful capture+detection and the user pressing
+  // "Start Analysis" — the confirm step (see shoot()).
+  const [confirming, setConfirming] = useState(false);
   const STAGE_ORDER: ScanJobStage[] = ['scoring_sharpness', 'preparing_photo', 'analyzing', 'saving'];
   const STAGE_LABELS: Record<ScanJobStage, string> = {
     scoring_sharpness: 'Checking sharpness…',
@@ -1967,6 +1978,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
   async function submit(shotToSubmit: typeof shot) {
     if (!shotToSubmit) return;
     scanCancelledRef.current = false;
+    setConfirming(false);
     setStep('analyzing');
     setError(null);
     setErrorKind(null);
@@ -2861,6 +2873,17 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
                 one ever sees it — putting the long-press only on the row
                 would have silently killed the diagnostic the moment the pills
                 themselves became tappable. */}
+            {/* During the countdown the three pills give way to a single
+                line, the way the reference implementation does it: once
+                capture is committed the per-gate detail is no longer
+                actionable — there is no time to act on it — and a calm
+                single message is what belongs on screen at the moment
+                someone is holding still. */}
+            {autoCaptureRemainingMs != null ? (
+              <View style={[styles.pillRow, { top: insets.top + 58 }]}>
+                <Text style={styles.takingPhotoText}>Taking photo in</Text>
+              </View>
+            ) : (
             <View style={[styles.pillRow, { top: insets.top + 58 }]}>
               {([
                 ['lighting', 'Lighting', lightingGate, lightingReason],
@@ -2881,6 +2904,7 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
                 </Pressable>
               ))}
             </View>
+            )}
 
             {/* The coaching card itself. Sits directly under the pill it
                 belongs to, dismisses on tap, and auto-hides — see coachGate.
@@ -3003,7 +3027,49 @@ export function SkinScanCamera({ visible, onClose, onComplete, previousScan, par
             or — when on-device detection came back empty — an explicit
             retake prompt instead of silently pressing on into an upload +
             Gemini call that's very likely to get rejected anyway. */}
-        {step === 'reviewing' && shot && (
+        {/* Confirm step — the captured photo, big enough to actually judge,
+            with Retake / Start Analysis. Nothing is uploaded until the user
+            presses Start Analysis. Rendered before (and instead of) the
+            error/detecting review layout below, which is a small thumbnail
+            beside a message and is the wrong shape for "is this photo good
+            enough?". */}
+        {step === 'reviewing' && shot && confirming && (
+          <View style={styles.confirmRoot}>
+            <Image source={{ uri: shot.uri }} style={StyleSheet.absoluteFill} contentFit="contain" />
+            <LinearGradient
+              colors={['rgba(0,0,0,0.55)', 'transparent']}
+              style={[styles.confirmTopScrim, { height: insets.top + 92 }]}
+              pointerEvents="none"
+            />
+            <Text style={[styles.confirmTitle, { top: insets.top + 18 }]}>Happy with this photo?</Text>
+            <Text style={[styles.confirmHint, { top: insets.top + 48 }]}>
+              Even light, whole face in frame, eyes open — that is what makes the reading accurate.
+            </Text>
+            <LinearGradient
+              colors={['transparent', 'rgba(0,0,0,0.75)']}
+              style={[styles.confirmBottomScrim, { height: insets.bottom + 150 }]}
+              pointerEvents="none"
+            />
+            <View style={[styles.confirmActions, { paddingBottom: insets.bottom + 22 }]}>
+              <Pressable
+                style={styles.confirmRetakeBtn}
+                onPress={() => { tapLight(); setConfirming(false); setShot(null); setStep('camera'); }}
+                accessibilityRole="button"
+              >
+                <Text style={styles.confirmRetakeText}>Retake</Text>
+              </Pressable>
+              <Pressable
+                style={styles.confirmStartBtn}
+                onPress={() => { tapLight(); submit(shot); }}
+                accessibilityRole="button"
+              >
+                <Text style={styles.confirmStartText}>Start Analysis</Text>
+              </Pressable>
+            </View>
+          </View>
+        )}
+
+        {step === 'reviewing' && shot && !confirming && (
           <View style={styles.reviewRoot}>
             <ScrollView
               style={styles.reviewScroll}
@@ -3184,6 +3250,31 @@ const styles = StyleSheet.create({
     position: 'absolute', left: 0, right: 0, textAlign: 'center',
     color: '#3A3A3C', fontSize: 12.5, fontFamily: Fonts.medium,
   },
+  confirmRoot: { position: 'absolute', left: 0, right: 0, top: 0, bottom: 0, backgroundColor: '#000' },
+  confirmTopScrim: { position: 'absolute', left: 0, right: 0, top: 0 },
+  confirmBottomScrim: { position: 'absolute', left: 0, right: 0, bottom: 0 },
+  confirmTitle: {
+    position: 'absolute', left: 20, right: 20, textAlign: 'center',
+    color: '#fff', fontSize: 19, fontFamily: Fonts.semibold,
+  },
+  confirmHint: {
+    position: 'absolute', left: 28, right: 28, textAlign: 'center',
+    color: 'rgba(255,255,255,0.82)', fontSize: 12.5, fontFamily: Fonts.regular, lineHeight: 17,
+  },
+  confirmActions: {
+    position: 'absolute', left: 0, right: 0, bottom: 0,
+    flexDirection: 'row', gap: 12, paddingHorizontal: 20,
+  },
+  confirmRetakeBtn: {
+    flex: 1, paddingVertical: 15, borderRadius: 100, alignItems: 'center',
+    borderWidth: 1.5, borderColor: 'rgba(255,255,255,0.7)',
+  },
+  confirmRetakeText: { color: '#fff', fontSize: 15, fontFamily: Fonts.semibold },
+  confirmStartBtn: {
+    flex: 1.35, paddingVertical: 15, borderRadius: 100, alignItems: 'center',
+    backgroundColor: Colors.brand,
+  },
+  confirmStartText: { color: '#fff', fontSize: 15, fontFamily: Fonts.semibold },
   analyzingCancelBtn: {
     marginTop: 28, paddingHorizontal: 22, paddingVertical: 11, borderRadius: 22,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.28)',
@@ -3229,6 +3320,10 @@ const styles = StyleSheet.create({
     elevation: 3, alignItems: 'center',
   },
   pillText: { color: '#fff', fontSize: 11, fontFamily: Fonts.semibold, letterSpacing: 0.2 },
+  takingPhotoText: {
+    color: '#fff', fontSize: 16, fontFamily: Fonts.semibold, textAlign: 'center',
+    textShadowColor: 'rgba(0,0,0,0.55)', textShadowOffset: { width: 0, height: 1 }, textShadowRadius: 6,
+  },
   // The actual pass/fail status per pill (e.g. "Too dark", "Move closer",
   // "Good") — previously each pill only carried its color and a static
   // category label (Lighting/Look Straight/Position) with no text
