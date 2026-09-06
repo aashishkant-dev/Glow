@@ -1059,6 +1059,23 @@ function drynessSeverity(gray, mask, width, height) {
 // a wash of the raw response reads as generic mottling.
 // A discrete finding must sit on skin we are CONFIDENT about.
 //
+// Threshold raised 0.6 -> 0.72 after the first device build still showed
+// rings in a beard. Verified not to cost the genuine findings: on the clean
+// test face dark spots went 6 -> 5 and blemishes 7 -> 6, all of them still
+// on real freckles and moles.
+//
+// NOT yet a complete answer to stubble, and worth being straight about.
+// This gate and skinLikelihood's coherence term both key off hair being
+// dark and strongly ORIENTED, which is true of long hair and of a full
+// beard. A cropped stubble hair is a short, round, isolated dark point —
+// geometrically the same thing as a dark spot. A density-based filter was
+// tried for that case and removed again: tested against synthetic stubble at
+// full capture resolution it did not separate them (neighbourhood skin
+// weight came out 0.69-0.98 for stubble against 0.86-0.99 for real skin),
+// which says the synthetic was not a faithful model of real stubble rather
+// than that the idea is wrong. Fixing it properly needs the actual device
+// photo, not a simulation of one.
+//
 // Reproduced against the reported bearded face: the dark-spot and blemish
 // rings landed on his eyebrows, moustache and beard, and almost nowhere
 // else. The leak is the 0.15 mask threshold the detectors use to decide
@@ -1126,7 +1143,7 @@ function ageSpotSeverity(gray, labB, mask, width, height, skinWeights = null) {
     if (aspect > 3.2) return false;                           // a stroke (hair, crease shadow), not a spot
     if (c.area < 0.3 * bw * bh) return false;                 // too sparse to be one solid patch
     // Brow, moustache and beard hair, rejected outright — see onConfidentSkin.
-    if (!onConfidentSkin(c, skinWeights, 0.6)) return false;
+    if (!onConfidentSkin(c, skinWeights, 0.72)) return false;
     return true;
   });
   return { severity, spots, score: findingsScore(spots, maskArea, 14) };
@@ -1240,7 +1257,7 @@ function blemishSeverity(labA, gray, mask, width, height, skinWeights = null) {
     if (c.area < 0.3 * bw * bh) return false;
     // Same hair rejection as dark spots — see onConfidentSkin. A red blob in
     // a moustache is a hair follicle, not a blemish to point at.
-    return onConfidentSkin(c, skinWeights, 0.6);
+    return onConfidentSkin(c, skinWeights, 0.72);
   });
   return { severity, spots, score: findingsScore(spots, maskArea, 12) };
 }
